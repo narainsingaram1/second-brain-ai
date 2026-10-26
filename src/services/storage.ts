@@ -1,12 +1,28 @@
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage } from "../types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, TaskStatus } from "../types";
+import { syncHabitStreaks, getLocalDateString } from "../utils/habitStreaks";
+import { loadUserStateFromDB, saveUserStateToDB } from "./database";
 
 const STORAGE_KEY = "synapse_second_brain_state";
 
-const todayStr = new Date().toISOString().split("T")[0];
+const todayStr = getLocalDateString();
 const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split("T")[0];
 const inThreeDaysStr = new Date(Date.now() + 3 * 86400000).toISOString().split("T")[0];
 const yesterdayStr = new Date(Date.now() - 86400000).toISOString().split("T")[0];
-const twoDaysAgoStr = new Date(Date.now() - 172800000).toISOString().split("T")[0];
+
+/**
+ * Generates an authentic consecutive history dictionary for initial habits,
+ * guaranteeing the streak calculation matches real historical dates.
+ */
+function generateConsecutiveHistory(daysCount: number, includeToday: boolean): Record<string, boolean> {
+  const history: Record<string, boolean> = {};
+  const startOffset = includeToday ? 0 : 1;
+  for (let i = startOffset; i < daysCount + startOffset; i++) {
+    const d = new Date(Date.now() - i * 86400000);
+    const dateStr = d.toISOString().split("T")[0];
+    history[dateStr] = true;
+  }
+  return history;
+}
 
 export const DEFAULT_SECTIONS = ["Academic", "Career", "Finance", "Health"];
 
@@ -28,6 +44,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Academic",
     subsection: "CS 1332",
     completed: false,
+    status: "in_progress",
     subtasks: [
       { id: "sub-1", title: "Implement Left & Right Rotations", completed: true },
       { id: "sub-2", title: "Balance factor recalculations", completed: false },
@@ -43,6 +60,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Academic",
     subsection: "Systems & Architecture",
     completed: false,
+    status: "not_started",
   },
 
   // Career
@@ -55,6 +73,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Career",
     subsection: "Open Source & Projects",
     completed: true,
+    status: "completed",
   },
   {
     id: "task-4",
@@ -65,6 +84,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Career",
     subsection: "SWE Applications",
     completed: false,
+    status: "in_progress",
   },
 
   // Finance
@@ -77,6 +97,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Finance",
     subsection: "Trading & Risk",
     completed: false,
+    status: "not_started",
   },
   {
     id: "task-6",
@@ -87,6 +108,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Finance",
     subsection: "Monthly Budget",
     completed: false,
+    status: "not_started",
   },
 
   // Health
@@ -99,6 +121,7 @@ export const INITIAL_TASKS: Task[] = [
     section: "Health",
     subsection: "Workouts",
     completed: true,
+    status: "completed",
   },
   {
     id: "task-8",
@@ -109,80 +132,61 @@ export const INITIAL_TASKS: Task[] = [
     section: "Health",
     subsection: "Sleep & Recovery",
     completed: false,
+    status: "not_started",
   },
 ];
 
 export const INITIAL_HABITS: Habit[] = [
-  {
+  syncHabitStreaks({
     id: "habit-1",
     name: "Morning Breathwork & Cold Immersion",
     description: "15m Wim Hof protocol + cold shower kickstart",
     frequency: "daily",
-    streak: 18,
+    streak: 0,
     bestStreak: 24,
-    history: {
-      [todayStr]: true,
-      [yesterdayStr]: true,
-      [twoDaysAgoStr]: true,
-    },
+    history: generateConsecutiveHistory(18, true),
     timeOfDay: "morning",
-  },
-  {
+  }),
+  syncHabitStreaks({
     id: "habit-2",
     name: "Deep Work Sprint (90m Uninterrupted)",
     description: "Zero notifications, full focus state before noon",
     frequency: "daily",
-    streak: 12,
+    streak: 0,
     bestStreak: 30,
-    history: {
-      [todayStr]: true,
-      [yesterdayStr]: true,
-      [twoDaysAgoStr]: true,
-    },
+    history: generateConsecutiveHistory(12, true),
     timeOfDay: "morning",
-  },
-  {
+  }),
+  syncHabitStreaks({
     id: "habit-3",
     name: "Daily Stoic Journal & Reflection",
     description: "Evening debrief, gratitude, cognitive audit",
     frequency: "daily",
-    streak: 25,
+    streak: 0,
     bestStreak: 45,
-    history: {
-      [todayStr]: false,
-      [yesterdayStr]: true,
-      [twoDaysAgoStr]: true,
-    },
+    history: generateConsecutiveHistory(25, false),
     timeOfDay: "evening",
-  },
-  {
+  }),
+  syncHabitStreaks({
     id: "habit-4",
     name: "Zone 2 Cardio / Strength Workout",
     description: "45 minutes aerobic conditioning or compound lifts",
     frequency: "daily",
-    streak: 9,
+    streak: 0,
     bestStreak: 15,
-    history: {
-      [todayStr]: false,
-      [yesterdayStr]: true,
-      [twoDaysAgoStr]: false,
-    },
+    history: generateConsecutiveHistory(9, false),
     timeOfDay: "afternoon",
-  },
-  {
+  }),
+  syncHabitStreaks({
     id: "habit-5",
     name: "Read 20 Pages (Technical or Philosophy)",
     description: "High-signal knowledge acquisition",
     frequency: "daily",
-    streak: 14,
+    streak: 0,
     bestStreak: 21,
-    history: {
-      [todayStr]: true,
-      [yesterdayStr]: true,
-      [twoDaysAgoStr]: true,
-    },
+    history: generateConsecutiveHistory(14, true),
     timeOfDay: "evening",
-  },
+  }),
 ];
 
 export const INITIAL_JOURNAL: JournalEntry[] = [
@@ -266,27 +270,42 @@ export const INITIAL_CHAT: AIMessage[] = [
   },
 ];
 
-export async function loadInitialState(): Promise<BrainState> {
+export async function loadInitialState(userId?: string): Promise<BrainState> {
   const envKey = import.meta.env.VITE_OPENROUTER_API_KEY || "";
   let storedState: Partial<BrainState> = {};
 
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const nativeData = await invoke<string | null>("load_brain_data");
-    if (nativeData) {
-      storedState = JSON.parse(nativeData);
+  // 1. Try to load user-specific state from Database if userId is specified
+  if (userId) {
+    try {
+      const dbState = await loadUserStateFromDB(userId);
+      if (dbState) {
+        storedState = dbState;
+      }
+    } catch (e) {
+      console.warn("Could not load user state from DB, falling back", e);
     }
-    const nativeKey = await invoke<string | null>("get_openrouter_api_key");
-    if (nativeKey && !storedState.openRouterKey) {
-      storedState.openRouterKey = nativeKey;
-    }
-  } catch {
-    const local = localStorage.getItem(STORAGE_KEY);
-    if (local) {
-      try {
-        storedState = JSON.parse(local);
-      } catch (e) {
-        console.error("Failed to parse localStorage state", e);
+  }
+
+  // 2. If no user state loaded yet, try Tauri native data or localStorage
+  if (!storedState.tasks) {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const nativeData = await invoke<string | null>("load_brain_data");
+      if (nativeData) {
+        storedState = JSON.parse(nativeData);
+      }
+      const nativeKey = await invoke<string | null>("get_openrouter_api_key");
+      if (nativeKey && !storedState.openRouterKey) {
+        storedState.openRouterKey = nativeKey;
+      }
+    } catch {
+      const local = localStorage.getItem(STORAGE_KEY);
+      if (local) {
+        try {
+          storedState = JSON.parse(local);
+        } catch (e) {
+          console.error("Failed to parse localStorage state", e);
+        }
       }
     }
   }
@@ -306,19 +325,27 @@ export async function loadInitialState(): Promise<BrainState> {
     }
   });
 
-  // Ensure tasks have valid section and subsection
-  const tasks = (storedState.tasks && storedState.tasks.length > 0 ? storedState.tasks : INITIAL_TASKS).map((t, idx) => {
+  // Ensure tasks have valid section, subsection, and status ('not_started' | 'in_progress' | 'completed')
+  const rawTasks = storedState.tasks && storedState.tasks.length > 0 ? storedState.tasks : INITIAL_TASKS;
+  const tasks = rawTasks.map((t, idx) => {
     const section = t.section || sections[idx % sections.length];
     const sectionSubs = subsections[section] || ["General"];
     const subsection = t.subsection || sectionSubs[0] || "General";
-    return { ...t, section, subsection };
+    const status: TaskStatus = t.status || (t.completed ? "completed" : "not_started");
+    const completed = status === "completed";
+    return { ...t, section, subsection, status, completed };
   });
 
+  // Ensure all habits have accurate, continuously-calculated streaks from actual history
+  const rawHabits = storedState.habits && storedState.habits.length > 0 ? storedState.habits : INITIAL_HABITS;
+  const habits = rawHabits.map((h) => syncHabitStreaks(h));
+
   return {
+    userId,
     tasks,
     sections,
     subsections,
-    habits: storedState.habits || INITIAL_HABITS,
+    habits,
     journalEntries: storedState.journalEntries || INITIAL_JOURNAL,
     knowledgeItems: storedState.knowledgeItems || INITIAL_KNOWLEDGE,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
@@ -328,9 +355,19 @@ export async function loadInitialState(): Promise<BrainState> {
   };
 }
 
-export async function persistBrainState(state: BrainState): Promise<void> {
-  const json = JSON.stringify(state);
+export async function persistBrainState(state: BrainState, userId?: string): Promise<void> {
+  const targetUserId = userId || state.userId || "guest";
+  const updatedState = { ...state, userId: targetUserId };
+  const json = JSON.stringify(updatedState);
   
+  // 1. Persist to actual database
+  try {
+    await saveUserStateToDB(targetUserId, updatedState);
+  } catch (e) {
+    console.warn("Failed to persist state to database", e);
+  }
+
+  // 2. LocalStorage mirror
   try {
     localStorage.setItem(STORAGE_KEY, json);
     if (state.openRouterKey) {
@@ -340,6 +377,7 @@ export async function persistBrainState(state: BrainState): Promise<void> {
     console.error("Failed to save to localStorage", e);
   }
 
+  // 3. Tauri Native Storage
   try {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("save_brain_data", { data: json });

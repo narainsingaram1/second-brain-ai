@@ -71,6 +71,63 @@ fn export_backup(content: String, filename: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn save_user_state(user_id: String, data: String) -> Result<bool, String> {
+    let dir = get_storage_dir().join("users");
+    let _ = fs::create_dir_all(&dir);
+    let safe_id: String = user_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let path = dir.join(format!("{}.json", safe_id));
+    fs::write(&path, data).map_err(|e| format!("Failed to save user state: {}", e))?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn load_user_state(user_id: String) -> Result<Option<String>, String> {
+    let dir = get_storage_dir().join("users");
+    let safe_id: String = user_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let path = dir.join(format!("{}.json", safe_id));
+    if path.exists() {
+        let content = fs::read_to_string(&path).map_err(|e| format!("Failed to read user state: {}", e))?;
+        Ok(Some(content))
+    } else {
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+fn save_auth_database(users_json: String, session_json: String) -> Result<bool, String> {
+    let dir = get_storage_dir();
+    let path_users = dir.join("auth_users.json");
+    let path_session = dir.join("auth_session.json");
+    fs::write(&path_users, users_json).map_err(|e| format!("Failed to save auth users: {}", e))?;
+    fs::write(&path_session, session_json).map_err(|e| format!("Failed to save auth session: {}", e))?;
+    Ok(true)
+}
+
+#[tauri::command]
+fn load_auth_database() -> Result<(Option<String>, Option<String>), String> {
+    let dir = get_storage_dir();
+    let path_users = dir.join("auth_users.json");
+    let path_session = dir.join("auth_session.json");
+    let users = if path_users.exists() {
+        fs::read_to_string(&path_users).ok()
+    } else {
+        None
+    };
+    let session = if path_session.exists() {
+        fs::read_to_string(&path_session).ok()
+    } else {
+        None
+    };
+    Ok((users, session))
+}
+
+#[tauri::command]
 fn greet(name: &str) -> String {
     format!("Welcome to your AI Second Brain, {}!", name)
 }
@@ -85,7 +142,11 @@ pub fn run() {
             load_brain_data,
             save_openrouter_api_key,
             get_openrouter_api_key,
-            export_backup
+            export_backup,
+            save_user_state,
+            load_user_state,
+            save_auth_database,
+            load_auth_database
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

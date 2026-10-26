@@ -2,6 +2,7 @@ import React from "react";
 import { Habit } from "../types";
 import { Flame, Plus, Check, Trophy, Trash2 } from "lucide-react";
 import confetti from "canvas-confetti";
+import { getLocalDateString } from "../utils/habitStreaks";
 
 interface HabitsViewProps {
   habits: Habit[];
@@ -16,12 +17,12 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   onAddHabit,
   onDeleteHabit,
 }) => {
-  // Generate last 7 days array
+  // Generate last 7 days array based on local date
   const last7Days: { dateStr: string; dayLabel: string; isToday: boolean }[] = [];
   const now = new Date();
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now.getTime() - i * 86400000);
-    const dateStr = d.toISOString().split("T")[0];
+    const dateStr = getLocalDateString(d);
     const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
     last7Days.push({ dateStr, dayLabel, isToday: i === 0 });
   }
@@ -143,12 +144,22 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                   </button>
                 </div>
 
-                {/* Streak Badge */}
-                <div className="col-span-2 flex items-center justify-center">
-                  <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-extrabold text-xs border border-amber-200 dark:border-amber-800/60">
-                    <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                    <span>{habit.streak}d</span>
-                  </div>
+                {/* Streak Badge with Current & Best Streak */}
+                <div className="col-span-2 flex flex-col items-center justify-center">
+                  {habit.streak > 0 ? (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-extrabold text-xs border border-amber-200 dark:border-amber-800/60 shadow-2xs">
+                      <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500 animate-pulse" />
+                      <span>{habit.streak}d</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 font-bold text-xs border border-slate-200 dark:border-slate-700">
+                      <Flame className="w-3.5 h-3.5 text-slate-400" />
+                      <span>0d</span>
+                    </div>
+                  )}
+                  <span className="text-[10px] text-slate-400 font-medium mt-0.5">
+                    best: {habit.bestStreak}d
+                  </span>
                 </div>
 
                 {/* 7-Day Punch Circles */}

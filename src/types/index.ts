@@ -1,5 +1,7 @@
 export type LifeDomain = 'career' | 'health' | 'mindset' | 'learning' | 'ai';
 
+export type TaskStatus = 'not_started' | 'in_progress' | 'completed';
+
 export interface Task {
   id: string;
   title: string;
@@ -9,10 +11,27 @@ export interface Task {
   section: string; // Academic, Career, Finance, Health, or custom section
   subsection?: string; // Optional subsection e.g. CS 1332, Workouts, etc.
   completed: boolean;
+  status?: TaskStatus; // 'not_started' | 'in_progress' | 'completed'
   subtasks?: { id: string; title: string; completed: boolean }[];
   tags?: string[];
   stage?: string;
   domain?: LifeDomain;
+}
+
+export interface UserAccount {
+  id: string;
+  email: string;
+  name: string;
+  avatar?: string;
+  provider: 'google' | 'email' | 'guest';
+  passwordHash?: string;
+  createdAt: string;
+  lastLoginAt: string;
+}
+
+export interface AuthSession {
+  currentUser: UserAccount | null;
+  isGuest: boolean;
 }
 
 export interface Habit {
@@ -60,6 +79,7 @@ export interface AIMessage {
 }
 
 export interface BrainState {
+  userId?: string;
   tasks: Task[];
   sections: string[];
   subsections: Record<string, string[]>; // Section -> array of Subsection names

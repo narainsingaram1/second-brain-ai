@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem } from "./types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession } from "./types";
 import { loadInitialState, persistBrainState } from "./services/storage";
+import { initAuth } from "./services/auth";
+import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
 import { Header } from "./components/Header";
 import { TaskMatrixView } from "./components/TaskMatrixView";
@@ -12,14 +14,17 @@ import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
+import { AuthModal } from "./components/AuthModal";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X } from "lucide-react";
 
 export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
+  const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
   const [activeTab, setActiveTab] = useState<string>("tasks");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals state
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -31,24 +36,34 @@ export const App: React.FC = () => {
   const [activeEditKnowledge, setActiveEditKnowledge] = useState<KnowledgeItem | null>(null);
   const [isQuickAddMenuOpen, setIsQuickAddMenuOpen] = useState(false);
 
-  // Load initial state on mount
+  // Load initial session & database state on mount
   useEffect(() => {
-    loadInitialState().then((loaded) => {
-      setState(loaded);
-      if (loaded.theme === "dark") {
-        document.documentElement.classList.add("dark");
-      } else {
-        document.documentElement.classList.remove("dark");
-      }
+    initAuth().then((authSession) => {
+      setSession(authSession);
+      loadInitialState(authSession.currentUser?.id).then((loaded) => {
+        setState(loaded);
+        if (loaded.theme === "dark") {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      });
     });
   }, []);
 
-  // Sync state to storage whenever it changes
+  // Sync state to storage & database whenever it changes
   useEffect(() => {
     if (state) {
-      persistBrainState(state);
+      persistBrainState(state, session.currentUser?.id);
     }
-  }, [state]);
+  }, [state, session]);
+
+  // Handle switching or logging into user accounts
+  const handleSessionChange = async (newSession: AuthSession) => {
+    setSession(newSession);
+    const loaded = await loadInitialState(newSession.currentUser?.id);
+    setState(loaded);
+  };
 
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -101,20 +116,53 @@ export const App: React.FC = () => {
       if (!prev) return null;
       return {
         ...prev,
-        tasks: prev.tasks.map((t) => (t.id === taskId ? { ...t, completed: !t.completed } : t)),
+        tasks: prev.tasks.map((t) => {
+          if (t.id !== taskId) return t;
+          const currentStatus = t.status || (t.completed ? "completed" : "not_started");
+          const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
+          return {
+            ...t,
+            status: nextStatus,
+            completed: nextStatus === "completed",
+          };
+        }),
+      };
+    });
+  };
+
+  const handleStatusChange = (taskId: string, status: Task["status"]) => {
+    setState((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === taskId
+            ? {
+                ...t,
+                status,
+                completed: status === "completed",
+              }
+            : t
+        ),
       };
     });
   };
 
   const handleSaveTask = (task: Task) => {
+    const status = task.status || (task.completed ? "completed" : "not_started");
+    const normalized: Task = {
+      ...task,
+      status,
+      completed: status === "completed",
+    };
     setState((prev) => {
       if (!prev) return null;
-      const exists = prev.tasks.some((t) => t.id === task.id);
+      const exists = prev.tasks.some((t) => t.id === normalized.id);
       return {
         ...prev,
         tasks: exists
-          ? prev.tasks.map((t) => (t.id === task.id ? task : t))
-          : [task, ...prev.tasks],
+          ? prev.tasks.map((t) => (t.id === normalized.id ? normalized : t))
+          : [normalized, ...prev.tasks],
       };
     });
   };
@@ -216,6 +264,33 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleRenameSubsection = (section: string, oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName) return;
+    setState((prev) => {
+      if (!prev) return null;
+      const currentSubs = prev.subsections[section] || ["General"];
+      if (currentSubs.includes(trimmed)) {
+        alert(`A subsection named "${trimmed}" already exists in ${section}.`);
+        return prev;
+      }
+      const updatedSubs = currentSubs.map((s) => (s === oldName ? trimmed : s));
+      const updatedTasks = prev.tasks.map((t) =>
+        t.section === section && (t.subsection || "General") === oldName
+          ? { ...t, subsection: trimmed }
+          : t
+      );
+      return {
+        ...prev,
+        subsections: {
+          ...prev.subsections,
+          [section]: updatedSubs,
+        },
+        tasks: updatedTasks,
+      };
+    });
+  };
+
   const handleMoveTask = (taskId: string, targetSection: string, targetSubsection?: string) => {
     setState((prev) => {
       if (!prev) return null;
@@ -230,9 +305,9 @@ export const App: React.FC = () => {
     });
   };
 
-  // Habit Handlers
+  // Habit Handlers (Real continuously computed streaks)
   const handleToggleHabit = (habitId: string, customDate?: string) => {
-    const targetDate = customDate || new Date().toISOString().split("T")[0];
+    const targetDate = customDate || getLocalDateString();
     setState((prev) => {
       if (!prev) return null;
       return {
@@ -241,23 +316,22 @@ export const App: React.FC = () => {
           if (h.id !== habitId) return h;
           const isDone = !!h.history[targetDate];
           const newHistory = { ...h.history, [targetDate]: !isDone };
-          const newStreak = !isDone ? h.streak + 1 : Math.max(0, h.streak - 1);
-          const newBest = Math.max(h.bestStreak, newStreak);
-          return { ...h, history: newHistory, streak: newStreak, bestStreak: newBest };
+          return syncHabitStreaks({ ...h, history: newHistory });
         }),
       };
     });
   };
 
   const handleSaveHabit = (habit: Habit) => {
+    const synced = syncHabitStreaks(habit);
     setState((prev) => {
       if (!prev) return null;
-      const exists = prev.habits.some((h) => h.id === habit.id);
+      const exists = prev.habits.some((h) => h.id === synced.id);
       return {
         ...prev,
         habits: exists
-          ? prev.habits.map((h) => (h.id === habit.id ? habit : h))
-          : [...prev.habits, habit],
+          ? prev.habits.map((h) => (h.id === synced.id ? synced : h))
+          : [...prev.habits, synced],
       };
     });
   };
@@ -372,6 +446,8 @@ export const App: React.FC = () => {
         onToggleTheme={handleToggleTheme}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
+        session={session}
+        onOpenAuth={() => setIsAuthModalOpen(true)}
       />
 
       {/* Main Spacious Content */}
@@ -385,6 +461,7 @@ export const App: React.FC = () => {
             sections={state.sections}
             subsections={state.subsections}
             onToggleTask={handleToggleTask}
+            onStatusChange={handleStatusChange}
             onAddTask={(section, subsection) => {
               const sec = section || state.sections[0] || "Academic";
               const sub = subsection || state.subsections[sec]?.[0] || "General";
@@ -403,6 +480,7 @@ export const App: React.FC = () => {
             onDeleteSection={handleDeleteSection}
             onAddSubsection={handleAddSubsection}
             onDeleteSubsection={handleDeleteSubsection}
+            onRenameSubsection={handleRenameSubsection}
             onMoveTask={handleMoveTask}
           />
         )}
@@ -612,6 +690,13 @@ export const App: React.FC = () => {
         item={activeEditKnowledge}
         onSave={handleSaveKnowledge}
         onDelete={handleDeleteKnowledge}
+      />
+
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        session={session}
+        onSessionChange={handleSessionChange}
       />
     </div>
   );

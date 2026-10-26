@@ -7,7 +7,9 @@ import {
   Moon,
   Sun,
   Menu,
+  User,
 } from "lucide-react";
+import { AuthSession } from "../types";
 
 interface HeaderProps {
   activeTab: string;
@@ -19,6 +21,8 @@ interface HeaderProps {
   onToggleTheme: () => void;
   searchQuery: string;
   setSearchQuery: (query: string) => void;
+  session?: AuthSession;
+  onOpenAuth?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme,
   searchQuery,
   setSearchQuery,
+  session,
+  onOpenAuth,
 }) => {
   const [isSearching, setIsSearching] = useState(false);
 
@@ -141,6 +147,37 @@ export const Header: React.FC<HeaderProps> = ({
         >
           <Settings className="w-4 h-4" />
         </button>
+
+        {/* User Account / Sign In Profile Pill */}
+        {onOpenAuth && (
+          <div className="pl-1 border-l border-slate-200 dark:border-slate-800">
+            {session?.currentUser ? (
+              <button
+                onClick={onOpenAuth}
+                title={`Signed in as ${session.currentUser.name} (${session.currentUser.email})`}
+                className="flex items-center gap-2 p-1 pr-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700 transition-all hover:scale-102 active:scale-98"
+              >
+                <img
+                  src={session.currentUser.avatar}
+                  alt={session.currentUser.name}
+                  className="w-7 h-7 rounded-xl object-cover border border-white dark:border-slate-600 shadow-2xs"
+                />
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-100 max-w-[85px] truncate hidden md:inline">
+                  {session.currentUser.name.split(" ")[0]}
+                </span>
+              </button>
+            ) : (
+              <button
+                onClick={onOpenAuth}
+                title="Sign in with Google or create an account"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs hover:scale-102 active:scale-98"
+              >
+                <User className="w-3.5 h-3.5" />
+                <span>Sign In</span>
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </header>
   );
