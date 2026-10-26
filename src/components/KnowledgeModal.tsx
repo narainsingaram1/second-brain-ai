@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { KnowledgeItem, LifeDomain } from "../types";
+import { KnowledgeItem } from "../types";
 import { X, Database } from "lucide-react";
 
 interface KnowledgeModalProps {
@@ -19,7 +19,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
 }) => {
   const [subject, setSubject] = useState(item?.subject || "");
   const [status, setStatus] = useState<KnowledgeItem["status"]>(item?.status || "Synthesized");
-  const [domain, setDomain] = useState<LifeDomain>(item?.domain || "career");
+  const [domain, setDomain] = useState<string>(item?.domain || "Academic");
   const [startDate, setStartDate] = useState(item?.startDate || new Date().toISOString().split("T")[0]);
   const [endDate, setEndDate] = useState(item?.endDate || new Date(Date.now() + 86400000).toISOString().split("T")[0]);
   const [summary, setSummary] = useState(item?.summary || "");
@@ -38,8 +38,8 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
       startDate,
       endDate,
       summary: summary.trim(),
-      assignedUser: item?.assignedUser || "Narain S.",
-      assignedAvatar: item?.assignedAvatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80",
+      coverGradient: item?.coverGradient || "from-lime-300 via-amber-200 to-rose-300",
+      itemCount: item?.itemCount || 1,
     };
 
     onSave(updated);

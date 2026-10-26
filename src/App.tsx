@@ -1,38 +1,35 @@
 import React, { useState, useEffect } from "react";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, LifeDomain } from "./types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem } from "./types";
 import { loadInitialState, persistBrainState } from "./services/storage";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
 import { Header } from "./components/Header";
-import { FloatingDock } from "./components/FloatingDock";
-import { HomeDashboard } from "./components/HomeDashboard";
-import { DomainBar } from "./components/DomainBar";
-import { JourneyCanvas } from "./components/JourneyCanvas";
-import { KnowledgeTable } from "./components/KnowledgeTable";
-import { HabitsPanel } from "./components/HabitsPanel";
 import { TaskMatrixView } from "./components/TaskMatrixView";
 import { HabitsView } from "./components/HabitsView";
 import { JournalView } from "./components/JournalView";
+import { KnowledgeTable } from "./components/KnowledgeTable";
 import { AICopilotModal } from "./components/AICopilotModal";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
+import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X } from "lucide-react";
 
 export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("home");
-  const [selectedDomain, setSelectedDomain] = useState<LifeDomain | "all">("all");
+  const [activeTab, setActiveTab] = useState<string>("tasks");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals state
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [taskModalStage, setTaskModalStage] = useState<Task["stage"]>("intake");
+  const [taskModalDefaultSection, setTaskModalDefaultSection] = useState<string>("Academic");
+  const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
   const [activeEditTask, setActiveEditTask] = useState<Task | null>(null);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [activeEditKnowledge, setActiveEditKnowledge] = useState<KnowledgeItem | null>(null);
+  const [isQuickAddMenuOpen, setIsQuickAddMenuOpen] = useState(false);
 
   // Load initial state on mount
   useEffect(() => {
@@ -63,38 +60,29 @@ export const App: React.FC = () => {
       if ((e.metaKey || e.ctrlKey) && e.key === "n") {
         e.preventDefault();
         setActiveEditTask(null);
+        const sec = state?.sections[0] || "Academic";
+        const sub = state?.subsections[sec]?.[0] || "General";
+        setTaskModalDefaultSection(sec);
+        setTaskModalDefaultSubsection(sub);
         setIsTaskModalOpen(true);
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [state]);
 
   if (!state) {
     return (
-      <div className="h-screen w-screen flex items-center justify-center bg-[#edf0f5] dark:bg-[#0b0d13]">
+      <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-[#0e1015]">
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-2xl bg-slate-900 dark:bg-white flex items-center justify-center shadow-lg animate-pulse">
-            <div className="w-5 h-5 rounded-full border-2 border-white dark:border-slate-900 border-t-transparent animate-spin"></div>
-          </div>
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">
-            Initializing Synapse...
+          <div className="w-8 h-8 rounded-full border-2 border-slate-900 dark:border-white border-t-transparent animate-spin"></div>
+          <span className="font-mono text-xs font-bold text-slate-400">
+            [synapse] loading...
           </span>
         </div>
       </div>
     );
   }
-
-  // Domain Counts
-  const domainCounts = state.tasks.reduce(
-    (acc, task) => {
-      if (!task.completed) {
-        acc[task.domain] = (acc[task.domain] || 0) + 1;
-      }
-      return acc;
-    },
-    { career: 0, health: 0, mindset: 0, learning: 0, ai: 0 } as Record<LifeDomain, number>
-  );
 
   // Toggle Theme
   const handleToggleTheme = () => {
@@ -137,6 +125,107 @@ export const App: React.FC = () => {
       return {
         ...prev,
         tasks: prev.tasks.filter((t) => t.id !== taskId),
+      };
+    });
+  };
+
+  // Section Management Handlers
+  const handleAddSection = (sectionName: string) => {
+    const trimmed = sectionName.trim();
+    if (!trimmed) return;
+    setState((prev) => {
+      if (!prev) return null;
+      if (prev.sections.includes(trimmed)) return prev;
+      return {
+        ...prev,
+        sections: [...prev.sections, trimmed],
+        subsections: {
+          ...prev.subsections,
+          [trimmed]: ["General"],
+        },
+      };
+    });
+  };
+
+  const handleDeleteSection = (sectionName: string) => {
+    setState((prev) => {
+      if (!prev) return null;
+      const remainingSections = prev.sections.filter((s) => s !== sectionName);
+      if (remainingSections.length === 0) return prev;
+      const fallbackSec = remainingSections[0];
+      const fallbackSub = prev.subsections[fallbackSec]?.[0] || "General";
+
+      // Reassign tasks to fallback section and subsection
+      const updatedTasks = prev.tasks.map((t) =>
+        t.section === sectionName ? { ...t, section: fallbackSec, subsection: fallbackSub } : t
+      );
+
+      const updatedSubs = { ...prev.subsections };
+      delete updatedSubs[sectionName];
+
+      return {
+        ...prev,
+        sections: remainingSections,
+        subsections: updatedSubs,
+        tasks: updatedTasks,
+      };
+    });
+  };
+
+  // Subsection Management Handlers
+  const handleAddSubsection = (section: string, subsectionName: string) => {
+    const trimmed = subsectionName.trim();
+    if (!trimmed) return;
+    setState((prev) => {
+      if (!prev) return null;
+      const currentSubs = prev.subsections[section] || ["General"];
+      if (currentSubs.includes(trimmed)) return prev;
+      return {
+        ...prev,
+        subsections: {
+          ...prev.subsections,
+          [section]: [...currentSubs, trimmed],
+        },
+      };
+    });
+  };
+
+  const handleDeleteSubsection = (section: string, subsectionName: string) => {
+    setState((prev) => {
+      if (!prev) return null;
+      const currentSubs = prev.subsections[section] || ["General"];
+      const remainingSubs = currentSubs.filter((s) => s !== subsectionName);
+      if (remainingSubs.length === 0) return prev;
+      const fallbackSub = remainingSubs[0];
+
+      // Reassign tasks in this subsection
+      const updatedTasks = prev.tasks.map((t) =>
+        t.section === section && (t.subsection || "General") === subsectionName
+          ? { ...t, subsection: fallbackSub }
+          : t
+      );
+
+      return {
+        ...prev,
+        subsections: {
+          ...prev.subsections,
+          [section]: remainingSubs,
+        },
+        tasks: updatedTasks,
+      };
+    });
+  };
+
+  const handleMoveTask = (taskId: string, targetSection: string, targetSubsection?: string) => {
+    setState((prev) => {
+      if (!prev) return null;
+      const subs = prev.subsections[targetSection] || ["General"];
+      const sub = targetSubsection || subs[0] || "General";
+      return {
+        ...prev,
+        tasks: prev.tasks.map((t) =>
+          t.id === taskId ? { ...t, section: targetSection, subsection: sub } : t
+        ),
       };
     });
   };
@@ -241,7 +330,6 @@ export const App: React.FC = () => {
       });
       alert(`Backup exported successfully to:\n${path}`);
     } catch {
-      // Browser download fallback
       const blob = new Blob([jsonStr], { type: "application/json" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -252,7 +340,7 @@ export const App: React.FC = () => {
     }
   };
 
-  // Task AI Breakdown from Matrix
+  // Task AI Breakdown
   const handleTriggerAIBreakdown = async (task: Task) => {
     if (!state.openRouterKey) {
       setIsSettingsOpen(true);
@@ -267,224 +355,204 @@ export const App: React.FC = () => {
       }));
       handleSaveTask({ ...task, subtasks: [...(task.subtasks || []), ...newSubObjects] });
     } catch (err: any) {
-      alert("AI Breakdown error: " + err.message);
+      alert("AI breakdown error: " + err.message);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#edf0f5] dark:bg-[#0b0d13] flex flex-col font-sans transition-colors duration-200">
-      {/* Top Header matching reference image */}
+    <div className="min-h-screen bg-white dark:bg-[#0e1015] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
+      {/* Minimal Top Header like [untitled] */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         openRouterKey={state.openRouterKey}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAIChat={() => setIsAICopilotOpen(true)}
+        theme={state.theme}
+        onToggleTheme={handleToggleTheme}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
       />
 
-      <div className="flex-1 flex relative">
-        {/* Floating Left Dock matching reference image */}
-        <FloatingDock
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          theme={state.theme}
-          onToggleTheme={handleToggleTheme}
-          onQuickAdd={() => {
-            setActiveEditTask(null);
-            setIsTaskModalOpen(true);
-          }}
-        />
+      {/* Main Spacious Content */}
+      <main className="flex-1 px-6 sm:px-12 py-8 max-w-5xl mx-auto w-full pb-28">
+        {/* ========================================================= */}
+        {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
+        {/* ========================================================= */}
+        {activeTab === "tasks" && (
+          <TaskMatrixView
+            tasks={state.tasks}
+            sections={state.sections}
+            subsections={state.subsections}
+            onToggleTask={handleToggleTask}
+            onAddTask={(section, subsection) => {
+              const sec = section || state.sections[0] || "Academic";
+              const sub = subsection || state.subsections[sec]?.[0] || "General";
+              setTaskModalDefaultSection(sec);
+              setTaskModalDefaultSubsection(sub);
+              setActiveEditTask(null);
+              setIsTaskModalOpen(true);
+            }}
+            onEditTask={(task) => {
+              setActiveEditTask(task);
+              setIsTaskModalOpen(true);
+            }}
+            onDeleteTask={handleDeleteTask}
+            onAIBreakdown={handleTriggerAIBreakdown}
+            onAddSection={handleAddSection}
+            onDeleteSection={handleDeleteSection}
+            onAddSubsection={handleAddSubsection}
+            onDeleteSubsection={handleDeleteSubsection}
+            onMoveTask={handleMoveTask}
+          />
+        )}
 
-        {/* Main Content Pane */}
-        <main className="flex-1 pl-20 pr-6 py-6 overflow-x-hidden">
-          {/* ========================================================= */}
-          {/* TAB 0: HOME / COMMAND CENTER (Dynamic Second Brain Hub)    */}
-          {/* ========================================================= */}
-          {activeTab === "home" && (
-            <HomeDashboard
-              state={state}
-              onToggleTask={handleToggleTask}
-              onToggleHabit={handleToggleHabit}
-              onAddTask={() => {
+        {/* ========================================================= */}
+        {/* TAB 2: DAILY HABITS (Clean streaks & 7-day punch cards)   */}
+        {/* ========================================================= */}
+        {activeTab === "habits" && (
+          <HabitsView
+            habits={state.habits}
+            onToggleHabit={handleToggleHabit}
+            onAddHabit={() => setIsHabitModalOpen(true)}
+            onDeleteHabit={(id) =>
+              setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== id) } : null))
+            }
+          />
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 3: REFLECTIONS / JOURNAL                             */}
+        {/* ========================================================= */}
+        {activeTab === "journal" && (
+          <JournalView
+            entries={state.journalEntries}
+            tasks={state.tasks}
+            habits={state.habits}
+            onSaveEntry={handleSaveJournalEntry}
+            onSynthesizeAI={handleSynthesizeAI}
+            openRouterKey={state.openRouterKey}
+            onOpenSettings={() => setIsSettingsOpen(true)}
+          />
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 4: NOTES & VAULT (Untitled-style squircle artwork)   */}
+        {/* ========================================================= */}
+        {activeTab === "knowledge" && (
+          <KnowledgeTable
+            items={state.knowledgeItems}
+            onAddItem={() => {
+              setActiveEditKnowledge(null);
+              setIsKnowledgeModalOpen(true);
+            }}
+            onSelectItem={(item) => {
+              setActiveEditKnowledge(item);
+              setIsKnowledgeModalOpen(true);
+            }}
+          />
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 5: AI COPILOT DIRECT VIEW                             */}
+        {/* ========================================================= */}
+        {activeTab === "copilot" && (
+          <div className="max-w-2xl mx-auto pt-6 text-center space-y-4">
+            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">
+              AI Copilot
+            </h2>
+            <p className="text-xs text-slate-400">
+              Interactive conversational intelligence synchronized with your tasks and habits
+            </p>
+            <button
+              onClick={() => setIsAICopilotOpen(true)}
+              className="px-6 py-3 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 text-xs font-bold shadow-md hover:scale-105 transition-all"
+            >
+              Open Second Brain Chat
+            </button>
+          </div>
+        )}
+      </main>
+
+      {/* ========================================================= */}
+      {/* FLOATING BOTTOM "+ Add" BUTTON (Matching Attachment 2)    */}
+      {/* ========================================================= */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
+        {/* Quick Pop-up Menu */}
+        {isQuickAddMenuOpen && (
+          <div className="mb-3 bg-white dark:bg-[#141721] rounded-3xl p-2 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col gap-1 w-48 animate-fade-in text-xs font-semibold">
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
                 setActiveEditTask(null);
-                setTaskModalStage("intake");
+                const sec = state.sections[0] || "Academic";
+                const sub = state.subsections[sec]?.[0] || "General";
+                setTaskModalDefaultSection(sec);
+                setTaskModalDefaultSubsection(sub);
                 setIsTaskModalOpen(true);
               }}
-              onAddHabit={() => setIsHabitModalOpen(true)}
-              onOpenJournal={() => setActiveTab("journal")}
-              onOpenAICopilot={() => setIsAICopilotOpen(true)}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-              onNavigateTab={setActiveTab}
-              onEditTask={(task) => {
-                setActiveEditTask(task);
-                setIsTaskModalOpen(true);
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+            >
+              <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
+              <span>Add Task</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
+                const name = prompt("Enter new section name (e.g. Projects, Research, Personal):");
+                if (name) handleAddSection(name);
               }}
-              onAIBreakdown={handleTriggerAIBreakdown}
-            />
-          )}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+            >
+              <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
+              <span>New Section</span>
+            </button>
 
-          {/* ========================================================= */}
-          {/* TAB 1: JOURNEYS & FLOW (Personal Life Operating Pipeline) */}
-          {/* ========================================================= */}
-          {activeTab === "journeys" && (
-            <div className="space-y-6 max-w-[1600px] mx-auto">
-              {/* Header Title & Life Domain Avatars Row */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-                    Life Operating Journeys
-                  </h1>
-                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                    Multi-stage cognitive pipeline & connected life operations
-                  </p>
-                </div>
-
-                {/* Domain & Member Avatars Strip */}
-                <DomainBar
-                  selectedDomain={selectedDomain}
-                  onSelectDomain={setSelectedDomain}
-                  domainCounts={domainCounts}
-                />
-              </div>
-
-              {/* 4-Column Connected Workflow Canvas with Bezier Connectors */}
-              <JourneyCanvas
-                tasks={state.tasks}
-                onToggleTask={handleToggleTask}
-                onAddTask={(stage) => {
-                  setTaskModalStage(stage);
-                  setActiveEditTask(null);
-                  setIsTaskModalOpen(true);
-                }}
-                onEditTask={(task) => {
-                  setActiveEditTask(task);
-                  setIsTaskModalOpen(true);
-                }}
-                selectedDomain={selectedDomain}
-                onTriggerAIInsight={(task) => {
-                  setActiveEditTask(task);
-                  setIsTaskModalOpen(true);
-                }}
-              />
-
-              {/* Dual Master Bottom Panels: Suggested Knowledge & Habits Panel */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-2">
-                {/* Left 7 Columns: Suggested Knowledge Table */}
-                <div className="lg:col-span-7">
-                  <KnowledgeTable
-                    items={state.knowledgeItems}
-                    onAddItem={() => {
-                      setActiveEditKnowledge(null);
-                      setIsKnowledgeModalOpen(true);
-                    }}
-                    onSelectItem={(item) => {
-                      setActiveEditKnowledge(item);
-                      setIsKnowledgeModalOpen(true);
-                    }}
-                  />
-                </div>
-
-                {/* Right 5 Columns: Habits Panel & AI Insights */}
-                <div className="lg:col-span-5">
-                  <HabitsPanel
-                    habits={state.habits}
-                    onToggleHabit={(id) => handleToggleHabit(id)}
-                    onAddHabit={() => setIsHabitModalOpen(true)}
-                    onViewAllHabits={() => setActiveTab("habits")}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* TAB 2: TASK MATRIX (Due dates, priority, subtasks)         */}
-          {/* ========================================================= */}
-          {activeTab === "tasks" && (
-            <TaskMatrixView
-              tasks={state.tasks}
-              onToggleTask={handleToggleTask}
-              onAddTask={(stage) => {
-                setTaskModalStage(stage || "intake");
-                setActiveEditTask(null);
-                setIsTaskModalOpen(true);
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
+                setIsHabitModalOpen(true);
               }}
-              onEditTask={(task) => {
-                setActiveEditTask(task);
-                setIsTaskModalOpen(true);
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+            >
+              <Flame className="w-3.5 h-3.5 text-amber-500" />
+              <span>Add Habit</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
+                setActiveTab("journal");
               }}
-              onAIBreakdown={handleTriggerAIBreakdown}
-            />
-          )}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-purple-500" />
+              <span>Reflection</span>
+            </button>
 
-          {/* ========================================================= */}
-          {/* TAB 3: DAILY HABITS (7-day punch cards, streak tracker)    */}
-          {/* ========================================================= */}
-          {activeTab === "habits" && (
-            <HabitsView
-              habits={state.habits}
-              onToggleHabit={handleToggleHabit}
-              onAddHabit={() => setIsHabitModalOpen(true)}
-              onDeleteHabit={(id) =>
-                setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== id) } : null))
-              }
-            />
-          )}
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
+                setActiveEditKnowledge(null);
+                setIsKnowledgeModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+            >
+              <Database className="w-3.5 h-3.5 text-emerald-500" />
+              <span>New Note</span>
+            </button>
+          </div>
+        )}
 
-          {/* ========================================================= */}
-          {/* TAB 4: REFLECTIONS / JOURNAL (Stoic debrief & AI coach)    */}
-          {/* ========================================================= */}
-          {activeTab === "journal" && (
-            <JournalView
-              entries={state.journalEntries}
-              tasks={state.tasks}
-              habits={state.habits}
-              onSaveEntry={handleSaveJournalEntry}
-              onSynthesizeAI={handleSynthesizeAI}
-              openRouterKey={state.openRouterKey}
-              onOpenSettings={() => setIsSettingsOpen(true)}
-            />
-          )}
-
-          {/* ========================================================= */}
-          {/* TAB 5: SUGGESTED KNOWLEDGE FULL VIEW                      */}
-          {/* ========================================================= */}
-          {activeTab === "knowledge" && (
-            <div className="max-w-6xl mx-auto space-y-6">
-              <KnowledgeTable
-                items={state.knowledgeItems}
-                onAddItem={() => {
-                  setActiveEditKnowledge(null);
-                  setIsKnowledgeModalOpen(true);
-                }}
-                onSelectItem={(item) => {
-                  setActiveEditKnowledge(item);
-                  setIsKnowledgeModalOpen(true);
-                }}
-              />
-            </div>
-          )}
-
-          {/* ========================================================= */}
-          {/* TAB 6: AI COPILOT FULL VIEW                               */}
-          {/* ========================================================= */}
-          {activeTab === "copilot" && (
-            <div className="max-w-3xl mx-auto pt-4">
-              <div className="text-center mb-6">
-                <h2 className="text-2xl font-black text-slate-900 dark:text-white">Synapse Neural Agent</h2>
-                <p className="text-xs text-slate-500 mt-1">Direct conversational interface to your Second Brain</p>
-              </div>
-              <button
-                onClick={() => setIsAICopilotOpen(true)}
-                className="w-full py-4 rounded-3xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm font-bold shadow-lg"
-              >
-                Launch AI Assistant
-              </button>
-            </div>
-          )}
-        </main>
+        {/* The Black Pill Button */}
+        <button
+          onClick={() => setIsQuickAddMenuOpen(!isQuickAddMenuOpen)}
+          className="flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 text-xs font-bold shadow-lg hover:scale-105 active:scale-95 transition-all"
+        >
+          {isQuickAddMenuOpen ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+          <span>{isQuickAddMenuOpen ? "Close" : "Add"}</span>
+        </button>
       </div>
 
       {/* Modals */}
@@ -520,9 +588,13 @@ export const App: React.FC = () => {
         isOpen={isTaskModalOpen}
         onClose={() => setIsTaskModalOpen(false)}
         task={activeEditTask}
+        sections={state.sections}
+        subsections={state.subsections}
+        defaultSection={taskModalDefaultSection}
+        defaultSubsection={taskModalDefaultSubsection}
         onSave={handleSaveTask}
         onDelete={handleDeleteTask}
-        defaultStage={taskModalStage}
+        onAddSubsection={handleAddSubsection}
         openRouterKey={state.openRouterKey}
         selectedModel={state.selectedModel}
         onOpenSettings={() => setIsSettingsOpen(true)}

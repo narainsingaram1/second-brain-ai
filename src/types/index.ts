@@ -6,23 +6,20 @@ export interface Task {
   description?: string;
   dueDate: string; // YYYY-MM-DD
   priority: 'urgent' | 'high' | 'medium' | 'low';
-  stage: 'intake' | 'execution' | 'resolution' | 'next-actions';
-  domain: LifeDomain;
+  section: string; // Academic, Career, Finance, Health, or custom section
+  subsection?: string; // Optional subsection e.g. CS 1332, Workouts, etc.
   completed: boolean;
-  assignedAvatar?: string;
-  assignedName?: string;
   subtasks?: { id: string; title: string; completed: boolean }[];
   tags?: string[];
-  isFocusPill?: boolean;
-  connectedTo?: string[]; // IDs of tasks in the next column to connect with bezier curves
-  columnOrder?: number;
+  stage?: string;
+  domain?: LifeDomain;
 }
 
 export interface Habit {
   id: string;
   name: string;
   description?: string;
-  domain: LifeDomain;
+  domain?: LifeDomain;
   frequency: 'daily' | 'weekdays' | 'weekends';
   streak: number;
   bestStreak: number;
@@ -49,11 +46,10 @@ export interface KnowledgeItem {
   status: 'Executed' | 'Synthesized' | 'Review' | 'Draft';
   startDate: string;
   endDate: string;
-  domain: LifeDomain;
-  assignedUser?: string;
-  assignedAvatar?: string;
-  url?: string;
+  domain?: string;
   summary: string;
+  coverGradient?: string;
+  itemCount?: number;
 }
 
 export interface AIMessage {
@@ -63,16 +59,10 @@ export interface AIMessage {
   timestamp: string;
 }
 
-export interface DomainInfo {
-  id: LifeDomain;
-  label: string;
-  avatar: string;
-  badgeCount: number;
-  color: string;
-}
-
 export interface BrainState {
   tasks: Task[];
+  sections: string[];
+  subsections: Record<string, string[]>; // Section -> array of Subsection names
   habits: Habit[];
   journalEntries: JournalEntry[];
   knowledgeItems: KnowledgeItem[];
