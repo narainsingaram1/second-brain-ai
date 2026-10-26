@@ -4,6 +4,7 @@ import { loadInitialState, persistBrainState } from "./services/storage";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
 import { Header } from "./components/Header";
 import { FloatingDock } from "./components/FloatingDock";
+import { HomeDashboard } from "./components/HomeDashboard";
 import { DomainBar } from "./components/DomainBar";
 import { JourneyCanvas } from "./components/JourneyCanvas";
 import { KnowledgeTable } from "./components/KnowledgeTable";
@@ -19,7 +20,7 @@ import { KnowledgeModal } from "./components/KnowledgeModal";
 
 export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
-  const [activeTab, setActiveTab] = useState<string>("journeys");
+  const [activeTab, setActiveTab] = useState<string>("home");
   const [selectedDomain, setSelectedDomain] = useState<LifeDomain | "all">("all");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -299,7 +300,33 @@ export const App: React.FC = () => {
         {/* Main Content Pane */}
         <main className="flex-1 pl-20 pr-6 py-6 overflow-x-hidden">
           {/* ========================================================= */}
-          {/* TAB 1: JOURNEYS & FLOW (The Master UI from Reference)       */}
+          {/* TAB 0: HOME / COMMAND CENTER (Dynamic Second Brain Hub)    */}
+          {/* ========================================================= */}
+          {activeTab === "home" && (
+            <HomeDashboard
+              state={state}
+              onToggleTask={handleToggleTask}
+              onToggleHabit={handleToggleHabit}
+              onAddTask={() => {
+                setActiveEditTask(null);
+                setTaskModalStage("intake");
+                setIsTaskModalOpen(true);
+              }}
+              onAddHabit={() => setIsHabitModalOpen(true)}
+              onOpenJournal={() => setActiveTab("journal")}
+              onOpenAICopilot={() => setIsAICopilotOpen(true)}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+              onNavigateTab={setActiveTab}
+              onEditTask={(task) => {
+                setActiveEditTask(task);
+                setIsTaskModalOpen(true);
+              }}
+              onAIBreakdown={handleTriggerAIBreakdown}
+            />
+          )}
+
+          {/* ========================================================= */}
+          {/* TAB 1: JOURNEYS & FLOW (Personal Life Operating Pipeline) */}
           {/* ========================================================= */}
           {activeTab === "journeys" && (
             <div className="space-y-6 max-w-[1600px] mx-auto">
@@ -307,7 +334,7 @@ export const App: React.FC = () => {
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
-                    Customer Journeys
+                    Life Operating Journeys
                   </h1>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     Multi-stage cognitive pipeline & connected life operations

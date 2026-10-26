@@ -31,11 +31,12 @@ export const Header: React.FC<HeaderProps> = ({
   const [isSearching, setIsSearching] = useState(false);
 
   const navItems = [
-    { id: "journeys", label: "Journeys & Flow" },
+    { id: "home", label: "Command Center" },
+    { id: "journeys", label: "Focus Flow" },
     { id: "tasks", label: "Task Matrix" },
     { id: "habits", label: "Daily Habits" },
     { id: "journal", label: "Reflections" },
-    { id: "knowledge", label: "Suggested Knowledge" },
+    { id: "knowledge", label: "Neural Vault" },
     { id: "copilot", label: "AI Copilot" },
   ];
 
@@ -43,7 +44,7 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="w-full flex items-center justify-between px-6 py-3.5 border-b border-slate-200/80 dark:border-slate-800 bg-[#edf0f5]/90 dark:bg-[#0b0d13]/90 backdrop-blur-md sticky top-0 z-40">
       {/* Brand Logo - Styled precisely like the screenshot's top-left */}
       <div className="flex items-center gap-3">
-        <div className="flex items-center gap-2 cursor-pointer group" onClick={() => setActiveTab("journeys")}>
+        <div className="flex items-center gap-2 cursor-pointer group" onClick={() => setActiveTab("home")}>
           <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 flex items-center justify-center shadow-sm group-hover:scale-105 transition-transform">
             {/* Hexagon/stacked cube node icon */}
             <div className="flex flex-col items-center gap-0.5">

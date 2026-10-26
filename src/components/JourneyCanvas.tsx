@@ -242,7 +242,7 @@ export const JourneyCanvas: React.FC<JourneyCanvasProps> = ({
           </div>
 
           <div className="text-center py-2 mt-4 text-xs font-bold text-slate-500 tracking-wider">
-            Intake Allocation
+            Cognitive Intake
           </div>
         </div>
 
@@ -343,7 +343,7 @@ export const JourneyCanvas: React.FC<JourneyCanvasProps> = ({
           </div>
 
           <div className="text-center py-2 mt-4 text-xs font-bold text-slate-500 tracking-wider">
-            Issue Identification
+            Deep Execution
           </div>
         </div>
 
@@ -432,7 +432,7 @@ export const JourneyCanvas: React.FC<JourneyCanvasProps> = ({
           </div>
 
           <div className="text-center py-2 mt-4 text-xs font-bold text-slate-500 tracking-wider">
-            Technical Resolution
+            Synthesis & Polish
           </div>
         </div>
 
@@ -491,10 +491,10 @@ export const JourneyCanvas: React.FC<JourneyCanvasProps> = ({
                   <Sparkles className="w-4 h-4 text-amber-400 animate-spin-slow" />
                 </div>
                 <h4 className="text-sm font-extrabold mt-2 tracking-tight group-hover:text-blue-400 dark:group-hover:text-blue-600 transition-colors">
-                  Request Processing
+                  Hyperfocus Sprint Active
                 </h4>
                 <p className="text-[11px] text-slate-400 dark:text-slate-600 mt-1 line-clamp-2">
-                  Active neural pipeline handling life priorities and habit automation
+                  High-leverage cognitive focus sprint • Zero distractions and phone silenced
                 </p>
               </div>
             </div>
@@ -525,7 +525,7 @@ export const JourneyCanvas: React.FC<JourneyCanvasProps> = ({
           </div>
 
           <div className="text-center py-2 mt-4 text-xs font-bold text-slate-500 tracking-wider">
-            New Tasks & Actions
+            Daily Rituals & Habits
           </div>
         </div>
       </div>

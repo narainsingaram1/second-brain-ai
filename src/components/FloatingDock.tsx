@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  LayoutDashboard,
   GitFork,
   CheckSquare,
   Flame,
@@ -31,7 +32,8 @@ export const FloatingDock: React.FC<FloatingDockProps> = ({
   const [collapsed, setCollapsed] = React.useState(false);
 
   const dockItems = [
-    { id: "journeys", label: "Focus Journeys", icon: GitFork },
+    { id: "home", label: "Command Center", icon: LayoutDashboard },
+    { id: "journeys", label: "Focus Flow", icon: GitFork },
     { id: "tasks", label: "Task Matrix", icon: CheckSquare },
     { id: "habits", label: "Daily Habits", icon: Flame },
     { id: "journal", label: "Reflections", icon: BookOpen },
