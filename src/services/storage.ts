@@ -352,6 +352,8 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     openRouterKey: finalKey,
     selectedModel: storedState.selectedModel || "anthropic/claude-3.5-sonnet",
     theme: storedState.theme || "light",
+    dailyBrief: storedState.dailyBrief,
+    auditLog: storedState.auditLog || [],
   };
 }
 

@@ -1,4 +1,5 @@
-import { Task, Habit, JournalEntry } from "../types";
+import { Task, Habit, JournalEntry, DailyBrief } from "../types";
+import { SearchResult } from "./vectorVault";
 
 export const OPENROUTER_MODELS = [
   { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet", desc: "Top reasoning, fluid task decomposition" },
@@ -169,20 +170,226 @@ export async function chatWithSecondBrain(
   recentJournals: JournalEntry[],
   apiKey: string,
   model: string,
-  chatHistory: { role: string; content: string }[]
+  chatHistory: { role: string; content: string }[],
+  relevantMemories?: SearchResult[]
 ): Promise<string> {
   const pendingTasks = allTasks.filter((t) => !t.completed);
   const overdueTasks = allTasks.filter((t) => !t.completed && new Date(t.dueDate) < new Date());
 
-  const systemPrompt = `You are "Synapse", an ultra-intelligent AI Second Brain native desktop companion.
+  let ragContext = "";
+  if (relevantMemories && relevantMemories.length > 0) {
+    ragContext = `\n\n=== RETRIEVED HISTORICAL MEMORIES FROM YOUR SECOND BRAIN VAULT (RAG) ===\nThe following relevant past decisions, journal reflections, knowledge notes, and completed tasks were semantically retrieved from the user's vector vault based on this question:\n` +
+      relevantMemories.map((m, idx) => {
+        const pct = Math.round(m.score * 100);
+        const dateStr = m.chunk.date ? ` | Date: ${m.chunk.date}` : "";
+        return `[Memory #${idx + 1} - ${m.chunk.item_type.toUpperCase()}${dateStr} (Relevance: ${pct}%)]\nTitle: "${m.chunk.title}"\nContent: ${m.chunk.content}\n`;
+      }).join("\n") +
+      `\nWhen the user asks about previous decisions, thoughts, or past events (e.g. "what did I decide about X last month?"), use these retrieved memories to provide accurate, grounded answers citing dates and context.`;
+  }
+
+  const systemPrompt = `You are "Synapse", an ultra-intelligent AI Second Brain native desktop companion with a Semantic Memory Vault.
 You have direct read access to the user's life operating system:
 - Current Pending Tasks (${pendingTasks.length}): ${pendingTasks.slice(0, 10).map((t) => `• [${t.priority.toUpperCase()}] ${t.title} (Due: ${t.dueDate})`).join("\n")}
 - Overdue Tasks: ${overdueTasks.length > 0 ? overdueTasks.map((t) => t.title).join(", ") : "None! Outstanding work!"}
 - Habits tracked (${allHabits.length}): ${allHabits.map((h) => `${h.name} (Streak: ${h.streak}d)`).join(", ")}
-- Latest Journal Entry: ${recentJournals[0] ? `"${recentJournals[0].title}" (Mood: ${recentJournals[0].mood})` : "None yet"}
+- Latest Journal Entry: ${recentJournals[0] ? `"${recentJournals[0].title}" (Mood: ${recentJournals[0].mood})` : "None yet"}${ragContext}
 
-Help the user think clearly, prioritize ruthlessly, organize tasks, reflect deeply, and maintain their daily habits. Speak with confidence, empathy, and intellectual sharpness. Format answers nicely with markdown lists and bold headers when helpful.`;
+Help the user think clearly, prioritize ruthlessly, recall past decisions and notes, organize tasks, reflect deeply, and maintain their daily habits. Speak with confidence, empathy, and intellectual sharpness. Format answers nicely with markdown lists and bold headers when helpful.`;
 
   const historyWithNew = [...chatHistory, { role: "user", content: query }];
   return queryOpenRouter(historyWithNew, apiKey, model, systemPrompt);
+}
+
+/**
+ * Intelligent AI Quick Capture Auto-Classifier:
+ * Parses raw text/voice/URL input and automatically determines entity type, structured attributes.
+ */
+export async function autoClassifyWithAI(
+  rawInput: string,
+  apiKey: string,
+  model: string = "google/gemini-2.0-flash-001"
+): Promise<{
+  type: "task" | "knowledge" | "journal" | "habit";
+  title: string;
+  dueDate?: string;
+  priority?: "urgent" | "high" | "medium" | "low";
+  section?: string;
+  mood?: "ecstatic" | "great" | "neutral" | "tired" | "stressed";
+  frequency?: "daily" | "weekdays" | "weekends";
+  tags?: string[];
+  notes?: string;
+}> {
+  const today = new Date().toISOString().split("T")[0];
+  const systemPrompt = `You are a precision parser for an AI Second Brain quick capture system. Today is ${today}.
+Analyze the user's quick thought, task, journal snippet, URL, or habit.
+Classify it into ONE of:
+- "task": An actionable todo or errand.
+- "knowledge": An informational note, book insight, bookmark, research summary, or article link.
+- "journal": A personal reflection, mood check-in, wins, challenges, or emotional thought.
+- "habit": A recurring routine or daily/weekly behavior to build.
+
+Return ONLY a valid JSON object with:
+{
+  "type": "task" | "knowledge" | "journal" | "habit",
+  "title": "Clean, concise title",
+  "dueDate": "YYYY-MM-DD" (if applicable, else omit),
+  "priority": "urgent" | "high" | "medium" | "low" (if task),
+  "section": "Academic" | "Career" | "Health" | "Finance" | "Personal",
+  "mood": "ecstatic" | "great" | "neutral" | "tired" | "stressed" (if journal),
+  "frequency": "daily" | "weekdays" | "weekends" (if habit),
+  "tags": ["tag1", "tag2"],
+  "notes": "additional context or description"
+}
+Do NOT include markdown formatting or backticks. Return raw JSON only.`;
+
+  try {
+    const raw = await queryOpenRouter(
+      [{ role: "user", content: rawInput }],
+      apiKey,
+      model,
+      systemPrompt
+    );
+
+    const cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (parsed && parsed.type && parsed.title) {
+      return parsed;
+    }
+  } catch {}
+
+  // Fallback heuristic classification
+  const lower = rawInput.toLowerCase();
+  const isUrl = /https?:\/\//i.test(rawInput);
+  const isHabit = /\b(daily|every day|routine|streak|workout|meditate|drink water)\b/i.test(lower);
+  const isJournal = /\b(felt|feeling|today was|grateful|mood|tired|stressed|proud|wins|reflection)\b/i.test(lower);
+
+  let type: "task" | "knowledge" | "journal" | "habit" = "task";
+  if (isUrl) type = "knowledge";
+  else if (isHabit) type = "habit";
+  else if (isJournal) type = "journal";
+
+  return {
+    type,
+    title: rawInput.slice(0, 80).trim(),
+    priority: "medium",
+    section: "Academic",
+    notes: rawInput,
+  };
+}
+
+/**
+ * AI-Enhanced Daily Executive Briefing Generator:
+ * Generates an executive morning briefing analyzing today's tasks, streaks, and reflections.
+ */
+export async function generateDailyBriefWithAI(
+  tasks: Task[],
+  habits: Habit[],
+  recentJournals: JournalEntry[],
+  apiKey?: string,
+  model: string = "google/gemini-2.0-flash-001"
+): Promise<DailyBrief> {
+  const today = new Date().toISOString().split("T")[0];
+  const pendingTasks = tasks.filter((t) => !t.completed);
+  const dueTodayTasks = tasks.filter((t) => !t.completed && t.dueDate === today);
+  const overdueTasks = tasks.filter((t) => !t.completed && t.dueDate && t.dueDate < today);
+  const urgentTasks = tasks.filter((t) => !t.completed && (t.priority === "urgent" || t.priority === "high"));
+  const activeHabits = habits.filter((h) => h.streak > 0);
+  const latestJournal = recentJournals[0];
+
+  // Try OpenRouter AI generation if API key is present
+  if (apiKey && apiKey.trim() !== "") {
+    const contextPrompt = `
+Today is: ${today}
+Pending Tasks Count: ${pendingTasks.length}
+Overdue Tasks (${overdueTasks.length}): ${overdueTasks.map((t) => `• [${t.priority.toUpperCase()}] ${t.title}`).join("; ") || "None"}
+Due Today (${dueTodayTasks.length}): ${dueTodayTasks.map((t) => `• [${t.priority.toUpperCase()}] ${t.title} (${t.section})`).join("; ") || "None"}
+High Priority Pool: ${urgentTasks.slice(0, 5).map((t) => t.title).join(", ") || "None"}
+Habits Active: ${activeHabits.map((h) => `${h.name} (${h.streak}d streak)`).join(", ") || "None yet"}
+Recent Journal Mood: ${latestJournal ? `"${latestJournal.mood}" - ${latestJournal.title}` : "None"}
+`;
+
+    const systemPrompt = `You are the chief executive cognitive officer of an elite second brain system.
+Generate a sharp, energizing, modern daily executive morning brief.
+Return ONLY valid JSON matching this schema:
+{
+  "headline": "A bold, punchy, high-conviction 1-sentence headline for today",
+  "summary": "2-3 sentences of executive briefing synthesizing today's battleground, focus, and trade-offs.",
+  "topPriorities": [
+    { "title": "Top Task Title", "reason": "1-sentence why this moves the needle today" }
+  ],
+  "mindsetDirective": "A Stoic, sharp mental model or operational focus for today",
+  "energyAdvice": "Clear advice on managing peak focus blocks vs recovery today"
+}
+Do NOT return markdown backticks. Return raw JSON only. Limit topPriorities to exactly 3 items.`;
+
+    try {
+      const raw = await queryOpenRouter(
+        [{ role: "user", content: `Generate today's executive brief:\n${contextPrompt}` }],
+        apiKey,
+        model,
+        systemPrompt
+      );
+
+      const cleaned = raw.replace(/```json/g, "").replace(/```/g, "").trim();
+      const parsed = JSON.parse(cleaned);
+      if (parsed && parsed.headline && parsed.summary) {
+        return {
+          date: today,
+          generatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          headline: parsed.headline,
+          summary: parsed.summary,
+          topPriorities: Array.isArray(parsed.topPriorities) ? parsed.topPriorities.slice(0, 3) : [],
+          mindsetDirective: parsed.mindsetDirective || "Prioritize ruthlessly. Focus on leverage over volume.",
+          energyAdvice: parsed.energyAdvice || "Tackle cognitive-heavy tasks before noon; defer administrative items.",
+        };
+      }
+    } catch (e) {
+      console.warn("AI Daily Brief generation fallback:", e);
+    }
+  }
+
+  // Algorithmic Fallback Synthesis (100% offline, instant)
+  const candidateTasks = [
+    ...overdueTasks,
+    ...dueTodayTasks,
+    ...urgentTasks,
+    ...pendingTasks,
+  ];
+  // Deduplicate candidates
+  const seenIds = new Set<string>();
+  const top3 = candidateTasks.filter((t) => {
+    if (seenIds.has(t.id)) return false;
+    seenIds.add(t.id);
+    return true;
+  }).slice(0, 3);
+
+  const topPriorities = top3.map((t) => ({
+    id: t.id,
+    title: t.title,
+    reason: t.dueDate === today
+      ? "Due today — high immediate leverage."
+      : t.dueDate && t.dueDate < today
+      ? "Overdue — clear this bottleneck first."
+      : `High leverage in ${t.section}.`,
+  }));
+
+  const headline = overdueTasks.length > 0
+    ? `Eliminate the ${overdueTasks[0].title.slice(0, 32)} bottleneck early to seize momentum.`
+    : dueTodayTasks.length > 0
+    ? `Execute ${dueTodayTasks[0].title.slice(0, 30)} with deep focus before midday.`
+    : `High clarity day: ${pendingTasks.length} pending objectives mapped across your Life OS.`;
+
+  const summary = `You have ${dueTodayTasks.length} objectives scheduled for today and ${overdueTasks.length} items needing attention. Your habit streaks (${activeHabits.length} currently active) show solid momentum. Guard your deep-work window.`;
+
+  return {
+    date: today,
+    generatedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    headline,
+    summary,
+    topPriorities: topPriorities.length > 0 ? topPriorities : [
+      { title: "Define top objective for today", reason: "Clarify leverage" },
+    ],
+    mindsetDirective: "Speed of execution beats perfection of planning. Move the needle on the hardest task first.",
+    energyAdvice: "Schedule a 90-minute unbroken block this morning. Hydrate early and shut off shallow notifications.",
+  };
 }

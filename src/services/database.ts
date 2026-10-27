@@ -1,16 +1,18 @@
 import { BrainState, UserAccount, AuthSession } from "../types";
 
 const DB_NAME = "SynapseSecondBrainDB";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const STORE_USERS = "users";
 const STORE_USER_DATA = "user_data";
 const STORE_SESSIONS = "sessions";
+const STORE_VECTOR_CHUNKS = "vector_chunks";
 
 const SESSION_KEY = "active_session";
 const LOCAL_STORAGE_USERS_KEY = "synapse_auth_users";
 const LOCAL_STORAGE_SESSION_KEY = "synapse_auth_session";
 const LOCAL_STORAGE_USER_DATA_PREFIX = "synapse_user_data_";
+const LOCAL_STORAGE_VECTORS_KEY = "synapse_vector_vault_chunks";
 
 let dbInstance: IDBDatabase | null = null;
 
@@ -45,6 +47,13 @@ export async function getDatabase(): Promise<IDBDatabase> {
       // 3. Sessions Store: keyed by key ("active_session")
       if (!db.objectStoreNames.contains(STORE_SESSIONS)) {
         db.createObjectStore(STORE_SESSIONS, { keyPath: "key" });
+      }
+
+      // 4. Vector Chunks Store: keyed by chunk id, indexed by itemId and itemType
+      if (!db.objectStoreNames.contains(STORE_VECTOR_CHUNKS)) {
+        const vectorStore = db.createObjectStore(STORE_VECTOR_CHUNKS, { keyPath: "id" });
+        vectorStore.createIndex("item_id", "item_id", { unique: false });
+        vectorStore.createIndex("item_type", "item_type", { unique: false });
       }
     };
 
@@ -389,4 +398,129 @@ export async function getSessionFromDB(): Promise<AuthSession> {
     currentUser: null,
     isGuest: true,
   };
+}
+
+// ==================== VECTOR STORE DATABASE OPERATIONS ====================
+
+/**
+ * Saves or updates vector chunks in IndexedDB and LocalStorage fallback.
+ */
+export async function saveVectorChunksToDB(chunks: any[]): Promise<void> {
+  if (!chunks || chunks.length === 0) return;
+
+  // 1. IndexedDB
+  try {
+    const db = await getDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_VECTOR_CHUNKS, "readwrite");
+      const store = tx.objectStore(STORE_VECTOR_CHUNKS);
+      for (const chunk of chunks) {
+        store.put(chunk);
+      }
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("IndexedDB saveVectorChunks error (falling back to storage):", err);
+  }
+
+  // 2. LocalStorage fallback
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_VECTORS_KEY);
+    const existing: any[] = raw ? JSON.parse(raw) : [];
+    const map = new Map<string, any>();
+    for (const c of existing) map.set(c.id, c);
+    for (const c of chunks) map.set(c.id, c);
+    localStorage.setItem(LOCAL_STORAGE_VECTORS_KEY, JSON.stringify(Array.from(map.values())));
+  } catch (e) {
+    console.error("Failed to update vector chunks in localStorage", e);
+  }
+}
+
+/**
+ * Loads all vector chunks from IndexedDB or LocalStorage.
+ */
+export async function getAllVectorChunksFromDB(): Promise<any[]> {
+  // 1. IndexedDB
+  try {
+    const db = await getDatabase();
+    return await new Promise<any[]>((resolve, reject) => {
+      const tx = db.transaction(STORE_VECTOR_CHUNKS, "readonly");
+      const store = tx.objectStore(STORE_VECTOR_CHUNKS);
+      const request = store.getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn("IndexedDB getAllVectorChunks error:", err);
+  }
+
+  // 2. LocalStorage fallback
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_VECTORS_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Deletes vector chunks belonging to an item by itemId.
+ */
+export async function deleteVectorChunksByItemFromDB(itemId: string): Promise<number> {
+  let count = 0;
+
+  // 1. IndexedDB
+  try {
+    const db = await getDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_VECTOR_CHUNKS, "readwrite");
+      const store = tx.objectStore(STORE_VECTOR_CHUNKS);
+      const index = store.index("item_id");
+      const request = index.getAllKeys(itemId);
+      request.onsuccess = () => {
+        const keys = request.result;
+        count = keys.length;
+        for (const key of keys) {
+          store.delete(key);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch (err) {
+    console.warn("IndexedDB deleteVectorChunksByItem error:", err);
+  }
+
+  // 2. LocalStorage
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_VECTORS_KEY);
+    if (raw) {
+      const existing: any[] = JSON.parse(raw);
+      const filtered = existing.filter((c) => c.item_id !== itemId);
+      count = Math.max(count, existing.length - filtered.length);
+      localStorage.setItem(LOCAL_STORAGE_VECTORS_KEY, JSON.stringify(filtered));
+    }
+  } catch {}
+
+  return count;
+}
+
+/**
+ * Clears all vector chunks from IndexedDB and LocalStorage.
+ */
+export async function clearVectorVaultDB(): Promise<void> {
+  try {
+    const db = await getDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(STORE_VECTOR_CHUNKS, "readwrite");
+      tx.objectStore(STORE_VECTOR_CHUNKS).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {}
+
+  try {
+    localStorage.removeItem(LOCAL_STORAGE_VECTORS_KEY);
+  } catch {}
 }

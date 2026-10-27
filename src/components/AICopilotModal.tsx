@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Task, Habit, JournalEntry, AIMessage } from "../types";
 import { chatWithSecondBrain } from "../services/openrouter";
+import { vectorVault, SearchResult } from "../services/vectorVault";
 import {
   Sparkles,
   Send,
@@ -10,6 +11,9 @@ import {
   Flame,
   BookOpen,
   Settings,
+  Database,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 interface AICopilotModalProps {
@@ -23,6 +27,7 @@ interface AICopilotModalProps {
   openRouterKey: string;
   selectedModel: string;
   onOpenSettings: () => void;
+  onOpenVault?: () => void;
 }
 
 export const AICopilotModal: React.FC<AICopilotModalProps> = ({
@@ -36,9 +41,12 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
   openRouterKey,
   selectedModel,
   onOpenSettings,
+  onOpenVault,
 }) => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [retrievedMemories, setRetrievedMemories] = useState<SearchResult[]>([]);
+  const [isMemoriesExpanded, setIsMemoriesExpanded] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -54,6 +62,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
   if (!isOpen) return null;
 
   const quickPrompts = [
+    { label: "Recall Past Decisions (RAG)", icon: Database, prompt: "What did I decide or reflect on regarding my recent projects and goals last month?" },
     { label: "Prioritize Today's Due Dates", icon: Target, prompt: "Review all my pending tasks and prioritize the top 3 high-leverage tasks for today with estimated completion blocks." },
     { label: "Analyze Habit Consistency", icon: Flame, prompt: "Audit my daily habit streaks and give me personalized advice on maintaining momentum and avoiding burnout." },
     { label: "Strategic Day Review", icon: BookOpen, prompt: "Review my recent journal reflections and completed tasks. What behavioral patterns should I be mindful of tomorrow?" },
@@ -81,6 +90,16 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
     setIsLoading(true);
 
     try {
+      // 1. Semantic Memory Vault Retrieval (RAG over user's brain)
+      let relevantMemories: SearchResult[] = [];
+      try {
+        relevantMemories = await vectorVault.search(textToSend, 4, undefined, openRouterKey);
+        setRetrievedMemories(relevantMemories);
+      } catch (vaultErr) {
+        console.warn("Vault search warning:", vaultErr);
+      }
+
+      // 2. Query Copilot with injected RAG memories
       const historyForApi = newHistory.map((m) => ({ role: m.role, content: m.content }));
       const responseText = await chatWithSecondBrain(
         textToSend,
@@ -89,7 +108,8 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
         journalEntries,
         openRouterKey,
         selectedModel,
-        historyForApi
+        historyForApi,
+        relevantMemories
       );
 
       const assistantMessage: AIMessage = {
@@ -136,6 +156,16 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {onOpenVault && (
+              <button
+                onClick={onOpenVault}
+                title="Semantic Memory Vault (Vector Store)"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-bold hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors"
+              >
+                <Database className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Memory Vault</span>
+              </button>
+            )}
             <button
               onClick={onOpenSettings}
               title="Change OpenRouter Model or Key"
@@ -151,6 +181,45 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Retrieved Memories RAG Bar */}
+        {retrievedMemories.length > 0 && (
+          <div className="bg-indigo-50/80 dark:bg-indigo-950/30 border-b border-indigo-100 dark:border-indigo-900/40 px-6 py-2 text-xs">
+            <button
+              onClick={() => setIsMemoriesExpanded(!isMemoriesExpanded)}
+              className="w-full flex items-center justify-between text-indigo-700 dark:text-indigo-300 font-bold"
+            >
+              <span className="flex items-center gap-1.5">
+                <Database className="w-3.5 h-3.5 text-indigo-500" />
+                <span>🧠 {retrievedMemories.length} historical memories retrieved from Vault (RAG)</span>
+              </span>
+              {isMemoriesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+
+            {isMemoriesExpanded && (
+              <div className="mt-2 space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {retrievedMemories.map((m, i) => (
+                  <div
+                    key={i}
+                    className="p-2 rounded-xl bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-900/50 text-[11px]"
+                  >
+                    <div className="flex items-center justify-between font-bold text-slate-800 dark:text-slate-200">
+                      <span className="capitalize text-indigo-600 dark:text-indigo-400">
+                        [{m.chunk.item_type}] {m.chunk.title}
+                      </span>
+                      <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                        {Math.round(m.score * 100)}% match
+                      </span>
+                    </div>
+                    <p className="text-slate-500 dark:text-slate-400 text-[10px] truncate mt-0.5">
+                      {m.chunk.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Chat message stream */}
         <div className="flex-1 overflow-y-auto p-6 space-y-4">

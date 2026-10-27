@@ -11,6 +11,7 @@ interface TaskModalProps {
   subsections: Record<string, string[]>;
   defaultSection?: string;
   defaultSubsection?: string;
+  defaultDueDate?: string;
   onSave: (task: Task) => void;
   onDelete?: (taskId: string) => void;
   onAddSubsection?: (section: string, subsectionName: string) => void;
@@ -27,6 +28,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   subsections,
   defaultSection,
   defaultSubsection,
+  defaultDueDate,
   onSave,
   onDelete,
   onAddSubsection,
@@ -39,7 +41,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
-  const [dueDate, setDueDate] = useState(task?.dueDate || todayStr);
+  const [dueDate, setDueDate] = useState(task?.dueDate || defaultDueDate || todayStr);
   const [priority, setPriority] = useState<Task["priority"]>(task?.priority || "medium");
   const [status, setStatus] = useState<TaskStatus>(
     task?.status || (task?.completed ? "completed" : "not_started")
@@ -64,7 +66,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       const subs = subsections[sec] || ["General"];
       setTitle("");
       setDescription("");
-      setDueDate(todayStr);
+      setDueDate(defaultDueDate || todayStr);
       setPriority("medium");
       setStatus("not_started");
       setSection(sec);
@@ -72,7 +74,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     }
     setIsAddingNewSub(false);
     setCustomSubName("");
-  }, [task, defaultSection, defaultSubsection, sections, subsections, isOpen, todayStr]);
+  }, [task, defaultSection, defaultSubsection, defaultDueDate, sections, subsections, isOpen, todayStr]);
 
   if (!isOpen) return null;
 

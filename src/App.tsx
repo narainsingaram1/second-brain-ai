@@ -15,7 +15,10 @@ import { TaskModal } from "./components/TaskModal";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
 import { AuthModal } from "./components/AuthModal";
-import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X } from "lucide-react";
+import { UniversalQuickCapture } from "./components/UniversalQuickCapture";
+import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal";
+import { vectorVault } from "./services/vectorVault";
+import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X, Zap } from "lucide-react";
 
 export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
@@ -30,11 +33,14 @@ export const App: React.FC = () => {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDefaultSection, setTaskModalDefaultSection] = useState<string>("Academic");
   const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
+  const [taskModalDefaultDueDate, setTaskModalDefaultDueDate] = useState<string>("");
   const [activeEditTask, setActiveEditTask] = useState<Task | null>(null);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [activeEditKnowledge, setActiveEditKnowledge] = useState<KnowledgeItem | null>(null);
   const [isQuickAddMenuOpen, setIsQuickAddMenuOpen] = useState(false);
+  const [isQuickCaptureOpen, setIsQuickCaptureOpen] = useState(false);
+  const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
 
   // Load initial session & database state on mount
   useEffect(() => {
@@ -47,8 +53,33 @@ export const App: React.FC = () => {
         } else {
           document.documentElement.classList.remove("dark");
         }
+
+        // Prime the local vector vault if not yet indexed
+        vectorVault.getVaultStats().then((vStats) => {
+          if (vStats.total_chunks === 0 && (loaded.tasks.length > 0 || loaded.journalEntries.length > 0)) {
+            vectorVault.reindexBrain(loaded, loaded.openRouterKey).catch(() => {});
+          }
+        });
       });
     });
+  }, []);
+
+  // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event")
+      .then(({ listen }) => {
+        listen("open-quick-capture", () => {
+          setIsQuickCaptureOpen(true);
+        }).then((unsub) => {
+          unlisten = unsub;
+        });
+      })
+      .catch(() => {});
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   // Sync state to storage & database whenever it changes
@@ -68,11 +99,20 @@ export const App: React.FC = () => {
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // ⌘⌥N (Cmd+Option+N / Ctrl+Alt+N) or ⌥⇧N (Option+Shift+N): Universal Quick Capture
+      // Completely free from browser collisions like ⌘⇧N (Chrome incognito)
+      const isAltN = e.altKey && (e.key.toLowerCase() === "n" || e.code === "KeyN");
+      if (((e.metaKey || e.ctrlKey) && isAltN) || (e.shiftKey && isAltN)) {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsQuickCaptureOpen(true);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === "k") {
         e.preventDefault();
         setIsAICopilotOpen((prev) => !prev);
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+      if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         setActiveEditTask(null);
         const sec = state?.sections[0] || "Academic";
@@ -165,6 +205,8 @@ export const App: React.FC = () => {
           : [normalized, ...prev.tasks],
       };
     });
+    // Auto-update Semantic Memory Vault
+    vectorVault.indexItem(normalized, "task", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -175,6 +217,7 @@ export const App: React.FC = () => {
         tasks: prev.tasks.filter((t) => t.id !== taskId),
       };
     });
+    vectorVault.removeItem(taskId).catch(() => {});
   };
 
   // Section Management Handlers
@@ -334,6 +377,7 @@ export const App: React.FC = () => {
           : [...prev.habits, synced],
       };
     });
+    vectorVault.indexItem(synced, "habit", state?.openRouterKey).catch(() => {});
   };
 
   // Journal Handlers
@@ -348,6 +392,7 @@ export const App: React.FC = () => {
           : [entry, ...prev.journalEntries],
       };
     });
+    vectorVault.indexItem(entry, "journal", state?.openRouterKey).catch(() => {});
   };
 
   const handleSynthesizeAI = async (entry: JournalEntry) => {
@@ -372,6 +417,7 @@ export const App: React.FC = () => {
           : [item, ...prev.knowledgeItems],
       };
     });
+    vectorVault.indexItem(item, "knowledge", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteKnowledge = (id: string) => {
@@ -382,6 +428,7 @@ export const App: React.FC = () => {
         knowledgeItems: prev.knowledgeItems.filter((k) => k.id !== id),
       };
     });
+    vectorVault.removeItem(id).catch(() => {});
   };
 
   // OpenRouter Key & Model
@@ -442,6 +489,8 @@ export const App: React.FC = () => {
         openRouterKey={state.openRouterKey}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenAIChat={() => setIsAICopilotOpen(true)}
+        onOpenQuickCapture={() => setIsQuickCaptureOpen(true)}
+        onOpenVault={() => setIsVaultModalOpen(true)}
         theme={state.theme}
         onToggleTheme={handleToggleTheme}
         searchQuery={searchQuery}
@@ -462,11 +511,12 @@ export const App: React.FC = () => {
             subsections={state.subsections}
             onToggleTask={handleToggleTask}
             onStatusChange={handleStatusChange}
-            onAddTask={(section, subsection) => {
+            onAddTask={(section, subsection, defaultDueDate) => {
               const sec = section || state.sections[0] || "Academic";
               const sub = subsection || state.subsections[sec]?.[0] || "General";
               setTaskModalDefaultSection(sec);
               setTaskModalDefaultSubsection(sub);
+              setTaskModalDefaultDueDate(defaultDueDate || getLocalDateString());
               setActiveEditTask(null);
               setIsTaskModalOpen(true);
             }}
@@ -475,6 +525,7 @@ export const App: React.FC = () => {
               setIsTaskModalOpen(true);
             }}
             onDeleteTask={handleDeleteTask}
+            onSaveTask={handleSaveTask}
             onAIBreakdown={handleTriggerAIBreakdown}
             onAddSection={handleAddSection}
             onDeleteSection={handleDeleteSection}
@@ -558,7 +609,21 @@ export const App: React.FC = () => {
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
         {/* Quick Pop-up Menu */}
         {isQuickAddMenuOpen && (
-          <div className="mb-3 bg-white dark:bg-[#141721] rounded-3xl p-2 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col gap-1 w-48 animate-fade-in text-xs font-semibold">
+          <div className="mb-3 bg-white dark:bg-[#141721] rounded-3xl p-2 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col gap-1 w-52 animate-fade-in text-xs font-semibold">
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
+                setIsQuickCaptureOpen(true);
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 transition-colors text-left font-bold"
+            >
+              <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+              <div className="flex items-center justify-between w-full">
+                <span>Quick Capture</span>
+                <span className="text-[10px] font-mono opacity-60">⌘⌥N</span>
+              </div>
+            </button>
+
             <button
               onClick={() => {
                 setIsQuickAddMenuOpen(false);
@@ -650,6 +715,28 @@ export const App: React.FC = () => {
           setIsAICopilotOpen(false);
           setIsSettingsOpen(true);
         }}
+        onOpenVault={() => {
+          setIsAICopilotOpen(false);
+          setIsVaultModalOpen(true);
+        }}
+      />
+
+      <UniversalQuickCapture
+        isOpen={isQuickCaptureOpen}
+        onClose={() => setIsQuickCaptureOpen(false)}
+        brainState={state}
+        onAddTask={handleSaveTask}
+        onAddJournal={handleSaveJournalEntry}
+        onAddKnowledge={handleSaveKnowledge}
+        onAddHabit={handleSaveHabit}
+        openRouterKey={state.openRouterKey}
+      />
+
+      <SemanticMemoryVaultModal
+        isOpen={isVaultModalOpen}
+        onClose={() => setIsVaultModalOpen(false)}
+        brainState={state}
+        openRouterKey={state.openRouterKey}
       />
 
       <OpenRouterSettingsModal
@@ -670,6 +757,7 @@ export const App: React.FC = () => {
         subsections={state.subsections}
         defaultSection={taskModalDefaultSection}
         defaultSubsection={taskModalDefaultSubsection}
+        defaultDueDate={taskModalDefaultDueDate}
         onSave={handleSaveTask}
         onDelete={handleDeleteTask}
         onAddSubsection={handleAddSubsection}

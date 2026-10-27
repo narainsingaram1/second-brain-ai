@@ -8,6 +8,8 @@ import {
   Sun,
   Menu,
   User,
+  Zap,
+  Database,
 } from "lucide-react";
 import { AuthSession } from "../types";
 
@@ -17,6 +19,8 @@ interface HeaderProps {
   openRouterKey: string;
   onOpenSettings: () => void;
   onOpenAIChat: () => void;
+  onOpenQuickCapture?: () => void;
+  onOpenVault?: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
   searchQuery: string;
@@ -31,6 +35,8 @@ export const Header: React.FC<HeaderProps> = ({
   openRouterKey,
   onOpenSettings,
   onOpenAIChat,
+  onOpenQuickCapture,
+  onOpenVault,
   theme,
   onToggleTheme,
   searchQuery,
@@ -107,6 +113,30 @@ export const Header: React.FC<HeaderProps> = ({
           />
           <span className="text-[10px] text-slate-400 hidden sm:inline ml-1 font-mono">⌘K</span>
         </div>
+
+        {/* Universal Quick Capture shortcut button */}
+        {onOpenQuickCapture && (
+          <button
+            onClick={onOpenQuickCapture}
+            title="Universal Quick Capture (⌘⌥N / ⌥⇧N)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-xs hover:scale-102 active:scale-98 transition-all"
+          >
+            <Zap className="w-3.5 h-3.5 fill-white" />
+            <span className="hidden lg:inline">Quick Capture</span>
+            <span className="text-[10px] opacity-80 font-mono hidden sm:inline">⌘⌥N</span>
+          </button>
+        )}
+
+        {/* Semantic Memory Vault button */}
+        {onOpenVault && (
+          <button
+            onClick={onOpenVault}
+            title="Semantic Memory Vault (RAG Vector Store)"
+            className="w-9 h-9 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center transition-all hover:scale-102"
+          >
+            <Database className="w-4 h-4" />
+          </button>
+        )}
 
         {/* AI Copilot shortcut button */}
         <button

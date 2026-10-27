@@ -78,6 +78,27 @@ export interface AIMessage {
   timestamp: string;
 }
 
+export interface DailyBrief {
+  date: string; // YYYY-MM-DD
+  generatedAt: string;
+  headline: string;
+  summary: string;
+  topPriorities: { id?: string; title: string; reason: string }[];
+  mindsetDirective: string;
+  energyAdvice: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  timeString: string;
+  action: string;
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section';
+  entityTitle: string;
+  details?: string;
+  canUndo: boolean;
+}
+
 export interface BrainState {
   userId?: string;
   tasks: Task[];
@@ -90,4 +111,6 @@ export interface BrainState {
   openRouterKey: string;
   selectedModel: string;
   theme: 'light' | 'dark';
+  dailyBrief?: DailyBrief;
+  auditLog?: AuditLogEntry[];
 }
