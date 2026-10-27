@@ -855,6 +855,7 @@ export const App: React.FC = () => {
             onSynthesizeAI={handleSynthesizeAI}
             openRouterKey={state.openRouterKey}
             onOpenSettings={() => setIsSettingsOpen(true)}
+            onSaveKnowledge={handleSaveKnowledge}
           />
         )}
 
