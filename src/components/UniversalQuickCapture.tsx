@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Task, JournalEntry, KnowledgeItem, Habit, BrainState } from "../types";
+import { normalizeTask } from "../utils/taskState";
 import { vectorVault } from "../services/vectorVault";
 import { autoClassifyWithAI } from "../services/openrouter";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -234,16 +235,15 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
     const todayStr = getLocalDateString(new Date());
 
     if (activeType === "task") {
-      const newTask: Task = {
+      const newTask: Task = normalizeTask({
         id: `task-${Date.now()}`,
         title: rawText,
         dueDate: dueDate || todayStr,
         priority: priority,
         section: section || brainState.sections[0] || "Academic",
-        completed: false,
         status: "not_started",
         tags: ["quick-capture"],
-      };
+      });
       onAddTask(newTask);
       // Index immediately into Semantic Memory Vault
       vectorVault.indexItem(newTask, "task", openRouterKey).catch(() => {});
@@ -264,18 +264,32 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
       setToastMessage(`Captured Journal Reflection`);
     } else if (activeType === "knowledge") {
       const isUrl = /https?:\/\//i.test(rawText);
+      const title = isUrl
+        ? rawText.replace(/^https?:\/\/(www\.)?/, "").split("/")[0]
+        : rawText.split("\n")[0].slice(0, 60);
+
+      // Smart match folder from section
+      const matchingFolder = brainState.noteFolders?.find(
+        (f) => f.name.toLowerCase() === section.toLowerCase()
+      );
+
       const newKnowledge: KnowledgeItem = {
-        id: `know-${Date.now()}`,
-        subject: isUrl ? rawText.replace(/^https?:\/\/(www\.)?/, "").split("/")[0] : rawText.slice(0, 50),
+        id: `note-${Date.now()}`,
+        title,
+        subject: title,
+        content: rawText,
+        summary: rawText.length > 180 ? rawText.slice(0, 177) + "..." : rawText,
+        folderId: matchingFolder?.id || null,
         status: "Draft",
         startDate: todayStr,
         endDate: todayStr,
         domain: section,
-        summary: rawText,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
       onAddKnowledge(newKnowledge);
       vectorVault.indexItem(newKnowledge, "knowledge", openRouterKey).catch(() => {});
-      setToastMessage(`Captured Knowledge Note`);
+      setToastMessage(`Captured Note: "${title}"`);
     } else if (activeType === "habit") {
       const newHabit: Habit = {
         id: `habit-${Date.now()}`,

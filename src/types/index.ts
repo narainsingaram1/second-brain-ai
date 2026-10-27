@@ -38,12 +38,19 @@ export interface Task {
   priority: 'urgent' | 'high' | 'medium' | 'low';
   section: string; // Academic, Career, Finance, Health, or custom section
   subsection?: string; // Optional subsection e.g. CS 1332, Workouts, etc.
-  completed: boolean;
-  status?: TaskStatus; // 'not_started' | 'in_progress' | 'completed'
+  status: TaskStatus; // Canonical source of truth: 'not_started' | 'in_progress' | 'completed'
+  completed: boolean; // Synchronized derived flag: completed === (status === 'completed')
   subtasks?: { id: string; title: string; completed: boolean }[];
   tags?: string[];
   stage?: string;
   domain?: LifeDomain;
+}
+
+export interface StateEnvelope {
+  schemaVersion: number;
+  updatedAt: string;
+  userId: string;
+  state: BrainState;
 }
 
 export interface UserAccount {
@@ -87,17 +94,39 @@ export interface JournalEntry {
   tags: string[];
 }
 
+export type NoteFolderColor = 'amber' | 'blue' | 'emerald' | 'purple' | 'rose' | 'cyan' | 'indigo' | 'slate';
+
+export interface NoteFolder {
+  id: string;
+  name: string;
+  parentId: string | null; // null for top-level root folders, or folder ID for nested subfolders
+  color?: NoteFolderColor;
+  icon?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface KnowledgeItem {
   id: string;
   subject: string;
+  title?: string; // Canonical alias for subject
+  content?: string; // Full markdown / rich text content
+  summary: string; // Snippet or summary
+  folderId?: string | null; // Which folder it belongs to (null = root/unfiled)
+  tags?: string[];
+  pinned?: boolean;
+  favorite?: boolean;
   status: 'Executed' | 'Synthesized' | 'Review' | 'Draft';
   startDate: string;
   endDate: string;
   domain?: string;
-  summary: string;
   coverGradient?: string;
   itemCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
+
+export type Note = KnowledgeItem;
 
 export interface AIMessage {
   id: string;
@@ -136,6 +165,7 @@ export interface BrainState {
   habits: Habit[];
   journalEntries: JournalEntry[];
   knowledgeItems: KnowledgeItem[];
+  noteFolders?: NoteFolder[];
   chatHistory: AIMessage[];
   openRouterKey: string;
   selectedModel: string;

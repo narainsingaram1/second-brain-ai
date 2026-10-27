@@ -1,8 +1,62 @@
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, TaskStatus, Goal } from "../types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
 import { syncHabitStreaks, getLocalDateString } from "../utils/habitStreaks";
+import { normalizeTask } from "../utils/taskState";
 import { loadUserStateFromDB, saveUserStateToDB } from "./database";
 
+export const CURRENT_SCHEMA_VERSION = 1;
 const STORAGE_KEY = "synapse_second_brain_state";
+const STORAGE_ENVELOPE_KEY = "synapse_second_brain_envelope";
+
+// Serialized promise queue to eliminate concurrent write races
+let persistQueue: Promise<void> = Promise.resolve();
+
+/**
+ * Checks if running inside Tauri native runtime.
+ */
+export async function isTauriEnvironment(): Promise<boolean> {
+  try {
+    if (typeof window === "undefined") return false;
+    const { invoke } = await import("@tauri-apps/api/core");
+    return typeof invoke === "function" && Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wraps state in a versioned, timestamped envelope.
+ */
+export function wrapStateEnvelope(state: BrainState, userId: string): StateEnvelope {
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString(),
+    userId,
+    state: {
+      ...state,
+      userId,
+    },
+  };
+}
+
+/**
+ * Unwraps data safely from either a versioned envelope or legacy raw state.
+ */
+export function unwrapStateEnvelope(data: any): {
+  state: Partial<BrainState>;
+  updatedAt?: string;
+  schemaVersion?: number;
+} {
+  if (!data) return { state: {} };
+  if (typeof data === "object" && data.schemaVersion && data.state) {
+    return {
+      state: data.state,
+      updatedAt: data.updatedAt,
+      schemaVersion: data.schemaVersion,
+    };
+  }
+  // Legacy unversioned state
+  return { state: data };
+}
 
 const todayStr = getLocalDateString();
 const tomorrowStr = new Date(Date.now() + 86400000).toISOString().split("T")[0];
@@ -312,50 +366,115 @@ export const INITIAL_JOURNAL: JournalEntry[] = [
   },
 ];
 
+export const DEFAULT_NOTE_FOLDERS: NoteFolder[] = [
+  {
+    id: "folder-academic",
+    name: "Academic",
+    parentId: null,
+    color: "blue",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "folder-cs2110",
+    name: "CS 2110",
+    parentId: "folder-academic",
+    color: "amber",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "folder-cs3600",
+    name: "CS 3600",
+    parentId: "folder-academic",
+    color: "purple",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "folder-lmc3403",
+    name: "LMC 3403",
+    parentId: "folder-academic",
+    color: "rose",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "folder-projects",
+    name: "Projects & Code",
+    parentId: null,
+    color: "emerald",
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: "folder-personal",
+    name: "Personal & Health",
+    parentId: null,
+    color: "cyan",
+    createdAt: new Date().toISOString(),
+  },
+];
+
 export const INITIAL_KNOWLEDGE: KnowledgeItem[] = [
   {
     id: "know-1",
     subject: "Distributed Systems & Raft Consensus",
+    title: "Distributed Systems & Raft Consensus",
     status: "Executed",
     startDate: todayStr,
     endDate: tomorrowStr,
     domain: "Academic",
+    folderId: "folder-cs3600",
     summary: "Leader election, log replication, safety guarantees, and split-brain resolution protocols.",
+    content: `# Distributed Systems & Raft Consensus\n\n## Overview\nRaft is a consensus algorithm designed as an alternative to Multi-Paxos to be more understandable.\n\n### Core Properties\n- **Leader Election**: Randomized timers prevent split votes.\n- **Log Replication**: The leader accepts log entries and propagates them to followers.\n- **Safety**: State Machine Safety Property guarantees that if a server applies an entry at a given index, no other server will apply a different log entry for the same index.\n\n### Action Items\n- [x] Review term negotiation mechanics\n- [ ] Implement randomized election timeouts in Rust\n- [ ] Simulate network partitioning behavior`,
     coverGradient: "from-lime-300 via-amber-200 to-rose-300",
     itemCount: 4,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "know-2",
     subject: "Rust Memory Safety & Zero-Cost Concurrency",
+    title: "Rust Memory Safety & Zero-Cost Concurrency",
     status: "Synthesized",
     startDate: todayStr,
     endDate: tomorrowStr,
     domain: "Career",
+    folderId: "folder-projects",
     summary: "Borrow checker ergonomics, crossbeam channels, atomic primitives, and SIMD optimizations.",
+    content: `# Rust Memory Safety & Zero-Cost Concurrency\n\n## Memory Model\nRust achieves memory safety without a garbage collector through its ownership system, governed by compile-time rules:\n1. Each value in Rust has an owner.\n2. There can only be one owner at a time.\n3. When the owner goes out of scope, the value is dropped.\n\n## Concurrency Primitives\n- \`Arc<Mutex<T>>\` for shared mutable state\n- Crossbeam channels for lock-free message passing\n- Rayon for data parallelism\n\n\`\`\`rust\nuse std::sync::mpsc;\nuse std::thread;\n\nlet (tx, rx) = mpsc::channel();\nthread::spawn(move || {\n    tx.send("zero-cost abstractions").unwrap();\n});\n\`\`\``,
     coverGradient: "from-sky-300 via-indigo-200 to-purple-300",
     itemCount: 8,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "know-3",
     subject: "Quantitative Backtesting & Alpha Generation",
+    title: "Quantitative Backtesting & Alpha Generation",
     status: "Review",
     startDate: todayStr,
     endDate: tomorrowStr,
     domain: "Finance",
+    folderId: "folder-projects",
     summary: "Order book dynamics, microstructure signals, latency arbitrage bounds, and execution slippage.",
+    content: `# Quantitative Backtesting & Alpha Generation\n\n## Market Microstructure\n- **Order Book Dynamics**: Level 2 / Level 3 depth analysis\n- **Slippage Bounds**: Modeling linear market impact\n- **Sharpe & Sortino Calibration**: Target Sortino > 2.5 with annualized volatility under 12%`,
     coverGradient: "from-emerald-300 via-teal-200 to-blue-300",
     itemCount: 12,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   {
     id: "know-4",
     subject: "Circadian Biology & Dopamine Management",
+    title: "Circadian Biology & Dopamine Management",
     status: "Synthesized",
     startDate: todayStr,
     endDate: tomorrowStr,
     domain: "Health",
+    folderId: "folder-personal",
     summary: "Morning photons, adenosine accumulation, temperature minimums, and cognitive resilience.",
+    content: `# Circadian Biology & Dopamine Management\n\n## Core Protocols\n1. **Morning Light Viewing**: 10–15 minutes of outdoor sunlight within 30 minutes of waking.\n2. **Adenosine Delay**: Delay caffeine intake for 90–120 minutes upon waking to avoid afternoon crash.\n3. **Dopamine Baseline**: Avoid stacking multiple dopamine spikes (e.g. pre-workout + music + phone). Maintain intermittent reward scheduling.`,
     coverGradient: "from-rose-300 via-pink-200 to-amber-200",
     itemCount: 3,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
 ];
 
@@ -369,46 +488,68 @@ export const INITIAL_CHAT: AIMessage[] = [
 ];
 
 export async function loadInitialState(userId?: string): Promise<BrainState> {
-  const envKey = import.meta.env.VITE_OPENROUTER_API_KEY || "";
+  const envKey = (typeof import.meta !== "undefined" && import.meta.env?.VITE_OPENROUTER_API_KEY) || "";
+  const targetUserId = userId || "guest";
   let storedState: Partial<BrainState> = {};
+  let loadedFrom = "none";
 
-  // 1. Try to load user-specific state from Database if userId is specified
-  if (userId) {
-    try {
-      const dbState = await loadUserStateFromDB(userId);
-      if (dbState) {
-        storedState = dbState;
-      }
-    } catch (e) {
-      console.warn("Could not load user state from DB, falling back", e);
-    }
-  }
+  const inTauri = await isTauriEnvironment();
 
-  // 2. If no user state loaded yet, try Tauri native data or localStorage
-  if (!storedState.tasks) {
+  // 1. CANONICAL STORE: If in Tauri desktop app, native file storage is primary
+  if (inTauri) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const nativeData = await invoke<string | null>("load_brain_data");
       if (nativeData) {
-        storedState = JSON.parse(nativeData);
+        const parsed = JSON.parse(nativeData);
+        const { state } = unwrapStateEnvelope(parsed);
+        if (state && (state.tasks || state.habits || state.goals)) {
+          storedState = state;
+          loadedFrom = "tauri_native";
+        }
       }
       const nativeKey = await invoke<string | null>("get_openrouter_api_key");
       if (nativeKey && !storedState.openRouterKey) {
         storedState.openRouterKey = nativeKey;
       }
-    } catch {
-      const local = localStorage.getItem(STORAGE_KEY);
-      if (local) {
-        try {
-          storedState = JSON.parse(local);
-        } catch (e) {
-          console.error("Failed to parse localStorage state", e);
-        }
-      }
+    } catch (e) {
+      console.warn("[Storage] Could not load from Tauri native storage:", e);
     }
   }
 
-  const finalKey = storedState.openRouterKey || envKey || localStorage.getItem("synapse_openrouter_key") || "";
+  // 2. CANONICAL STORE FOR BROWSER / FALLBACK FOR TAURI: IndexedDB
+  if (!storedState.tasks) {
+    try {
+      const dbState = await loadUserStateFromDB(targetUserId);
+      if (dbState && (dbState.tasks || dbState.habits || dbState.goals)) {
+        storedState = dbState;
+        loadedFrom = "indexed_db";
+      }
+    } catch (e) {
+      console.warn("[Storage] Could not load from IndexedDB:", e);
+    }
+  }
+
+  // 3. EMERGENCY OFFLINE FALLBACK: LocalStorage
+  if (!storedState.tasks && typeof localStorage !== "undefined") {
+    try {
+      const localEnv = localStorage.getItem(STORAGE_ENVELOPE_KEY) || localStorage.getItem(STORAGE_KEY);
+      if (localEnv) {
+        const parsed = JSON.parse(localEnv);
+        const { state } = unwrapStateEnvelope(parsed);
+        if (state && (state.tasks || state.habits || state.goals)) {
+          storedState = state;
+          loadedFrom = "local_storage";
+        }
+      }
+    } catch (e) {
+      console.error("[Storage] Failed to read from localStorage fallback:", e);
+    }
+  }
+
+  console.info(`[Storage] Brain state initialized from canonical store: ${loadedFrom}`);
+
+  const finalKey = storedState.openRouterKey || envKey || (typeof localStorage !== "undefined" ? localStorage.getItem("synapse_openrouter_key") : null) || "";
 
   // Ensure sections exist
   const sections = storedState.sections && storedState.sections.length > 0
@@ -423,15 +564,17 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     }
   });
 
-  // Ensure tasks have valid section, subsection, and status ('not_started' | 'in_progress' | 'completed')
+  // Canonical Task Normalization: Status is single source of truth; completed is synchronized
   const rawTasks = storedState.tasks && storedState.tasks.length > 0 ? storedState.tasks : INITIAL_TASKS;
-  const tasks = rawTasks.map((t, idx) => {
+  const tasks: Task[] = rawTasks.map((t, idx) => {
     const section = t.section || sections[idx % sections.length];
     const sectionSubs = subsections[section] || ["General"];
     const subsection = t.subsection || sectionSubs[0] || "General";
-    const status: TaskStatus = t.status || (t.completed ? "completed" : "not_started");
-    const completed = status === "completed";
-    return { ...t, section, subsection, status, completed };
+    return normalizeTask({
+      ...t,
+      section,
+      subsection,
+    });
   });
 
   // Ensure all habits have accurate, continuously-calculated streaks from actual history
@@ -458,15 +601,74 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     };
   });
 
+  // Normalize Note Folders hierarchy
+  const rawFolders = storedState.noteFolders && storedState.noteFolders.length > 0
+    ? storedState.noteFolders
+    : DEFAULT_NOTE_FOLDERS;
+  const noteFolders: NoteFolder[] = rawFolders.map((f: any) => ({
+    id: f.id,
+    name: f.name || "Untitled Folder",
+    parentId: f.parentId || null,
+    color: f.color || "blue",
+    icon: f.icon,
+    createdAt: f.createdAt || new Date().toISOString(),
+    updatedAt: f.updatedAt,
+  }));
+
+  // Normalize Knowledge / Notes with content, folderId, and title
+  const rawKnowledge = storedState.knowledgeItems && storedState.knowledgeItems.length > 0
+    ? storedState.knowledgeItems
+    : INITIAL_KNOWLEDGE;
+
+  const knowledgeItems: KnowledgeItem[] = rawKnowledge.map((item: any) => {
+    const title = item.title || item.subject || "Untitled Note";
+    const content = item.content || item.summary || "";
+    let folderId = item.folderId !== undefined ? item.folderId : null;
+
+    // Smart folder mapping if unfiled
+    if (folderId === undefined || folderId === null) {
+      const lower = (title + " " + (item.domain || "")).toLowerCase();
+      if (lower.includes("2110")) folderId = "folder-cs2110";
+      else if (lower.includes("3600")) folderId = "folder-cs3600";
+      else if (lower.includes("3403")) folderId = "folder-lmc3403";
+      else if (lower.includes("academic") || lower.includes("exam") || lower.includes("cs")) folderId = "folder-academic";
+      else if (lower.includes("health") || lower.includes("habit") || lower.includes("dopamine")) folderId = "folder-personal";
+      else if (lower.includes("career") || lower.includes("finance") || lower.includes("rust") || lower.includes("project")) folderId = "folder-projects";
+      else folderId = null;
+    }
+
+    return {
+      ...item,
+      id: item.id || `know-${Date.now()}`,
+      title,
+      subject: title,
+      content,
+      summary: item.summary || (content.length > 200 ? content.slice(0, 197) + "..." : content),
+      folderId,
+      status: item.status || "Synthesized",
+      startDate: item.startDate || todayStr,
+      endDate: item.endDate || tomorrowStr,
+      domain: item.domain || "General",
+      coverGradient: item.coverGradient || "from-lime-300 via-amber-200 to-rose-300",
+      itemCount: item.itemCount || 1,
+      pinned: Boolean(item.pinned),
+      favorite: Boolean(item.favorite),
+      tags: Array.isArray(item.tags) ? item.tags : [],
+      createdAt: item.createdAt || new Date().toISOString(),
+      updatedAt: item.updatedAt || new Date().toISOString(),
+    };
+  });
+
   return {
-    userId,
+    userId: targetUserId,
     tasks,
     goals,
     sections,
     subsections,
     habits,
     journalEntries: storedState.journalEntries || INITIAL_JOURNAL,
-    knowledgeItems: storedState.knowledgeItems || INITIAL_KNOWLEDGE,
+    knowledgeItems,
+    noteFolders,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
     openRouterKey: finalKey,
     selectedModel: storedState.selectedModel || "anthropic/claude-3.5-sonnet",
@@ -476,36 +678,57 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   };
 }
 
+/**
+ * Persists brain state canonically with versioned envelope, avoiding triple-store race conditions.
+ */
 export async function persistBrainState(state: BrainState, userId?: string): Promise<void> {
   const targetUserId = userId || state.userId || "guest";
-  const updatedState = { ...state, userId: targetUserId };
-  const json = JSON.stringify(updatedState);
   
-  // 1. Persist to actual database
-  try {
-    await saveUserStateToDB(targetUserId, updatedState);
-  } catch (e) {
-    console.warn("Failed to persist state to database", e);
-  }
+  // Guarantee task normalization before persisting
+  const normalizedTasks = state.tasks.map((t) => normalizeTask(t));
+  const cleanState = { ...state, tasks: normalizedTasks, userId: targetUserId };
+  
+  // Serialized through mutex queue to guarantee transactional ordering
+  persistQueue = persistQueue.then(async () => {
+    const envelope = wrapStateEnvelope(cleanState, targetUserId);
+    const envelopeJson = JSON.stringify(envelope);
 
-  // 2. LocalStorage mirror
-  try {
-    localStorage.setItem(STORAGE_KEY, json);
-    if (state.openRouterKey) {
-      localStorage.setItem("synapse_openrouter_key", state.openRouterKey);
-    }
-  } catch (e) {
-    console.error("Failed to save to localStorage", e);
-  }
+    const inTauri = await isTauriEnvironment();
 
-  // 3. Tauri Native Storage
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("save_brain_data", { data: json });
-    if (state.openRouterKey) {
-      await invoke("save_openrouter_api_key", { apiKey: state.openRouterKey });
+    if (inTauri) {
+      // 1. CANONICAL PRIMARY: Tauri Native Storage
+      try {
+        const { invoke } = await import("@tauri-apps/api/core");
+        await invoke("save_brain_data", { data: envelopeJson });
+        if (state.openRouterKey) {
+          await invoke("save_openrouter_api_key", { apiKey: state.openRouterKey });
+        }
+      } catch (e) {
+        console.error("[Storage] Failed to save to Tauri canonical store:", e);
+      }
+      // Non-blocking background sync to IndexedDB for multi-user database records
+      saveUserStateToDB(targetUserId, cleanState).catch(() => {});
+    } else {
+      // 1. CANONICAL PRIMARY FOR WEB: IndexedDB
+      try {
+        await saveUserStateToDB(targetUserId, cleanState);
+      } catch (e) {
+        console.warn("[Storage] IndexedDB save failed, using LocalStorage fallback:", e);
+        try {
+          localStorage.setItem(STORAGE_ENVELOPE_KEY, envelopeJson);
+        } catch {}
+      }
     }
-  } catch {
-    // Graceful fallback in browser mode
-  }
+
+    // Secondary offline fallback & fast cache
+    try {
+      localStorage.setItem(STORAGE_ENVELOPE_KEY, envelopeJson);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanState));
+      if (state.openRouterKey) {
+        localStorage.setItem("synapse_openrouter_key", state.openRouterKey);
+      }
+    } catch {}
+  });
+
+  return persistQueue;
 }

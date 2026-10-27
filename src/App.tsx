@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus } from "./types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
 import { loadInitialState, persistBrainState } from "./services/storage";
 import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
+import { normalizeTask, setTaskStatus, toggleTaskCompleted } from "./utils/taskState";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
-import { Header } from "./components/Header";
+import { Sidebar } from "./components/Sidebar";
+import { TopHeader } from "./components/TopHeader";
 import { HomeView } from "./components/HomeView";
 import { GoalsView } from "./components/GoalsView";
 import { GoalModal } from "./components/GoalModal";
 import { TaskMatrixView } from "./components/TaskMatrixView";
 import { HabitsView } from "./components/HabitsView";
 import { JournalView } from "./components/JournalView";
-import { KnowledgeTable } from "./components/KnowledgeTable";
+import { NotesWorkspace } from "./components/NotesWorkspace";
 import { AICopilotModal } from "./components/AICopilotModal";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
@@ -23,13 +25,13 @@ import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal"
 import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
 import { AuditLogModal } from "./components/AuditLogModal";
 import { vectorVault } from "./services/vectorVault";
-import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X, Zap, Undo2, Target } from "lucide-react";
+import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Undo2, Target, FileText } from "lucide-react";
 
 export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
   const [activeTab, setActiveTab] = useState<string>("home");
-  const [searchQuery, setSearchQuery] = useState("");
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -244,55 +246,33 @@ export const App: React.FC = () => {
   const handleToggleTask = (taskId: string) => {
     const taskObj = state?.tasks.find((t) => t.id === taskId);
     if (taskObj) {
-      recordMutation(taskObj.completed ? "Reopened Task" : "Completed Task", "task", taskObj.title);
+      recordMutation(taskObj.status === "completed" ? "Reopened Task" : "Completed Task", "task", taskObj.title);
     }
     setState((prev) => {
       if (!prev) return null;
       return {
         ...prev,
-        tasks: prev.tasks.map((t) => {
-          if (t.id !== taskId) return t;
-          const currentStatus = t.status || (t.completed ? "completed" : "not_started");
-          const nextStatus = currentStatus === "completed" ? "not_started" : "completed";
-          return {
-            ...t,
-            status: nextStatus,
-            completed: nextStatus === "completed",
-          };
-        }),
+        tasks: prev.tasks.map((t) => (t.id === taskId ? toggleTaskCompleted(t) : t)),
       };
     });
   };
 
-  const handleStatusChange = (taskId: string, status: Task["status"]) => {
+  const handleStatusChange = (taskId: string, status: TaskStatus) => {
     const taskObj = state?.tasks.find((t) => t.id === taskId);
     if (taskObj) {
-      recordMutation(`Status -> ${status?.replace("_", " ")}`, "task", taskObj.title);
+      recordMutation(`Status -> ${status.replace("_", " ")}`, "task", taskObj.title);
     }
     setState((prev) => {
       if (!prev) return null;
       return {
         ...prev,
-        tasks: prev.tasks.map((t) =>
-          t.id === taskId
-            ? {
-                ...t,
-                status,
-                completed: status === "completed",
-              }
-            : t
-        ),
+        tasks: prev.tasks.map((t) => (t.id === taskId ? setTaskStatus(t, status) : t)),
       };
     });
   };
 
   const handleSaveTask = (task: Task) => {
-    const status = task.status || (task.completed ? "completed" : "not_started");
-    const normalized: Task = {
-      ...task,
-      status,
-      completed: status === "completed",
-    };
+    const normalized = normalizeTask(task);
     const exists = state?.tasks.some((t) => t.id === normalized.id);
     recordMutation(exists ? "Updated Task" : "Created Task", "task", normalized.title);
 
@@ -599,22 +579,35 @@ export const App: React.FC = () => {
     );
   };
 
-  // Knowledge Handlers
+  // Knowledge & Notes Handlers
   const handleSaveKnowledge = (item: KnowledgeItem) => {
-    const exists = state?.knowledgeItems.some((k) => k.id === item.id);
-    recordMutation(exists ? "Updated Note" : "Created Note", "knowledge", item.subject);
+    const normalizedItem: KnowledgeItem = {
+      ...item,
+      title: item.title || item.subject,
+      subject: item.title || item.subject,
+      content: item.content || item.summary || "",
+      summary:
+        item.summary ||
+        (item.content && item.content.length > 200
+          ? item.content.slice(0, 197) + "..."
+          : item.content || item.subject),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const exists = state?.knowledgeItems.some((k) => k.id === normalizedItem.id);
+    recordMutation(exists ? "Updated Note" : "Created Note", "knowledge", normalizedItem.subject);
 
     setState((prev) => {
       if (!prev) return null;
-      const isExist = prev.knowledgeItems.some((k) => k.id === item.id);
+      const isExist = prev.knowledgeItems.some((k) => k.id === normalizedItem.id);
       return {
         ...prev,
         knowledgeItems: isExist
-          ? prev.knowledgeItems.map((k) => (k.id === item.id ? item : k))
-          : [item, ...prev.knowledgeItems],
+          ? prev.knowledgeItems.map((k) => (k.id === normalizedItem.id ? normalizedItem : k))
+          : [normalizedItem, ...prev.knowledgeItems],
       };
     });
-    vectorVault.indexItem(item, "knowledge", state?.openRouterKey).catch(() => {});
+    vectorVault.indexItem(normalizedItem, "knowledge", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteKnowledge = (id: string) => {
@@ -630,6 +623,52 @@ export const App: React.FC = () => {
       };
     });
     vectorVault.removeItem(id).catch(() => {});
+  };
+
+  // Folder Handlers
+  const handleSaveFolder = (folder: NoteFolder) => {
+    const exists = (state?.noteFolders || []).some((f) => f.id === folder.id);
+    recordMutation(exists ? "Updated Folder" : "Created Folder", "knowledge", folder.name);
+
+    setState((prev) => {
+      if (!prev) return null;
+      const currentFolders = prev.noteFolders || [];
+      const isExist = currentFolders.some((f) => f.id === folder.id);
+      return {
+        ...prev,
+        noteFolders: isExist
+          ? currentFolders.map((f) => (f.id === folder.id ? folder : f))
+          : [...currentFolders, folder],
+      };
+    });
+  };
+
+  const handleDeleteFolder = (id: string) => {
+    const folderObj = (state?.noteFolders || []).find((f) => f.id === id);
+    if (folderObj) {
+      recordMutation("Deleted Folder", "knowledge", folderObj.name);
+    }
+    setState((prev) => {
+      if (!prev) return null;
+      const currentFolders = prev.noteFolders || [];
+      const parentId = folderObj?.parentId || null;
+
+      // Safely move child notes inside deleted folder to parent folder or root
+      const updatedNotes = prev.knowledgeItems.map((note) =>
+        note.folderId === id ? { ...note, folderId: parentId } : note
+      );
+
+      // Move any child subfolders to parent folder
+      const updatedFolders = currentFolders
+        .filter((f) => f.id !== id)
+        .map((f) => (f.parentId === id ? { ...f, parentId } : f));
+
+      return {
+        ...prev,
+        knowledgeItems: updatedNotes,
+        noteFolders: updatedFolders,
+      };
+    });
   };
 
   // OpenRouter Key & Model
@@ -682,51 +721,54 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-white dark:bg-[#0e1015] text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
-      {/* Minimal Top Header like [untitled] */}
-      <Header
+    <div className="min-h-screen bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative overflow-x-hidden">
+      {/* Ambient Glowing Background Orbs matching the screenshot atmosphere */}
+      <div className="fixed -bottom-24 -left-24 w-[520px] h-[520px] rounded-full bg-blue-600/10 dark:bg-blue-600/15 blur-[140px] pointer-events-none z-0" />
+      <div className="fixed -top-24 -right-24 w-[520px] h-[520px] rounded-full bg-purple-600/10 dark:bg-purple-600/15 blur-[140px] pointer-events-none z-0" />
+
+      {/* Subtle cosmic star specks in dark mode */}
+      <div className="hidden dark:block fixed top-1/4 left-1/3 w-1 h-1 rounded-full bg-indigo-400/40 animate-pulse pointer-events-none" />
+      <div className="hidden dark:block fixed top-1/2 right-1/4 w-1.5 h-1.5 rounded-full bg-purple-400/30 animate-pulse pointer-events-none" />
+      <div className="hidden dark:block fixed bottom-1/3 left-1/5 w-1 h-1 rounded-full bg-blue-400/40 animate-pulse pointer-events-none" />
+      <div className="hidden dark:block fixed top-2/3 right-1/6 w-1 h-1 rounded-full bg-indigo-300/30 animate-pulse pointer-events-none" />
+
+      {/* Left Sidebar */}
+      <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        openRouterKey={state.openRouterKey}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenAIChat={() => setIsAICopilotOpen(true)}
-        onOpenQuickCapture={() => setIsQuickCaptureOpen(true)}
-        onOpenVault={() => setIsVaultModalOpen(true)}
-        onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
-        onOpenAuditLog={() => setIsAuditLogOpen(true)}
-        theme={state.theme}
-        onToggleTheme={handleToggleTheme}
-        searchQuery={searchQuery}
-        setSearchQuery={setSearchQuery}
-        session={session}
-        onOpenAuth={() => setIsAuthModalOpen(true)}
+        collapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        onOpenProModal={() => setIsSettingsOpen(true)}
       />
 
-      {/* Main Spacious Content */}
-      <main className="flex-1 px-6 sm:px-12 py-8 max-w-5xl mx-auto w-full pb-28">
+      {/* Main View Area */}
+      <div className="flex-1 flex flex-col min-w-0 relative z-10 min-h-screen">
+        {/* Top Right Header matching screenshot */}
+        <TopHeader
+          onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
+          theme={state.theme}
+          onToggleTheme={handleToggleTheme}
+          session={session}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onOpenNotifications={() => setIsAuditLogOpen(true)}
+        />
+
+        {/* Main Content Viewport */}
+        <main className="flex-1 px-4 sm:px-8 py-2 w-full max-w-6xl mx-auto pb-24">
         {/* ========================================================= */}
-        {/* TAB 0: HOME / EXECUTIVE AI BRIEFING (Perplexity-Style)    */}
+        {/* TAB 0: HOME / AUTONOMOUS BRAIN AGENT COMMAND CENTER       */}
         {/* ========================================================= */}
         {activeTab === "home" && (
           <HomeView
             brainState={state}
             onSaveTask={handleSaveTask}
+            onUpdateTask={handleSaveTask}
             onSaveGoal={handleSaveGoal}
+            onSaveHabit={handleSaveHabit}
             onSaveJournal={handleSaveJournalEntry}
             onSaveKnowledge={handleSaveKnowledge}
-            onOpenGoalModal={() => {
-              setActiveEditGoal(null);
-              setIsGoalModalOpen(true);
-            }}
-            onUpdateDailyBrief={(brief) =>
-              setState((prev) => (prev ? { ...prev, dailyBrief: brief } : null))
-            }
-            onOpenQuickCapture={() => setIsQuickCaptureOpen(true)}
-            onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
-            onOpenAICopilot={() => setIsAICopilotOpen(true)}
-            onOpenVault={() => setIsVaultModalOpen(true)}
-            onOpenAuditLog={() => setIsAuditLogOpen(true)}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onUndo={handleUndo}
             openRouterKey={state.openRouterKey}
           />
         )}
@@ -816,19 +858,38 @@ export const App: React.FC = () => {
         )}
 
         {/* ========================================================= */}
-        {/* TAB 4: NOTES & VAULT (Untitled-style squircle artwork)   */}
+        {/* TAB 4: NOTES & VAULT FILE SYSTEM WORKSPACE               */}
         {/* ========================================================= */}
         {activeTab === "knowledge" && (
-          <KnowledgeTable
+          <NotesWorkspace
             items={state.knowledgeItems}
-            onAddItem={() => {
-              setActiveEditKnowledge(null);
-              setIsKnowledgeModalOpen(true);
+            folders={state.noteFolders || []}
+            onSaveNote={handleSaveKnowledge}
+            onDeleteNote={handleDeleteKnowledge}
+            onSaveFolder={handleSaveFolder}
+            onDeleteFolder={handleDeleteFolder}
+            openRouterKey={state.openRouterKey}
+            selectedModel={state.selectedModel}
+            onGenerateTasks={(newTasks) => {
+              const today = new Date().toISOString().split("T")[0];
+              newTasks.forEach((t) => {
+                const sec = state.sections[0] || "Academic";
+                const sub = state.subsections[sec]?.[0] || "General";
+                const task: Task = normalizeTask({
+                  id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                  title: t.title,
+                  dueDate: today,
+                  priority: (t.priority as any) || "medium",
+                  section: sec,
+                  subsection: sub,
+                  status: "not_started",
+                  completed: false,
+                });
+                handleSaveTask(task);
+              });
             }}
-            onSelectItem={(item) => {
-              setActiveEditKnowledge(item);
-              setIsKnowledgeModalOpen(true);
-            }}
+            initialSelectedNote={activeEditKnowledge}
+            onClearInitialSelectedNote={() => setActiveEditKnowledge(null)}
           />
         )}
 
@@ -852,113 +913,117 @@ export const App: React.FC = () => {
           </div>
         )}
       </main>
-
-      {/* ========================================================= */}
-      {/* FLOATING BOTTOM "+ Add" BUTTON (Matching Attachment 2)    */}
-      {/* ========================================================= */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
-        {/* Quick Pop-up Menu */}
-        {isQuickAddMenuOpen && (
-          <div className="mb-3 bg-white dark:bg-[#141721] rounded-3xl p-2 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col gap-1 w-52 animate-fade-in text-xs font-semibold">
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                setIsQuickCaptureOpen(true);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 transition-colors text-left font-bold"
-            >
-              <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-              <div className="flex items-center justify-between w-full">
-                <span>Quick Capture</span>
-                <span className="text-[10px] font-mono opacity-60">⌘⌥N</span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                setActiveEditTask(null);
-                const sec = state.sections[0] || "Academic";
-                const sub = state.subsections[sec]?.[0] || "General";
-                setTaskModalDefaultSection(sec);
-                setTaskModalDefaultSubsection(sub);
-                setIsTaskModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
-            >
-              <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
-              <span>Add Task</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                setActiveEditGoal(null);
-                setIsGoalModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
-            >
-              <Target className="w-3.5 h-3.5 text-indigo-500" />
-              <span>New Life Goal</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                const name = prompt("Enter new section name (e.g. Projects, Research, Personal):");
-                if (name) handleAddSection(name);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
-            >
-              <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
-              <span>New Section</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                setIsHabitModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
-            >
-              <Flame className="w-3.5 h-3.5 text-amber-500" />
-              <span>Add Habit</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                setActiveTab("journal");
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
-            >
-              <BookOpen className="w-3.5 h-3.5 text-purple-500" />
-              <span>Reflection</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setIsQuickAddMenuOpen(false);
-                setActiveEditKnowledge(null);
-                setIsKnowledgeModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
-            >
-              <Database className="w-3.5 h-3.5 text-emerald-500" />
-              <span>New Note</span>
-            </button>
-          </div>
-        )}
-
-        {/* The Black Pill Button */}
-        <button
-          onClick={() => setIsQuickAddMenuOpen(!isQuickAddMenuOpen)}
-          className="flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 text-xs font-bold shadow-lg hover:scale-105 active:scale-95 transition-all"
-        >
-          {isQuickAddMenuOpen ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-          <span>{isQuickAddMenuOpen ? "Close" : "Add"}</span>
-        </button>
       </div>
+
+      {/* ========================================================= */}
+      {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
+      {/* ========================================================= */}
+      {activeTab !== "home" && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
+          {/* Quick Pop-up Menu */}
+          {isQuickAddMenuOpen && (
+            <div className="mb-3 bg-white dark:bg-[#141721] rounded-3xl p-2 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col gap-1 w-52 animate-fade-in text-xs font-semibold">
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  setIsQuickCaptureOpen(true);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 transition-colors text-left font-bold"
+              >
+                <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                <div className="flex items-center justify-between w-full">
+                  <span>Quick Capture</span>
+                  <span className="text-[10px] font-mono opacity-60">⌘⌥N</span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  setActiveEditTask(null);
+                  const sec = state.sections[0] || "Academic";
+                  const sub = state.subsections[sec]?.[0] || "General";
+                  setTaskModalDefaultSection(sec);
+                  setTaskModalDefaultSubsection(sub);
+                  setIsTaskModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+              >
+                <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
+                <span>Add Task</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  setActiveEditGoal(null);
+                  setIsGoalModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+              >
+                <Target className="w-3.5 h-3.5 text-indigo-500" />
+                <span>New Life Goal</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  const name = prompt("Enter new section name (e.g. Projects, Research, Personal):");
+                  if (name) handleAddSection(name);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+              >
+                <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
+                <span>New Section</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  setIsHabitModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+              >
+                <Flame className="w-3.5 h-3.5 text-amber-500" />
+                <span>Add Habit</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  setActiveTab("journal");
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-purple-500" />
+                <span>Reflection</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setIsQuickAddMenuOpen(false);
+                  setActiveTab("knowledge");
+                  setActiveEditKnowledge(null);
+                  setIsKnowledgeModalOpen(true);
+                }}
+                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+              >
+                <FileText className="w-3.5 h-3.5 text-blue-500" />
+                <span>New Note</span>
+              </button>
+            </div>
+          )}
+
+          {/* The Black Pill Button */}
+          <button
+            onClick={() => setIsQuickAddMenuOpen(!isQuickAddMenuOpen)}
+            className="flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 text-xs font-bold shadow-lg hover:scale-105 active:scale-95 transition-all"
+          >
+            {isQuickAddMenuOpen ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
+            <span>{isQuickAddMenuOpen ? "Close" : "Add"}</span>
+          </button>
+        </div>
+      )}
 
       {/* Modals */}
       <AICopilotModal
@@ -1038,7 +1103,11 @@ export const App: React.FC = () => {
         isOpen={isKnowledgeModalOpen}
         onClose={() => setIsKnowledgeModalOpen(false)}
         item={activeEditKnowledge}
-        onSave={handleSaveKnowledge}
+        folders={state.noteFolders || []}
+        onSave={(savedNote) => {
+          handleSaveKnowledge(savedNote);
+          setActiveEditKnowledge(savedNote);
+        }}
         onDelete={handleDeleteKnowledge}
       />
 

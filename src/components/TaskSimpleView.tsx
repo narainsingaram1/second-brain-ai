@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Task, TaskStatus } from "../types";
+import { normalizeTask } from "../utils/taskState";
 import {
   Plus,
   Check,
@@ -82,7 +83,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
     if (!quickAddTitle.trim()) return;
 
     const availableSubs = subsections[quickAddSection] || ["General"];
-    const newTask: Task = {
+    const newTask: Task = normalizeTask({
       id: `task-${Date.now()}`,
       title: quickAddTitle.trim(),
       dueDate: todayStr,
@@ -90,18 +91,15 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
       section: quickAddSection,
       subsection: availableSubs[0] || "General",
       status: "not_started",
-      completed: false,
-    };
+    });
 
     onSaveTask(newTask);
     setQuickAddTitle("");
   };
 
-  const activeTasks = tasks.filter((t) => !t.completed && t.status !== "completed");
-  const completedTasks = tasks.filter((t) => t.completed || t.status === "completed");
-  const inProgressCount = tasks.filter(
-    (t) => (t.status || (t.completed ? "completed" : "not_started")) === "in_progress"
-  ).length;
+  const activeTasks = tasks.filter((t) => t.status !== "completed");
+  const completedTasks = tasks.filter((t) => t.status === "completed");
+  const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
 
   // Build groups based on groupBy
   let groups: { id: string; title: string; tasks: Task[]; badge?: string }[] = [];

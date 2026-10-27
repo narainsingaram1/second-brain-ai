@@ -89,7 +89,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   // Cycle status handler with confetti
   const handleCycleStatus = (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
-    const current = task.status || (task.completed ? "completed" : "not_started");
+    const current = task.status;
     let next: TaskStatus;
     if (current === "not_started") {
       next = "in_progress";
@@ -115,13 +115,13 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   // Filter tasks based on section and completed toggle
   const filteredTasks = tasks.filter((t) => {
     if (filterSection !== "all" && t.section !== filterSection) return false;
-    if (hideCompleted && (t.status === "completed" || t.completed)) return false;
+    if (hideCompleted && t.status === "completed") return false;
     return true;
   });
 
   // Calculate Overdue tasks (dueDate < todayStr and not completed)
   const overdueTasks = filteredTasks.filter(
-    (t) => !t.completed && t.status !== "completed" && t.dueDate && t.dueDate < todayStr
+    (t) => t.status !== "completed" && t.dueDate && t.dueDate < todayStr
   );
 
   // Calculate grid days for month view
@@ -332,7 +332,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
           <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {displayedCells.map((cell) => {
               const dayTasks = filteredTasks.filter((t) => t.dueDate === cell.dateStr);
-              const pendingDayTasks = dayTasks.filter((t) => !t.completed && t.status !== "completed");
+              const pendingDayTasks = dayTasks.filter((t) => t.status !== "completed");
               const isCellSelected = cell.dateStr === selectedDate;
 
               return (
@@ -377,7 +377,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                   {/* Day Tasks List (Up to 3 chips visible) */}
                   <div className="space-y-1 my-1 overflow-hidden">
                     {dayTasks.slice(0, 3).map((task) => {
-                      const isCompleted = task.status === "completed" || task.completed;
+                      const isCompleted = task.status === "completed";
                       const isInProgress = task.status === "in_progress";
 
                       return (
@@ -478,7 +478,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
             ) : (
               <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
                 {selectedDayTasks.map((task) => {
-                  const taskStatus = task.status || (task.completed ? "completed" : "not_started");
+                  const taskStatus = task.status;
 
                   return (
                     <div

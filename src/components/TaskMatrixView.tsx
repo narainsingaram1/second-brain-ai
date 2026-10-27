@@ -123,10 +123,8 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
     }
   };
 
-  const pendingCount = tasks.filter((t) => !t.completed).length;
-  const inProgressCount = tasks.filter(
-    (t) => (t.status || (t.completed ? "completed" : "not_started")) === "in_progress"
-  ).length;
+  const pendingCount = tasks.filter((t) => t.status !== "completed").length;
+  const inProgressCount = tasks.filter((t) => t.status === "in_progress").length;
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-7 animate-fade-in pb-16">

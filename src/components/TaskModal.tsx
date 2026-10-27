@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Task, TaskStatus } from "../types";
+import { normalizeTask } from "../utils/taskState";
 import { X, Trash2 } from "lucide-react";
 import { CustomDatePicker } from "./CustomDatePicker";
 
@@ -101,7 +102,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
     e.preventDefault();
     if (!title.trim()) return;
 
-    const updatedTask: Task = {
+    const updatedTask = normalizeTask({
       id: task?.id || `task-${Date.now()}`,
       title: title.trim(),
       description: description.trim() || undefined,
@@ -110,9 +111,8 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       section,
       subsection,
       status,
-      completed: status === "completed",
       subtasks: task?.subtasks || [],
-    };
+    });
 
     onSave(updatedTask);
     onClose();

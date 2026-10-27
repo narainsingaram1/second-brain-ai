@@ -3,112 +3,100 @@ import {
   BrainState,
   Task,
   Goal,
+  Habit,
   JournalEntry,
   KnowledgeItem,
-  DailyBrief,
 } from "../types";
-import { generateDailyBriefWithAI } from "../services/openrouter";
-import { getLocalDateString } from "../utils/habitStreaks";
+import { AutonomousBrainAgent, AgentExecutionResult } from "../services/agentDispatcher";
 import confetti from "canvas-confetti";
 import {
   Sparkles,
   ArrowUp,
   Mic,
   MicOff,
+  Globe,
+  Sliders,
+  Plus,
+  ClipboardList,
   Target,
   CheckSquare,
-  BookOpen,
-  FolderPlus,
-  Search,
-  Zap,
+  ChevronRight,
   ChevronDown,
-  ChevronUp,
-  Database,
-  History,
+  Undo2,
+  Layers,
+  ArrowRight,
+  FileText,
+  BookOpen,
 } from "lucide-react";
-
-type CaptureType = "auto" | "goal" | "task" | "journal" | "knowledge";
 
 interface HomeViewProps {
   brainState: BrainState;
   onSaveTask: (task: Task) => void;
+  onUpdateTask: (task: Task) => void;
   onSaveGoal: (goal: Goal) => void;
+  onSaveHabit: (habit: Habit) => void;
   onSaveJournal: (entry: JournalEntry) => void;
   onSaveKnowledge: (item: KnowledgeItem) => void;
-  onOpenGoalModal: () => void;
-  onOpenQuickCapture: () => void;
-  onOpenGlobalSearch: () => void;
-  onOpenAICopilot: () => void;
-  onOpenVault: () => void;
-  onOpenAuditLog?: () => void;
-  onNavigateTab?: (tab: string) => void;
+  onNavigateTab: (tab: string) => void;
+  onUndo: () => void;
   openRouterKey: string;
-  onUpdateDailyBrief: (brief: DailyBrief) => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
   brainState,
   onSaveTask,
+  onUpdateTask,
   onSaveGoal,
+  onSaveHabit,
   onSaveJournal,
   onSaveKnowledge,
-  onOpenGoalModal,
-  onOpenQuickCapture,
-  onOpenGlobalSearch,
-  onOpenAICopilot,
-  onOpenVault,
-  onOpenAuditLog,
+  onNavigateTab,
+  onUndo,
   openRouterKey,
-  onUpdateDailyBrief,
 }) => {
   const [inputText, setInputText] = useState("");
-  const [selectedType, setSelectedType] = useState<CaptureType>("auto");
   const [isRecording, setIsRecording] = useState(false);
-  const [isCapturing, setIsCapturing] = useState(false);
-  const [captureFeedback, setCaptureFeedback] = useState<string | null>(null);
-  const [showBriefAccordion, setShowBriefAccordion] = useState(false);
-  const [isGeneratingBrief, setIsGeneratingBrief] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [lastExecution, setLastExecution] = useState<AgentExecutionResult | null>(null);
+
+  // Tools toggle state
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
-
-  const todayStr = getLocalDateString(new Date());
 
   // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
       textareaRef.current.style.height = `${Math.min(
-        Math.max(textareaRef.current.scrollHeight, 60),
+        textareaRef.current.scrollHeight,
         180
       )}px`;
     }
   }, [inputText]);
 
-  // Speech-to-text recognition setup
+  // Voice capture setup
   useEffect(() => {
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
     if (SpeechRecognition) {
       const recognition = new SpeechRecognition();
       recognition.continuous = false;
-      recognition.interimResults = true;
+      recognition.interimResults = false;
       recognition.lang = "en-US";
 
       recognition.onresult = (event: any) => {
-        const transcript = Array.from(event.results)
-          .map((result: any) => result[0].transcript)
-          .join("");
-        setInputText(transcript);
-      };
-
-      recognition.onend = () => {
+        const transcript = event.results[0][0].transcript;
+        setInputText((prev) => (prev ? `${prev} ${transcript}` : transcript));
         setIsRecording(false);
       };
 
-      recognition.onerror = () => {
-        setIsRecording(false);
-      };
+      recognition.onerror = () => setIsRecording(false);
+      recognition.onend = () => setIsRecording(false);
 
       recognitionRef.current = recognition;
     }
@@ -116,11 +104,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   const toggleRecording = () => {
     if (!recognitionRef.current) {
-      setCaptureFeedback("Voice capture: Speech API unavailable in this browser.");
-      setTimeout(() => setCaptureFeedback(null), 3000);
+      alert("Speech recognition is not supported in this browser environment.");
       return;
     }
-
     if (isRecording) {
       recognitionRef.current.stop();
       setIsRecording(false);
@@ -129,465 +115,471 @@ export const HomeView: React.FC<HomeViewProps> = ({
         recognitionRef.current.start();
         setIsRecording(true);
       } catch (err) {
-        setIsRecording(false);
+        console.error("Speech recognition error:", err);
       }
     }
   };
 
-  // Auto-classifier heuristic
-  const classifyInput = (text: string): CaptureType => {
-    const lower = text.toLowerCase();
-    // Goal detection
-    if (
-      lower.startsWith("goal:") ||
-      lower.includes("achieve") ||
-      lower.includes("strive") ||
-      lower.includes("reach $") ||
-      lower.includes("gpa") ||
-      lower.includes("long term") ||
-      lower.includes("become a") ||
-      lower.includes("master ")
-    ) {
-      return "goal";
-    }
-
-    // Journal / reflection detection
-    if (
-      lower.startsWith("journal:") ||
-      lower.includes("i feel") ||
-      lower.includes("felt like") ||
-      lower.includes("today i") ||
-      lower.includes("grateful for") ||
-      lower.includes("reflection:") ||
-      lower.includes("proud of")
-    ) {
-      return "journal";
-    }
-
-    // Knowledge / note detection
-    if (
-      lower.startsWith("note:") ||
-      lower.startsWith("learn:") ||
-      lower.includes("read article") ||
-      lower.includes("paper on") ||
-      lower.includes("concept:") ||
-      lower.includes("summary:") ||
-      lower.includes("definition:")
-    ) {
-      return "knowledge";
-    }
-
-    // Default to task
-    return "task";
-  };
-
-  const handleCaptureSubmit = async (e?: React.FormEvent) => {
+  // Main Agent Submission
+  const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const cleanText = inputText.trim();
-    if (!cleanText || isCapturing) return;
+    const prompt = inputText.trim();
+    if (!prompt || isProcessing) return;
 
-    setIsCapturing(true);
-
-    const effectiveType = selectedType === "auto" ? classifyInput(cleanText) : selectedType;
+    setIsProcessing(true);
+    setLastExecution(null);
 
     try {
-      if (effectiveType === "goal") {
-        const titleClean = cleanText.replace(/^(goal:)/i, "").trim();
-        const goalSector = (
-          titleClean.toLowerCase().includes("money") || titleClean.toLowerCase().includes("dollar") || titleClean.toLowerCase().includes("$")
-            ? "finance"
-            : titleClean.toLowerCase().includes("study") || titleClean.toLowerCase().includes("gpa") || titleClean.toLowerCase().includes("grade") || titleClean.toLowerCase().includes("class")
-            ? "academics"
-            : titleClean.toLowerCase().includes("workout") || titleClean.toLowerCase().includes("run") || titleClean.toLowerCase().includes("gym") || titleClean.toLowerCase().includes("marathon")
-            ? "health"
-            : titleClean.toLowerCase().includes("mind") || titleClean.toLowerCase().includes("stoic") || titleClean.toLowerCase().includes("read")
-            ? "mindset"
-            : "career"
-        );
+      const result = await AutonomousBrainAgent.execute(prompt, brainState, openRouterKey);
+      setLastExecution(result);
 
-        const newGoal: Goal = {
-          id: `goal-${Date.now()}`,
-          title: titleClean,
-          sector: goalSector,
-          timeframe: "yearly",
-          progress: 0,
-          status: "in_progress",
-          milestones: [
-            { id: `gm-${Date.now()}-1`, title: "Define roadmap and core milestones", completed: false },
-            { id: `gm-${Date.now()}-2`, title: "Execute daily/weekly lead indicators", completed: false },
-          ],
-          why: "Self-improvement commitment captured from Home Command Center.",
-          createdAt: new Date().toISOString(),
-        };
-
-        onSaveGoal(newGoal);
-        setCaptureFeedback(`✨ Captured as Life Goal (${goalSector})`);
-        confetti({ particleCount: 40, spread: 60, origin: { y: 0.6 } });
-      } else if (effectiveType === "journal") {
-        const titleClean = cleanText.replace(/^(journal:)/i, "").trim();
-        const newJournal: JournalEntry = {
-          id: `journal-${Date.now()}`,
-          date: todayStr,
-          title: titleClean.slice(0, 50) || "Evening Reflection",
-          content: cleanText,
-          mood: "great",
-          wins: ["Reflective focus captured"],
-          challenges: [],
-          tags: ["DailyCapture"],
-        };
-
-        onSaveJournal(newJournal);
-        setCaptureFeedback("📖 Saved to Daily Journal");
-        confetti({ particleCount: 25, spread: 45, origin: { y: 0.6 } });
-      } else if (effectiveType === "knowledge") {
-        const titleClean = cleanText.replace(/^(note:|learn:)/i, "").trim();
-        const newNote: KnowledgeItem = {
-          id: `know-${Date.now()}`,
-          subject: titleClean.slice(0, 48) || "Knowledge Synthesis",
-          status: "Synthesized",
-          startDate: todayStr,
-          endDate: todayStr,
-          domain: "General",
-          summary: cleanText,
-          itemCount: 1,
-        };
-
-        onSaveKnowledge(newNote);
-        setCaptureFeedback("📝 Saved to Knowledge Vault");
-        confetti({ particleCount: 25, spread: 45, origin: { y: 0.6 } });
-      } else {
-        // Task
-        const titleClean = cleanText.replace(/^(task:|todo:)/i, "").trim();
-        const matchedSection = brainState.sections[0] || "Career";
-        const matchedSub = brainState.subsections[matchedSection]?.[0] || "General";
-
-        const newTask: Task = {
-          id: `task-${Date.now()}`,
-          title: titleClean,
-          dueDate: todayStr,
-          priority: "high",
-          section: matchedSection,
-          subsection: matchedSub,
-          completed: false,
-          status: "not_started",
-        };
-
-        onSaveTask(newTask);
-        setCaptureFeedback(`✅ Task created in ${matchedSection}`);
-        confetti({ particleCount: 30, spread: 50, origin: { y: 0.6 } });
+      if (result.actionType === "create_task" && result.createdTask) {
+        onSaveTask(result.createdTask);
+        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
+      } else if (result.actionType === "update_task" && result.updatedTask) {
+        onUpdateTask(result.updatedTask);
+        confetti({ particleCount: 40, spread: 50, origin: { y: 0.6 } });
+      } else if (result.actionType === "create_goal" && result.createdGoal) {
+        onSaveGoal(result.createdGoal);
+        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
+      } else if (result.actionType === "complete_habit" && result.updatedHabit) {
+        onSaveHabit(result.updatedHabit);
+        confetti({ particleCount: 40, spread: 55, origin: { y: 0.6 } });
+      } else if (result.actionType === "log_journal" && result.createdJournal) {
+        onSaveJournal(result.createdJournal);
+        confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
+      } else if (result.actionType === "create_note" && result.createdNote) {
+        onSaveKnowledge(result.createdNote);
+        confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
       }
 
       setInputText("");
-    } catch (e) {
-      console.error("Capture failed:", e);
-      setCaptureFeedback("Error capturing item.");
+    } catch (err) {
+      console.error("Agent execution error:", err);
     } finally {
-      setIsCapturing(false);
-      setTimeout(() => setCaptureFeedback(null), 3500);
+      setIsProcessing(false);
     }
   };
 
-  const handleGenerateBrief = async () => {
-    setIsGeneratingBrief(true);
-    try {
-      const brief = await generateDailyBriefWithAI(
-        brainState.tasks,
-        brainState.habits,
-        brainState.journalEntries,
-        openRouterKey,
-        brainState.selectedModel
-      );
-      onUpdateDailyBrief(brief);
-    } catch (e) {
-      console.error("Failed to generate brief:", e);
-    } finally {
-      setIsGeneratingBrief(false);
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit();
     }
   };
 
-  // Due today & quick metrics
-  const dueTodayTasks = brainState.tasks.filter((t) => !t.completed && t.dueDate === todayStr);
-  const activeHabits = brainState.habits;
-  const completedHabitsToday = activeHabits.filter((h) => h.history[todayStr]).length;
-  const activeGoals = brainState.goals || [];
+  // Quick Action Card click handlers
+  const handleQuickAction = (action: "plan" | "goal" | "task" | "brainstorm") => {
+    if (action === "plan") {
+      setInputText("Plan my week: analyze my top priorities across academic and career, and break down milestones");
+      if (textareaRef.current) textareaRef.current.focus();
+    } else if (action === "goal") {
+      setInputText("Set a new goal: ");
+      if (textareaRef.current) textareaRef.current.focus();
+    } else if (action === "task") {
+      setInputText("Schedule task: ");
+      if (textareaRef.current) textareaRef.current.focus();
+    } else if (action === "brainstorm") {
+      setInputText("Brainstorm ideas for high-leverage projects and life optimizations");
+      if (textareaRef.current) textareaRef.current.focus();
+    }
+  };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[72vh] px-4 py-8 animate-fade-in">
-      {/* Centered Brand Emblem (matching Perplexity visual organization) */}
-      <div className="flex flex-col items-center text-center mb-6">
-        <div className="relative group cursor-pointer" onClick={onOpenAICopilot}>
-          {/* Faceted Monogram / Logo */}
-          <div className="w-14 h-14 rounded-3xl bg-slate-100 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 flex items-center justify-center shadow-lg transition-transform duration-300 group-hover:scale-105 group-hover:border-indigo-500/50">
-            <svg
-              className="w-7 h-7 text-indigo-600 dark:text-indigo-400"
-              viewBox="0 0 24 24"
+    <div className="w-full flex flex-col items-center justify-center min-h-[calc(100vh-140px)] max-w-4xl mx-auto px-4 py-8 relative animate-fade-in">
+      {/* Celestial Orbital Emblem Graphic */}
+      <div className="relative mb-6">
+        <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center">
+          {/* Ambient Glowing Halo */}
+          <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-blue-600/20 via-indigo-600/30 to-purple-600/25 blur-2xl pointer-events-none" />
+
+          {/* SVG Orbit Lines & Satellite Nodes */}
+          <svg
+            viewBox="0 0 160 160"
+            className="w-full h-full absolute inset-0 pointer-events-none overflow-visible"
+          >
+            {/* Ellipse Orbit 1: Tilted 25 deg */}
+            <g transform="rotate(25 80 80)">
+              <ellipse
+                cx="80"
+                cy="80"
+                rx="68"
+                ry="36"
+                fill="none"
+                stroke="currentColor"
+                className="text-indigo-400/40 dark:text-indigo-400/30 stroke-[1.2]"
+              />
+              {/* Orbiting Satellite Node 1 */}
+              <circle
+                cx="148"
+                cy="80"
+                r="2.5"
+                className="fill-indigo-400 dark:fill-indigo-300"
+              />
+            </g>
+
+            {/* Ellipse Orbit 2: Tilted -35 deg */}
+            <g transform="rotate(-35 80 80)">
+              <ellipse
+                cx="80"
+                cy="80"
+                rx="66"
+                ry="34"
+                fill="none"
+                stroke="currentColor"
+                className="text-purple-400/40 dark:text-purple-400/30 stroke-[1.2]"
+              />
+              {/* Orbiting Satellite Node 2 */}
+              <circle
+                cx="14"
+                cy="80"
+                r="2.5"
+                className="fill-purple-400 dark:fill-purple-300"
+              />
+              <circle
+                cx="120"
+                cy="56"
+                r="1.8"
+                className="fill-blue-400 dark:fill-blue-300 opacity-80"
+              />
+            </g>
+
+            {/* Faint Center Ring */}
+            <circle
+              cx="80"
+              cy="80"
+              r="48"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-            </svg>
-          </div>
-          <div className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white dark:border-slate-900 animate-pulse" />
-        </div>
+              className="text-slate-300/40 dark:text-indigo-500/20 stroke-[0.8]"
+              strokeDasharray="2 4"
+            />
+          </svg>
 
-        {/* Crisp Central Question Heading */}
-        <h1 className="text-2xl sm:text-4xl font-black text-slate-900 dark:text-white tracking-tight mt-5">
-          Where should we start?
+          {/* Central 4-point Star Emblem */}
+          <div className="relative z-10 w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/30 hover:scale-105 transition-transform">
+            <Sparkles className="w-5 h-5 text-white fill-white/80" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main Title & Subtitle matching screenshots */}
+      <div className="text-center space-y-2 mb-8">
+        <h1 className="text-3xl sm:text-4xl md:text-5xl font-black tracking-tight text-slate-900 dark:text-white">
+          Where should we{" "}
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-500 to-purple-600 dark:from-indigo-400 dark:to-purple-400">
+            start?
+          </span>
         </h1>
-        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1 max-w-md">
-          Capture tasks, life goals, journal notes, or query your second brain vault.
+        <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium max-w-md mx-auto">
+          Your autonomous second brain. Plan, create, and get things done.
         </p>
       </div>
 
-      {/* Main Perplexity-Style Centered Input Card */}
-      <div className="w-full max-w-2xl">
-        <div className="relative rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 shadow-xl dark:shadow-2xl dark:shadow-black/60 backdrop-blur-xl transition-all duration-200 focus-within:ring-2 focus-within:ring-indigo-500/30 focus-within:border-indigo-500/60 overflow-hidden">
-          {/* Textarea Input Field */}
-          <div className="p-4 sm:p-5 pb-2">
-            <textarea
-              ref={textareaRef}
-              rows={2}
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleCaptureSubmit();
-                }
-              }}
-              placeholder="Ask anything or capture anything... (tasks, life goals, thoughts, notes)"
-              className="w-full bg-transparent text-sm sm:text-base text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none resize-none leading-relaxed font-medium"
-            />
-          </div>
+      {/* Main Central Input Container (Glassmorphic) */}
+      <div className="w-full relative mb-6">
+        <form
+          onSubmit={handleSubmit}
+          className="relative w-full rounded-3xl bg-white/95 dark:bg-[#101223]/90 border border-slate-200/90 dark:border-[#25284b] shadow-xl shadow-indigo-500/5 dark:shadow-[0_0_50px_-10px_rgba(79,70,229,0.2)] backdrop-blur-xl transition-all focus-within:border-indigo-400 dark:focus-within:border-indigo-500/70 p-4 sm:p-5 flex flex-col gap-3"
+        >
+          {/* Main Textarea */}
+          <textarea
+            ref={textareaRef}
+            rows={2}
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Ask anything, plan something, or tell me what you want to do..."
+            className="w-full bg-transparent text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm font-medium resize-none focus:outline-none leading-relaxed"
+          />
 
-          {/* Bottom Card Toolbar (Type selector, Context, Model, Mic, Submit) */}
-          <div className="flex items-center justify-between px-3 sm:px-4 py-2.5 bg-slate-50/70 dark:bg-slate-900/70 border-t border-slate-100 dark:border-slate-800/80">
-            {/* Left Tools: Type Pill & Second Brain Context */}
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
-              {/* Type Pill Dropdown/Selector */}
-              <div className="relative flex items-center bg-slate-200/70 dark:bg-slate-800 rounded-2xl p-0.5">
-                {(
-                  [
-                    { id: "auto", label: "Auto", icon: Sparkles },
-                    { id: "goal", label: "Goal", icon: Target },
-                    { id: "task", label: "Task", icon: CheckSquare },
-                    { id: "journal", label: "Journal", icon: BookOpen },
-                    { id: "knowledge", label: "Note", icon: FolderPlus },
-                  ] as const
-                ).map((t) => {
-                  const Icon = t.icon;
-                  const isSelected = selectedType === t.id;
-                  return (
+          {/* Bottom Toolbar inside the box */}
+          <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800/60">
+            {/* Left Tools: + , Web , Tools */}
+            <div className="flex items-center gap-2">
+              {/* Plus Button */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                  className="w-7 h-7 rounded-xl flex items-center justify-center bg-slate-100 dark:bg-[#171a30] border border-slate-200/80 dark:border-[#2c3057] text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-[#1f2342] transition-colors"
+                  title="Add attachment or action"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+
+                {isPlusMenuOpen && (
+                  <div className="absolute left-0 bottom-full mb-2 w-48 bg-white dark:bg-[#141728] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-1 z-30 flex flex-col gap-0.5 text-xs font-semibold animate-fade-in">
                     <button
-                      key={t.id}
                       type="button"
-                      onClick={() => setSelectedType(t.id)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
-                        isSelected
-                          ? "bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-2xs"
-                          : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-300"
-                      }`}
+                      onClick={() => {
+                        setIsPlusMenuOpen(false);
+                        handleQuickAction("task");
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
                     >
-                      <Icon className="w-3 h-3" />
-                      <span className="hidden sm:inline">{t.label}</span>
+                      <CheckSquare className="w-3.5 h-3.5 text-emerald-500" />
+                      <span>New Task</span>
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPlusMenuOpen(false);
+                        handleQuickAction("goal");
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
+                    >
+                      <Target className="w-3.5 h-3.5 text-rose-500" />
+                      <span>New Goal</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPlusMenuOpen(false);
+                        setInputText("note: ");
+                        if (textareaRef.current) textareaRef.current.focus();
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
+                    >
+                      <FileText className="w-3.5 h-3.5 text-blue-500" />
+                      <span>New Note</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsPlusMenuOpen(false);
+                        setInputText("journal: ");
+                        if (textareaRef.current) textareaRef.current.focus();
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-purple-500" />
+                      <span>Reflection</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
-              {/* Source/Vault Context Pill */}
+              {/* Web Toggle Pill */}
               <button
                 type="button"
-                onClick={onOpenVault}
-                title="Semantic Memory Vault status"
-                className="hidden md:flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-400 transition-colors"
+                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                  webSearchEnabled
+                    ? "bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700"
+                    : "bg-slate-100 dark:bg-[#171a30] text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-[#2c3057] hover:bg-slate-200 dark:hover:bg-[#1f2342]"
+                }`}
               >
-                <Database className="w-3 h-3 text-indigo-500" />
-                <span>Vault</span>
+                <Globe className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500" />
+                <span>Web</span>
               </button>
+
+              {/* Tools Dropdown Pill */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsToolsDropdownOpen(!isToolsDropdownOpen)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-100 dark:bg-[#171a30] text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-[#2c3057] hover:bg-slate-200 dark:hover:bg-[#1f2342] transition-colors"
+                >
+                  <Sliders className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Tools</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+
+                {isToolsDropdownOpen && (
+                  <div className="absolute left-0 bottom-full mb-2 w-52 bg-white dark:bg-[#141728] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 z-30 flex flex-col gap-0.5 text-xs font-semibold animate-fade-in">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        onNavigateTab("copilot");
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                      <span>Copilot Assistant</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsToolsDropdownOpen(false);
+                        onNavigateTab("knowledge");
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
+                    >
+                      <Layers className="w-3.5 h-3.5 text-blue-500" />
+                      <span>Memory Vault & Notes</span>
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Right Tools: Model Name, Mic & Circular Submit Action Button */}
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Active Model Pill */}
-              <div className="hidden sm:flex items-center gap-1 px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/80 text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                <span className="truncate max-w-[100px]">
-                  {brainState.selectedModel?.split("/")[1] || "Claude 3.5"}
-                </span>
-              </div>
-
-              {/* Speech-to-Text Microphone Button */}
+            {/* Right Tools: Voice Mic & Submit Arrow */}
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={toggleRecording}
-                title={isRecording ? "Stop recording" : "Voice quick capture"}
-                className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
+                className={`p-2 rounded-full transition-colors ${
                   isRecording
                     ? "bg-rose-500 text-white animate-pulse"
-                    : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-[#171a30]"
                 }`}
+                title={isRecording ? "Listening... click to stop" : "Voice dictation"}
               >
-                {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                {isRecording ? (
+                  <MicOff className="w-4 h-4" />
+                ) : (
+                  <Mic className="w-4 h-4" />
+                )}
               </button>
 
-              {/* Circular Submit Button (Perplexity white/accent circle button) */}
               <button
-                type="button"
-                onClick={() => handleCaptureSubmit()}
-                disabled={!inputText.trim() || isCapturing}
-                className={`w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-md ${
-                  inputText.trim() && !isCapturing
-                    ? "bg-indigo-600 hover:bg-indigo-500 text-white hover:scale-105 active:scale-95 cursor-pointer"
-                    : "bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-600 cursor-not-allowed opacity-60"
+                type="submit"
+                disabled={!inputText.trim() || isProcessing}
+                className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-all ${
+                  inputText.trim() && !isProcessing
+                    ? "bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/30 hover:scale-105 active:scale-95"
+                    : "bg-slate-200 dark:bg-slate-800 text-slate-400 dark:text-slate-500 cursor-not-allowed"
                 }`}
               >
-                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                {isProcessing ? (
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                ) : (
+                  <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+                )}
               </button>
             </div>
           </div>
-        </div>
-
-        {/* Capture Confirmation Feedback Toast */}
-        {captureFeedback && (
-          <div className="mt-3 py-1.5 px-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold text-indigo-700 dark:text-indigo-300 text-center animate-fade-in shadow-2xs">
-            {captureFeedback}
-          </div>
-        )}
-
-        {/* Quick Suggestion Pills Directly Underneath Input */}
-        <div className="flex flex-wrap items-center justify-center gap-2 mt-5 text-xs">
-          <button
-            onClick={onOpenGoalModal}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200/50 dark:border-slate-800 transition-all hover:scale-102"
-          >
-            <Target className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Set Life Goal</span>
-          </button>
-
-          <button
-            onClick={onOpenQuickCapture}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200/50 dark:border-slate-800 transition-all hover:scale-102"
-          >
-            <Zap className="w-3.5 h-3.5 text-amber-500" />
-            <span>Quick Capture</span>
-            <kbd className="text-[10px] font-mono opacity-60">⌘⌥N</kbd>
-          </button>
-
-          <button
-            onClick={onOpenGlobalSearch}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200/50 dark:border-slate-800 transition-all hover:scale-102"
-          >
-            <Search className="w-3.5 h-3.5 text-cyan-500" />
-            <span>Search Brain</span>
-            <kbd className="text-[10px] font-mono opacity-60">⌘K</kbd>
-          </button>
-
-          <button
-            onClick={onOpenAICopilot}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200/50 dark:border-slate-800 transition-all hover:scale-102"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-            <span>Ask Copilot</span>
-          </button>
-
-          {onOpenAuditLog && (
-            <button
-              onClick={onOpenAuditLog}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800/60 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-semibold border border-slate-200/50 dark:border-slate-800 transition-all hover:scale-102"
-            >
-              <History className="w-3.5 h-3.5 text-cyan-500" />
-              <span>Event Log</span>
-              <kbd className="text-[10px] font-mono opacity-60">⌘Z</kbd>
-            </button>
-          )}
-        </div>
+        </form>
       </div>
 
-      {/* Subdued Minimalist Daily Focus Accordion (Optional Collapsible) */}
-      <div className="w-full max-w-2xl mt-10">
-        <button
-          onClick={() => setShowBriefAccordion(!showBriefAccordion)}
-          className="w-full flex items-center justify-between px-4 py-2.5 rounded-2xl bg-slate-50 hover:bg-slate-100 dark:bg-slate-900/40 dark:hover:bg-slate-900/80 border border-slate-200/60 dark:border-slate-800/60 text-xs font-bold text-slate-600 dark:text-slate-400 transition-all"
-        >
+      {/* Reactive Agent Action Card */}
+      {lastExecution && (
+        <div className="w-full mb-6 p-4 rounded-3xl bg-white/90 dark:bg-[#121424] border border-slate-200 dark:border-slate-800 shadow-md animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" />
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                {lastExecution.headline}
+              </h4>
+            </div>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">
+              {lastExecution.explanation}
+            </p>
+          </div>
+
           <div className="flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Today's Executive Brief & Focus</span>
-            <span className="text-[11px] font-normal text-slate-400">
-              ({dueTodayTasks.length} tasks due, {completedHabitsToday}/{activeHabits.length} habits done, {activeGoals.length} life goals)
-            </span>
+            <button
+              onClick={() => {
+                if (lastExecution.entityType === "task") onNavigateTab("tasks");
+                else if (lastExecution.entityType === "goal") onNavigateTab("goals");
+                else if (lastExecution.entityType === "habit") onNavigateTab("habits");
+                else if (lastExecution.entityType === "journal") onNavigateTab("journal");
+                else if (lastExecution.entityType === "knowledge") onNavigateTab("knowledge");
+              }}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
+            >
+              <span>View</span>
+              <ArrowRight className="w-3 h-3" />
+            </button>
+            <button
+              onClick={onUndo}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
+              title="Undo action"
+            >
+              <Undo2 className="w-3 h-3" />
+              <span>Undo</span>
+            </button>
           </div>
-          {showBriefAccordion ? (
-            <ChevronUp className="w-4 h-4 text-slate-400" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-slate-400" />
-          )}
-        </button>
+        </div>
+      )}
 
-        {showBriefAccordion && (
-          <div className="mt-3 p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800/70 shadow-sm animate-fade-in space-y-4">
-            {brainState.dailyBrief ? (
-              <>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 font-bold">
-                      {brainState.dailyBrief.date} // Synthesis
-                    </div>
-                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-0.5">
-                      {brainState.dailyBrief.headline}
-                    </h3>
-                  </div>
-                  <button
-                    onClick={handleGenerateBrief}
-                    disabled={isGeneratingBrief}
-                    className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                    title="Refresh briefing"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${isGeneratingBrief ? "animate-spin" : ""}`} />
-                  </button>
-                </div>
-
-                <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
-                  {brainState.dailyBrief.summary}
-                </p>
-
-                {/* Priority items */}
-                {brainState.dailyBrief.topPriorities && (
-                  <div className="space-y-1.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                      Key Objectives
-                    </div>
-                    {brainState.dailyBrief.topPriorities.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between text-xs py-1 px-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50"
-                      >
-                        <span className="font-semibold text-slate-800 dark:text-slate-200">
-                          {item.title}
-                        </span>
-                        <span className="text-[11px] text-slate-400">{item.reason}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            ) : (
-              <div className="text-center py-4">
-                <p className="text-xs text-slate-400 mb-2">No executive brief generated for today yet.</p>
-                <button
-                  onClick={handleGenerateBrief}
-                  disabled={isGeneratingBrief}
-                  className="px-4 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all inline-flex items-center gap-1.5"
-                >
-                  <Sparkles className={`w-3.5 h-3.5 ${isGeneratingBrief ? "animate-spin" : ""}`} />
-                  <span>{isGeneratingBrief ? "Synthesizing..." : "Generate Morning Brief"}</span>
-                </button>
-              </div>
-            )}
+      {/* 4 Quick Action Cards Grid matching screenshots */}
+      <div className="w-full grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        {/* Card 1: Plan my week */}
+        <div
+          onClick={() => handleQuickAction("plan")}
+          className="group flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-[#121424] border border-slate-200/80 dark:border-[#232646] hover:border-blue-500/40 hover:shadow-md cursor-pointer transition-all"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-500 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <ClipboardList className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                Plan my week
+              </h4>
+              <p className="text-[10px] text-slate-400 truncate">
+                Break down my tasks and goals
+              </p>
+            </div>
           </div>
-        )}
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500 transition-colors shrink-0 ml-1" />
+        </div>
+
+        {/* Card 2: Set a new goal */}
+        <div
+          onClick={() => handleQuickAction("goal")}
+          className="group flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-[#171321] border border-slate-200/80 dark:border-[#3b1d28] hover:border-rose-500/40 hover:shadow-md cursor-pointer transition-all"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-rose-500/10 text-rose-500 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Target className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                Set a new goal
+              </h4>
+              <p className="text-[10px] text-slate-400 truncate">
+                Help me define and track it
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-rose-500 transition-colors shrink-0 ml-1" />
+        </div>
+
+        {/* Card 3: Create tasks */}
+        <div
+          onClick={() => handleQuickAction("task")}
+          className="group flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-[#111822] border border-slate-200/80 dark:border-[#1b342b] hover:border-emerald-500/40 hover:shadow-md cursor-pointer transition-all"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <CheckSquare className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                Create tasks
+              </h4>
+              <p className="text-[10px] text-slate-400 truncate">
+                Turn this into an actionable plan
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-emerald-500 transition-colors shrink-0 ml-1" />
+        </div>
+
+        {/* Card 4: Brainstorm ideas */}
+        <div
+          onClick={() => handleQuickAction("brainstorm")}
+          className="group flex items-center justify-between p-3.5 rounded-2xl bg-white dark:bg-[#161225] border border-slate-200/80 dark:border-[#2e2049] hover:border-purple-500/40 hover:shadow-md cursor-pointer transition-all"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-purple-500/10 text-purple-500 dark:bg-purple-950/40 dark:text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                Brainstorm ideas
+              </h4>
+              <p className="text-[10px] text-slate-400 truncate">
+                Explore concepts and get suggestions
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-purple-500 transition-colors shrink-0 ml-1" />
+        </div>
       </div>
     </div>
   );

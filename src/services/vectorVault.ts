@@ -301,22 +301,24 @@ export function chunkJournal(entry: JournalEntry): { title: string; content: str
 
 export function chunkKnowledge(item: KnowledgeItem): { title: string; content: string; date?: string; metadata: any } {
   const content = [
-    `Knowledge Note: "${item.subject}"`,
+    `Knowledge Note: "${item.title || item.subject}"`,
     `Domain: ${item.domain || "General"}`,
     `Status: ${item.status}`,
     item.startDate ? `Timeline: ${item.startDate} to ${item.endDate || "Present"}` : "",
     `Summary: ${item.summary}`,
+    item.content ? `Body: ${item.content}` : "",
   ]
     .filter(Boolean)
     .join(". ");
 
   return {
-    title: item.subject,
+    title: item.title || item.subject,
     content,
     date: item.startDate,
     metadata: {
       status: item.status,
       domain: item.domain,
+      folderId: item.folderId,
     },
   };
 }

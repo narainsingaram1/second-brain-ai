@@ -1,11 +1,12 @@
-import React, { useState } from "react";
-import { KnowledgeItem } from "../types";
-import { X, Database } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { KnowledgeItem, NoteFolder } from "../types";
+import { X, FileText, Trash2, Folder as FolderIcon, Tag } from "lucide-react";
 
 interface KnowledgeModalProps {
   isOpen: boolean;
   onClose: () => void;
   item: KnowledgeItem | null;
+  folders?: NoteFolder[];
   onSave: (item: KnowledgeItem) => void;
   onDelete?: (id: string) => void;
 }
@@ -14,32 +15,76 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
   isOpen,
   onClose,
   item,
+  folders = [],
   onSave,
   onDelete,
 }) => {
-  const [subject, setSubject] = useState(item?.subject || "");
-  const [status, setStatus] = useState<KnowledgeItem["status"]>(item?.status || "Synthesized");
-  const [domain, setDomain] = useState<string>(item?.domain || "Academic");
-  const [startDate, setStartDate] = useState(item?.startDate || new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(item?.endDate || new Date(Date.now() + 86400000).toISOString().split("T")[0]);
-  const [summary, setSummary] = useState(item?.summary || "");
+  const [title, setTitle] = useState("");
+  const [content, setContent] = useState("");
+  const [folderId, setFolderId] = useState<string | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      if (item) {
+        setTitle(item.title || item.subject || "");
+        setContent(item.content || item.summary || "");
+        setFolderId(item.folderId || null);
+        setTags(item.tags || []);
+      } else {
+        setTitle("");
+        setContent("");
+        setFolderId(null);
+        setTags([]);
+      }
+      setTagInput("");
+    }
+  }, [isOpen, item]);
 
   if (!isOpen) return null;
 
+  const handleAddTag = () => {
+    const trimmed = tagInput.trim().replace(/^#/, "");
+    if (trimmed && !tags.includes(trimmed)) {
+      setTags([...tags, trimmed]);
+      setTagInput("");
+    }
+  };
+
+  const handleRemoveTag = (t: string) => {
+    setTags(tags.filter((tag) => tag !== t));
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subject.trim()) return;
+    if (!title.trim() && !content.trim()) return;
+
+    const finalTitle = title.trim() || "Untitled Note";
+    const snippet =
+      content.trim().length > 200
+        ? content.trim().slice(0, 197) + "..."
+        : content.trim() || finalTitle;
 
     const updated: KnowledgeItem = {
-      id: item?.id || `know-${Date.now()}`,
-      subject: subject.trim(),
-      status,
-      domain,
-      startDate,
-      endDate,
-      summary: summary.trim(),
+      ...(item || {}),
+      id: item?.id || `note-${Date.now()}`,
+      title: finalTitle,
+      subject: finalTitle,
+      content: content.trim(),
+      summary: snippet,
+      folderId,
+      status: item?.status || "Synthesized",
+      startDate: item?.startDate || new Date().toISOString().split("T")[0],
+      endDate: item?.endDate || new Date().toISOString().split("T")[0],
+      domain: item?.domain || "General",
       coverGradient: item?.coverGradient || "from-lime-300 via-amber-200 to-rose-300",
       itemCount: item?.itemCount || 1,
+      tags,
+      pinned: item?.pinned || false,
+      favorite: item?.favorite || false,
+      createdAt: item?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
 
     onSave(updated);
@@ -48,139 +93,168 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white dark:bg-[#141721] rounded-4xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-lg overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-[#141721] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-xl overflow-hidden flex flex-col">
+        {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
-            <Database className="w-5 h-5 text-blue-500" />
-            <h3 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
-              {item ? "Knowledge Artifact" : "New Suggested Knowledge"}
-            </h3>
+            <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+              <FileText className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                {item ? "Edit Note" : "Create New Note"}
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Write ideas, technical notes, or study guides
+              </p>
+            </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
+            className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
+        {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Subject / Topic *
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Note Title *
             </label>
             <input
               type="text"
+              autoFocus
               required
-              placeholder="e.g. Design Sprint: Neumorphic Life OS"
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g. Distributed Systems Raft Consensus, CS 2110 Lab 1"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="w-full bg-slate-100 dark:bg-slate-800/80 text-xs font-bold text-slate-900 dark:text-slate-100 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Execution Status
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
+                <FolderIcon className="w-3.5 h-3.5 text-blue-500" />
+                <span>Folder Location</span>
               </label>
               <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as any)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
+                value={folderId || ""}
+                onChange={(e) => setFolderId(e.target.value ? e.target.value : null)}
+                className="w-full bg-slate-100 dark:bg-slate-800/80 text-xs font-semibold text-slate-800 dark:text-slate-200 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <option value="Executed">Executed</option>
-                <option value="Synthesized">Synthesized</option>
-                <option value="Review">Review</option>
-                <option value="Draft">Draft</option>
+                <option value="">📁 Root / Unfiled</option>
+                {folders.map((f) => {
+                  const parent = folders.find((p) => p.id === f.parentId);
+                  const label = parent ? `${parent.name} / ${f.name}` : f.name;
+                  return (
+                    <option key={f.id} value={f.id}>
+                      📁 {label}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Domain
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
+                <Tag className="w-3.5 h-3.5 text-slate-400" />
+                <span>Tags</span>
               </label>
-              <select
-                value={domain}
-                onChange={(e) => setDomain(e.target.value as any)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
-              >
-                <option value="career">Career</option>
-                <option value="learning">Learning</option>
-                <option value="ai">AI Agent</option>
-                <option value="health">Health</option>
-                <option value="mindset">Mindset</option>
-              </select>
+              <div className="flex items-center gap-1">
+                <input
+                  type="text"
+                  placeholder="e.g. exam, algo"
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddTag();
+                    }
+                  }}
+                  className="w-full bg-slate-100 dark:bg-slate-800/80 text-xs font-medium text-slate-900 dark:text-slate-100 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddTag}
+                  className="px-2.5 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200"
+                >
+                  Add
+                </button>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Start Date
-              </label>
-              <input
-                type="text"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
-              />
+          {tags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2.5 py-0.5 rounded-full text-[11px] font-medium"
+                >
+                  <span>#{t}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveTag(t)}
+                    className="text-slate-400 hover:text-rose-500"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                End / Review Date
-              </label>
-              <input
-                type="text"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
-              />
-            </div>
-          </div>
+          )}
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Summary & Synthesis Notes
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Note Content (Markdown supported) *
             </label>
             <textarea
-              rows={4}
-              placeholder="Key insights, reference URLs, architectural decisions..."
-              value={summary}
-              onChange={(e) => setSummary(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-medium"
+              rows={8}
+              required
+              placeholder="Type your notes here... You can use markdown like ## Headings, - Lists, - [ ] Checkboxes, ```code, etc."
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              className="w-full bg-slate-100 dark:bg-slate-800/80 text-xs text-slate-900 dark:text-slate-100 p-3.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none font-sans leading-relaxed"
             />
           </div>
 
+          {/* Footer Actions */}
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             {item && onDelete ? (
               <button
                 type="button"
                 onClick={() => {
-                  onDelete(item.id);
-                  onClose();
+                  if (confirm(`Delete note "${title}"?`)) {
+                    onDelete(item.id);
+                    onClose();
+                  }
                 }}
-                className="text-xs font-bold text-rose-500 hover:underline"
+                className="flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 px-3 py-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
               >
-                Delete Note
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Note</span>
               </button>
             ) : (
-              <div></div>
+              <div />
             )}
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100"
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-full bg-[#0d0f14] dark:bg-white text-white dark:text-slate-900 text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20 transition-all hover:scale-105"
               >
-                Save Knowledge
+                {item ? "Save Note" : "Create Note"}
               </button>
             </div>
           </div>
