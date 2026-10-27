@@ -1,4 +1,4 @@
-import { Task, JournalEntry, KnowledgeItem, Habit, BrainState } from "../types";
+import { Task, JournalEntry, KnowledgeItem, Habit, BrainState, Goal } from "../types";
 import {
   saveVectorChunksToDB,
   getAllVectorChunksFromDB,
@@ -9,7 +9,7 @@ import {
 export interface VectorChunk {
   id: string;
   item_id: string;
-  item_type: "task" | "journal" | "knowledge" | "habit";
+  item_type: "task" | "journal" | "knowledge" | "habit" | "goal";
   title: string;
   content: string;
   date?: string;
@@ -345,6 +345,40 @@ export function chunkHabit(habit: Habit): { title: string; content: string; date
   };
 }
 
+export function chunkGoal(goal: Goal): { title: string; content: string; date?: string; metadata: any } {
+  const milestonesStr = (goal.milestones || [])
+    .map((m) => `[${m.completed ? "x" : " "}] ${m.title}`)
+    .join("; ");
+
+  const content = [
+    `Life Goal: "${goal.title}"`,
+    `Sector: ${goal.sector}`,
+    `Timeframe: ${goal.timeframe}`,
+    `Status: ${goal.status}`,
+    `Progress: ${goal.progress}%`,
+    goal.targetDate ? `Target Completion Date: ${goal.targetDate}` : "",
+    goal.metrics ? `Target Metric: ${goal.metrics}` : "",
+    goal.why ? `Core Why & Purpose: ${goal.why}` : "",
+    goal.description ? `Description: ${goal.description}` : "",
+    milestonesStr ? `Milestones: ${milestonesStr}` : "",
+  ]
+    .filter(Boolean)
+    .join(". ");
+
+  return {
+    title: goal.title,
+    content,
+    date: goal.targetDate,
+    metadata: {
+      sector: goal.sector,
+      timeframe: goal.timeframe,
+      status: goal.status,
+      progress: goal.progress,
+      metrics: goal.metrics,
+    },
+  };
+}
+
 // =========================================================================
 // VECTOR VAULT CLIENT & SYNC SERVICE
 // =========================================================================
@@ -384,8 +418,8 @@ class SemanticMemoryVaultService {
    * Indexes a single brain item into the vector vault.
    */
   async indexItem(
-    item: Task | JournalEntry | KnowledgeItem | Habit,
-    type: "task" | "journal" | "knowledge" | "habit",
+    item: Task | JournalEntry | KnowledgeItem | Habit | Goal,
+    type: "task" | "journal" | "knowledge" | "habit" | "goal",
     openRouterKey?: string
   ): Promise<VectorChunk> {
     await this.init();
@@ -394,6 +428,7 @@ class SemanticMemoryVaultService {
     if (type === "task") chunkData = chunkTask(item as Task);
     else if (type === "journal") chunkData = chunkJournal(item as JournalEntry);
     else if (type === "knowledge") chunkData = chunkKnowledge(item as KnowledgeItem);
+    else if (type === "goal") chunkData = chunkGoal(item as Goal);
     else chunkData = chunkHabit(item as Habit);
 
     const { embedding, norm } = await getEmbedding(chunkData.content, openRouterKey);
@@ -519,8 +554,9 @@ class SemanticMemoryVaultService {
   ): Promise<{ totalIndexed: number; totalChunks: number }> {
     await this.init();
 
-    const allItems: { item: any; type: "task" | "journal" | "knowledge" | "habit" }[] = [
+    const allItems: { item: any; type: "task" | "journal" | "knowledge" | "habit" | "goal" }[] = [
       ...brainState.tasks.map((t) => ({ item: t, type: "task" as const })),
+      ...(brainState.goals || []).map((g) => ({ item: g, type: "goal" as const })),
       ...brainState.journalEntries.map((j) => ({ item: j, type: "journal" as const })),
       ...brainState.knowledgeItems.map((k) => ({ item: k, type: "knowledge" as const })),
       ...brainState.habits.map((h) => ({ item: h, type: "habit" as const })),
@@ -535,6 +571,7 @@ class SemanticMemoryVaultService {
       if (type === "task") chunkData = chunkTask(item);
       else if (type === "journal") chunkData = chunkJournal(item);
       else if (type === "knowledge") chunkData = chunkKnowledge(item);
+      else if (type === "goal") chunkData = chunkGoal(item);
       else chunkData = chunkHabit(item);
 
       const { embedding, norm } = await getEmbedding(chunkData.content, openRouterKey);

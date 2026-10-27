@@ -393,3 +393,115 @@ Do NOT return markdown backticks. Return raw JSON only. Limit topPriorities to e
     energyAdvice: "Schedule a 90-minute unbroken block this morning. Hydrate early and shut off shallow notifications.",
   };
 }
+
+/**
+ * Breaks down a high-level life goal into 4-5 measurable milestones and a target metric.
+ * Works both with OpenRouter AI or with intelligent offline heuristics.
+ */
+export async function breakdownGoalWithAI(
+  goalTitle: string,
+  sector: string,
+  timeframe?: string,
+  why?: string,
+  apiKey?: string,
+  model?: string
+): Promise<{ milestones: string[]; metrics?: string; advice?: string }> {
+  if (apiKey && apiKey.trim() !== "") {
+    try {
+      const prompt = `You are an elite executive life coach and strategic systems thinker.
+Break down this long-term life goal into 4-5 actionable, high-leverage milestones, a concrete target metric, and 1 sentence of strategic advice.
+
+Goal: "${goalTitle}"
+Sector: ${sector}
+Timeframe: ${timeframe || "yearly"}
+Why: ${why || "Long-term self-improvement and life mastery"}
+
+Respond ONLY with valid JSON in this exact structure:
+{
+  "milestones": ["Milestone 1", "Milestone 2", "Milestone 3", "Milestone 4"],
+  "metrics": "Clear quantifiable target metric",
+  "advice": "1 concise sentence of strategic advice"
+}`;
+
+      const response = await queryOpenRouter(
+        [{ role: "user", content: prompt }],
+        apiKey,
+        model || "anthropic/claude-3.5-sonnet"
+      );
+
+      // Extract JSON block
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed.milestones) && parsed.milestones.length > 0) {
+          return {
+            milestones: parsed.milestones.map((m: any) => String(m).trim()),
+            metrics: parsed.metrics ? String(parsed.metrics) : undefined,
+            advice: parsed.advice ? String(parsed.advice) : undefined,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn("AI Goal breakdown failed, using strategic heuristic fallback:", e);
+    }
+  }
+
+  // Strategic Sector Heuristic Fallback (offline / instant)
+  const sectorLower = sector.toLowerCase();
+  if (sectorLower.includes("career")) {
+    return {
+      milestones: [
+        `Audit current skill stack & map core competencies needed for "${goalTitle}"`,
+        `Build & publish a portfolio-grade project showcasing advanced system design`,
+        `Conduct 10 informational interviews with leaders currently at this level`,
+        `Deliver high-leverage organizational outcome with measurable ROI`,
+      ],
+      metrics: "L5/L6 caliber technical achievement + 15 peer endorsements",
+      advice: "Focus on asymmetric output and public proof of work rather than routine activity.",
+    };
+  } else if (sectorLower.includes("academic")) {
+    return {
+      milestones: [
+        `Outline master syllabus and break weekly readings into 90m deep work blocks`,
+        `Build active-recall flashcard vault and solve past exam problem sets`,
+        `Establish weekly office hour relationship with principal faculty`,
+        `Complete capstone synthesis project or honors research paper`,
+      ],
+      metrics: "3.9+ GPA / Top 5% cohort ranking",
+      advice: "Active testing and spaced retrieval outperform passive re-reading 3:1.",
+    };
+  } else if (sectorLower.includes("finance")) {
+    return {
+      milestones: [
+        `Calculate exact monthly burn rate and optimize recurring fixed overheads`,
+        `Automate dollar-cost averaging into low-expense diversified index funds`,
+        `Build a dedicated 6-month liquid emergency runway in high-yield cash`,
+        `Launch or scale a high-margin secondary cash-flow stream`,
+      ],
+      metrics: "Maintain >40% net savings rate & hit capital milestone",
+      advice: "Wealth is what you do not spend; automate deposits before discretionary spending.",
+    };
+  } else if (sectorLower.includes("health")) {
+    return {
+      milestones: [
+        `Standardize 8-hour sleep window with consistent circadian light exposure`,
+        `Execute 4 progressive resistance training sessions weekly with logged volume`,
+        `Achieve target daily protein intake (1g/lb) and eliminate processed sugars`,
+        `Hit benchmark conditioning test (e.g. 5k/10k time or body composition target)`,
+      ],
+      metrics: "Resting HR <58 bpm, peak VO2 max, 4-streak workout compliance",
+      advice: "Consistency of habit execution compounds exponentially faster than intensity spikes.",
+    };
+  } else {
+    return {
+      milestones: [
+        `Define clear non-negotiable weekly ritual supporting "${goalTitle}"`,
+        `Track daily lead indicators in second brain for 30 consecutive days`,
+        `Conduct mid-point retrospective and eliminate top 2 friction points`,
+        `Finalize execution sprint and celebrate achievement with mentor or peers`,
+      ],
+      metrics: "90% 90-day execution consistency score",
+      advice: "Design your physical and digital environment so failure requires more effort than success.",
+    };
+  }
+}

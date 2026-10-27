@@ -1,10 +1,13 @@
-import React, { useState, useEffect } from "react";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession } from "./types";
+import React, { useState, useEffect, useRef } from "react";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus } from "./types";
 import { loadInitialState, persistBrainState } from "./services/storage";
 import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
 import { Header } from "./components/Header";
+import { HomeView } from "./components/HomeView";
+import { GoalsView } from "./components/GoalsView";
+import { GoalModal } from "./components/GoalModal";
 import { TaskMatrixView } from "./components/TaskMatrixView";
 import { HabitsView } from "./components/HabitsView";
 import { JournalView } from "./components/JournalView";
@@ -17,13 +20,15 @@ import { KnowledgeModal } from "./components/KnowledgeModal";
 import { AuthModal } from "./components/AuthModal";
 import { UniversalQuickCapture } from "./components/UniversalQuickCapture";
 import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal";
+import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
+import { AuditLogModal } from "./components/AuditLogModal";
 import { vectorVault } from "./services/vectorVault";
-import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X, Zap } from "lucide-react";
+import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, Database, X, Zap, Undo2, Target } from "lucide-react";
 
 export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
-  const [activeTab, setActiveTab] = useState<string>("tasks");
+  const [activeTab, setActiveTab] = useState<string>("home");
   const [searchQuery, setSearchQuery] = useState("");
 
   // Modals state
@@ -35,12 +40,21 @@ export const App: React.FC = () => {
   const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
   const [taskModalDefaultDueDate, setTaskModalDefaultDueDate] = useState<string>("");
   const [activeEditTask, setActiveEditTask] = useState<Task | null>(null);
+  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
+  const [activeEditGoal, setActiveEditGoal] = useState<Goal | null>(null);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [activeEditKnowledge, setActiveEditKnowledge] = useState<KnowledgeItem | null>(null);
   const [isQuickAddMenuOpen, setIsQuickAddMenuOpen] = useState(false);
   const [isQuickCaptureOpen, setIsQuickCaptureOpen] = useState(false);
   const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
+  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
+
+  // Undo / Redo History Stack (30 rolling snapshots)
+  const historyPast = useRef<BrainState[]>([]);
+  const historyFuture = useRef<BrainState[]>([]);
 
   // Load initial session & database state on mount
   useEffect(() => {
@@ -96,11 +110,90 @@ export const App: React.FC = () => {
     setState(loaded);
   };
 
+  // Record State Mutation in Audit Log & Undo Stack
+  const recordMutation = (
+    action: string,
+    entityType: "task" | "habit" | "journal" | "knowledge" | "section" | "goal",
+    entityTitle: string,
+    details?: string
+  ) => {
+    if (!state) return;
+    // Push snapshot to past history
+    historyPast.current = [...historyPast.current.slice(-29), JSON.parse(JSON.stringify(state))];
+    historyFuture.current = [];
+
+    const entry: AuditLogEntry = {
+      id: `audit-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      action,
+      entityType,
+      entityTitle,
+      details,
+      canUndo: true,
+    };
+
+    setState((prev) => (prev ? {
+      ...prev,
+      auditLog: [entry, ...(prev.auditLog || []).slice(0, 99)],
+    } : null));
+
+    setUndoToast({
+      message: `${action}: "${entityTitle.slice(0, 24)}"`,
+      onUndo: handleUndo,
+    });
+  };
+
+  // ⌘Z Undo Handler
+  const handleUndo = () => {
+    if (historyPast.current.length === 0 || !state) return;
+    const previousState = historyPast.current.pop()!;
+    historyFuture.current.push(JSON.parse(JSON.stringify(state)));
+    setState(previousState);
+    setUndoToast({
+      message: "State restored (⌘Z)",
+      onUndo: handleRedo,
+    });
+    setTimeout(() => setUndoToast(null), 3500);
+  };
+
+  // ⌘⇧Z / ⌘Y Redo Handler
+  const handleRedo = () => {
+    if (historyFuture.current.length === 0 || !state) return;
+    const nextState = historyFuture.current.pop()!;
+    historyPast.current.push(JSON.parse(JSON.stringify(state)));
+    setState(nextState);
+    setUndoToast(null);
+  };
+
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // ⌘Z Undo (without shift)
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.code === "KeyZ") {
+        e.preventDefault();
+        handleUndo();
+        return;
+      }
+
+      // ⌘⇧Z or ⌘Y Redo
+      if (
+        ((e.metaKey || e.ctrlKey) && e.shiftKey && e.code === "KeyZ") ||
+        ((e.metaKey || e.ctrlKey) && e.code === "KeyY")
+      ) {
+        e.preventDefault();
+        handleRedo();
+        return;
+      }
+
+      // ⌘K: Real Semantic Global Search Omnibar
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsGlobalSearchOpen((prev) => !prev);
+        return;
+      }
+
       // ⌘⌥N (Cmd+Option+N / Ctrl+Alt+N) or ⌥⇧N (Option+Shift+N): Universal Quick Capture
-      // Completely free from browser collisions like ⌘⇧N (Chrome incognito)
       const isAltN = e.altKey && (e.key.toLowerCase() === "n" || e.code === "KeyN");
       if (((e.metaKey || e.ctrlKey) && isAltN) || (e.shiftKey && isAltN)) {
         e.preventDefault();
@@ -108,10 +201,7 @@ export const App: React.FC = () => {
         setIsQuickCaptureOpen(true);
         return;
       }
-      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
-        e.preventDefault();
-        setIsAICopilotOpen((prev) => !prev);
-      }
+
       if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
         setActiveEditTask(null);
@@ -152,6 +242,10 @@ export const App: React.FC = () => {
 
   // Task Handlers
   const handleToggleTask = (taskId: string) => {
+    const taskObj = state?.tasks.find((t) => t.id === taskId);
+    if (taskObj) {
+      recordMutation(taskObj.completed ? "Reopened Task" : "Completed Task", "task", taskObj.title);
+    }
     setState((prev) => {
       if (!prev) return null;
       return {
@@ -171,6 +265,10 @@ export const App: React.FC = () => {
   };
 
   const handleStatusChange = (taskId: string, status: Task["status"]) => {
+    const taskObj = state?.tasks.find((t) => t.id === taskId);
+    if (taskObj) {
+      recordMutation(`Status -> ${status?.replace("_", " ")}`, "task", taskObj.title);
+    }
     setState((prev) => {
       if (!prev) return null;
       return {
@@ -195,12 +293,15 @@ export const App: React.FC = () => {
       status,
       completed: status === "completed",
     };
+    const exists = state?.tasks.some((t) => t.id === normalized.id);
+    recordMutation(exists ? "Updated Task" : "Created Task", "task", normalized.title);
+
     setState((prev) => {
       if (!prev) return null;
-      const exists = prev.tasks.some((t) => t.id === normalized.id);
+      const isExist = prev.tasks.some((t) => t.id === normalized.id);
       return {
         ...prev,
-        tasks: exists
+        tasks: isExist
           ? prev.tasks.map((t) => (t.id === normalized.id ? normalized : t))
           : [normalized, ...prev.tasks],
       };
@@ -210,6 +311,10 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteTask = (taskId: string) => {
+    const taskObj = state?.tasks.find((t) => t.id === taskId);
+    if (taskObj) {
+      recordMutation("Deleted Task", "task", taskObj.title, `Section: ${taskObj.section}`);
+    }
     setState((prev) => {
       if (!prev) return null;
       return {
@@ -239,6 +344,7 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteSection = (sectionName: string) => {
+    recordMutation("Deleted Section", "section", sectionName);
     setState((prev) => {
       if (!prev) return null;
       const remainingSections = prev.sections.filter((s) => s !== sectionName);
@@ -350,6 +456,10 @@ export const App: React.FC = () => {
 
   // Habit Handlers (Real continuously computed streaks)
   const handleToggleHabit = (habitId: string, customDate?: string) => {
+    const habitObj = state?.habits.find((h) => h.id === habitId);
+    if (habitObj) {
+      recordMutation("Toggled Habit", "habit", habitObj.name);
+    }
     const targetDate = customDate || getLocalDateString();
     setState((prev) => {
       if (!prev) return null;
@@ -367,12 +477,15 @@ export const App: React.FC = () => {
 
   const handleSaveHabit = (habit: Habit) => {
     const synced = syncHabitStreaks(habit);
+    const exists = state?.habits.some((h) => h.id === synced.id);
+    recordMutation(exists ? "Updated Habit" : "Created Habit", "habit", synced.name);
+
     setState((prev) => {
       if (!prev) return null;
-      const exists = prev.habits.some((h) => h.id === synced.id);
+      const isExist = prev.habits.some((h) => h.id === synced.id);
       return {
         ...prev,
-        habits: exists
+        habits: isExist
           ? prev.habits.map((h) => (h.id === synced.id ? synced : h))
           : [...prev.habits, synced],
       };
@@ -380,8 +493,89 @@ export const App: React.FC = () => {
     vectorVault.indexItem(synced, "habit", state?.openRouterKey).catch(() => {});
   };
 
+  // Goal Handlers (Macro Life Improvement & Horizons)
+  const handleSaveGoal = (goal: Goal) => {
+    const exists = state?.goals?.some((g) => g.id === goal.id);
+    recordMutation(exists ? "Updated Life Goal" : "Created Life Goal", "goal", goal.title);
+
+    setState((prev) => {
+      if (!prev) return null;
+      const currentGoals = prev.goals || [];
+      const isExist = currentGoals.some((g) => g.id === goal.id);
+      return {
+        ...prev,
+        goals: isExist
+          ? currentGoals.map((g) => (g.id === goal.id ? goal : g))
+          : [goal, ...currentGoals],
+      };
+    });
+    vectorVault.indexItem(goal, "goal", state?.openRouterKey).catch(() => {});
+  };
+
+  const handleDeleteGoal = (goalId: string) => {
+    const goalObj = state?.goals?.find((g) => g.id === goalId);
+    if (goalObj) {
+      recordMutation("Deleted Life Goal", "goal", goalObj.title);
+    }
+    setState((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        goals: (prev.goals || []).filter((g) => g.id !== goalId),
+      };
+    });
+    vectorVault.removeItem(goalId).catch(() => {});
+  };
+
+  const handleToggleMilestone = (goalId: string, milestoneId: string) => {
+    setState((prev) => {
+      if (!prev) return null;
+      const updatedGoals = (prev.goals || []).map((goal) => {
+        if (goal.id !== goalId) return goal;
+        const updatedMilestones = (goal.milestones || []).map((m) =>
+          m.id === milestoneId ? { ...m, completed: !m.completed } : m
+        );
+        const completedCount = updatedMilestones.filter((m) => m.completed).length;
+        const progress = updatedMilestones.length > 0
+          ? Math.round((completedCount / updatedMilestones.length) * 100)
+          : goal.progress;
+        const status = progress === 100 ? ("achieved" as GoalStatus) : (goal.status === "achieved" ? ("in_progress" as GoalStatus) : goal.status);
+        const updatedGoal = {
+          ...goal,
+          milestones: updatedMilestones,
+          progress,
+          status,
+        };
+        vectorVault.indexItem(updatedGoal, "goal", prev.openRouterKey).catch(() => {});
+        return updatedGoal;
+      });
+      return {
+        ...prev,
+        goals: updatedGoals,
+      };
+    });
+  };
+
+  const handleUpdateGoalStatus = (goalId: string, status: GoalStatus) => {
+    setState((prev) => {
+      if (!prev) return null;
+      const updatedGoals = (prev.goals || []).map((g) => {
+        if (g.id !== goalId) return g;
+        const progress = status === "achieved" ? 100 : (g.progress === 100 ? 50 : g.progress);
+        const updated = { ...g, status, progress };
+        vectorVault.indexItem(updated, "goal", prev.openRouterKey).catch(() => {});
+        return updated;
+      });
+      return {
+        ...prev,
+        goals: updatedGoals,
+      };
+    });
+  };
+
   // Journal Handlers
   const handleSaveJournalEntry = (entry: JournalEntry) => {
+    recordMutation("Saved Journal Reflection", "journal", entry.title);
     setState((prev) => {
       if (!prev) return null;
       const exists = prev.journalEntries.some((j) => j.id === entry.id || j.date === entry.date);
@@ -407,12 +601,15 @@ export const App: React.FC = () => {
 
   // Knowledge Handlers
   const handleSaveKnowledge = (item: KnowledgeItem) => {
+    const exists = state?.knowledgeItems.some((k) => k.id === item.id);
+    recordMutation(exists ? "Updated Note" : "Created Note", "knowledge", item.subject);
+
     setState((prev) => {
       if (!prev) return null;
-      const exists = prev.knowledgeItems.some((k) => k.id === item.id);
+      const isExist = prev.knowledgeItems.some((k) => k.id === item.id);
       return {
         ...prev,
-        knowledgeItems: exists
+        knowledgeItems: isExist
           ? prev.knowledgeItems.map((k) => (k.id === item.id ? item : k))
           : [item, ...prev.knowledgeItems],
       };
@@ -421,6 +618,10 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteKnowledge = (id: string) => {
+    const itemObj = state?.knowledgeItems.find((k) => k.id === id);
+    if (itemObj) {
+      recordMutation("Deleted Note", "knowledge", itemObj.subject);
+    }
     setState((prev) => {
       if (!prev) return null;
       return {
@@ -491,6 +692,8 @@ export const App: React.FC = () => {
         onOpenAIChat={() => setIsAICopilotOpen(true)}
         onOpenQuickCapture={() => setIsQuickCaptureOpen(true)}
         onOpenVault={() => setIsVaultModalOpen(true)}
+        onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
+        onOpenAuditLog={() => setIsAuditLogOpen(true)}
         theme={state.theme}
         onToggleTheme={handleToggleTheme}
         searchQuery={searchQuery}
@@ -501,6 +704,53 @@ export const App: React.FC = () => {
 
       {/* Main Spacious Content */}
       <main className="flex-1 px-6 sm:px-12 py-8 max-w-5xl mx-auto w-full pb-28">
+        {/* ========================================================= */}
+        {/* TAB 0: HOME / EXECUTIVE AI BRIEFING (Perplexity-Style)    */}
+        {/* ========================================================= */}
+        {activeTab === "home" && (
+          <HomeView
+            brainState={state}
+            onSaveTask={handleSaveTask}
+            onSaveGoal={handleSaveGoal}
+            onSaveJournal={handleSaveJournalEntry}
+            onSaveKnowledge={handleSaveKnowledge}
+            onOpenGoalModal={() => {
+              setActiveEditGoal(null);
+              setIsGoalModalOpen(true);
+            }}
+            onUpdateDailyBrief={(brief) =>
+              setState((prev) => (prev ? { ...prev, dailyBrief: brief } : null))
+            }
+            onOpenQuickCapture={() => setIsQuickCaptureOpen(true)}
+            onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
+            onOpenAICopilot={() => setIsAICopilotOpen(true)}
+            onOpenVault={() => setIsVaultModalOpen(true)}
+            onOpenAuditLog={() => setIsAuditLogOpen(true)}
+            onNavigateTab={(tab) => setActiveTab(tab)}
+            openRouterKey={state.openRouterKey}
+          />
+        )}
+
+        {/* ========================================================= */}
+        {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
+        {/* ========================================================= */}
+        {activeTab === "goals" && (
+          <GoalsView
+            goals={state.goals || []}
+            onAddGoal={() => {
+              setActiveEditGoal(null);
+              setIsGoalModalOpen(true);
+            }}
+            onEditGoal={(goal) => {
+              setActiveEditGoal(goal);
+              setIsGoalModalOpen(true);
+            }}
+            onDeleteGoal={handleDeleteGoal}
+            onToggleMilestone={handleToggleMilestone}
+            onUpdateGoalStatus={handleUpdateGoalStatus}
+          />
+        )}
+
         {/* ========================================================= */}
         {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
         {/* ========================================================= */}
@@ -638,6 +888,18 @@ export const App: React.FC = () => {
             >
               <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
               <span>Add Task</span>
+            </button>
+
+            <button
+              onClick={() => {
+                setIsQuickAddMenuOpen(false);
+                setActiveEditGoal(null);
+                setIsGoalModalOpen(true);
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+            >
+              <Target className="w-3.5 h-3.5 text-indigo-500" />
+              <span>New Life Goal</span>
             </button>
 
             <button
@@ -786,6 +1048,77 @@ export const App: React.FC = () => {
         session={session}
         onSessionChange={handleSessionChange}
       />
+
+      <SemanticGlobalSearch
+        isOpen={isGlobalSearchOpen}
+        onClose={() => setIsGlobalSearchOpen(false)}
+        brainState={state}
+        onSelectTask={(task) => {
+          setActiveTab("tasks");
+          setActiveEditTask(task);
+          setIsTaskModalOpen(true);
+        }}
+        onSelectGoal={(goal) => {
+          setActiveTab("goals");
+          setActiveEditGoal(goal);
+          setIsGoalModalOpen(true);
+        }}
+        onSelectHabit={() => {
+          setActiveTab("habits");
+        }}
+        onSelectJournal={() => {
+          setActiveTab("journal");
+        }}
+        onSelectKnowledge={(item) => {
+          setActiveTab("knowledge");
+          setActiveEditKnowledge(item);
+          setIsKnowledgeModalOpen(true);
+        }}
+        openRouterKey={state.openRouterKey}
+      />
+
+      <GoalModal
+        isOpen={isGoalModalOpen}
+        onClose={() => setIsGoalModalOpen(false)}
+        onSave={handleSaveGoal}
+        editingGoal={activeEditGoal}
+        openRouterKey={state.openRouterKey}
+        selectedModel={state.selectedModel}
+      />
+
+      <AuditLogModal
+        isOpen={isAuditLogOpen}
+        onClose={() => setIsAuditLogOpen(false)}
+        auditLog={state.auditLog || []}
+        onUndo={handleUndo}
+        canUndo={historyPast.current.length > 0}
+        onClearLog={() =>
+          setState((prev) => (prev ? { ...prev, auditLog: [] } : null))
+        }
+      />
+
+      {/* Undo/Redo Floating Action Toast */}
+      {undoToast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-slate-900/95 text-white dark:bg-white/95 dark:text-slate-950 backdrop-blur-md shadow-2xl border border-slate-700/50 dark:border-slate-200/50 animate-fade-in text-xs font-semibold">
+          <span>{undoToast.message}</span>
+          <button
+            onClick={() => {
+              undoToast.onUndo();
+              setUndoToast(null);
+            }}
+            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors"
+          >
+            <Undo2 className="w-3.5 h-3.5" />
+            <span>Undo (⌘Z)</span>
+          </button>
+          <button
+            onClick={() => setUndoToast(null)}
+            className="p-1 hover:opacity-75 transition-opacity"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

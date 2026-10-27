@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import {
   Search,
   Sparkles,
@@ -10,6 +10,7 @@ import {
   User,
   Zap,
   Database,
+  History,
 } from "lucide-react";
 import { AuthSession } from "../types";
 
@@ -21,10 +22,12 @@ interface HeaderProps {
   onOpenAIChat: () => void;
   onOpenQuickCapture?: () => void;
   onOpenVault?: () => void;
+  onOpenGlobalSearch?: () => void;
+  onOpenAuditLog?: () => void;
   theme: "light" | "dark";
   onToggleTheme: () => void;
-  searchQuery: string;
-  setSearchQuery: (query: string) => void;
+  searchQuery?: string;
+  setSearchQuery?: (query: string) => void;
   session?: AuthSession;
   onOpenAuth?: () => void;
 }
@@ -37,16 +40,17 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenAIChat,
   onOpenQuickCapture,
   onOpenVault,
+  onOpenGlobalSearch,
+  onOpenAuditLog,
   theme,
   onToggleTheme,
   searchQuery,
-  setSearchQuery,
   session,
   onOpenAuth,
 }) => {
-  const [isSearching, setIsSearching] = useState(false);
-
   const navItems = [
+    { id: "home", label: "Home" },
+    { id: "goals", label: "Goals" },
     { id: "tasks", label: "Tasks" },
     { id: "habits", label: "Habits" },
     { id: "journal", label: "Journal" },
@@ -97,19 +101,16 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center gap-2">
         {/* Quick Search */}
         <div
-          className={`relative flex items-center bg-slate-100 dark:bg-slate-800/70 rounded-2xl px-3 py-1.5 transition-all ${
-            isSearching ? "w-64 ring-2 ring-slate-900/10 dark:ring-white/10" : "w-36 sm:w-44"
-          }`}
+          onClick={onOpenGlobalSearch}
+          className="relative flex items-center bg-slate-100 hover:bg-slate-200/80 dark:bg-slate-800/70 dark:hover:bg-slate-800 rounded-2xl px-3 py-1.5 transition-all w-36 sm:w-44 cursor-pointer"
         >
           <Search className="w-3.5 h-3.5 text-slate-400 mr-2 shrink-0" />
           <input
             type="text"
+            readOnly
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => setIsSearching(true)}
-            onBlur={() => setIsSearching(false)}
-            placeholder="Search..."
-            className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none font-medium"
+            placeholder="Search... ⌘K"
+            className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none font-medium cursor-pointer"
           />
           <span className="text-[10px] text-slate-400 hidden sm:inline ml-1 font-mono">⌘K</span>
         </div>
@@ -135,6 +136,17 @@ export const Header: React.FC<HeaderProps> = ({
             className="w-9 h-9 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center transition-all hover:scale-102"
           >
             <Database className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Audit Log / Event History button */}
+        {onOpenAuditLog && (
+          <button
+            onClick={onOpenAuditLog}
+            title="Audit Log & State Rollback (⌘Z)"
+            className="w-9 h-9 rounded-2xl bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/40 dark:hover:bg-cyan-900/60 text-cyan-600 dark:text-cyan-400 flex items-center justify-center transition-all hover:scale-102"
+          >
+            <History className="w-4 h-4" />
           </button>
         )}
 
