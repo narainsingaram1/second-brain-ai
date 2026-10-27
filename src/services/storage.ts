@@ -245,6 +245,20 @@ export const INITIAL_HABITS: Habit[] = [
 
 export const INITIAL_GOALS: Goal[] = [
   {
+    id: "goal-career-tech",
+    title: "Enhancing Technical Knowledge for Career (AI Engineer, SWE, etc..)",
+    description: "Build deep technical skills, gain real-world experience, and become highly competitive for top AI/SWE roles.",
+    sector: "career",
+    timeframe: "long_term",
+    targetDate: "2029-12-31",
+    progress: 0,
+    status: "in_progress",
+    why: "Build world-class technical foundation to lead AI and software engineering innovations.",
+    metrics: "Deep systems mastery + Staff AI Engineer placement",
+    milestones: [],
+    createdAt: new Date().toISOString(),
+  },
+  {
     id: "goal-1",
     title: "Land Staff SWE / Systems Infrastructure Lead",
     description: "Build high-throughput planetary-scale infrastructure with absolute technical autonomy.",

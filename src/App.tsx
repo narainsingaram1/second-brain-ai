@@ -790,6 +790,7 @@ export const App: React.FC = () => {
             onDeleteGoal={handleDeleteGoal}
             onToggleMilestone={handleToggleMilestone}
             onUpdateGoalStatus={handleUpdateGoalStatus}
+            theme={state.theme}
           />
         )}
 
