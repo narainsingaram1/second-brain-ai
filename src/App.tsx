@@ -1047,6 +1047,18 @@ export const App: React.FC = () => {
           setIsAICopilotOpen(false);
           setIsVaultModalOpen(true);
         }}
+        brainState={state}
+        onSaveTask={handleSaveTask}
+        onUpdateTask={handleSaveTask}
+        onSaveGoal={handleSaveGoal}
+        onSaveHabit={handleSaveHabit}
+        onSaveJournal={handleSaveJournalEntry}
+        onSaveKnowledge={handleSaveKnowledge}
+        onNavigateTab={(tab) => {
+          setIsAICopilotOpen(false);
+          setActiveTab(tab);
+        }}
+        onUndo={handleUndo}
       />
 
       <UniversalQuickCapture

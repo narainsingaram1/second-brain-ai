@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Task, Habit, JournalEntry, AIMessage } from "../types";
-import { chatWithSecondBrain } from "../services/openrouter";
+import { BrainState, Task, Habit, JournalEntry, AIMessage, Goal, KnowledgeItem } from "../types";
+import { AutonomousBrainAgent } from "../services/agentDispatcher";
+import { MarkdownView } from "./MarkdownView";
 import { vectorVault, SearchResult } from "../services/vectorVault";
 import {
   Sparkles,
@@ -28,6 +29,15 @@ interface AICopilotModalProps {
   selectedModel: string;
   onOpenSettings: () => void;
   onOpenVault?: () => void;
+  brainState?: BrainState | null;
+  onSaveTask?: (task: Task) => void;
+  onUpdateTask?: (task: Task) => void;
+  onSaveGoal?: (goal: Goal) => void;
+  onSaveHabit?: (habit: Habit) => void;
+  onSaveJournal?: (entry: JournalEntry) => void;
+  onSaveKnowledge?: (item: KnowledgeItem) => void;
+  onNavigateTab?: (tab: string) => void;
+  onUndo?: () => void;
 }
 
 export const AICopilotModal: React.FC<AICopilotModalProps> = ({
@@ -42,11 +52,25 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
   selectedModel,
   onOpenSettings,
   onOpenVault,
+  brainState,
+  onSaveTask,
+  onUpdateTask,
+  onSaveGoal,
+  onSaveHabit,
+  onSaveJournal,
+  onSaveKnowledge,
+  onNavigateTab,
+  onUndo,
 }) => {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [retrievedMemories, setRetrievedMemories] = useState<SearchResult[]>([]);
   const [isMemoriesExpanded, setIsMemoriesExpanded] = useState(false);
+  const [lastActionResult, setLastActionResult] = useState<{
+    actionType: string;
+    entityType?: string;
+    headline: string;
+  } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -99,23 +123,67 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
         console.warn("Vault search warning:", vaultErr);
       }
 
-      // 2. Query Copilot with injected RAG memories
-      const historyForApi = newHistory.map((m) => ({ role: m.role, content: m.content }));
-      const responseText = await chatWithSecondBrain(
-        textToSend,
+      // Build effective state context for agent
+      const effectiveState: BrainState = brainState || {
+        theme: "dark",
         tasks,
         habits,
         journalEntries,
+        knowledgeItems: [],
+        sections: ["Academic", "Career", "Health", "Personal"],
+        subsections: {},
+        goals: [],
+        chatHistory: newHistory,
         openRouterKey,
         selectedModel,
-        historyForApi,
-        relevantMemories
+      };
+
+      // 2. Resolve intent using unified Autonomous Brain Agent
+      const agentResult = await AutonomousBrainAgent.execute(
+        textToSend,
+        effectiveState,
+        openRouterKey,
+        selectedModel
       );
+
+      // Execute state mutations if tools were invoked
+      if (agentResult.actionType === "create_task" && agentResult.createdTask) {
+        onSaveTask?.(agentResult.createdTask);
+        setLastActionResult({ actionType: "create_task", entityType: "task", headline: agentResult.headline });
+      } else if (agentResult.actionType === "update_task" && agentResult.updatedTask) {
+        onUpdateTask?.(agentResult.updatedTask);
+        setLastActionResult({ actionType: "update_task", entityType: "task", headline: agentResult.headline });
+      } else if (agentResult.actionType === "complete_habit" && agentResult.updatedHabit) {
+        onSaveHabit?.(agentResult.updatedHabit);
+        setLastActionResult({ actionType: "complete_habit", entityType: "habit", headline: agentResult.headline });
+      } else if (agentResult.actionType === "create_goal" && agentResult.createdGoal) {
+        onSaveGoal?.(agentResult.createdGoal);
+        setLastActionResult({ actionType: "create_goal", entityType: "goal", headline: agentResult.headline });
+      } else if (agentResult.actionType === "log_journal" && agentResult.createdJournal) {
+        onSaveJournal?.(agentResult.createdJournal);
+        setLastActionResult({ actionType: "log_journal", entityType: "journal", headline: agentResult.headline });
+      } else if (agentResult.actionType === "create_note" && agentResult.createdNote) {
+        onSaveKnowledge?.(agentResult.createdNote);
+        setLastActionResult({ actionType: "create_note", entityType: "knowledge", headline: agentResult.headline });
+      } else {
+        setLastActionResult(null);
+      }
+
+      let responseContent = "";
+      if (agentResult.queryAnswer) {
+        if (agentResult.entityType && agentResult.entityType !== "query") {
+          responseContent = `> **✓ ${agentResult.headline}**\n> *${agentResult.explanation}*\n\n${agentResult.queryAnswer}`;
+        } else {
+          responseContent = agentResult.queryAnswer;
+        }
+      } else {
+        responseContent = `> **✓ ${agentResult.headline}**\n> *${agentResult.explanation}*`;
+      }
 
       const assistantMessage: AIMessage = {
         id: `msg-${Date.now() + 1}`,
         role: "assistant",
-        content: responseText,
+        content: responseContent,
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
@@ -237,15 +305,45 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
                 )}
 
                 <div
-                  className={`max-w-[80%] rounded-3xl p-4 text-xs leading-relaxed ${
+                  className={`max-w-[85%] rounded-3xl p-4 text-xs leading-relaxed ${
                     isUser
                       ? "bg-[#0d0f14] text-white dark:bg-white dark:text-slate-950 rounded-br-sm shadow-sm"
-                      : "bg-slate-100 dark:bg-slate-800/80 text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200/60 dark:border-slate-700/60 font-medium"
+                      : "bg-slate-100 dark:bg-[#121424] text-slate-800 dark:text-slate-200 rounded-bl-sm border border-slate-200/60 dark:border-slate-800/80 font-medium"
                   }`}
                 >
-                  <div className="whitespace-pre-line">{msg.content}</div>
+                  {isUser ? (
+                    <div className="whitespace-pre-line">{msg.content}</div>
+                  ) : (
+                    <>
+                      <MarkdownView content={msg.content} />
+                      {lastActionResult && onNavigateTab && (
+                        <div className="flex items-center gap-2 mt-3 pt-2.5 border-t border-slate-200/60 dark:border-slate-800">
+                          <button
+                            onClick={() => {
+                              if (lastActionResult.entityType === "task") onNavigateTab("tasks");
+                              else if (lastActionResult.entityType === "goal") onNavigateTab("goals");
+                              else if (lastActionResult.entityType === "habit") onNavigateTab("habits");
+                              else if (lastActionResult.entityType === "journal") onNavigateTab("journal");
+                              else if (lastActionResult.entityType === "knowledge") onNavigateTab("knowledge");
+                            }}
+                            className="px-2.5 py-1 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 font-bold text-[10px] transition-colors"
+                          >
+                            View in {lastActionResult.entityType?.toUpperCase() || "APP"} →
+                          </button>
+                          {onUndo && (
+                            <button
+                              onClick={onUndo}
+                              className="px-2 py-1 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-[10px] transition-colors"
+                            >
+                              Undo ⌘Z
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
                   <span
-                    className={`block text-[9px] mt-1.5 opacity-60 text-right ${
+                    className={`block text-[9px] mt-2 opacity-60 text-right ${
                       isUser ? "text-slate-300 dark:text-slate-600" : "text-slate-400"
                     }`}
                   >

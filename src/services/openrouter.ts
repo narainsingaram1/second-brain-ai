@@ -9,6 +9,103 @@ export const OPENROUTER_MODELS = [
   { id: "meta-llama/llama-3.3-70b-instruct", name: "Llama 3.3 70B", desc: "Open-weights powerhouse" },
 ];
 
+export interface OpenRouterToolFunction {
+  name: string;
+  description: string;
+  parameters: Record<string, any>;
+}
+
+export interface OpenRouterTool {
+  type: "function";
+  function: OpenRouterToolFunction;
+}
+
+export interface OpenRouterToolCall {
+  id: string;
+  type: "function";
+  function: {
+    name: string;
+    arguments: string; // JSON string
+  };
+}
+
+export interface OpenRouterCompletionResponse {
+  content: string | null;
+  toolCalls?: OpenRouterToolCall[];
+}
+
+export async function queryOpenRouterWithTools(
+  messages: { role: string; content: string }[],
+  tools: OpenRouterTool[],
+  apiKey: string,
+  model: string = "anthropic/claude-3.5-sonnet",
+  systemPrompt?: string,
+  toolChoice: "auto" | "none" | { type: "function"; function: { name: string } } = "auto"
+): Promise<OpenRouterCompletionResponse> {
+  if (!apiKey) {
+    throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
+  }
+
+  const payloadMessages = [];
+  if (systemPrompt) {
+    payloadMessages.push({ role: "system", content: systemPrompt });
+  }
+  payloadMessages.push(...messages);
+
+  const bodyPayload: any = {
+    model: model || "anthropic/claude-3.5-sonnet",
+    messages: payloadMessages,
+    temperature: 0.3,
+    max_tokens: 2000,
+  };
+
+  if (tools && tools.length > 0) {
+    bodyPayload.tools = tools;
+    bodyPayload.tool_choice = toolChoice;
+  }
+
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey.trim()}`,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://synapse-second-brain.local",
+      "X-Title": "Synapse Second Brain",
+    },
+    body: JSON.stringify(bodyPayload),
+  });
+
+  if (!res.ok) {
+    const errorBody = await res.json().catch(() => ({}));
+    throw new Error(errorBody?.error?.message || `OpenRouter Error (HTTP ${res.status})`);
+  }
+
+  const data = await res.json();
+  const choice = data.choices?.[0];
+  const msg = choice?.message;
+
+  let toolCalls: OpenRouterToolCall[] | undefined = undefined;
+  if (Array.isArray(msg?.tool_calls) && msg.tool_calls.length > 0) {
+    toolCalls = msg.tool_calls;
+  } else if (msg?.function_call) {
+    toolCalls = [
+      {
+        id: `call-${Date.now()}`,
+        type: "function",
+        function: {
+          name: msg.function_call.name,
+          arguments: msg.function_call.arguments,
+        },
+      },
+    ];
+  }
+
+  return {
+    content: msg?.content || null,
+    toolCalls,
+  };
+}
+
 export async function testOpenRouterKey(apiKey: string): Promise<{ success: boolean; message: string }> {
   if (!apiKey || apiKey.trim() === "") {
     return { success: false, message: "Please provide an API key." };

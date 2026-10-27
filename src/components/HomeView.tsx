@@ -8,6 +8,7 @@ import {
   KnowledgeItem,
 } from "../types";
 import { AutonomousBrainAgent, AgentExecutionResult } from "../services/agentDispatcher";
+import { MarkdownView } from "./MarkdownView";
 import confetti from "canvas-confetti";
 import {
   Sparkles,
@@ -27,6 +28,10 @@ import {
   ArrowRight,
   FileText,
   BookOpen,
+  Copy,
+  Check,
+  Bookmark,
+  X,
 } from "lucide-react";
 
 interface HomeViewProps {
@@ -58,6 +63,39 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastExecution, setLastExecution] = useState<AgentExecutionResult | null>(null);
+  const [isCopied, setIsCopied] = useState(false);
+  const [isSavedToNotes, setIsSavedToNotes] = useState(false);
+
+  const handleCopy = () => {
+    if (!lastExecution?.queryAnswer) return;
+    navigator.clipboard.writeText(lastExecution.queryAnswer);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
+  const handleSaveAsNote = () => {
+    if (!lastExecution?.queryAnswer) return;
+    const today = new Date().toISOString().split("T")[0];
+    const title = lastExecution.headline || "Strategic Plan";
+    const note: KnowledgeItem = {
+      id: `note-${Date.now()}`,
+      subject: title,
+      title,
+      content: lastExecution.queryAnswer,
+      summary: lastExecution.explanation || lastExecution.queryAnswer.slice(0, 180),
+      folderId: null,
+      status: "Synthesized",
+      startDate: today,
+      endDate: today,
+      domain: "Strategic Planning",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    onSaveKnowledge(note);
+    setIsSavedToNotes(true);
+    confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
+    setTimeout(() => setIsSavedToNotes(false), 2500);
+  };
 
   // Tools toggle state
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
@@ -454,44 +492,143 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </form>
       </div>
 
-      {/* Reactive Agent Action Card */}
+      {/* Reactive Agent Action & Planning Response Card */}
       {lastExecution && (
-        <div className="w-full mb-6 p-4 rounded-3xl bg-white/90 dark:bg-[#121424] border border-slate-200 dark:border-slate-800 shadow-md animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500" />
-              <h4 className="text-xs font-bold text-slate-900 dark:text-white">
-                {lastExecution.headline}
-              </h4>
-            </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              {lastExecution.explanation}
-            </p>
-          </div>
+        <div className="w-full mb-6">
+          {lastExecution.queryAnswer ? (
+            /* Rich Planning / Conversational Intelligence Card */
+            <div className="w-full p-5 sm:p-6 rounded-3xl bg-white/95 dark:bg-[#121424] border border-slate-200/90 dark:border-[#232646] shadow-xl shadow-indigo-500/5 dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)] animate-fade-in flex flex-col gap-4">
+              {/* Card Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/80 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-sm shrink-0">
+                    <Sparkles className="w-4 h-4 text-white fill-white/80" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      {lastExecution.headline}
+                    </h3>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {lastExecution.explanation}
+                    </p>
+                  </div>
+                </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                if (lastExecution.entityType === "task") onNavigateTab("tasks");
-                else if (lastExecution.entityType === "goal") onNavigateTab("goals");
-                else if (lastExecution.entityType === "habit") onNavigateTab("habits");
-                else if (lastExecution.entityType === "journal") onNavigateTab("journal");
-                else if (lastExecution.entityType === "knowledge") onNavigateTab("knowledge");
-              }}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
-            >
-              <span>View</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
-            <button
-              onClick={onUndo}
-              className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
-              title="Undo action"
-            >
-              <Undo2 className="w-3 h-3" />
-              <span>Undo</span>
-            </button>
-          </div>
+                <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                  {lastExecution.entityType && lastExecution.entityType !== "query" && (
+                    <button
+                      onClick={() => {
+                        if (lastExecution.entityType === "task") onNavigateTab("tasks");
+                        else if (lastExecution.entityType === "goal") onNavigateTab("goals");
+                        else if (lastExecution.entityType === "habit") onNavigateTab("habits");
+                        else if (lastExecution.entityType === "journal") onNavigateTab("journal");
+                        else if (lastExecution.entityType === "knowledge") onNavigateTab("knowledge");
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 text-xs font-semibold transition-colors"
+                    >
+                      <span>View {lastExecution.entityType}</span>
+                      <ArrowRight className="w-3 h-3" />
+                    </button>
+                  )}
+
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-colors"
+                    title="Copy response"
+                  >
+                    {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{isCopied ? "Copied" : "Copy"}</span>
+                  </button>
+
+                  <button
+                    onClick={handleSaveAsNote}
+                    className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-colors"
+                    title="Save as note in Second Brain"
+                  >
+                    {isSavedToNotes ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Bookmark className="w-3.5 h-3.5" />}
+                    <span>{isSavedToNotes ? "Saved" : "Save as Note"}</span>
+                  </button>
+
+                  <button
+                    onClick={() => setLastExecution(null)}
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors ml-1"
+                    title="Dismiss"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Card Markdown Content */}
+              <div className="overflow-y-auto max-h-[460px] pr-1">
+                <MarkdownView content={lastExecution.queryAnswer} />
+              </div>
+
+              {/* Citations if any */}
+              {lastExecution.citations && lastExecution.citations.length > 0 && (
+                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    Vault Context:
+                  </span>
+                  {lastExecution.citations.map((c, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2 py-0.5 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 text-[10px] font-medium border border-indigo-200/40 dark:border-indigo-800/40"
+                      title={c.snippet}
+                    >
+                      {c.title}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Compact Action Execution Receipt Card */
+            <div className="w-full p-4 rounded-3xl bg-white/90 dark:bg-[#121424] border border-slate-200 dark:border-slate-800 shadow-md animate-fade-in flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-white">
+                    {lastExecution.headline}
+                  </h4>
+                </div>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {lastExecution.explanation}
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (lastExecution.entityType === "task") onNavigateTab("tasks");
+                    else if (lastExecution.entityType === "goal") onNavigateTab("goals");
+                    else if (lastExecution.entityType === "habit") onNavigateTab("habits");
+                    else if (lastExecution.entityType === "journal") onNavigateTab("journal");
+                    else if (lastExecution.entityType === "knowledge") onNavigateTab("knowledge");
+                  }}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
+                >
+                  <span>View</span>
+                  <ArrowRight className="w-3 h-3" />
+                </button>
+                <button
+                  onClick={onUndo}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-500 hover:text-slate-700 dark:hover:text-slate-200"
+                  title="Undo action"
+                >
+                  <Undo2 className="w-3 h-3" />
+                  <span>Undo</span>
+                </button>
+                <button
+                  onClick={() => setLastExecution(null)}
+                  className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors ml-1"
+                  title="Dismiss"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
