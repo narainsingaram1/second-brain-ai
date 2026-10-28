@@ -2,7 +2,7 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 
-const server = await createServer({ configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
+const server = await createServer({ cacheDir: "/tmp/synapse-agent-test-cache", configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
 const { executeRead, prepareMutation, validate, BRAIN_TOOLS, applyMutation } = await server.ssrLoadModule('/src/services/brainTools.ts');
@@ -182,7 +182,7 @@ test('neural passage cache reuses unchanged content, refreshes edits and never r
     }; } }; return tx;
   } };
   globalThis.indexedDB = { open() { const request = { result: db }; queueMicrotask(() => { request.onupgradeneeded?.(); request.onsuccess?.(); }); return request; } };
-  const isolated = await createServer({ configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
+  const isolated = await createServer({ cacheDir: "/tmp/synapse-agent-test-cache", configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
   try {
     const { searchRecords: search } = await isolated.ssrLoadModule('/src/services/brainRetrieval.ts');
     const s = state(); s.knowledgeItems = [{ id: 'cached', subject: 'Research', content: 'Original passage', summary: '', startDate: '2026-10-01', endDate: '2026-10-01', status: 'Draft' }];

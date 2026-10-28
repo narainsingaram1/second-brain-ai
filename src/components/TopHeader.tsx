@@ -31,18 +31,19 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     .slice(0, 2) || "NS";
 
   return (
-    <header className="w-full flex items-center justify-end px-6 sm:px-8 py-4 gap-3 z-20 select-none">
+    <header className="w-full shrink-0 flex items-center justify-end px-3 sm:px-8 py-3 sm:py-4 gap-2 sm:gap-3 z-20 select-none">
       {/* Search Bar Pill: "Search anything...  ⌘ K" */}
       <button
         type="button"
         onClick={onOpenGlobalSearch}
-        className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-100/90 dark:bg-[#111324] border border-slate-200/80 dark:border-[#242747] text-slate-500 dark:text-slate-400 hover:border-indigo-400 dark:hover:border-indigo-500/50 shadow-xs hover:shadow-sm transition-all group w-48 sm:w-64"
+        aria-label="Search workspace"
+        className="flex items-center gap-2.5 px-3.5 py-1.5 rounded-full bg-slate-100/90 dark:bg-[#111324] border border-slate-200/80 dark:border-[#242747] text-slate-500 dark:text-slate-400 hover:border-indigo-400 dark:hover:border-indigo-500/50 shadow-xs hover:shadow-sm transition-all group min-w-0 w-8 sm:w-64 shrink-0 sm:shrink px-2 sm:px-3.5"
       >
         <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 transition-colors shrink-0" />
-        <span className="text-xs font-medium text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 truncate">
+        <span className="hidden sm:inline text-xs font-medium text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 truncate">
           Search anything...
         </span>
-        <kbd className="ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-white dark:bg-[#1a1d36] border border-slate-200 dark:border-slate-700/60 text-slate-400 shadow-xs">
+        <kbd className="hidden sm:block ml-auto text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-white dark:bg-[#1a1d36] border border-slate-200 dark:border-slate-700/60 text-slate-400 shadow-xs">
           ⌘ K
         </kbd>
       </button>
@@ -77,13 +78,14 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
       <button
         type="button"
         onClick={onOpenAuth}
+        aria-label="Account settings"
         className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full bg-white/80 dark:bg-[#111324] border border-slate-200/80 dark:border-[#242747] hover:border-slate-300 dark:hover:border-slate-600 shadow-xs hover:shadow-sm transition-all group"
       >
         {/* Initials Circle */}
         <div className="w-6 h-6 rounded-full bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white shadow-xs">
           {initials}
         </div>
-        <span className="text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">
+        <span className="hidden sm:inline text-xs font-bold text-slate-800 dark:text-slate-200 group-hover:text-slate-900 dark:group-hover:text-white">
           {displayName}
         </span>
         <ChevronDown className="w-3 h-3 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors" />

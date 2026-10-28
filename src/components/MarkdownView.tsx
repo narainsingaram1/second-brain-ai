@@ -3,6 +3,7 @@ import { Check, Copy } from "lucide-react";
 
 interface MarkdownViewProps {
   content: string;
+  renderReference?: (type: string, id: string, before: string) => React.ReactNode;
   className?: string;
   onToggleCheckbox?: (lineIndex: number, newChecked: boolean) => void;
 }
@@ -11,6 +12,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
   content,
   className = "",
   onToggleCheckbox,
+  renderReference,
 }) => {
   const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
 
@@ -22,7 +24,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
 
   const renderInline = (text: string): React.ReactNode[] => {
     // Regex matching bold, italic, strikethrough, inline code, and links
-    const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\))/g;
+    const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|\[(task|goal|habit|journal|knowledge):([^\]\n]+)\])/g;
     const elements: React.ReactNode[] = [];
     let lastIdx = 0;
     let match: RegExpExecArray | null;
@@ -76,6 +78,10 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             {match[6]}
           </a>
         );
+      }
+
+      if (match[8] && match[9]) {
+        elements.push(<React.Fragment key={match.index}>{renderReference ? renderReference(match[8], match[9], text.slice(0, match.index)) : match[0]}</React.Fragment>);
       }
 
       lastIdx = regex.lastIndex;
@@ -154,6 +160,22 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
     }
 
     const trimmed = line.trim();
+
+    // Tables stay readable for task schedules and goal comparisons.
+    if (line.includes("|") && lines[i + 1]?.includes("|")) {
+      const cells = (row: string) => row.trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, "|"));
+      const headers = cells(line);
+      const separators = cells(lines[i + 1]);
+      if (headers.length === separators.length && separators.every(cell => /^:?-{3,}:?$/.test(cell))) {
+        const rows: string[][] = [];
+        let end = i + 2;
+        while (end < lines.length && lines[end].trim() && lines[end].includes("|")) { rows.push(cells(lines[end])); end++; }
+        const alignment = (index: number) => separators[index].startsWith(":") && separators[index].endsWith(":") ? "center" as const : separators[index].endsWith(":") ? "right" as const : "left" as const;
+        renderedElements.push(<div key={`table-${i}`} className="chat-table-container"><table className="chat-table"><thead><tr>{headers.map((header, index) => <th key={index} style={{ textAlign: alignment(index) }}>{renderInline(header)}</th>)}</tr></thead><tbody>{rows.map((row, rowIndex) => <tr key={rowIndex}>{headers.map((_, index) => <td key={index} style={{ textAlign: alignment(index) }}>{renderInline(row[index] || "")}</td>)}</tr>)}</tbody></table></div>);
+        i = end - 1;
+        continue;
+      }
+    }
 
     // Empty line
     if (!trimmed) {

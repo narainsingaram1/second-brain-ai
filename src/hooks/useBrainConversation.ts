@@ -1,8 +1,24 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
-import { AIMessage, BrainState } from "../types";
+import { conversationTitle } from "../utils/chatPresentation";
+import { AIMessage, BrainState, ConversationThread } from "../types";
 import { AgentExecutionResult, AgentOptions, AutonomousBrainAgent, RunConversation } from "../services/agentDispatcher";
 import { applyMutation } from "../services/brainTools";
 import { persistBrainState } from "../services/storage";
+
+export interface BrainConversation {
+  run: RunConversation;
+  busy: boolean;
+  progress: string;
+  stop: () => void;
+  startNew: () => void;
+  resume: (id: string) => void;
+}
+function archiveCurrent(state: BrainState): ConversationThread[] {
+  const archived = state.conversations || [];
+  if (!state.chatHistory.some(m => m.role === "user")) return archived;
+  const thread = { id: state.conversationId || crypto.randomUUID(), title: conversationTitle(state.chatHistory), messages: state.chatHistory, updatedAt: new Date().toISOString() };
+  return [thread, ...archived.filter(t => t.id !== thread.id)];
+}
 
 export function useBrainConversation(state: BrainState | null, setState: Dispatch<SetStateAction<BrainState | null>>, onBeforeMutation: (state: BrainState) => void) {
   const latest = useRef(state);
@@ -58,5 +74,15 @@ export function useBrainConversation(state: BrainState | null, setState: Dispatc
       setProgress("");
     }
   };
-  return { run, busy, progress, stop: () => active.current?.abort() };
+  const switchConversation = (id?: string) => {
+    if (active.current || !latest.current) return;
+    const current = latest.current;
+    const thread = id ? current.conversations?.find(t => t.id === id) : undefined;
+    if (id && !thread) return;
+    const next = { ...current, conversations: archiveCurrent(current).filter(t => t.id !== id),
+      conversationId: thread?.id || crypto.randomUUID(), chatHistory: thread?.messages || [] };
+    latest.current = next;
+    setState(next);
+  };
+  return { run, busy, progress, stop: () => active.current?.abort(), startNew: () => switchConversation(), resume: (id: string) => switchConversation(id) };
 }

@@ -136,6 +136,13 @@ export interface AIMessage {
   timestamp: string;
 }
 
+export interface ConversationThread {
+  id: string;
+  title: string;
+  messages: AIMessage[];
+  updatedAt: string;
+}
+
 export interface DailyBrief {
   date: string; // YYYY-MM-DD
   generatedAt: string;
@@ -168,6 +175,8 @@ export interface BrainState {
   knowledgeItems: KnowledgeItem[];
   noteFolders?: NoteFolder[];
   chatHistory: AIMessage[];
+  conversationId?: string;
+  conversations?: ConversationThread[];
   openRouterKey: string;
   selectedModel: string;
   theme: 'light' | 'dark';

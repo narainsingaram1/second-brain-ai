@@ -37,7 +37,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`h-screen sticky top-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
+      className={`h-[100dvh] shrink-0 sticky top-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
         collapsed ? "w-[72px] px-2.5 py-5" : "w-[240px] px-4 py-5"
       }`}
     >
@@ -62,7 +62,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <button
             onClick={onToggleCollapse}
-            className="p-1.5 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+            className="hidden md:block p-1.5 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? (

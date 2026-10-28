@@ -24,6 +24,8 @@ Open [http://localhost:1420](http://localhost:1420) in your browser.
 
 ## Conversation and agent runtime
 
+Home and Copilot open the same full-page chat. The welcome screen transitions into a single message viewport with a pinned composer. New chat archives the current thread; recent threads can be reopened from the welcome screen. Incoming replies preserve your reading position, and long answers open at their beginning with a **Latest** control to jump to the end. Task and goal citations display readable titles, and their inspectors show dates, status, progress and milestones.
+
 Home and Copilot share a persistent conversation, selected model, progress indicator, and Stop control. The assistant can discuss a request, retrieve evidence, execute several actions, and inspect their results within one turn. The configured model must support function tools.
 
 - `query_records` filters the complete live collection by type, status, date, section, or text. It returns exact counts and paginated results rather than a sample of tasks.
@@ -33,7 +35,7 @@ Home and Copilot share a persistent conversation, selected model, progress indic
 
 Each turn is bounded to 48 model rounds, 96 tool calls, and four minutes. Model requests time out after 60 seconds. Long evidence is paginated and older tool bodies may be evicted from the prompt; the model can retrieve them again. Requests exceeding those limits report incomplete coverage. The runtime accesses the app's records; it does not fetch websites or ingest external files. The former cosmetic Web toggle has been removed.
 
-Run `npm test` for deterministic runtime, retrieval, caching, validation, cancellation, and persistence checks. These tests mock provider responses and use synthetic records; they do not establish live provider compatibility. Run `npm run build` for TypeScript and production bundling checks.
+Run `npm test` for deterministic runtime, retrieval, caching, validation, cancellation, persistence, and chat rendering checks. For browser layout checks, start `npm exec vite -- --config tests/fixtures/vite.config.ts` and open `http://127.0.0.1:1423/tests/fixtures/chat.html`. This fixture uses in-memory synthetic records and intercepted model responses; it does not load user records or call an external provider. Its separate Vite cache keeps tests from invalidating the running app’s dependencies. These tests mock provider responses and use synthetic records; they do not establish live provider compatibility. Run `npm run build` for TypeScript and production bundling checks.
 
 ---
 

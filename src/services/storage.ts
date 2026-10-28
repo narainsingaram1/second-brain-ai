@@ -684,6 +684,8 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     knowledgeItems,
     noteFolders,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
+    conversationId: storedState.conversationId,
+    conversations: storedState.conversations || [],
     openRouterKey: finalKey,
     selectedModel: storedState.selectedModel || "anthropic/claude-3.5-sonnet",
     theme: storedState.theme || "light",

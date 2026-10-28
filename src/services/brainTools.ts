@@ -300,7 +300,12 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
   const page = args.countOnly ? [] : matches.slice(offset, offset + 40);
   return { output: { total: matches.length, offset, nextOffset: !args.countOnly && offset + page.length < matches.length ? offset + page.length : null,
     complete: !!args.countOnly || offset + page.length >= matches.length,
-    records: page.map(r => ({ id: r.id, type: r.type, title: r.title, date: r.date, status: r.data.status, priority: r.data.priority, section: r.data.section, subsection: r.data.subsection })),
+    records: page.map(r => ({ id: r.id, type: r.type, title: r.title, date: r.date, status: r.data.status, priority: r.data.priority, section: r.data.section, subsection: r.data.subsection,
+      description: typeof r.data.description === "string" ? r.data.description.slice(0, 500) : undefined,
+      ...(r.type === "goal" ? { progress: r.data.progress, metrics: r.data.metrics, why: typeof r.data.why === "string" ? r.data.why.slice(0, 500) : undefined, sector: r.data.sector, timeframe: r.data.timeframe,
+        milestoneCount: Array.isArray(r.data.milestones) ? r.data.milestones.length : 0 } : {}),
+      detailsAvailable: true,
+    })),
   }, sources: page.map(r => ({ id: r.id, type: r.type, title: r.title, snippet: `${r.date || "Undated"} ${r.data.status || ""}` })) };
 }
 export function prepareMutation(name: string, args: any, state: BrainState): Mutation {

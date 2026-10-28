@@ -15,7 +15,6 @@ import { TaskMatrixView } from "./components/TaskMatrixView";
 import { HabitsView } from "./components/HabitsView";
 import { JournalView } from "./components/JournalView";
 import { NotesWorkspace } from "./components/NotesWorkspace";
-import { AICopilotModal } from "./components/AICopilotModal";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { HabitModal } from "./components/HabitModal";
@@ -33,11 +32,31 @@ export const App: React.FC = () => {
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
   const [activeTab, setActiveTab] = useState<string>("home");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 767px)").matches);
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsNarrow(media.matches);
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  const isChatTab = activeTab === "home" || activeTab === "copilot";
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const resize = () => document.documentElement.style.setProperty("--app-viewport-height", `${viewport?.height || window.innerHeight}px`);
+    resize();
+    viewport?.addEventListener("resize", resize);
+    window.addEventListener("resize", resize);
+    return () => {
+      viewport?.removeEventListener("resize", resize);
+      window.removeEventListener("resize", resize);
+      document.documentElement.style.removeProperty("--app-viewport-height");
+    };
+  }, []);
 
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isAICopilotOpen, setIsAICopilotOpen] = useState(false);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDefaultSection, setTaskModalDefaultSection] = useState<string>("Academic");
   const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
@@ -727,7 +746,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative overflow-x-hidden">
+    <div className={`${isChatTab ? "h-[var(--app-viewport-height,100dvh)] overflow-hidden" : "min-h-screen overflow-x-hidden"} bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative`}>
       {/* Ambient Glowing Background Orbs matching the screenshot atmosphere */}
       <div className="fixed -bottom-24 -left-24 w-[520px] h-[520px] rounded-full bg-blue-600/10 dark:bg-blue-600/15 blur-[140px] pointer-events-none z-0" />
       <div className="fixed -top-24 -right-24 w-[520px] h-[520px] rounded-full bg-purple-600/10 dark:bg-purple-600/15 blur-[140px] pointer-events-none z-0" />
@@ -742,41 +761,34 @@ export const App: React.FC = () => {
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        collapsed={isSidebarCollapsed}
+        collapsed={isSidebarCollapsed || isNarrow}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         onOpenProModal={() => setIsSettingsOpen(true)}
       />
 
       {/* Main View Area */}
-      <div className="flex-1 flex flex-col min-w-0 relative z-10 min-h-screen">
+      <div className={`flex-1 flex flex-col min-w-0 relative z-10 ${isChatTab ? "min-h-0" : "min-h-screen"}`}>
         {/* Top Right Header matching screenshot */}
-        <TopHeader
+        {!(isChatTab && state.chatHistory.some(m => m.role === "user")) && <TopHeader
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           theme={state.theme}
           onToggleTheme={handleToggleTheme}
           session={session}
           onOpenAuth={() => setIsAuthModalOpen(true)}
           onOpenNotifications={() => setIsAuditLogOpen(true)}
-        />
+        />}
 
         {/* Main Content Viewport */}
-        <main className="flex-1 px-4 sm:px-8 py-2 w-full max-w-6xl mx-auto pb-24">
+        <main className={isChatTab ? "flex-1 min-h-0 flex flex-col overflow-hidden" : "flex-1 px-4 sm:px-8 py-2 w-full max-w-6xl mx-auto pb-24"}>
         {/* ========================================================= */}
         {/* TAB 0: HOME / AUTONOMOUS BRAIN AGENT COMMAND CENTER       */}
         {/* ========================================================= */}
-        {activeTab === "home" && (
+        {isChatTab && (
           <HomeView
             conversation={conversation}
             brainState={state}
-            onSaveTask={handleSaveTask}
-            onUpdateTask={handleSaveTask}
-            onSaveGoal={handleSaveGoal}
-            onSaveHabit={handleSaveHabit}
-            onSaveJournal={handleSaveJournalEntry}
             onSaveKnowledge={handleSaveKnowledge}
-            onNavigateTab={(tab) => setActiveTab(tab)}
-            onUndo={handleUndo}
-            openRouterKey={state.openRouterKey}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}
 
@@ -905,29 +917,14 @@ export const App: React.FC = () => {
         {/* ========================================================= */}
         {/* TAB 5: AI COPILOT DIRECT VIEW                             */}
         {/* ========================================================= */}
-        {activeTab === "copilot" && (
-          <div className="max-w-2xl mx-auto pt-6 text-center space-y-4">
-            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white">
-              AI Copilot
-            </h2>
-            <p className="text-xs text-slate-400">
-              Interactive conversational intelligence synchronized with your tasks and habits
-            </p>
-            <button
-              onClick={() => setIsAICopilotOpen(true)}
-              className="px-6 py-3 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 text-xs font-bold shadow-md hover:scale-105 transition-all"
-            >
-              Open Second Brain Chat
-            </button>
-          </div>
-        )}
+
       </main>
       </div>
 
       {/* ========================================================= */}
       {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
       {/* ========================================================= */}
-      {activeTab !== "home" && (
+      {!isChatTab && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
           {/* Quick Pop-up Menu */}
           {isQuickAddMenuOpen && (
@@ -1035,41 +1032,6 @@ export const App: React.FC = () => {
       )}
 
       {/* Modals */}
-      <AICopilotModal
-        conversation={conversation}
-        isOpen={isAICopilotOpen}
-        onClose={() => setIsAICopilotOpen(false)}
-        tasks={state.tasks}
-        habits={state.habits}
-        journalEntries={state.journalEntries}
-        chatHistory={state.chatHistory}
-        onUpdateChatHistory={(messages) =>
-          setState((prev) => (prev ? { ...prev, chatHistory: messages } : null))
-        }
-        openRouterKey={state.openRouterKey}
-        selectedModel={state.selectedModel}
-        onOpenSettings={() => {
-          setIsAICopilotOpen(false);
-          setIsSettingsOpen(true);
-        }}
-        onOpenVault={() => {
-          setIsAICopilotOpen(false);
-          setIsVaultModalOpen(true);
-        }}
-        brainState={state}
-        onSaveTask={handleSaveTask}
-        onUpdateTask={handleSaveTask}
-        onSaveGoal={handleSaveGoal}
-        onSaveHabit={handleSaveHabit}
-        onSaveJournal={handleSaveJournalEntry}
-        onSaveKnowledge={handleSaveKnowledge}
-        onNavigateTab={(tab) => {
-          setIsAICopilotOpen(false);
-          setActiveTab(tab);
-        }}
-        onUndo={handleUndo}
-      />
-
       <UniversalQuickCapture
         isOpen={isQuickCaptureOpen}
         onClose={() => setIsQuickCaptureOpen(false)}
