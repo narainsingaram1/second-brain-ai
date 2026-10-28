@@ -229,6 +229,9 @@ export const READ_TOOLS = [
   tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Offsets match search excerpts.", {
     type: typeSchema, id: str, offset: { type: "integer", minimum: 0 },
   }, ["type", "id"]),
+  tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or goal. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
+    type: typeSchema, ids: { type: "array", items: str, minItems: 1, maxItems: 10 },
+  }, ["type", "ids"]),
   tool("search_records", "Hybrid keyword and neural search across current records, including ALL passages of long notes. Returns evidence excerpts with source IDs and offsets. Use read_record for surrounding context. Relevance search cannot establish exhaustive counts or lists.", {
     query: str, type: typeSchema, offset: { type: "integer", minimum: 0 },
   }, ["query"]),
@@ -247,7 +250,7 @@ export function validate(value: unknown, schema: any, path = "arguments"): void 
       validate(child, schema.properties[key], `${path}.${key}`);
     }
   } else if (schema.type === "array") {
-    if (!Array.isArray(value) || value.length > 100) throw new Error(`${path} must be an array with at most 100 items`);
+    if (!Array.isArray(value) || value.length < (schema.minItems || 0) || value.length > (schema.maxItems || 100)) throw new Error(`${path} must contain ${schema.minItems || 0} to ${schema.maxItems || 100} items`);
     value.forEach((v, i) => validate(v, schema.items, `${path}[${i}]`));
   } else {
     if (schema.type === "integer" ? !Number.isInteger(value) : typeof value !== schema.type) throw new Error(`${path} must be ${schema.type}`);
@@ -281,6 +284,14 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
   if (name === "search_records") {
     const output = await searchRecords(state, args.query, args.type, offset, key, signal, progress);
     return { output, sources: output.results };
+  }
+  if (name === "read_records") {
+    const found = args.ids.map((id: string) => all.find(r => r.type === args.type && r.id === id));
+    return { output: { records: found.map((record: typeof all[number] | undefined, index: number) => record ? {
+      id: record.id, type: record.type, title: record.title, content: record.text.slice(0, 4000), offset: 0, totalCharacters: record.text.length,
+      nextOffset: record.text.length > 4000 ? 4000 : null,
+    } : { id: args.ids[index], error: "Record not found" }) },
+      sources: found.filter((r: typeof all[number] | undefined): r is typeof all[number] => !!r).map((r: typeof all[number]) => ({ id: r.id, type: r.type, title: r.title, snippet: r.text.slice(0, 250), offset: 0 })) };
   }
   if (name === "read_record") {
     const record = all.find(r => r.type === args.type && r.id === args.id);

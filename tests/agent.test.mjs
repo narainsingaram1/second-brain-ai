@@ -142,11 +142,18 @@ test('assistant can page back through older conversation rather than guessing', 
   assert.equal(JSON.parse(output.content).content, 'Turn 12'); assert.equal(output.nextOffset, 13); assert.equal(output.total, 30);
 });
 
-test('execution limit reports incomplete work and makes no surprise writes', async () => {
-  let count = 0;
-  globalThis.fetch = async () => { count++; return Response.json(response(null, [call('query_records', { type: 'task', countOnly: true })])); };
-  const result = await AutonomousBrainAgent.execute('Review tasks', state());
-  assert.equal(count, 48); assert.equal(result.status, 'error'); assert.match(result.queryAnswer, /incomplete/); assert.equal(result.actions.length, 0);
+test('repeated reads stop exploration and synthesize an answer with tools disabled', async () => {
+  const requests = [];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body); requests.push(body);
+    return Response.json(body.tool_choice === 'none'
+      ? response('I found 105 tasks. I have their count, but not their descriptions, so I cannot explain each task yet.')
+      : response(null, [call('query_records', { type: 'task', countOnly: true })]));
+  };
+  const result = await AutonomousBrainAgent.execute('Explain all my tasks', state());
+  assert.equal(requests.length, 4); assert.equal(requests.at(-1).tool_choice, 'none');
+  assert.equal(result.status, 'partial'); assert.match(result.queryAnswer, /105 tasks/);
+  assert.doesNotMatch(result.queryAnswer, /Execution limit reached/); assert.equal(result.actions.length, 0);
 });
 
 test('tool boundary recovers from malformed JSON and rejects unknown tool calls', async () => {
@@ -227,4 +234,110 @@ test('long prior messages and source lists remain accessible through bounded rec
     assert.ok(output.content.length <= 12000); text += output.content; characterOffset = output.nextCharacterOffset;
   } while (characterOffset !== null);
   assert.deepEqual(JSON.parse(text), s.chatHistory[0]);
+});
+
+test('a seven-task review retrieves details in one batch and then answers', async () => {
+  const s = state(); s.tasks = s.tasks.slice(0, 7).map((task, index) => ({ ...task, description: `Deliverable ${index}`, subtasks: [{ id: `sub-${index}`, title: 'Prepare materials', completed: false }] }));
+  const requests = [];
+  mockProvider([
+    response(null, [call('query_records', { type: 'task', status: 'pending' })]),
+    response(null, [call('read_records', { type: 'task', ids: s.tasks.map(t => t.id) })]),
+    response('Here are all seven tasks and their preparation steps.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('Explain all the tasks I need to do', s);
+  assert.equal(result.status, 'complete'); assert.equal(requests.length, 3); assert.equal(result.citations.length, 7);
+  const batch = JSON.parse(requests[2].messages.filter(m => m.role === 'tool').at(-1).content);
+  assert.equal(batch.records.length, 7); assert.ok(batch.records.every(r => r.content.includes('Prepare materials')));
+});
+
+test('batch reads validate bounds and expose continuation for long records', async () => {
+  const schema = BRAIN_TOOLS.find(t => t.function.name === 'read_records').function.parameters;
+  assert.throws(() => validate({ type: 'task', ids: [] }, schema));
+  assert.throws(() => validate({ type: 'task', ids: Array(11).fill('task-001') }, schema));
+  const s = state(); s.tasks[0].description = 'Detailed requirements '.repeat(500);
+  const { output, sources } = await executeRead('read_records', { type: 'task', ids: ['task-000', 'missing'] }, s, '');
+  assert.equal(output.records[0].nextOffset, 4000); assert.equal(output.records[0].content.length, 4000);
+  assert.equal(output.records[1].error, 'Record not found'); assert.equal(sources.length, 1);
+});
+
+test('legitimate pagination makes progress instead of triggering the repetition detector', async () => {
+  const requests = [];
+  mockProvider([
+    response(null, [call('query_records', { type: 'task', offset: 0 })]),
+    response(null, [call('query_records', { type: 'task', offset: 40 })]),
+    response(null, [call('query_records', { type: 'task', offset: 80 })]),
+    response('I reviewed all 105 task summaries.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('List my tasks', state());
+  assert.equal(result.status, 'complete'); assert.equal(result.citations.length, 105);
+  assert.ok(requests.every(r => r.tool_choice === 'auto'));
+});
+
+test('repeated tool errors produce a final explanation instead of exhausting 48 rounds', async () => {
+  const requests = [];
+  mockProvider([
+    response(null, [call('read_record', { type: 'task', id: 'missing' })]),
+    response(null, [call('read_record', { type: 'task', id: 'missing' })]),
+    response('That task could not be found. No records were changed.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('Explain that task', state());
+  assert.equal(result.status, 'partial'); assert.equal(requests.at(-1).tool_choice, 'none'); assert.equal(result.actions.length, 0);
+});
+
+test('read caches are invalidated after a successful mutation', async () => {
+  const requests = [];
+  mockProvider([
+    response(null, [call('read_record', { type: 'task', id: 'task-001' })]),
+    response(null, [call('update_task', { taskId: 'task-001', status: 'completed' })]),
+    response(null, [call('read_record', { type: 'task', id: 'task-001' })]),
+    response('The task is now completed.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('Complete and verify the task', state(), undefined, undefined, { commit: async () => {} });
+  assert.equal(result.status, 'complete'); assert.equal(result.actions.length, 1);
+  const resultAfterWrite = JSON.parse(requests[3].messages.filter(m => m.role === 'tool').at(-1).content);
+  assert.match(resultAfterWrite.content, /"status": "completed"/);
+});
+
+test('a changing long-running review reserves its last round to answer', async () => {
+  const requests = [];
+  globalThis.fetch = async (_url, options) => {
+    const body = JSON.parse(options.body); requests.push(body);
+    return Response.json(body.tool_choice === 'none'
+      ? response('I reviewed 47 records; the remaining records have not yet been inspected.')
+      : response(null, [call('read_record', { type: 'task', id: `task-${String(requests.length - 1).padStart(3, '0')}` })]));
+  };
+  const result = await AutonomousBrainAgent.execute('Review everything', state());
+  assert.equal(requests.length, 48); assert.equal(requests.at(-1).tool_choice, 'none');
+  assert.equal(result.status, 'partial'); assert.equal(result.citations.length, 47); assert.match(result.queryAnswer, /remaining/);
+});
+
+test('providers that ignore disabled tools cannot start another execution loop', async () => {
+  let count = 0;
+  globalThis.fetch = async () => { count++; return Response.json(response(null, [call('query_records', { type: 'task', countOnly: true })])); };
+  const result = await AutonomousBrainAgent.execute('Review tasks', state());
+  assert.equal(count, 4); assert.equal(result.status, 'error'); assert.match(result.queryAnswer, /provider did not return an answer/i);
+});
+
+test('equivalent read arguments cannot evade progress checks by changing key order or defaults', async () => {
+  const requests = [];
+  mockProvider([
+    response(null, [call('query_records', { type: 'task', status: 'pending' })]),
+    response(null, [call('query_records', { status: 'pending', type: 'task', offset: 0 })]),
+    response(null, [call('query_records', { countOnly: false, offset: 0, type: 'task', status: 'pending' })]),
+    response('Here is what the retrieved task summaries show.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('Explain my tasks', state());
+  assert.equal(result.status, 'partial'); assert.equal(requests.at(-1).tool_choice, 'none');
+});
+
+test('final synthesis never replays successful writes', async () => {
+  const requests = [], writes = [], args = { title: 'Plan', content: 'Prepare the presentation.' };
+  mockProvider([
+    response(null, [call('create_note', args)]),
+    response(null, [call('create_note', args)]),
+    response(null, [call('create_note', args)]),
+    response('Your plan is saved.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('Save my plan', state(), undefined, undefined, { commit: async mutation => writes.push(mutation) });
+  assert.equal(writes.length, 1); assert.equal(result.actions.length, 1); assert.equal(requests.at(-1).tool_choice, 'none');
 });
