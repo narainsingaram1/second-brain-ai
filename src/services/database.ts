@@ -230,6 +230,8 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
     updatedAt: new Date().toISOString(),
   };
 
+  let saved = false;
+
   // 1. IndexedDB
   try {
     const db = await getDatabase();
@@ -239,7 +241,9 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
       store.put(record);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("Storage transaction aborted"));
     });
+    saved = true;
   } catch (err) {
     console.warn("IndexedDB saveUserState error:", err);
   }
@@ -247,6 +251,7 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
   // 2. LocalStorage per user
   try {
     localStorage.setItem(`${LOCAL_STORAGE_USER_DATA_PREFIX}${userId}`, JSON.stringify(record.state));
+    saved = true;
     // Also keep active state mirror
     localStorage.setItem("synapse_second_brain_state", JSON.stringify(record.state));
   } catch (e) {
@@ -260,9 +265,11 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
       userId,
       data: JSON.stringify(record.state),
     });
+    saved = true;
   } catch {
     // Expected in browser
   }
+  if (!saved) throw new Error("No persistent storage accepted the write.");
 }
 
 /**

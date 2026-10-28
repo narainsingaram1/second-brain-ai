@@ -31,7 +31,7 @@ export function normalizeTask(raw: Partial<Task> & { id: string; title: string }
     id: raw.id,
     title: raw.title,
     description: raw.description,
-    dueDate: raw.dueDate || new Date().toISOString().split("T")[0],
+    dueDate: raw.dueDate ?? new Date().toISOString().split("T")[0],
     priority: raw.priority || "medium",
     section: raw.section || "Academic",
     subsection: raw.subsection || "General",

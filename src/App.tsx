@@ -1,3 +1,4 @@
+import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
 import { loadInitialState, persistBrainState } from "./services/storage";
@@ -58,6 +59,11 @@ export const App: React.FC = () => {
   const historyPast = useRef<BrainState[]>([]);
   const historyFuture = useRef<BrainState[]>([]);
 
+  const conversation = useBrainConversation(state, setState, before => {
+    historyPast.current = [...historyPast.current.slice(-29), structuredClone(before)];
+    historyFuture.current = [];
+  });
+
   // Load initial session & database state on mount
   useEffect(() => {
     initAuth().then((authSession) => {
@@ -101,7 +107,7 @@ export const App: React.FC = () => {
   // Sync state to storage & database whenever it changes
   useEffect(() => {
     if (state) {
-      persistBrainState(state, session.currentUser?.id);
+      persistBrainState(state, session.currentUser?.id).catch(error => console.error("State save failed:", error));
     }
   }, [state, session]);
 
@@ -760,6 +766,7 @@ export const App: React.FC = () => {
         {/* ========================================================= */}
         {activeTab === "home" && (
           <HomeView
+            conversation={conversation}
             brainState={state}
             onSaveTask={handleSaveTask}
             onUpdateTask={handleSaveTask}
@@ -1029,6 +1036,7 @@ export const App: React.FC = () => {
 
       {/* Modals */}
       <AICopilotModal
+        conversation={conversation}
         isOpen={isAICopilotOpen}
         onClose={() => setIsAICopilotOpen(false)}
         tasks={state.tasks}

@@ -50,7 +50,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       <div className="bg-white/80 dark:bg-[#141721]/80 backdrop-blur-xl rounded-4xl p-6 border border-slate-300/70 dark:border-slate-800 shadow-card flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-            Daily Habits & Neuro-Consistency
+            Daily Habits
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             Build unshakeable daily rituals with visual streaks and progressive momentum

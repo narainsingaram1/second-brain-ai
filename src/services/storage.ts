@@ -703,7 +703,7 @@ export async function persistBrainState(state: BrainState, userId?: string): Pro
   const cleanState = { ...state, tasks: normalizedTasks, userId: targetUserId };
   
   // Serialized through mutex queue to guarantee transactional ordering
-  persistQueue = persistQueue.then(async () => {
+  persistQueue = persistQueue.catch(() => {}).then(async () => {
     const envelope = wrapStateEnvelope(cleanState, targetUserId);
     const envelopeJson = JSON.stringify(envelope);
 
@@ -714,11 +714,13 @@ export async function persistBrainState(state: BrainState, userId?: string): Pro
       try {
         const { invoke } = await import("@tauri-apps/api/core");
         await invoke("save_brain_data", { data: envelopeJson });
-        if (state.openRouterKey) {
-          await invoke("save_openrouter_api_key", { apiKey: state.openRouterKey });
-        }
       } catch (e) {
-        console.error("[Storage] Failed to save to Tauri canonical store:", e);
+        console.error("[Storage] Desktop save failed:", e);
+        throw new Error("Could not save changes to desktop storage.");
+      }
+      // Credentials are a separate write; failure must not misreport an already saved action.
+      if (state.openRouterKey) {
+        import("@tauri-apps/api/core").then(({ invoke }) => invoke("save_openrouter_api_key", { apiKey: state.openRouterKey })).catch(() => {});
       }
       // Non-blocking background sync to IndexedDB for multi-user database records
       saveUserStateToDB(targetUserId, cleanState).catch(() => {});
@@ -730,7 +732,7 @@ export async function persistBrainState(state: BrainState, userId?: string): Pro
         console.warn("[Storage] IndexedDB save failed, using LocalStorage fallback:", e);
         try {
           localStorage.setItem(STORAGE_ENVELOPE_KEY, envelopeJson);
-        } catch {}
+        } catch { throw new Error("Could not save changes to browser storage."); }
       }
     }
 

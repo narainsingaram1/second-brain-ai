@@ -9,8 +9,6 @@ import {
   FileText,
   ChevronsLeft,
   ChevronsRight,
-  Crown,
-  ChevronRight,
 } from "lucide-react";
 
 interface SidebarProps {
@@ -26,7 +24,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   collapsed,
   onToggleCollapse,
-  onOpenProModal,
 }) => {
   const navItems = [
     { id: "home", label: "Home", icon: Home },

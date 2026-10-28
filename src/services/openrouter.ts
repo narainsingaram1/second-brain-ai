@@ -29,18 +29,26 @@ export interface OpenRouterToolCall {
   };
 }
 
+export interface OpenRouterMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: OpenRouterToolCall[];
+  tool_call_id?: string;
+}
+
 export interface OpenRouterCompletionResponse {
   content: string | null;
   toolCalls?: OpenRouterToolCall[];
 }
 
 export async function queryOpenRouterWithTools(
-  messages: { role: string; content: string }[],
+  messages: OpenRouterMessage[],
   tools: OpenRouterTool[],
   apiKey: string,
   model: string = "anthropic/claude-3.5-sonnet",
   systemPrompt?: string,
-  toolChoice: "auto" | "none" | { type: "function"; function: { name: string } } = "auto"
+  toolChoice: "auto" | "none" | { type: "function"; function: { name: string } } = "auto",
+  signal?: AbortSignal
 ): Promise<OpenRouterCompletionResponse> {
   if (!apiKey) {
     throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
@@ -56,7 +64,7 @@ export async function queryOpenRouterWithTools(
     model: model || "anthropic/claude-3.5-sonnet",
     messages: payloadMessages,
     temperature: 0.3,
-    max_tokens: 2000,
+    max_tokens: 6000,
   };
 
   if (tools && tools.length > 0) {
@@ -66,6 +74,7 @@ export async function queryOpenRouterWithTools(
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000),
     headers: {
       Authorization: `Bearer ${apiKey.trim()}`,
       "Content-Type": "application/json",
@@ -81,7 +90,10 @@ export async function queryOpenRouterWithTools(
   }
 
   const data = await res.json();
+  if (data.error) throw new Error(data.error.message || "Provider returned an error.");
   const choice = data.choices?.[0];
+  if (!choice?.message) throw new Error("Provider returned no message.");
+  if (choice.finish_reason === "length") throw new Error("Model output limit reached. Narrow the request or choose a model with a larger output limit.");
   const msg = choice?.message;
 
   let toolCalls: OpenRouterToolCall[] | undefined = undefined;

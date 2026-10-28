@@ -7,21 +7,19 @@ import {
   JournalEntry,
   KnowledgeItem,
 } from "../types";
-import { AutonomousBrainAgent, AgentExecutionResult } from "../services/agentDispatcher";
+import { AgentExecutionResult, RunConversation } from "../services/agentDispatcher";
+import { SourceReferences } from "./SourceReferences";
 import { MarkdownView } from "./MarkdownView";
-import confetti from "canvas-confetti";
+
 import {
   Sparkles,
   ArrowUp,
   Mic,
   MicOff,
-  Globe,
   Sliders,
   Plus,
-  ClipboardList,
   Target,
   CheckSquare,
-  ChevronRight,
   ChevronDown,
   Undo2,
   Layers,
@@ -35,6 +33,7 @@ import {
 } from "lucide-react";
 
 interface HomeViewProps {
+  conversation: { run: RunConversation; busy: boolean; progress: string; stop: () => void };
   brainState: BrainState;
   onSaveTask: (task: Task) => void;
   onUpdateTask: (task: Task) => void;
@@ -48,20 +47,16 @@ interface HomeViewProps {
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
+  conversation,
   brainState,
-  onSaveTask,
-  onUpdateTask,
-  onSaveGoal,
-  onSaveHabit,
-  onSaveJournal,
   onSaveKnowledge,
   onNavigateTab,
   onUndo,
-  openRouterKey,
 }) => {
   const [inputText, setInputText] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const isProcessing = conversation.busy;
+  const [error, setError] = useState("");
   const [lastExecution, setLastExecution] = useState<AgentExecutionResult | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isSavedToNotes, setIsSavedToNotes] = useState(false);
@@ -93,12 +88,10 @@ export const HomeView: React.FC<HomeViewProps> = ({
     };
     onSaveKnowledge(note);
     setIsSavedToNotes(true);
-    confetti({ particleCount: 35, spread: 50, origin: { y: 0.6 } });
     setTimeout(() => setIsSavedToNotes(false), 2500);
   };
 
   // Tools toggle state
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [isToolsDropdownOpen, setIsToolsDropdownOpen] = useState(false);
   const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
 
@@ -164,38 +157,16 @@ export const HomeView: React.FC<HomeViewProps> = ({
     const prompt = inputText.trim();
     if (!prompt || isProcessing) return;
 
-    setIsProcessing(true);
+    setError("");
     setLastExecution(null);
-
+    setIsCopied(false);
+    setIsSavedToNotes(false);
+    setInputText("");
     try {
-      const result = await AutonomousBrainAgent.execute(prompt, brainState, openRouterKey);
+      const result = await conversation.run(prompt);
       setLastExecution(result);
-
-      if (result.actionType === "create_task" && result.createdTask) {
-        onSaveTask(result.createdTask);
-        confetti({ particleCount: 50, spread: 60, origin: { y: 0.6 } });
-      } else if (result.actionType === "update_task" && result.updatedTask) {
-        onUpdateTask(result.updatedTask);
-        confetti({ particleCount: 40, spread: 50, origin: { y: 0.6 } });
-      } else if (result.actionType === "create_goal" && result.createdGoal) {
-        onSaveGoal(result.createdGoal);
-        confetti({ particleCount: 60, spread: 70, origin: { y: 0.6 } });
-      } else if (result.actionType === "complete_habit" && result.updatedHabit) {
-        onSaveHabit(result.updatedHabit);
-        confetti({ particleCount: 40, spread: 55, origin: { y: 0.6 } });
-      } else if (result.actionType === "log_journal" && result.createdJournal) {
-        onSaveJournal(result.createdJournal);
-        confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
-      } else if (result.actionType === "create_note" && result.createdNote) {
-        onSaveKnowledge(result.createdNote);
-        confetti({ particleCount: 30, spread: 45, origin: { y: 0.6 } });
-      }
-
-      setInputText("");
     } catch (err) {
-      console.error("Agent execution error:", err);
-    } finally {
-      setIsProcessing(false);
+      setError(err instanceof Error ? err.message : "The request failed.");
     }
   };
 
@@ -314,6 +285,20 @@ export const HomeView: React.FC<HomeViewProps> = ({
         </p>
       </div>
 
+      {brainState.chatHistory.length > 0 && (
+        <div className="w-full mb-6 space-y-4 max-h-[420px] overflow-y-auto" aria-label="Conversation history">
+          {brainState.chatHistory.filter(m => m.role !== "system").map(message => (
+            <div key={message.id} className={`rounded-2xl p-4 text-sm ${message.role === "user" ? "bg-indigo-50 dark:bg-indigo-950/40 ml-8" : "bg-white dark:bg-slate-900 mr-4"}`}>
+              <p className="text-xs font-semibold text-slate-500 mb-2">{message.role === "user" ? "You" : "Synapse"}</p>
+              <MarkdownView content={message.content} />
+              {message.role === "assistant" && <SourceReferences sources={message.sources} state={brainState} />}
+            </div>
+          ))}
+        </div>
+      )}
+      {error && <p role="alert" className="text-sm text-red-600 mb-4">{error}</p>}
+      {isProcessing && <div role="status" className="flex gap-3 text-sm text-indigo-600 mb-4">{conversation.progress}<button type="button" onClick={conversation.stop} className="underline">Stop</button></div>}
+
       {/* Main Central Input Container (Glassmorphic) */}
       <div className="w-full relative mb-6">
         <form
@@ -397,20 +382,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
                   </div>
                 )}
               </div>
-
-              {/* Web Toggle Pill */}
-              <button
-                type="button"
-                onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-                  webSearchEnabled
-                    ? "bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700"
-                    : "bg-slate-100 dark:bg-[#171a30] text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-[#2c3057] hover:bg-slate-200 dark:hover:bg-[#1f2342]"
-                }`}
-              >
-                <Globe className="w-3.5 h-3.5 text-slate-400 group-hover:text-blue-500" />
-                <span>Web</span>
-              </button>
 
               {/* Tools Dropdown Pill */}
               <div className="relative">
@@ -515,21 +486,6 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                  {lastExecution.entityType && lastExecution.entityType !== "query" && (
-                    <button
-                      onClick={() => {
-                        if (lastExecution.entityType === "task") onNavigateTab("tasks");
-                        else if (lastExecution.entityType === "goal") onNavigateTab("goals");
-                        else if (lastExecution.entityType === "habit") onNavigateTab("habits");
-                        else if (lastExecution.entityType === "journal") onNavigateTab("journal");
-                        else if (lastExecution.entityType === "knowledge") onNavigateTab("knowledge");
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-300 text-xs font-semibold transition-colors"
-                    >
-                      <span>View {lastExecution.entityType}</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
-                  )}
 
                   <button
                     onClick={handleCopy}
@@ -561,7 +517,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
               {/* Card Markdown Content */}
               <div className="overflow-y-auto max-h-[460px] pr-1">
-                <MarkdownView content={lastExecution.queryAnswer} />
+                <p className="text-xs text-slate-500">Response added to the conversation above.</p>
               </div>
 
               {/* Citations if any */}
@@ -600,11 +556,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => {
-                    if (lastExecution.entityType === "task") onNavigateTab("tasks");
-                    else if (lastExecution.entityType === "goal") onNavigateTab("goals");
-                    else if (lastExecution.entityType === "habit") onNavigateTab("habits");
-                    else if (lastExecution.entityType === "journal") onNavigateTab("journal");
-                    else if (lastExecution.entityType === "knowledge") onNavigateTab("knowledge");
+                    onNavigateTab("copilot");
                   }}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 transition-colors"
                 >

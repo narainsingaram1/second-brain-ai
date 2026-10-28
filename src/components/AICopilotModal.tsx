@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
 import { BrainState, Task, Habit, JournalEntry, AIMessage, Goal, KnowledgeItem } from "../types";
-import { AutonomousBrainAgent } from "../services/agentDispatcher";
+import { RunConversation } from "../services/agentDispatcher";
+import { SourceReferences } from "./SourceReferences";
 import { MarkdownView } from "./MarkdownView";
-import { vectorVault, SearchResult } from "../services/vectorVault";
+
 import {
   Sparkles,
   Send,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 
 interface AICopilotModalProps {
+  conversation: { run: RunConversation; busy: boolean; progress: string; stop: () => void };
   isOpen: boolean;
   onClose: () => void;
   tasks: Task[];
@@ -41,30 +43,22 @@ interface AICopilotModalProps {
 }
 
 export const AICopilotModal: React.FC<AICopilotModalProps> = ({
+  conversation,
   isOpen,
   onClose,
-  tasks,
-  habits,
-  journalEntries,
   chatHistory,
-  onUpdateChatHistory,
   openRouterKey,
   selectedModel,
+  brainState,
   onOpenSettings,
   onOpenVault,
-  brainState,
-  onSaveTask,
-  onUpdateTask,
-  onSaveGoal,
-  onSaveHabit,
-  onSaveJournal,
-  onSaveKnowledge,
   onNavigateTab,
   onUndo,
 }) => {
   const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [retrievedMemories, setRetrievedMemories] = useState<SearchResult[]>([]);
+  const isLoading = conversation.busy;
+  const [error, setError] = useState("");
+  const retrievedMemories = chatHistory.flatMap(m => m.sources || []).filter((s, i, all) => all.findIndex(x => x.id === s.id && x.type === s.type) === i).map(s => ({ chunk: { item_type: s.type, title: s.title, content: s.id }, score: 0 }));
   const [isMemoriesExpanded, setIsMemoriesExpanded] = useState(false);
   const [lastActionResult, setLastActionResult] = useState<{
     actionType: string;
@@ -101,103 +95,14 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
       return;
     }
 
-    const userMessage: AIMessage = {
-      id: `msg-${Date.now()}`,
-      role: "user",
-      content: textToSend.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    };
-
-    const newHistory = [...chatHistory, userMessage];
-    onUpdateChatHistory(newHistory);
+    if (isLoading) return;
     setInput("");
-    setIsLoading(true);
-
+    setError("");
     try {
-      // 1. Semantic Memory Vault Retrieval (RAG over user's brain)
-      let relevantMemories: SearchResult[] = [];
-      try {
-        relevantMemories = await vectorVault.search(textToSend, 4, undefined, openRouterKey);
-        setRetrievedMemories(relevantMemories);
-      } catch (vaultErr) {
-        console.warn("Vault search warning:", vaultErr);
-      }
-
-      // Build effective state context for agent
-      const effectiveState: BrainState = brainState || {
-        theme: "dark",
-        tasks,
-        habits,
-        journalEntries,
-        knowledgeItems: [],
-        sections: ["Academic", "Career", "Health", "Personal"],
-        subsections: {},
-        goals: [],
-        chatHistory: newHistory,
-        openRouterKey,
-        selectedModel,
-      };
-
-      // 2. Resolve intent using unified Autonomous Brain Agent
-      const agentResult = await AutonomousBrainAgent.execute(
-        textToSend,
-        effectiveState,
-        openRouterKey,
-        selectedModel
-      );
-
-      // Execute state mutations if tools were invoked
-      if (agentResult.actionType === "create_task" && agentResult.createdTask) {
-        onSaveTask?.(agentResult.createdTask);
-        setLastActionResult({ actionType: "create_task", entityType: "task", headline: agentResult.headline });
-      } else if (agentResult.actionType === "update_task" && agentResult.updatedTask) {
-        onUpdateTask?.(agentResult.updatedTask);
-        setLastActionResult({ actionType: "update_task", entityType: "task", headline: agentResult.headline });
-      } else if (agentResult.actionType === "complete_habit" && agentResult.updatedHabit) {
-        onSaveHabit?.(agentResult.updatedHabit);
-        setLastActionResult({ actionType: "complete_habit", entityType: "habit", headline: agentResult.headline });
-      } else if (agentResult.actionType === "create_goal" && agentResult.createdGoal) {
-        onSaveGoal?.(agentResult.createdGoal);
-        setLastActionResult({ actionType: "create_goal", entityType: "goal", headline: agentResult.headline });
-      } else if (agentResult.actionType === "log_journal" && agentResult.createdJournal) {
-        onSaveJournal?.(agentResult.createdJournal);
-        setLastActionResult({ actionType: "log_journal", entityType: "journal", headline: agentResult.headline });
-      } else if (agentResult.actionType === "create_note" && agentResult.createdNote) {
-        onSaveKnowledge?.(agentResult.createdNote);
-        setLastActionResult({ actionType: "create_note", entityType: "knowledge", headline: agentResult.headline });
-      } else {
-        setLastActionResult(null);
-      }
-
-      let responseContent = "";
-      if (agentResult.queryAnswer) {
-        if (agentResult.entityType && agentResult.entityType !== "query") {
-          responseContent = `> **✓ ${agentResult.headline}**\n> *${agentResult.explanation}*\n\n${agentResult.queryAnswer}`;
-        } else {
-          responseContent = agentResult.queryAnswer;
-        }
-      } else {
-        responseContent = `> **✓ ${agentResult.headline}**\n> *${agentResult.explanation}*`;
-      }
-
-      const assistantMessage: AIMessage = {
-        id: `msg-${Date.now() + 1}`,
-        role: "assistant",
-        content: responseContent,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-
-      onUpdateChatHistory([...newHistory, assistantMessage]);
-    } catch (err: any) {
-      const errorMessage: AIMessage = {
-        id: `msg-err-${Date.now()}`,
-        role: "assistant",
-        content: `**OpenRouter Error**: ${err.message || "Failed to contact AI service"}. Please verify your API key in Settings.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      };
-      onUpdateChatHistory([...newHistory, errorMessage]);
-    } finally {
-      setIsLoading(false);
+      const result = await conversation.run(textToSend.trim());
+      setLastActionResult(result.actions.length ? { actionType: result.actionType, entityType: "compound", headline: result.explanation } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "The request failed.");
     }
   };
 
@@ -259,7 +164,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
             >
               <span className="flex items-center gap-1.5">
                 <Database className="w-3.5 h-3.5 text-indigo-500" />
-                <span>🧠 {retrievedMemories.length} historical memories retrieved from Vault (RAG)</span>
+                <span>🧠 {retrievedMemories.length} source references in this conversation</span>
               </span>
               {isMemoriesExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
@@ -276,7 +181,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
                         [{m.chunk.item_type}] {m.chunk.title}
                       </span>
                       <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
-                        {Math.round(m.score * 100)}% match
+                        {m.chunk.item_type} match
                       </span>
                     </div>
                     <p className="text-slate-500 dark:text-slate-400 text-[10px] truncate mt-0.5">
@@ -342,6 +247,7 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
                       )}
                     </>
                   )}
+                  {!isUser && <SourceReferences sources={msg.sources} state={brainState} />}
                   <span
                     className={`block text-[9px] mt-2 opacity-60 text-right ${
                       isUser ? "text-slate-300 dark:text-slate-600" : "text-slate-400"
@@ -360,6 +266,8 @@ export const AICopilotModal: React.FC<AICopilotModalProps> = ({
             );
           })}
 
+          {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+          {isLoading && <div role="status" className="text-sm text-indigo-600">{conversation.progress} <button type="button" onClick={conversation.stop} className="underline ml-2">Stop</button></div>}
           {isLoading && (
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-800 text-white flex items-center justify-center shrink-0">

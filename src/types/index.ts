@@ -129,6 +129,7 @@ export interface KnowledgeItem {
 export type Note = KnowledgeItem;
 
 export interface AIMessage {
+  sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;

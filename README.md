@@ -22,6 +22,21 @@ Open [http://localhost:1420](http://localhost:1420) in your browser.
 
 ---
 
+## Conversation and agent runtime
+
+Home and Copilot share a persistent conversation, selected model, progress indicator, and Stop control. The assistant can discuss a request, retrieve evidence, execute several actions, and inspect their results within one turn. The configured model must support function tools.
+
+- `query_records` filters the complete live collection by type, status, date, section, or text. It returns exact counts and paginated results rather than a sample of tasks.
+- `search_records` combines keyword search with neural passage search. Long records use overlapping passages; initial indexing batches passages through the embedding provider, and unchanged embeddings are cached in IndexedDB by account, model, and content hash. Searches derive candidates from current records, so deleted or edited content is not served from stale cache entries. Embedding failures explicitly degrade to keyword search.
+- `read_record` and `recall_conversation` paginate full records and older messages. Answers can cite exact source IDs; expand **Sources** under an answer to inspect the current saved record.
+- Mutation tools validate arguments and exact targets, await durable storage, and feed results back to the model. Successful identical calls within a turn are deduplicated. Cancellation and provider failures report any changes already saved; failed writes are not counted as successful.
+
+Each turn is bounded to 48 model rounds, 96 tool calls, and four minutes. Model requests time out after 60 seconds. Long evidence is paginated and older tool bodies may be evicted from the prompt; the model can retrieve them again. Requests exceeding those limits report incomplete coverage. The runtime accesses the app's records; it does not fetch websites or ingest external files. The former cosmetic Web toggle has been removed.
+
+Run `npm test` for deterministic runtime, retrieval, caching, validation, cancellation, and persistence checks. These tests mock provider responses and use synthetic records; they do not establish live provider compatibility. Run `npm run build` for TypeScript and production bundling checks.
+
+---
+
 ## 🔑 Adding Your OpenRouter API Key
 
 You can add your OpenRouter API key in **either of two convenient ways**:
