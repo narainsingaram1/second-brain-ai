@@ -106,41 +106,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </nav>
       </div>
-
-      {/* Bottom Pro Card */}
-      <div>
-        {!collapsed ? (
-          <div
-            onClick={onOpenProModal}
-            className="group flex items-center justify-between p-3 rounded-2xl bg-slate-50/80 dark:bg-[#121422]/70 border border-slate-200/80 dark:border-slate-800/80 hover:border-amber-500/40 hover:bg-slate-100 dark:hover:bg-[#181a2e] cursor-pointer transition-all shadow-xs"
-          >
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0">
-                <Crown className="w-3.5 h-3.5" />
-              </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5">
-                  <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">
-                    Pro
-                  </h4>
-                </div>
-                <p className="text-[10px] text-slate-400 truncate">
-                  Unlock more power
-                </p>
-              </div>
-            </div>
-            <ChevronRight className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-500 transition-colors shrink-0" />
-          </div>
-        ) : (
-          <button
-            onClick={onOpenProModal}
-            className="w-full flex items-center justify-center p-2.5 rounded-2xl bg-amber-500/10 text-amber-500 border border-amber-500/20 hover:scale-105 transition-all"
-            title="Pro - Unlock more power"
-          >
-            <Crown className="w-4 h-4" />
-          </button>
-        )}
-      </div>
     </aside>
   );
 };
