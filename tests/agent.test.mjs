@@ -5,7 +5,7 @@ import { createServer } from 'vite';
 const server = await createServer({ cacheDir: "/tmp/synapse-agent-test-cache", configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
-const { executeRead, prepareMutation, validate, BRAIN_TOOLS, applyMutation } = await server.ssrLoadModule('/src/services/brainTools.ts');
+const { executeRead, prepareMutation, validate, parseToolArguments, BRAIN_TOOLS, applyMutation } = await server.ssrLoadModule('/src/services/brainTools.ts');
 const { records, chunks, searchRecords } = await server.ssrLoadModule('/src/services/brainRetrieval.ts');
 const { normalizeTask } = await server.ssrLoadModule('/src/utils/taskState.ts');
 const state = () => ({ userId: 'test', tasks: Array.from({ length: 105 }, (_, i) => ({ id: `task-${String(i).padStart(3, '0')}`, title: `Assignment ${i}`, dueDate: i === 104 ? '2026-11-02' : '2026-10-29', priority: 'medium', section: 'Academic', status: i === 100 ? 'completed' : 'not_started', completed: i === 100 })),
@@ -340,4 +340,44 @@ test('final synthesis never replays successful writes', async () => {
   ], requests);
   const result = await AutonomousBrainAgent.execute('Save my plan', state(), undefined, undefined, { commit: async mutation => writes.push(mutation) });
   assert.equal(writes.length, 1); assert.equal(result.actions.length, 1); assert.equal(requests.at(-1).tool_choice, 'none');
+});
+
+test('provider pagination variants retrieve tasks instead of failing integer validation', async () => {
+  for (const offset of ['0', null, '', '0.0', 0]) {
+    const s = state(); s.tasks = s.tasks.slice(0, 7);
+    const requests = [];
+    mockProvider([
+      response(null, [call('query_records', { type: 'task', status: 'pending', offset, dateFrom: null, dateTo: null, section: null, text: null, countOnly: 'false' })]),
+      response('Here are your seven pending tasks.'),
+    ], requests);
+    const result = await AutonomousBrainAgent.execute('Explain all my tasks due soon', s);
+    const toolResult = JSON.parse(requests[1].messages.find(m => m.role === 'tool').content);
+    assert.equal(toolResult.error, undefined, `offset ${JSON.stringify(offset)} should not fail`);
+    assert.equal(toolResult.records.length, 7);
+    assert.equal(result.status, 'complete'); assert.equal(result.citations.length, 7);
+  }
+});
+
+test('all read cursors accept unambiguous numeric strings and absent optional values', () => {
+  for (const name of ['query_records', 'read_record', 'search_records', 'recall_conversation']) {
+    const schema = BRAIN_TOOLS.find(t => t.function.name === name).function.parameters;
+    const base = name === 'query_records' ? { type: 'task' } : name === 'read_record' ? { type: 'task', id: 'task-001' } : name === 'search_records' ? { query: 'coursework' } : {};
+    assert.equal(parseToolArguments(JSON.stringify({ ...base, offset: '40' }), schema).offset, 40);
+    assert.equal(parseToolArguments(JSON.stringify({ ...base, offset: null }), schema).offset, undefined);
+    for (const offset of [-1, '-1', 1.5, '1.5', true, 'NaN', 'Infinity', '1,000', 'next', {}, '9007199254740993', '9007199254740990.5']) {
+      assert.throws(() => parseToolArguments(JSON.stringify({ ...base, offset }), schema), `${name} should reject ${JSON.stringify(offset)}`);
+    }
+  }
+});
+
+test('provider normalization preserves required fields, unknown-field rejection and mutation safety', () => {
+  const query = BRAIN_TOOLS.find(t => t.function.name === 'query_records').function.parameters;
+  const update = BRAIN_TOOLS.find(t => t.function.name === 'update_task').function.parameters;
+  assert.deepEqual(parseToolArguments(JSON.stringify({ type: 'task', offset: '0', countOnly: 'false', section: null }), query), { type: 'task', offset: 0, countOnly: false });
+  assert.deepEqual(parseToolArguments(JSON.stringify({ taskId: '001', status: null, newDueDate: '2026-11-02' }), update), { taskId: '001', newDueDate: '2026-11-02' });
+  assert.throws(() => parseToolArguments(JSON.stringify({ type: null }), query));
+  assert.throws(() => parseToolArguments(JSON.stringify({ type: 'task', unknown: null }), query));
+  assert.throws(() => parseToolArguments(JSON.stringify({ taskId: 1, status: 'completed' }), update));
+  assert.throws(() => parseToolArguments(JSON.stringify({ taskId: null, status: 'completed' }), update));
+  assert.throws(() => parseToolArguments(JSON.stringify({ taskId: 'task-001', status: 'finished' }), update));
 });

@@ -218,26 +218,57 @@ const recordTypes = ["task", "goal", "habit", "journal", "knowledge"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
+const cursorSchema = { type: "integer", minimum: 0, default: 0, description: "Optional zero-based offset. Omit for the first page, otherwise use the numeric nextOffset returned by the previous result." };
 function tool(name: string, description: string, properties: Record<string, unknown>, required: string[] = []): OpenRouterTool {
   return { type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false } } };
 }
 export const READ_TOOLS = [
   tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination.", {
     type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold"] }, section: str, text: str,
-    offset: { type: "integer", minimum: 0 }, countOnly: { type: "boolean" },
+    offset: cursorSchema, countOnly: { type: "boolean" },
   }, ["type"]),
   tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Offsets match search excerpts.", {
-    type: typeSchema, id: str, offset: { type: "integer", minimum: 0 },
+    type: typeSchema, id: str, offset: cursorSchema,
   }, ["type", "id"]),
   tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or goal. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
     type: typeSchema, ids: { type: "array", items: str, minItems: 1, maxItems: 10 },
   }, ["type", "ids"]),
   tool("search_records", "Hybrid keyword and neural search across current records, including ALL passages of long notes. Returns evidence excerpts with source IDs and offsets. Use read_record for surrounding context. Relevance search cannot establish exhaustive counts or lists.", {
-    query: str, type: typeSchema, offset: { type: "integer", minimum: 0 },
+    query: str, type: typeSchema, offset: cursorSchema,
   }, ["query"]),
-  tool("recall_conversation", "Read one earlier conversation message by zero-based offset, including source IDs. Long messages are paginated by characterOffset; follow nextCharacterOffset on the same message before advancing to nextOffset.", { offset: { type: "integer", minimum: 0 }, characterOffset: { type: "integer", minimum: 0 } }),
+  tool("recall_conversation", "Read one earlier conversation message by zero-based offset, including source IDs. Long messages are paginated by characterOffset; follow nextCharacterOffset on the same message before advancing to nextOffset.", { offset: cursorSchema, characterOffset: cursorSchema }),
 ];
 export const BRAIN_TOOLS = [...READ_TOOLS, ...MUTATION_TOOLS];
+
+/** Normalize unambiguous provider encodings before strict schema validation.
+ * Optional nulls/blank values mean absent, not a filter or an invented mutation value.
+ * Never round cursors, coerce IDs, or infer values for required fields.
+ */
+export function parseToolArguments(raw: string, schema: Record<string, any>): Record<string, any> {
+  function normalize(value: unknown, rule: any): unknown {
+    if (rule.type === "object" && value && typeof value === "object" && !Array.isArray(value)) {
+      const result: Record<string, unknown> = {};
+      for (const [key, child] of Object.entries(value)) {
+        const childRule = rule.properties?.[key];
+        const optional = childRule && !(rule.required || []).includes(key);
+        if (optional && (child === null || typeof child === "string" && !child.trim())) continue;
+        result[key] = childRule ? normalize(child, childRule) : child;
+      }
+      return result;
+    }
+    if (rule.type === "array" && Array.isArray(value)) return value.map(child => normalize(child, rule.items));
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (rule.type === "integer" && /^[+-]?\d+(?:\.0+)?$/.test(text)) return Number(text);
+      if (rule.type === "number" && /^[+-]?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+      if (rule.type === "boolean" && /^(true|false)$/i.test(text)) return text.toLowerCase() === "true";
+    }
+    return value;
+  }
+  const args = normalize(JSON.parse(raw), schema);
+  validate(args, schema);
+  return args as Record<string, any>;
+}
 
 // Validate at the execution boundary, regardless of provider schema support.
 export function validate(value: unknown, schema: any, path = "arguments"): void {

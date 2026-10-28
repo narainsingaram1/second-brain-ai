@@ -1,6 +1,6 @@
 import { BrainState } from "../types";
 import { OpenRouterMessage, queryOpenRouterWithTools } from "./openrouter";
-import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, validate } from "./brainTools";
+import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, parseToolArguments } from "./brainTools";
 import { Source } from "./brainRetrieval";
 import { getLocalDateString } from "../utils/habitStreaks";
 
@@ -121,8 +121,7 @@ export class AutonomousBrainAgent {
             if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
             const tool = BRAIN_TOOLS.find(t => t.function.name === call.function.name);
             if (!tool) throw new Error("Unsupported tool");
-            const args = JSON.parse(call.function.arguments);
-            validate(args, tool.function.parameters);
+            const args = parseToolArguments(call.function.arguments, tool.function.parameters);
             if (readNames.has(call.function.name)) {
               options.onProgress?.(call.function.name === "search_records" ? "Searching your records…" : "Reading your records…");
               const normalizedArgs = { ...args, offset: args.offset || 0, ...(call.function.name === "query_records" ? { countOnly: args.countOnly || false } : {}), ...(call.function.name === "recall_conversation" ? { characterOffset: args.characterOffset || 0 } : {}) };
