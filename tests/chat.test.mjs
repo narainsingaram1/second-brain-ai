@@ -32,11 +32,11 @@ test('chat uses one scroll viewport and a single composer without the duplicate 
   assert.equal((html.match(/data-testid="chat-scroll"/g) || []).length, 1);
   assert.equal((html.match(/<textarea/g) || []).length, 1);
   assert.match(html, /Ask a follow-up/);
-  assert.doesNotMatch(html, /Response added to the conversation above|Vault Context|Where should we/);
+  assert.doesNotMatch(html, /Response added to the conversation above|Vault Context|What’s on/);
 });
 test('initial assistant greeting does not turn welcome into an active chat', () => {
   const html = renderToStaticMarkup(React.createElement(ChatWorkspace, { conversation, state, messages: [{ id: 'greeting', role: 'assistant', content: 'Welcome', timestamp: '' }] }));
-  assert.match(html, /Where should we/); assert.match(html, /chat-suggestions/); assert.doesNotMatch(html, /chat-toolbar/);
+  assert.match(html, /What’s on/); assert.match(html, /chat-suggestions/); assert.doesNotMatch(html, /chat-toolbar/);
 });
 test('scroll pinning respects reading older answers', () => {
   assert.equal(isNearBottom(2000, 0, 600), false);

@@ -7,6 +7,7 @@ import {
   BarChart2,
   BookOpen,
   FileText,
+  Settings2,
   ChevronsLeft,
   ChevronsRight,
 } from "lucide-react";
@@ -16,7 +17,7 @@ interface SidebarProps {
   setActiveTab: (tab: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onOpenProModal?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -24,6 +25,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   collapsed,
   onToggleCollapse,
+  onOpenSettings,
 }) => {
   const navItems = [
     { id: "home", label: "Home", icon: Home },
@@ -37,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`h-[100dvh] shrink-0 sticky top-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
+      className={`synapse-sidebar h-[100dvh] shrink-0 sticky top-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
         collapsed ? "w-[72px] px-2.5 py-5" : "w-[240px] px-4 py-5"
       }`}
     >
@@ -55,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {!collapsed && (
               <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center">
-                <span>[synapse]</span>
+                <span>synapse<span className="brand-period">.</span></span>
               </span>
             )}
           </div>
@@ -74,7 +76,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation Items */}
-        <nav className="space-y-1">
+        <nav className="sidebar-nav space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -82,6 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             return (
               <button
                 key={item.id}
+                aria-current={isActive ? "page" : undefined}
                 onClick={() => setActiveTab(item.id)}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all group ${
                   isActive
@@ -102,6 +105,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
         </nav>
+      </div>
+      <div className="sidebar-bottom">
+        {!collapsed && <div className="sidebar-note"><span className="sidebar-note-mark">✧</span><p>A little space<br/>for a clearer mind.</p></div>}
+        <button onClick={onOpenSettings} className="sidebar-settings" title="Workspace settings"><Settings2 size={17}/>{!collapsed && <><span>Workspace settings</span><span className="settings-dot"/></>}</button>
       </div>
     </aside>
   );

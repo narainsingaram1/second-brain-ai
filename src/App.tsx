@@ -6,6 +6,7 @@ import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { normalizeTask, setTaskStatus, toggleTaskCompleted } from "./utils/taskState";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
+import { RibbonBackdrop } from "./components/RibbonBackdrop";
 import { Sidebar } from "./components/Sidebar";
 import { TopHeader } from "./components/TopHeader";
 import { HomeView } from "./components/HomeView";
@@ -746,16 +747,8 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className={`${isChatTab ? "h-[var(--app-viewport-height,100dvh)] overflow-hidden" : "min-h-screen overflow-x-hidden"} bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative`}>
-      {/* Ambient Glowing Background Orbs matching the screenshot atmosphere */}
-      <div className="fixed -bottom-24 -left-24 w-[520px] h-[520px] rounded-full bg-blue-600/10 dark:bg-blue-600/15 blur-[140px] pointer-events-none z-0" />
-      <div className="fixed -top-24 -right-24 w-[520px] h-[520px] rounded-full bg-purple-600/10 dark:bg-purple-600/15 blur-[140px] pointer-events-none z-0" />
-
-      {/* Subtle cosmic star specks in dark mode */}
-      <div className="hidden dark:block fixed top-1/4 left-1/3 w-1 h-1 rounded-full bg-indigo-400/40 animate-pulse pointer-events-none" />
-      <div className="hidden dark:block fixed top-1/2 right-1/4 w-1.5 h-1.5 rounded-full bg-purple-400/30 animate-pulse pointer-events-none" />
-      <div className="hidden dark:block fixed bottom-1/3 left-1/5 w-1 h-1 rounded-full bg-blue-400/40 animate-pulse pointer-events-none" />
-      <div className="hidden dark:block fixed top-2/3 right-1/6 w-1 h-1 rounded-full bg-indigo-300/30 animate-pulse pointer-events-none" />
+    <div className={`synapse-app ${isChatTab ? "h-[var(--app-viewport-height,100dvh)] overflow-hidden" : "min-h-screen overflow-x-hidden"} bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative`}>
+      <RibbonBackdrop />
 
       {/* Left Sidebar */}
       <Sidebar
@@ -763,7 +756,7 @@ export const App: React.FC = () => {
         setActiveTab={setActiveTab}
         collapsed={isSidebarCollapsed || isNarrow}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        onOpenProModal={() => setIsSettingsOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
       {/* Main View Area */}
@@ -788,6 +781,16 @@ export const App: React.FC = () => {
             conversation={conversation}
             brainState={state}
             onSaveKnowledge={handleSaveKnowledge}
+            onNavigate={setActiveTab}
+            onNewTask={() => {
+              const section = state.sections[0] || "Academic";
+              setActiveEditTask(null);
+              setTaskModalDefaultSection(section);
+              setTaskModalDefaultSubsection(state.subsections[section]?.[0] || "General");
+              setTaskModalDefaultDueDate(getLocalDateString());
+              setIsTaskModalOpen(true);
+            }}
+            onNewNote={() => { setActiveEditKnowledge(null); setIsKnowledgeModalOpen(true); }}
             onOpenSettings={() => setIsSettingsOpen(true)}
           />
         )}

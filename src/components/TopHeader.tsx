@@ -31,7 +31,8 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
     .slice(0, 2) || "NS";
 
   return (
-    <header className="w-full shrink-0 flex items-center justify-end px-3 sm:px-8 py-3 sm:py-4 gap-2 sm:gap-3 z-20 select-none">
+    <header className="synapse-header w-full shrink-0 flex items-center justify-end px-3 sm:px-8 py-3 sm:py-4 gap-2 sm:gap-3 z-20 select-none">
+      <span className="header-location">YOUR PERSONAL SPACE <span>/</span> <strong>Make space for clarity</strong></span>
       {/* Search Bar Pill: "Search anything...  ⌘ K" */}
       <button
         type="button"
@@ -56,9 +57,9 @@ export const TopHeader: React.FC<TopHeaderProps> = ({
         title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
       >
         {theme === "dark" ? (
-          <Moon className="w-3.5 h-3.5" />
-        ) : (
           <Sun className="w-3.5 h-3.5" />
+        ) : (
+          <Moon className="w-3.5 h-3.5" />
         )}
       </button>
 
