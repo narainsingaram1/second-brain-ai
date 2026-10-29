@@ -747,7 +747,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className={`synapse-app ${isChatTab ? "h-[var(--app-viewport-height,100dvh)] overflow-hidden" : "min-h-screen overflow-x-hidden"} bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative`}>
+    <div className="synapse-app h-[var(--app-viewport-height,100dvh)] overflow-hidden bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative">
       <RibbonBackdrop />
 
       {/* Left Sidebar */}
@@ -760,7 +760,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main View Area */}
-      <div className={`flex-1 flex flex-col min-w-0 relative z-10 ${isChatTab ? "min-h-0" : "min-h-screen"}`}>
+      <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full relative z-10 overflow-hidden">
         {/* Top Right Header matching screenshot */}
         {!(isChatTab && state.chatHistory.some(m => m.role === "user")) && <TopHeader
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
@@ -772,156 +772,150 @@ export const App: React.FC = () => {
         />}
 
         {/* Main Content Viewport */}
-        <main className={isChatTab ? "flex-1 min-h-0 flex flex-col overflow-hidden" : "flex-1 px-4 sm:px-8 py-2 w-full max-w-6xl mx-auto pb-24"}>
-        {/* ========================================================= */}
-        {/* TAB 0: HOME / AUTONOMOUS BRAIN AGENT COMMAND CENTER       */}
-        {/* ========================================================= */}
-        {isChatTab && (
-          <HomeView
-            conversation={conversation}
-            brainState={state}
-            onSaveKnowledge={handleSaveKnowledge}
-            onNavigate={setActiveTab}
-            onNewTask={() => {
-              const section = state.sections[0] || "Academic";
-              setActiveEditTask(null);
-              setTaskModalDefaultSection(section);
-              setTaskModalDefaultSubsection(state.subsections[section]?.[0] || "General");
-              setTaskModalDefaultDueDate(getLocalDateString());
-              setIsTaskModalOpen(true);
-            }}
-            onNewNote={() => { setActiveEditKnowledge(null); setIsKnowledgeModalOpen(true); }}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-          />
-        )}
+        <main className={`flex-1 min-h-0 w-full ${isChatTab ? "flex flex-col overflow-hidden" : "overflow-y-auto px-4 sm:px-8 py-2 pb-24"}`}>
+          {isChatTab ? (
+            <HomeView
+              conversation={conversation}
+              brainState={state}
+              onSaveKnowledge={handleSaveKnowledge}
+              onNavigate={setActiveTab}
+              onNewTask={() => {
+                const section = state.sections[0] || "Academic";
+                setActiveEditTask(null);
+                setTaskModalDefaultSection(section);
+                setTaskModalDefaultSubsection(state.subsections[section]?.[0] || "General");
+                setTaskModalDefaultDueDate(getLocalDateString());
+                setIsTaskModalOpen(true);
+              }}
+              onNewNote={() => { setActiveEditKnowledge(null); setIsKnowledgeModalOpen(true); }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
+          ) : (
+            <div className="w-full max-w-6xl mx-auto space-y-6">
+              {/* ========================================================= */}
+              {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
+              {/* ========================================================= */}
+              {activeTab === "goals" && (
+                <GoalsView
+                  goals={state.goals || []}
+                  onAddGoal={() => {
+                    setActiveEditGoal(null);
+                    setIsGoalModalOpen(true);
+                  }}
+                  onEditGoal={(goal) => {
+                    setActiveEditGoal(goal);
+                    setIsGoalModalOpen(true);
+                  }}
+                  onDeleteGoal={handleDeleteGoal}
+                  onToggleMilestone={handleToggleMilestone}
+                  onUpdateGoalStatus={handleUpdateGoalStatus}
+                  theme={state.theme}
+                />
+              )}
 
-        {/* ========================================================= */}
-        {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
-        {/* ========================================================= */}
-        {activeTab === "goals" && (
-          <GoalsView
-            goals={state.goals || []}
-            onAddGoal={() => {
-              setActiveEditGoal(null);
-              setIsGoalModalOpen(true);
-            }}
-            onEditGoal={(goal) => {
-              setActiveEditGoal(goal);
-              setIsGoalModalOpen(true);
-            }}
-            onDeleteGoal={handleDeleteGoal}
-            onToggleMilestone={handleToggleMilestone}
-            onUpdateGoalStatus={handleUpdateGoalStatus}
-            theme={state.theme}
-          />
-        )}
+              {/* ========================================================= */}
+              {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
+              {/* ========================================================= */}
+              {activeTab === "tasks" && (
+                <TaskMatrixView
+                  tasks={state.tasks}
+                  sections={state.sections}
+                  subsections={state.subsections}
+                  onToggleTask={handleToggleTask}
+                  onStatusChange={handleStatusChange}
+                  onAddTask={(section, subsection, defaultDueDate) => {
+                    const sec = section || state.sections[0] || "Academic";
+                    const sub = subsection || state.subsections[sec]?.[0] || "General";
+                    setTaskModalDefaultSection(sec);
+                    setTaskModalDefaultSubsection(sub);
+                    setTaskModalDefaultDueDate(defaultDueDate || getLocalDateString());
+                    setActiveEditTask(null);
+                    setIsTaskModalOpen(true);
+                  }}
+                  onEditTask={(task) => {
+                    setActiveEditTask(task);
+                    setIsTaskModalOpen(true);
+                  }}
+                  onDeleteTask={handleDeleteTask}
+                  onSaveTask={handleSaveTask}
+                  onAIBreakdown={handleTriggerAIBreakdown}
+                  onAddSection={handleAddSection}
+                  onDeleteSection={handleDeleteSection}
+                  onAddSubsection={handleAddSubsection}
+                  onDeleteSubsection={handleDeleteSubsection}
+                  onRenameSubsection={handleRenameSubsection}
+                  onMoveTask={handleMoveTask}
+                />
+              )}
 
-        {/* ========================================================= */}
-        {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
-        {/* ========================================================= */}
-        {activeTab === "tasks" && (
-          <TaskMatrixView
-            tasks={state.tasks}
-            sections={state.sections}
-            subsections={state.subsections}
-            onToggleTask={handleToggleTask}
-            onStatusChange={handleStatusChange}
-            onAddTask={(section, subsection, defaultDueDate) => {
-              const sec = section || state.sections[0] || "Academic";
-              const sub = subsection || state.subsections[sec]?.[0] || "General";
-              setTaskModalDefaultSection(sec);
-              setTaskModalDefaultSubsection(sub);
-              setTaskModalDefaultDueDate(defaultDueDate || getLocalDateString());
-              setActiveEditTask(null);
-              setIsTaskModalOpen(true);
-            }}
-            onEditTask={(task) => {
-              setActiveEditTask(task);
-              setIsTaskModalOpen(true);
-            }}
-            onDeleteTask={handleDeleteTask}
-            onSaveTask={handleSaveTask}
-            onAIBreakdown={handleTriggerAIBreakdown}
-            onAddSection={handleAddSection}
-            onDeleteSection={handleDeleteSection}
-            onAddSubsection={handleAddSubsection}
-            onDeleteSubsection={handleDeleteSubsection}
-            onRenameSubsection={handleRenameSubsection}
-            onMoveTask={handleMoveTask}
-          />
-        )}
+              {/* ========================================================= */}
+              {/* TAB 2: DAILY HABITS (Clean streaks & 7-day punch cards)   */}
+              {/* ========================================================= */}
+              {activeTab === "habits" && (
+                <HabitsView
+                  habits={state.habits}
+                  onToggleHabit={handleToggleHabit}
+                  onAddHabit={() => setIsHabitModalOpen(true)}
+                  onDeleteHabit={(id) =>
+                    setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== id) } : null))
+                  }
+                />
+              )}
 
-        {/* ========================================================= */}
-        {/* TAB 2: DAILY HABITS (Clean streaks & 7-day punch cards)   */}
-        {/* ========================================================= */}
-        {activeTab === "habits" && (
-          <HabitsView
-            habits={state.habits}
-            onToggleHabit={handleToggleHabit}
-            onAddHabit={() => setIsHabitModalOpen(true)}
-            onDeleteHabit={(id) =>
-              setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== id) } : null))
-            }
-          />
-        )}
+              {/* ========================================================= */}
+              {/* TAB 3: REFLECTIONS / JOURNAL                             */}
+              {/* ========================================================= */}
+              {activeTab === "journal" && (
+                <JournalView
+                  entries={state.journalEntries}
+                  tasks={state.tasks}
+                  habits={state.habits}
+                  onSaveEntry={handleSaveJournalEntry}
+                  onSynthesizeAI={handleSynthesizeAI}
+                  openRouterKey={state.openRouterKey}
+                  onOpenSettings={() => setIsSettingsOpen(true)}
+                  onSaveKnowledge={handleSaveKnowledge}
+                />
+              )}
 
-        {/* ========================================================= */}
-        {/* TAB 3: REFLECTIONS / JOURNAL                             */}
-        {/* ========================================================= */}
-        {activeTab === "journal" && (
-          <JournalView
-            entries={state.journalEntries}
-            tasks={state.tasks}
-            habits={state.habits}
-            onSaveEntry={handleSaveJournalEntry}
-            onSynthesizeAI={handleSynthesizeAI}
-            openRouterKey={state.openRouterKey}
-            onOpenSettings={() => setIsSettingsOpen(true)}
-            onSaveKnowledge={handleSaveKnowledge}
-          />
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 4: NOTES & VAULT FILE SYSTEM WORKSPACE               */}
-        {/* ========================================================= */}
-        {activeTab === "knowledge" && (
-          <NotesWorkspace
-            items={state.knowledgeItems}
-            folders={state.noteFolders || []}
-            onSaveNote={handleSaveKnowledge}
-            onDeleteNote={handleDeleteKnowledge}
-            onSaveFolder={handleSaveFolder}
-            onDeleteFolder={handleDeleteFolder}
-            openRouterKey={state.openRouterKey}
-            selectedModel={state.selectedModel}
-            onGenerateTasks={(newTasks) => {
-              const today = new Date().toISOString().split("T")[0];
-              newTasks.forEach((t) => {
-                const sec = state.sections[0] || "Academic";
-                const sub = state.subsections[sec]?.[0] || "General";
-                const task: Task = normalizeTask({
-                  id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                  title: t.title,
-                  dueDate: today,
-                  priority: (t.priority as any) || "medium",
-                  section: sec,
-                  subsection: sub,
-                  status: "not_started",
-                  completed: false,
-                });
-                handleSaveTask(task);
-              });
-            }}
-            initialSelectedNote={activeEditKnowledge}
-            onClearInitialSelectedNote={() => setActiveEditKnowledge(null)}
-          />
-        )}
-
-        {/* ========================================================= */}
-        {/* TAB 5: AI COPILOT DIRECT VIEW                             */}
-        {/* ========================================================= */}
-
-      </main>
+              {/* ========================================================= */}
+              {/* TAB 4: NOTES & VAULT FILE SYSTEM WORKSPACE               */}
+              {/* ========================================================= */}
+              {activeTab === "knowledge" && (
+                <NotesWorkspace
+                  items={state.knowledgeItems}
+                  folders={state.noteFolders || []}
+                  onSaveNote={handleSaveKnowledge}
+                  onDeleteNote={handleDeleteKnowledge}
+                  onSaveFolder={handleSaveFolder}
+                  onDeleteFolder={handleDeleteFolder}
+                  openRouterKey={state.openRouterKey}
+                  selectedModel={state.selectedModel}
+                  onGenerateTasks={(newTasks) => {
+                    const today = new Date().toISOString().split("T")[0];
+                    newTasks.forEach((t) => {
+                      const sec = state.sections[0] || "Academic";
+                      const sub = state.subsections[sec]?.[0] || "General";
+                      const task: Task = normalizeTask({
+                        id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+                        title: t.title,
+                        dueDate: today,
+                        priority: (t.priority as any) || "medium",
+                        section: sec,
+                        subsection: sub,
+                        status: "not_started",
+                        completed: false,
+                      });
+                      handleSaveTask(task);
+                    });
+                  }}
+                  initialSelectedNote={activeEditKnowledge}
+                  onClearInitialSelectedNote={() => setActiveEditKnowledge(null)}
+                />
+              )}
+            </div>
+          )}
+        </main>
       </div>
 
       {/* ========================================================= */}

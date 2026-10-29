@@ -24,7 +24,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--silk-accent); o
 .dark .ribbon-backdrop { background: radial-gradient(ellipse at 36% 6%, #3b28513b, transparent 52%), radial-gradient(ellipse at 8% 80%, #1d2b4d50, transparent 55%); }
 .dark .ribbon-art { opacity: .34; filter: saturate(.85); }
 @keyframes silk-drift { from { transform: scale(1.04) translate(-1%, -1%); } to { transform: scale(1.09) translate(1%, 1.5%); } }
-.synapse-sidebar { margin: 14px 0 14px 14px; height: calc(100dvh - 28px); top: 14px; width: 216px; padding: 24px 14px 14px; background: var(--silk-panel); border: 1px solid rgba(255,255,255,.65); border-radius: 22px; box-shadow: 0 8px 45px #52558a03; backdrop-filter: blur(28px); }
+.synapse-sidebar { margin: 14px 0 14px 14px; height: calc(100dvh - 28px); max-height: calc(100dvh - 28px); position: relative; flex-shrink: 0; width: 216px; padding: 24px 14px 14px; background: var(--silk-panel); border: 1px solid rgba(255,255,255,.65); border-radius: 22px; box-shadow: 0 8px 45px #52558a03; backdrop-filter: blur(28px); overflow-y: auto; overflow-x: hidden; scrollbar-width: none; -ms-overflow-style: none; }
+.synapse-sidebar::-webkit-scrollbar { display: none; }
 .dark .synapse-sidebar { background: #171825b3; border-color: var(--silk-line); }
 .synapse-sidebar.w-\[72px\] { width: 68px; padding-inline: 9px; }
 .synapse-sidebar > div:first-child > div { padding: 0 8px; }

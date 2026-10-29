@@ -39,7 +39,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`synapse-sidebar h-[100dvh] shrink-0 sticky top-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
+      className={`synapse-sidebar shrink-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
         collapsed ? "w-[72px] px-2.5 py-5" : "w-[240px] px-4 py-5"
       }`}
     >
