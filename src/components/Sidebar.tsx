@@ -57,7 +57,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             {!collapsed && (
               <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center">
-                <span>synapse<span className="brand-period">.</span></span>
+                <span>iris<span className="brand-period">.</span></span>
               </span>
             )}
           </div>
