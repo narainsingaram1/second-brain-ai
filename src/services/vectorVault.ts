@@ -1,3 +1,4 @@
+import { managedAuthEnabled } from "./managedAuth";
 import { Task, JournalEntry, KnowledgeItem, Habit, BrainState, Goal } from "../types";
 import {
   saveVectorChunksToDB,
@@ -388,11 +389,22 @@ export function chunkGoal(goal: Goal): { title: string; content: string; date?: 
 class SemanticMemoryVaultService {
   private memoryCache: VectorChunk[] = [];
   private isLoaded: boolean = false;
+  private account = "";
+  private generation = 0;
+  setAccount(userId: string) {
+    if (managedAuthEnabled && this.account !== userId) {
+      this.account = userId;
+      this.generation++;
+      this.memoryCache = [];
+      this.isLoaded = true;
+    }
+  }
 
   /**
    * Initializes vault chunks from Tauri Rust file or IndexedDB.
    */
   async init(): Promise<void> {
+    if (managedAuthEnabled) { this.isLoaded = true; return; }
     if (this.isLoaded) return;
 
     try {
@@ -424,6 +436,7 @@ class SemanticMemoryVaultService {
     type: "task" | "journal" | "knowledge" | "habit" | "goal",
     openRouterKey?: string
   ): Promise<VectorChunk> {
+    const generation = this.generation;
     await this.init();
 
     let chunkData: { title: string; content: string; date?: string; metadata: any };
@@ -447,6 +460,12 @@ class SemanticMemoryVaultService {
       norm,
     };
 
+    if (managedAuthEnabled) {
+      if (generation === this.generation) {
+        this.memoryCache = [...this.memoryCache.filter(c => c.id !== chunk.id), chunk];
+      }
+      return chunk;
+    }
     // Save to Tauri native backend
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -473,6 +492,11 @@ class SemanticMemoryVaultService {
   async removeItem(itemId: string): Promise<number> {
     await this.init();
 
+    if (managedAuthEnabled) {
+      const count = this.memoryCache.filter(c => c.item_id === itemId).length;
+      this.memoryCache = this.memoryCache.filter(c => c.item_id !== itemId);
+      return count;
+    }
     let deleted = 0;
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -495,13 +519,15 @@ class SemanticMemoryVaultService {
     filterType?: string,
     openRouterKey?: string
   ): Promise<SearchResult[]> {
+    const generation = this.generation;
     if (!query || !query.trim()) return [];
     await this.init();
 
     const { embedding: queryEmbedding } = await getEmbedding(query, openRouterKey);
 
+    if (generation !== this.generation) return [];
     // 1. Try Tauri Native Fast Vector Search in Rust
-    try {
+    if (!managedAuthEnabled) try {
       const { invoke } = await import("@tauri-apps/api/core");
       const results = await invoke<SearchResult[]>("search_vector_chunks", {
         queryEmbedding,
@@ -514,7 +540,7 @@ class SemanticMemoryVaultService {
     } catch {}
 
     // 2. Fallback in-memory / IndexedDB Cosine Similarity
-    if (this.memoryCache.length === 0) {
+    if (!managedAuthEnabled && this.memoryCache.length === 0) {
       this.memoryCache = await getAllVectorChunksFromDB();
     }
 
@@ -556,6 +582,7 @@ class SemanticMemoryVaultService {
   ): Promise<{ totalIndexed: number; totalChunks: number }> {
     await this.init();
 
+    const generation = this.generation;
     const allItems: { item: any; type: "task" | "journal" | "knowledge" | "habit" | "goal" }[] = [
       ...brainState.tasks.map((t) => ({ item: t, type: "task" as const })),
       ...(brainState.goals || []).map((g) => ({ item: g, type: "goal" as const })),
@@ -595,6 +622,11 @@ class SemanticMemoryVaultService {
       }
     }
 
+    if (managedAuthEnabled) {
+      if (generation !== this.generation) return { totalIndexed: 0, totalChunks: 0 };
+      this.memoryCache = chunks;
+      return { totalIndexed: total, totalChunks: chunks.length };
+    }
     // Save batch to Tauri native backend
     try {
       const { invoke } = await import("@tauri-apps/api/core");
@@ -616,7 +648,7 @@ class SemanticMemoryVaultService {
   async getVaultStats(): Promise<VaultStats> {
     await this.init();
 
-    try {
+    if (!managedAuthEnabled) try {
       const { invoke } = await import("@tauri-apps/api/core");
       const stats = await invoke<any>("get_vector_vault_stats");
       if (stats) {
@@ -631,7 +663,7 @@ class SemanticMemoryVaultService {
       }
     } catch {}
 
-    const chunks = this.memoryCache.length > 0 ? this.memoryCache : await getAllVectorChunksFromDB();
+    const chunks = managedAuthEnabled || this.memoryCache.length > 0 ? this.memoryCache : await getAllVectorChunksFromDB();
     const itemIds = new Set(chunks.map((c) => c.item_id));
     const dim = chunks[0]?.embedding?.length || DIMENSIONS;
 

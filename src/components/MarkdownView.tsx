@@ -70,7 +70,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
         elements.push(
           <a
             key={match.index}
-            href={match[7]}
+            href={/^(https?:|mailto:|\/(?!\/)|#)/i.test(match[7].trim()) ? match[7].trim() : undefined}
             target="_blank"
             rel="noopener noreferrer"
             className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:opacity-80 transition-opacity"

@@ -1,3 +1,5 @@
+import { managedAuthEnabled, getManagedSession } from "./managedAuth";
+import { cloudEnabled, cloudSession } from "./cloudSync";
 import { UserAccount, AuthSession } from "../types";
 import {
   saveUserToDB,
@@ -181,6 +183,8 @@ export function parseGoogleJwtCredential(credential: string): {
  * Initializes the auth system and returns the persisted active session.
  */
 export async function initAuth(): Promise<AuthSession> {
+  if (managedAuthEnabled) return getManagedSession();
+  if (cloudEnabled) return cloudSession();
   const session = await getSessionFromDB();
 
   // If session has a currentUser, verify they still exist in the database

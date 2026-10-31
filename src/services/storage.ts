@@ -1,3 +1,5 @@
+import { managedAuthEnabled } from "./managedAuth";
+import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
 import { syncHabitStreaks, getLocalDateString } from "../utils/habitStreaks";
 import { normalizeTask } from "../utils/taskState";
@@ -509,8 +511,10 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 
   const inTauri = await isTauriEnvironment();
 
+  if (cloudEnabled) storedState = (await loadCloud()).state;
+
   // 1. CANONICAL STORE: If in Tauri desktop app, native file storage is primary
-  if (inTauri) {
+  if (inTauri && !cloudEnabled) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const nativeData = await invoke<string | null>("load_brain_data");
@@ -532,7 +536,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   }
 
   // 2. CANONICAL STORE FOR BROWSER / FALLBACK FOR TAURI: IndexedDB
-  if (!storedState.tasks) {
+  if (!cloudEnabled && !storedState.tasks) {
     try {
       const dbState = await loadUserStateFromDB(targetUserId);
       if (dbState && (dbState.tasks || dbState.habits || dbState.goals)) {
@@ -545,7 +549,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   }
 
   // 3. EMERGENCY OFFLINE FALLBACK: LocalStorage
-  if (!storedState.tasks && typeof localStorage !== "undefined") {
+  if (!cloudEnabled && !storedState.tasks && typeof localStorage !== "undefined") {
     try {
       const localEnv = localStorage.getItem(STORAGE_ENVELOPE_KEY) || localStorage.getItem(STORAGE_KEY);
       if (localEnv) {
@@ -563,7 +567,8 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 
   console.info(`[Storage] Brain state initialized from canonical store: ${loadedFrom}`);
 
-  const finalKey = storedState.openRouterKey || envKey || (typeof localStorage !== "undefined" ? localStorage.getItem("synapse_openrouter_key") : null) || "";
+  const credentialKey = managedAuthEnabled ? `synapse_openrouter_key_${targetUserId}` : "synapse_openrouter_key";
+  const finalKey = (managedAuthEnabled ? "" : storedState.openRouterKey || envKey) || (typeof localStorage !== "undefined" ? localStorage.getItem(credentialKey) : null) || "";
 
   // Ensure sections exist
   const sections = storedState.sections && storedState.sections.length > 0
@@ -579,7 +584,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   });
 
   // Canonical Task Normalization: Status is single source of truth; completed is synchronized
-  const rawTasks = storedState.tasks && storedState.tasks.length > 0 ? storedState.tasks : INITIAL_TASKS;
+  const rawTasks = Array.isArray(storedState.tasks) ? storedState.tasks : INITIAL_TASKS;
   const tasks: Task[] = rawTasks.map((t, idx) => {
     const section = t.section || sections[idx % sections.length];
     const sectionSubs = subsections[section] || ["General"];
@@ -592,11 +597,11 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   });
 
   // Ensure all habits have accurate, continuously-calculated streaks from actual history
-  const rawHabits = storedState.habits && storedState.habits.length > 0 ? storedState.habits : INITIAL_HABITS;
+  const rawHabits = Array.isArray(storedState.habits) ? storedState.habits : INITIAL_HABITS;
   const habits = rawHabits.map((h) => syncHabitStreaks(h));
 
   // Ensure goals exist and have valid milestone progress
-  const rawGoals = storedState.goals && storedState.goals.length > 0 ? storedState.goals : INITIAL_GOALS;
+  const rawGoals = Array.isArray(storedState.goals) ? storedState.goals : INITIAL_GOALS;
   const goals: Goal[] = rawGoals.map((g) => {
     const milestones = g.milestones || [];
     const completedCount = milestones.filter((m) => m.completed).length;
@@ -630,7 +635,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   }));
 
   // Normalize Knowledge / Notes with content, folderId, and title
-  const rawKnowledge = storedState.knowledgeItems && storedState.knowledgeItems.length > 0
+  const rawKnowledge = Array.isArray(storedState.knowledgeItems)
     ? storedState.knowledgeItems
     : INITIAL_KNOWLEDGE;
 
@@ -706,6 +711,17 @@ export async function persistBrainState(state: BrainState, userId?: string): Pro
   
   // Serialized through mutex queue to guarantee transactional ordering
   persistQueue = persistQueue.catch(() => {}).then(async () => {
+    if (cloudEnabled) {
+      await saveCloud(cleanState);
+      if (managedAuthEnabled) {
+        const key = `synapse_openrouter_key_${targetUserId}`;
+        try {
+          if (cleanState.openRouterKey) localStorage.setItem(key, cleanState.openRouterKey);
+          else localStorage.removeItem(key);
+        } catch { /* Cloud persistence has already succeeded. */ }
+        return;
+      }
+    }
     const envelope = wrapStateEnvelope(cleanState, targetUserId);
     const envelopeJson = JSON.stringify(envelope);
 

@@ -95,6 +95,43 @@ test('duplicate successful tool calls do not duplicate writes', async () => {
   assert.equal(saved.length, 1); assert.equal(result.actions.length, 1);
 });
 
+test('follow-up task rename preserves the existing record and task count', async () => {
+  const s = state(), requests = [], saved = [];
+  const original = { ...s.tasks[0], title: 'Interview for Summer 2027 Internship Program – Software Engineering Intern',
+    dueDate: '2026-11-08', priority: 'high', subtasks: [{ id: 'prep', title: 'Prepare', completed: true }] };
+  s.tasks[0] = original;
+  s.chatHistory = [
+    { id: 'u', role: 'user', content: 'The company is Dow Jones. Put this interview in tasks.', timestamp: '1' },
+    { id: 'a', role: 'assistant', content: `Created ${original.title}.`, timestamp: '2', sources: [{ id: original.id, type: 'task', title: original.title }] },
+  ];
+  mockProvider([
+    response(null, [call('update_task', { taskId: original.id, newTitle: 'Dow Jones Interview' })]),
+    response('Renamed the task to Dow Jones Interview.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('okay make the title shorter and needs to have Dow Jones thats the company', s, undefined, undefined, { commit: async m => saved.push(m) });
+  assert.equal(result.status, 'complete'); assert.equal(saved.length, 1);
+  assert.equal(saved[0].action, 'update_task');
+  assert.deepEqual(saved[0].expected, original);
+  const updated = applyMutation(s, saved[0]);
+  assert.equal(updated.tasks.length, s.tasks.length);
+  assert.deepEqual(updated.tasks.find(t => t.id === original.id), { ...original, title: 'Dow Jones Interview' });
+  assert.equal(s.tasks[0].title, original.title);
+  assert.ok(requests[0].messages.some(m => m.role === 'assistant' && m.content.includes(original.id)));
+});
+
+test('task renames validate titles and can combine with status and date edits', () => {
+  const s = state();
+  const schema = BRAIN_TOOLS.find(t => t.function.name === 'update_task').function.parameters;
+  const args = { taskId: 'task-001', newTitle: '  Dow Jones Interview  ', status: 'completed', newDueDate: '2026-11-08' };
+  validate(args, schema);
+  const mutation = prepareMutation('update_task', args, s);
+  assert.equal(mutation.record.title, 'Dow Jones Interview');
+  assert.equal(mutation.record.status, 'completed'); assert.equal(mutation.record.completed, true);
+  assert.equal(mutation.record.dueDate, '2026-11-08');
+  assert.throws(() => prepareMutation('update_task', { taskId: 'task-001', newTitle: ' ' }, s), /nonempty/);
+  assert.throws(() => prepareMutation('update_task', { taskId: 'task-001' }, s), /Supply/);
+});
+
 test('failed persistence is returned to model and never counted as saved', async () => {
   const requests = [];
   mockProvider([response(null, [call('update_task', { taskId: 'task-001', status: 'completed' })]), response('The write failed.')], requests);

@@ -22,3 +22,14 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Never publish local credentials
+.env
+.env.*
+!.env.example
+/hosting/synapse/client/node_modules/
+/hosting/synapse/public/assets/
+/hosting/synapse/public/synapse.html
+
+/dist-independent/
+/.wrangler/

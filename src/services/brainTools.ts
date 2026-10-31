@@ -5,7 +5,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
         function: {
           name: "create_task",
           description:
-            "Schedule a concrete actionable task or assignment into the user's second brain. Use ONLY when the user explicitly requests to schedule, add, or create a specific task, homework, or exam. DO NOT call this tool for general questions, advice, planning requests ('Plan my week'), or discussion.",
+            "Schedule a new concrete actionable task or assignment into the user's second brain. Use ONLY when the user explicitly requests to schedule, add, or create a specific new task, homework, or exam. For follow-up edits or renaming an existing task, use update_task with its existing ID; never create a replacement. DO NOT call this tool for general questions, advice, planning requests ('Plan my week'), or discussion.",
           parameters: {
             type: "object",
             properties: {
@@ -45,7 +45,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
         function: {
           name: "update_task",
           description:
-            "Update the status or schedule of an existing task (e.g. marking it as completed or in_progress).",
+            "Update the title, status or schedule of an existing task. Use for follow-up corrections and renaming, preserving its ID and all unspecified fields. Resolve the existing task ID from conversation source references or read tools.",
           parameters: {
             type: "object",
             properties: {
@@ -53,9 +53,9 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
                 type: "string",
                 description: "ID of the existing task to update from the user's task list.",
               },
-              title: {
+              newTitle: {
                 type: "string",
-                description: "Optional title or keyword to match if taskId is unsure.",
+                description: "Replacement title when the user requests renaming or shortening the task title. taskId must identify the existing task; never guess it.",
               },
               status: {
                 type: "string",
@@ -366,8 +366,10 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
     case "update_task": {
       const task = state.tasks.find(t => t.id === args.taskId);
       if (!task) throw new Error("Task ID not found. Query live tasks; do not guess IDs.");
-      if (!args.status && !args.newDueDate) throw new Error("Supply status or newDueDate to update.");
-      return { type: "task", action: name, expected: task, record: { ...(args.status ? setTaskStatus(task, args.status) : task), dueDate: args.newDueDate || task.dueDate } };
+      if (args.newTitle !== undefined && (typeof args.newTitle !== "string" || !args.newTitle.trim())) throw new Error("New task title must be nonempty.");
+      if (!args.status && !args.newDueDate && args.newTitle === undefined) throw new Error("Supply newTitle, status or newDueDate to update.");
+      return { type: "task", action: name, expected: task, record: { ...(args.status ? setTaskStatus(task, args.status) : task), dueDate: args.newDueDate || task.dueDate,
+        ...(args.newTitle !== undefined ? { title: args.newTitle.trim() } : {}) } };
     }
     case "complete_habit": {
       const habit = state.habits.find(h => h.id === args.habitId);

@@ -1,3 +1,6 @@
+import { managedAuthEnabled } from "./services/managedAuth";
+import { CloudControls } from "./components/CloudControls";
+import { cloudEnabled, refreshCloud } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
@@ -20,6 +23,7 @@ import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
+import { ManagedAccountModal } from "./components/ManagedAccountModal";
 import { AuthModal } from "./components/AuthModal";
 import { UniversalQuickCapture } from "./components/UniversalQuickCapture";
 import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal";
@@ -29,6 +33,7 @@ import { vectorVault } from "./services/vectorVault";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Undo2, Target, FileText } from "lucide-react";
 
 export const App: React.FC = () => {
+  const [startupError, setStartupError] = useState("");
   const [state, setState] = useState<BrainState | null>(null);
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
   const [activeTab, setActiveTab] = useState<string>("home");
@@ -86,9 +91,13 @@ export const App: React.FC = () => {
 
   // Load initial session & database state on mount
   useEffect(() => {
+    let disposed = false;
     initAuth().then((authSession) => {
+      if (disposed) return;
       setSession(authSession);
-      loadInitialState(authSession.currentUser?.id).then((loaded) => {
+      return loadInitialState(authSession.currentUser?.id).then((loaded) => {
+        if (disposed) return;
+        vectorVault.setAccount(authSession.currentUser?.id || "");
         setState(loaded);
         if (loaded.theme === "dark") {
           document.documentElement.classList.add("dark");
@@ -103,8 +112,22 @@ export const App: React.FC = () => {
           }
         });
       });
-    });
+    }).catch(error => { if (!disposed) setStartupError(error.message || "Could not load your records."); });
+    return () => { disposed = true; };
   }, []);
+
+  useEffect(() => {
+    if (!cloudEnabled || !state || conversation.busy) return;
+    let disposed = false;
+    const refresh = async () => {
+      if (document.hidden) return;
+      const next = await refreshCloud(state, () => !disposed);
+      if (next && !disposed) setState(next);
+    };
+    const timer = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [state, conversation.busy]);
 
   // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
   useEffect(() => {
@@ -243,6 +266,8 @@ export const App: React.FC = () => {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [state]);
+
+  if (startupError) return <div className="p-8"><p>{startupError}</p><button onClick={() => window.location.reload()}>Retry</button></div>;
 
   if (!state) {
     return (
@@ -762,12 +787,13 @@ export const App: React.FC = () => {
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full relative z-10 overflow-hidden">
         {/* Top Right Header matching screenshot */}
+        <CloudControls state={state} onImport={setState} />
         {!(isChatTab && state.chatHistory.some(m => m.role === "user")) && <TopHeader
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           theme={state.theme}
           onToggleTheme={handleToggleTheme}
           session={session}
-          onOpenAuth={() => setIsAuthModalOpen(true)}
+          onOpenAuth={() => managedAuthEnabled ? setIsAuthModalOpen(true) : cloudEnabled ? window.location.assign("/signout-with-chatgpt?return_to=/") : setIsAuthModalOpen(true)}
           onOpenNotifications={() => setIsAuditLogOpen(true)}
         />}
 
@@ -1092,12 +1118,12 @@ export const App: React.FC = () => {
         onDelete={handleDeleteKnowledge}
       />
 
-      <AuthModal
+      {managedAuthEnabled ? <ManagedAccountModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} session={session} /> : <AuthModal
         isOpen={isAuthModalOpen}
         onClose={() => setIsAuthModalOpen(false)}
         session={session}
         onSessionChange={handleSessionChange}
-      />
+      />}
 
       <SemanticGlobalSearch
         isOpen={isGlobalSearchOpen}

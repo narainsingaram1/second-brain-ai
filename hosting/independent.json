@@ -1,0 +1,9 @@
+{
+  "supabaseProjectId": "sgacmfewjzmhixewqpad",
+  "supabaseUrl": "https://sgacmfewjzmhixewqpad.supabase.co",
+  "supabasePublishableKey": "sb_publishable_ka6-aemxLBgnBFywALxfWw_dGLJc7CW",
+  "cloudflareWorkerName": "iris-second-brain",
+  "authMode": "google",
+  "liveUrl": "https://iris-second-brain.narainsingaram7.workers.dev",
+  "googleCloudProjectId": "skilled-array-513300-e9"
+}
