@@ -1,6 +1,6 @@
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
-import { cloudEnabled, refreshCloud } from "./services/cloudSync";
+import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
@@ -34,6 +34,7 @@ import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Undo2, Target, 
 
 export const App: React.FC = () => {
   const [startupError, setStartupError] = useState("");
+  const [syncError, setSyncError] = useState("");
   const [state, setState] = useState<BrainState | null>(null);
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
   const [activeTab, setActiveTab] = useState<string>("home");
@@ -88,6 +89,26 @@ export const App: React.FC = () => {
     historyPast.current = [...historyPast.current.slice(-29), structuredClone(before)];
     historyFuture.current = [];
   });
+
+  useEffect(() => {
+    const updateSyncError = () => {
+      const status = cloudStatus();
+      setSyncError(cloudEnabled && !["Synced", "Saving…", "Connecting…"].includes(status) ? status : "");
+    };
+    updateSyncError();
+    window.addEventListener("synapse-sync-status", updateSyncError);
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (cloudEnabled && cloudStatus() !== "Synced") {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener("synapse-sync-status", updateSyncError);
+    };
+  }, []);
 
   // Load initial session & database state on mount
   useEffect(() => {
@@ -774,6 +795,14 @@ export const App: React.FC = () => {
   return (
     <div className="synapse-app h-[var(--app-viewport-height,100dvh)] overflow-hidden bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative">
       <RibbonBackdrop />
+      {syncError && !isSettingsOpen && (
+        <div role="alert" className="fixed bottom-4 left-4 right-4 sm:left-auto sm:max-w-md z-50 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-slate-900 p-4 text-xs text-amber-900 dark:text-amber-200 shadow-lg">
+          <p>{syncError}</p>
+          <button type="button" onClick={() => setIsSettingsOpen(true)} className="mt-2 font-semibold underline">
+            Open sync settings
+          </button>
+        </div>
+      )}
 
       {/* Left Sidebar */}
       <Sidebar
@@ -787,7 +816,6 @@ export const App: React.FC = () => {
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full relative z-10 overflow-hidden">
         {/* Top Right Header matching screenshot */}
-        <CloudControls state={state} onImport={setState} />
         {!(isChatTab && state.chatHistory.some(m => m.role === "user")) && <TopHeader
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           theme={state.theme}
@@ -1081,6 +1109,7 @@ export const App: React.FC = () => {
         selectedModel={state.selectedModel}
         onSelectModel={handleSelectModel}
         onExportBackup={handleExportBackup}
+        workspaceControls={cloudEnabled ? <CloudControls state={state} onImport={setState} /> : undefined}
       />
 
       <TaskModal

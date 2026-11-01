@@ -12,23 +12,15 @@ export function CloudControls({ state, onImport }: { state: BrainState; onImport
     const update = () => setStatus(cloudStatus());
     update();
     window.addEventListener("synapse-sync-status", update);
-    const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (cloudEnabled && cloudStatus() !== "Synced") {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", beforeUnload);
     return () => {
       window.removeEventListener("synapse-sync-status", update);
-      window.removeEventListener("beforeunload", beforeUnload);
     };
   }, []);
   const exportData = () => {
     const url = URL.createObjectURL(new Blob([JSON.stringify({ state: sharedState(state) }, null, 2)], { type: "application/json" }));
     const a = document.createElement("a"); a.href = url; a.download = `synapse-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
   };
-  return <div className="flex flex-wrap items-center justify-end gap-3 px-4 py-2 text-xs bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+  return <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-4 text-xs [&_button]:rounded-xl [&_button]:border [&_button]:border-slate-200 dark:[&_button]:border-slate-700 [&_button]:px-3 [&_button]:py-2 [&_button]:font-semibold hover:[&_button]:bg-slate-200 dark:hover:[&_button]:bg-slate-800">
     <span role="status" className="mr-auto">{cloudEnabled ? status : "Stored on this device"}</span>
     {cloudEnabled && status !== "Synced" && status !== "Saving…" && status !== "Connecting…" && (
       <button type="button" disabled={retrying} onClick={async () => {

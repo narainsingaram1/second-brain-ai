@@ -27,7 +27,7 @@ Never put a Supabase secret/service-role key, SMTP password, Google client secre
 
 Tasks, goals and milestones, habits/history, journal entries, notes and folders, chat history and archived conversations, sections, preferences, daily brief, and audit log are stored in the signed-in user's cloud snapshot. Account access is enforced by database row-level security and the save RPC. There is no hosted guest mode.
 
-The sync bar shows Saving, Synced, or a failure. Failed saves offer Retry save; export data before closing or reloading after a failure. Conflicts require export and reload; Retry does not overwrite another device's newer version. Snapshots have a 2 MiB limit, so storage is not unlimited. API keys are device-local and excluded from cloud snapshots and exports.
+Settings > Workspace & Sync shows Saving, Synced, or a failure, alongside export, import, and sign-out controls. Failed saves offer Retry save; export data before closing or reloading after a failure. Conflicts require export and reload; Retry does not overwrite another device's newer version. Snapshots have a 2 MiB limit, so storage is not unlimited. API keys are device-local and excluded from cloud snapshots and exports.
 
 ## Verification
 

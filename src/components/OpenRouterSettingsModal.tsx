@@ -24,6 +24,7 @@ interface OpenRouterSettingsModalProps {
   selectedModel: string;
   onSelectModel: (model: string) => void;
   onExportBackup: () => void;
+  workspaceControls?: React.ReactNode;
 }
 
 export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = ({
@@ -34,6 +35,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   selectedModel,
   onSelectModel,
   onExportBackup,
+  workspaceControls,
 }) => {
   const [keyInput, setKeyInput] = useState(openRouterKey);
   const [showKey, setShowKey] = useState(false);
@@ -228,8 +230,15 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </div>
           </div>
 
+          {workspaceControls && (
+            <section className="space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Workspace & Sync</h4>
+              {workspaceControls}
+            </section>
+          )}
+
           {/* Backup & Export */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          {!workspaceControls && <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <div>
               <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Local Data Backup</h4>
               <p className="text-[11px] text-slate-400">Export your tasks, habits, and journals to JSON</p>
@@ -241,7 +250,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
               <Download className="w-3.5 h-3.5" />
               <span>Export</span>
             </button>
-          </div>
+          </div>}
         </div>
 
         {/* Modal Footer */}
