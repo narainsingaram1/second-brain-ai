@@ -3,12 +3,18 @@ import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import "../../src/index.css";
 import "../../src/redesign.css";
+import { renameTaskIcon } from "../../src/utils/taskAppearance";
 import { TaskMatrixView } from "../../src/components/TaskMatrixView";
 import type { Task, TaskAppearance } from "../../src/types";
 function Preview() {
   const [appearance, setAppearance] = useState<TaskAppearance>({
     accent: "purple",
-    icons: {},
+    icons: { '["Academic","CS 3600"]': "Brain" },
+    subsections: {
+      '["Academic","CS 2110"]': { accent: "purple", visual: "circuit" },
+      '["Academic","LMC 3403"]': { accent: "blue", visual: "book" },
+      '["Academic","CS 3600"]': { accent: "green", visual: "network" },
+    },
   });
   const [dark, setDark] = useState(false);
   const [subsections, setSubsections] = useState({
@@ -72,6 +78,9 @@ function Preview() {
         onAddSubsection={() => {}}
         onDeleteSubsection={() => {}}
         onRenameSubsection={(section, oldName, name) => {
+          setAppearance((current) =>
+            renameTaskIcon(current, section, oldName, name),
+          );
           setSubsections({
             Academic: subsections.Academic.map((item) =>
               item === oldName ? name : item,

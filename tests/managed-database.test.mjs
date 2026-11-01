@@ -18,7 +18,7 @@ const workspace = {
   noteFolders: [{ id: 'folder-1', name: 'Notes' }],
   conversationId: 'thread-1', conversations: [{ id: 'older-thread', messages: [] }],
   selectedModel: 'test/model', theme: 'dark', dailyBrief: 'Saved brief',
-  taskAppearance: { accent: 'green', icons: { '["Work",null]': 'Rocket' } },
+  taskAppearance: { accent: 'green', icons: { '["Work",null]': 'Rocket' }, subsections: { '["Work","General"]': { accent: 'blue', visual: 'book' } } },
   auditLog: [{ id: 'audit-1', action: 'Created task' }],
 };
 const state = { ...workspace, openRouterKey: 'must-not-persist', userId: other, unexpectedSecret: 'must-not-persist' };

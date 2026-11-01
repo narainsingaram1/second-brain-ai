@@ -1,4 +1,5 @@
-import type { TaskAppearance } from "../types";
+import type { CSSProperties } from "react";
+import type { TaskAppearance, TaskSubsectionStyle } from "../types";
 
 export const TASK_ACCENTS = [
   {
@@ -59,6 +60,28 @@ export const TASK_ACCENTS = [
   },
 ] as const;
 
+export const TASK_VISUALS = [
+  { id: "circuit", label: "Circuit", description: "Technology & engineering" },
+  { id: "book", label: "Open book", description: "Reading & study" },
+  { id: "network", label: "Connections", description: "Ideas & intelligence" },
+  { id: "botanical", label: "Botanical", description: "Growth & wellbeing" },
+  { id: "orbit", label: "Orbit", description: "Explore & discover" },
+  {
+    id: "mountains",
+    label: "Landscape",
+    description: "Adventure & perspective",
+  },
+  { id: "waves", label: "Flow", description: "Calm & creativity" },
+  { id: "none", label: "Minimal", description: "Color without illustration" },
+] as const;
+export function taskAccentStyle(id: string): CSSProperties {
+  const accent = TASK_ACCENTS.find((item) => item.id === id) || TASK_ACCENTS[0];
+  return {
+    "--task-accent-light": accent.light,
+    "--task-accent-dark": accent.dark,
+    "--task-rgb": accent.rgb,
+  } as CSSProperties;
+}
 export const taskIconKey = (section: string, subsection?: string) =>
   JSON.stringify([section, subsection ?? null]);
 export function normalizeTaskAppearance(value: unknown): TaskAppearance {
@@ -73,7 +96,25 @@ export function normalizeTaskAppearance(value: unknown): TaskAppearance {
         icons[key] = icon;
     }
   }
+  const subsections: Record<string, TaskSubsectionStyle> = {};
+  if (source.subsections && typeof source.subsections === "object") {
+    for (const [key, style] of Object.entries(source.subsections).slice(
+      0,
+      1000,
+    )) {
+      if (!style || typeof style !== "object") continue;
+      subsections[key] = {
+        accent: TASK_ACCENTS.some((a) => a.id === style.accent)
+          ? style.accent
+          : "purple",
+        visual: TASK_VISUALS.some((v) => v.id === style.visual)
+          ? style.visual
+          : "none",
+      };
+    }
+  }
   return {
+    ...(Object.keys(subsections).length ? { subsections } : {}),
     accent: TASK_ACCENTS.some((a) => a.id === source.accent)
       ? source.accent!
       : "purple",
@@ -91,6 +132,10 @@ export function renameTaskIcon(
   const icon = next.icons[oldKey];
   delete next.icons[oldKey];
   if (icon) next.icons[taskIconKey(section, newName)] = icon;
+  if (next.subsections?.[oldKey]) {
+    next.subsections[taskIconKey(section, newName)] = next.subsections[oldKey];
+    delete next.subsections[oldKey];
+  }
   return next;
 }
 export function defaultTaskIcon(name: string): string {
@@ -102,4 +147,29 @@ export function defaultTaskIcon(name: string): string {
   if (/personal|home/i.test(name)) return "House";
   if (/project|build/i.test(name)) return "Rocket";
   return "Folder";
+}
+
+export function subsectionStyle(
+  appearance: TaskAppearance,
+  section: string,
+  sub: string,
+): TaskSubsectionStyle {
+  const saved = appearance.subsections?.[taskIconKey(section, sub)];
+  if (saved) return saved;
+  const name = sub.toLowerCase();
+  // Unsaved styles inherit the existing default accent. Only artwork is inferred.
+  const visual = /3600|intelligence|neural|ai\b|network/.test(name)
+    ? "network"
+    : /book|lmc|literature|read|journal/.test(name)
+      ? "book"
+      : /computer|coding|software|^cs\b|tech/.test(name)
+        ? "circuit"
+        : /health|fitness|gym|garden|habit/.test(name)
+          ? "botanical"
+          : /travel|outdoor|adventure/.test(name)
+            ? "mountains"
+            : /space|science|research/.test(name)
+              ? "orbit"
+              : "waves";
+  return { accent: appearance.accent, visual };
 }

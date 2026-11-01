@@ -125,8 +125,13 @@ import {
   Check,
   RotateCcw,
 } from "lucide-react";
-import type { TaskAppearance } from "../types";
-import { TASK_ACCENTS } from "../utils/taskAppearance";
+import { TaskHeaderVisual } from "./TaskHeaderVisual";
+import type { TaskAppearance, TaskSubsectionStyle } from "../types";
+import {
+  TASK_ACCENTS,
+  TASK_VISUALS,
+  taskAccentStyle,
+} from "../utils/taskAppearance";
 
 const groups = {
   Study: {
@@ -287,6 +292,9 @@ export function TaskAppearanceEditor({
   appearance,
   iconTarget,
   selectedIcon,
+  selectedStyle,
+  initialTab = "icons",
+  onStyleChange,
   onIcon,
   onChange,
   onClose,
@@ -294,10 +302,14 @@ export function TaskAppearanceEditor({
   appearance: TaskAppearance;
   iconTarget?: string;
   selectedIcon?: string;
+  selectedStyle?: TaskSubsectionStyle;
+  initialTab?: "style" | "icons";
+  onStyleChange?: (style: TaskSubsectionStyle) => void;
   onIcon: (icon?: string) => void;
   onChange: (appearance: TaskAppearance) => void;
   onClose: () => void;
 }) {
+  const [tab, setTab] = useState(initialTab);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("All");
   const dialog = useRef<HTMLDivElement>(null);
@@ -344,18 +356,13 @@ export function TaskAppearanceEditor({
   const matches = Object.keys(pool).filter((name) =>
     readable(name).toLowerCase().includes(query.trim().toLowerCase()),
   );
-  const accent =
-    TASK_ACCENTS.find((item) => item.id === appearance.accent) ||
-    TASK_ACCENTS[0];
+  const selectedAccent = selectedStyle?.accent || appearance.accent;
+  const showingIcons = Boolean(
+    iconTarget && (!selectedStyle || tab === "icons"),
+  );
   return createPortal(
     <div
-      style={
-        {
-          "--task-accent-light": accent.light,
-          "--task-accent-dark": accent.dark,
-          "--task-rgb": accent.rgb,
-        } as React.CSSProperties
-      }
+      style={taskAccentStyle(selectedAccent)}
       className="task-editor-backdrop"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -363,7 +370,7 @@ export function TaskAppearanceEditor({
     >
       <div
         ref={dialog}
-        className="task-editor"
+        className={`task-editor ${selectedStyle ? "task-style-editor" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-editor-title"
@@ -371,7 +378,11 @@ export function TaskAppearanceEditor({
         <header>
           <div>
             <h2 id="task-editor-title">
-              {iconTarget ? "Choose an icon" : "Make it yours"}
+              {selectedStyle
+                ? "Customize subsection"
+                : iconTarget
+                  ? "Choose an icon"
+                  : "Default appearance"}
             </h2>
             <p>
               {iconTarget || "A little color. A workspace that feels like you."}
@@ -386,107 +397,208 @@ export function TaskAppearanceEditor({
             <X size={19} />
           </button>
         </header>
-        {iconTarget ? (
-          <>
-            <label className="task-icon-search">
-              <Search size={17} />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={`Search ${Object.keys(taskIcons).length} icons…`}
-                aria-label="Search icons"
-              />
-            </label>
-            <div className="task-icon-categories" aria-label="Icon categories">
-              {["All", ...Object.keys(groups)].map((group) => (
-                <button
-                  key={group}
-                  type="button"
-                  aria-pressed={category === group}
-                  onClick={() => setCategory(group)}
-                >
-                  {group}
-                </button>
-              ))}
-            </div>
-            <div className="task-icon-grid">
-              {matches.map((name) => (
-                <button
-                  type="button"
-                  key={name}
-                  title={readable(name)}
-                  aria-label={readable(name)}
-                  aria-pressed={selectedIcon === name}
-                  onClick={() => {
-                    onIcon(name);
-                    onClose();
-                  }}
-                >
-                  <TaskIcon name={name} />
-                  <span>{readable(name)}</span>
-                </button>
-              ))}
-              {matches.length === 0 && (
-                <p className="task-no-icons">
-                  No icons found. Try “book”, “heart”, or “code”.
-                </p>
-              )}
-            </div>
-            <footer>
-              <span>
-                {matches.length} {matches.length === 1 ? "icon" : "icons"}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  onIcon();
-                  onClose();
-                }}
+        {selectedStyle && (
+          <div className="task-editor-tabs" aria-label="Customize subsection">
+            <button
+              type="button"
+              aria-pressed={tab === "style"}
+              onClick={() => setTab("style")}
+            >
+              <Palette size={15} /> Color & artwork
+            </button>
+            <button
+              type="button"
+              aria-pressed={tab === "icons"}
+              onClick={() => setTab("icons")}
+            >
+              <Layers size={15} /> Icon
+            </button>
+          </div>
+        )}
+        <div
+          className={`task-editor-body ${showingIcons ? "task-editor-body-icons" : ""}`}
+        >
+          {showingIcons ? (
+            <>
+              <label className="task-icon-search">
+                <Search size={17} />
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder={`Search ${Object.keys(taskIcons).length} icons…`}
+                  aria-label="Search icons"
+                />
+              </label>
+              <div
+                className="task-icon-categories"
+                aria-label="Icon categories"
               >
-                <RotateCcw size={14} /> Use default icon
-              </button>
-            </footer>
-          </>
+                {["All", ...Object.keys(groups)].map((group) => (
+                  <button
+                    key={group}
+                    type="button"
+                    aria-pressed={category === group}
+                    onClick={() => setCategory(group)}
+                  >
+                    {group}
+                  </button>
+                ))}
+              </div>
+              <div className="task-icon-grid">
+                {matches.map((name) => (
+                  <button
+                    type="button"
+                    key={name}
+                    title={readable(name)}
+                    aria-label={readable(name)}
+                    aria-pressed={selectedIcon === name}
+                    onClick={() => {
+                      onIcon(name);
+                      onClose();
+                    }}
+                  >
+                    <TaskIcon name={name} />
+                    <span>{readable(name)}</span>
+                  </button>
+                ))}
+                {matches.length === 0 && (
+                  <p className="task-no-icons">
+                    No icons found. Try “book”, “heart”, or “code”.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <div
+                className="task-accent-options"
+                aria-label="Task accent color"
+              >
+                {TASK_ACCENTS.map((accent) => (
+                  <button
+                    type="button"
+                    key={accent.id}
+                    aria-pressed={selectedAccent === accent.id}
+                    onClick={() =>
+                      selectedStyle && onStyleChange
+                        ? onStyleChange({ ...selectedStyle, accent: accent.id })
+                        : onChange({ ...appearance, accent: accent.id })
+                    }
+                  >
+                    <span style={{ background: accent.light }}>
+                      {selectedAccent === accent.id && (
+                        <Check size={17} color="white" />
+                      )}
+                    </span>
+                    {accent.label}
+                  </button>
+                ))}
+              </div>
+              {selectedStyle && (
+                <>
+                  <div className="task-style-label">
+                    <h3>Header artwork</h3>
+                    <span>Choose a visual for this subsection</span>
+                  </div>
+                  <div className="task-visual-options">
+                    {TASK_VISUALS.map((visual) => (
+                      <button
+                        type="button"
+                        key={visual.id}
+                        aria-label={`${visual.label} artwork`}
+                        aria-pressed={selectedStyle.visual === visual.id}
+                        onClick={() =>
+                          onStyleChange?.({
+                            ...selectedStyle,
+                            visual: visual.id,
+                          })
+                        }
+                      >
+                        <span className="task-visual-sample">
+                          {visual.id === "none" ? (
+                            <span className="task-minimal-lines">
+                              <i />
+                              <i />
+                              <i />
+                            </span>
+                          ) : (
+                            <TaskHeaderVisual visual={visual.id} />
+                          )}
+                        </span>
+                        <span>{visual.label}</span>
+                        {selectedStyle.visual === visual.id && (
+                          <Check className="task-visual-check" size={13} />
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="task-style-label">
+                    <h3>Live preview</h3>
+                  </div>
+                  <div
+                    className="task-subsection task-style-preview"
+                    style={taskAccentStyle(selectedAccent)}
+                  >
+                    <div className="task-subsection-header">
+                      <TaskHeaderVisual visual={selectedStyle.visual} />
+                      <div className="task-subsection-heading">
+                        <div className="task-icon-tile">
+                          <TaskIcon name={selectedIcon || "Folder"} />
+                        </div>
+                        <h3>{iconTarget}</h3>
+                        <span className="task-count">2 tasks</span>
+                      </div>
+                    </div>
+                    <div className="task-preview-row">
+                      <span className="task-completion" />
+                      <span>Your next task</span>
+                      <span className="task-count">Not started</span>
+                    </div>
+                  </div>
+                </>
+              )}
+              {!selectedStyle && (
+                <div className="task-appearance-preview">
+                  <div className="task-icon-tile">
+                    <GraduationCap />
+                  </div>
+                  <div>
+                    <strong>Your next chapter</strong>
+                    <p>Soft accents. Clear focus.</p>
+                  </div>
+                  <span className="task-count">3 tasks</span>
+                </div>
+              )}
+              <p className="task-editor-hint">
+                {selectedStyle
+                  ? "Only this subsection changes. Your other subsections keep their own colors and artwork."
+                  : "The default for task views and new subsections. Use the palette button on any subsection to choose its own color and artwork."}
+              </p>
+            </>
+          )}
+        </div>
+        {showingIcons ? (
+          <footer>
+            <span>
+              {matches.length} {matches.length === 1 ? "icon" : "icons"}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                onIcon();
+                onClose();
+              }}
+            >
+              <RotateCcw size={14} /> Use default icon
+            </button>
+          </footer>
         ) : (
-          <>
-            <div className="task-accent-options" aria-label="Task accent color">
-              {TASK_ACCENTS.map((accent) => (
-                <button
-                  type="button"
-                  key={accent.id}
-                  aria-pressed={appearance.accent === accent.id}
-                  onClick={() => onChange({ ...appearance, accent: accent.id })}
-                >
-                  <span style={{ background: accent.light }}>
-                    {appearance.accent === accent.id && (
-                      <Check size={17} color="white" />
-                    )}
-                  </span>
-                  {accent.label}
-                </button>
-              ))}
-            </div>
-            <div className="task-appearance-preview">
-              <div className="task-icon-tile">
-                <GraduationCap />
-              </div>
-              <div>
-                <strong>Your next chapter</strong>
-                <p>Soft accents. Clear focus.</p>
-              </div>
-              <span className="task-count">3 tasks</span>
-            </div>
-            <p className="task-editor-hint">
-              Applies to your task views in light and dark mode. Click any
-              section or subsection icon to change it.
-            </p>
-            <footer>
-              <span>Saved automatically</span>
-              <button type="button" onClick={onClose}>
-                Done <Check size={14} />
-              </button>
-            </footer>
-          </>
+          <footer>
+            <span>Saved automatically</span>
+            <button type="button" onClick={onClose}>
+              Done <Check size={14} />
+            </button>
+          </footer>
         )}
       </div>
     </div>,

@@ -164,9 +164,15 @@ export interface AuditLogEntry {
   canUndo: boolean;
 }
 
+export interface TaskSubsectionStyle {
+  accent: string;
+  visual: string;
+}
+
 export interface TaskAppearance {
   accent: string;
   icons: Record<string, string>;
+  subsections?: Record<string, TaskSubsectionStyle>;
 }
 
 export interface BrainState {

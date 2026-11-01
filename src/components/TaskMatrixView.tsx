@@ -15,12 +15,15 @@ import {
   Clock,
   ChevronDown,
 } from "lucide-react";
+import { TaskHeaderVisual, TaskEmptyVisual } from "./TaskHeaderVisual";
 import { TaskAppearanceEditor, TaskIcon } from "./TaskAppearanceEditor";
 import {
   TASK_ACCENTS,
   defaultTaskIcon,
   normalizeTaskAppearance,
   taskIconKey,
+  taskAccentStyle,
+  subsectionStyle,
 } from "../utils/taskAppearance";
 import "../taskMatrix.css";
 import confetti from "canvas-confetti";
@@ -100,6 +103,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
   const [editor, setEditor] = useState<{
     section?: string;
     subsection?: string;
+    tab?: "style" | "icons";
   } | null>(null);
   const closeEditor = useCallback(() => setEditor(null), []);
   const appearance = normalizeTaskAppearance(savedAppearance);
@@ -115,7 +119,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
       className="task-icon-tile"
       aria-label={`Change icon for ${sub || section}`}
       title="Change icon"
-      onClick={() => setEditor({ section, subsection: sub })}
+      onClick={() => setEditor({ section, subsection: sub, tab: "icons" })}
     >
       <TaskIcon name={iconName(section, sub)} />
     </button>
@@ -413,6 +417,11 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                 )}
                 <div className="task-subsections">
                   {sectionSubs.map((sub) => {
+                    const localStyle = subsectionStyle(
+                      appearance,
+                      section,
+                      sub,
+                    );
                     const subTasks = sectionTasks.filter(
                       (task) => (task.subsection || "General") === sub,
                     );
@@ -420,10 +429,12 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                     return (
                       <section
                         className="task-subsection"
+                        style={taskAccentStyle(localStyle.accent)}
                         key={sub}
                         aria-label={`${section} / ${sub}`}
                       >
                         <header className="task-subsection-header">
+                          <TaskHeaderVisual visual={localStyle.visual} />
                           <div className="task-subsection-heading">
                             {iconButton(section, sub)}
                             {editingSubKey === subKey ? (
@@ -484,6 +495,21 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                           </div>
                           <div className="task-subsection-actions">
                             <button
+                              type="button"
+                              className="task-icon-action task-customize"
+                              aria-label={`Customize ${sub}`}
+                              title="Customize color & artwork"
+                              onClick={() =>
+                                setEditor({
+                                  section,
+                                  subsection: sub,
+                                  tab: "style",
+                                })
+                              }
+                            >
+                              <Palette size={17} />
+                            </button>
+                            <button
                               className="task-text-button"
                               onClick={() => onAddTask(section, sub)}
                             >
@@ -511,8 +537,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                         {subTasks.length === 0 ? (
                           <div className="task-empty">
                             <div className="task-empty-icon">
-                              <TaskIcon name={iconName(section, sub)} />
-                              <SparkleDecoration />
+                              <TaskEmptyVisual />
                             </div>
                             <div>
                               <h4>No tasks yet</h4>
@@ -674,6 +699,22 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
         <TaskAppearanceEditor
           appearance={appearance}
           iconTarget={editor.subsection || editor.section}
+          initialTab={editor.tab || "style"}
+          selectedStyle={
+            editor.section && editor.subsection
+              ? subsectionStyle(appearance, editor.section, editor.subsection)
+              : undefined
+          }
+          onStyleChange={(style) => {
+            if (!editor.section || !editor.subsection) return;
+            onAppearanceChange?.({
+              ...appearance,
+              subsections: {
+                ...appearance.subsections,
+                [taskIconKey(editor.section, editor.subsection)]: style,
+              },
+            });
+          }}
           selectedIcon={
             editor.section
               ? iconName(editor.section, editor.subsection)
@@ -694,10 +735,3 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
     </div>
   );
 };
-function SparkleDecoration() {
-  return (
-    <span className="task-empty-sparkle" aria-hidden="true">
-      ✧
-    </span>
-  );
-}

@@ -52,4 +52,4 @@ The public production origin was opened in the browser and displayed the iris ac
 
 ## Task appearance
 
-Tasks > Appearance offers eight coordinated accent palettes, with separate light and dark colors. Click any section or subsection icon to search 119 icons across eight categories. Preferences are stored in the workspace snapshot, included in backups, and subsection icons follow renames. The production save function was updated and verified to allow `taskAppearance` on November 1, 2026.
+Tasks > Appearance offers eight coordinated accent palettes, with separate light and dark colors. Click any section or subsection icon to search 119 icons across eight categories. Each subsection has its own palette button for an independent accent and a choice of eight header artwork styles. These preferences are stored inside `taskAppearance` in the workspace snapshot, included in backups, and follow subsection renames. Cards use opaque surfaces in both themes. The production save function was updated and verified to allow `taskAppearance` on November 1, 2026.

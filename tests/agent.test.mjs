@@ -219,7 +219,7 @@ test('canonical storage failures propagate and the save queue recovers', async (
 test('reloading a saved workspace preserves intentionally empty sections and folders', async () => {
   const { loadInitialState } = await server.ssrLoadModule('/src/services/storage.ts');
   const previousStorage = globalThis.localStorage;
-  const saved = { ...state(), sections: [], subsections: {}, noteFolders: [], taskAppearance: { accent: 'teal', icons: { '["Work",null]': 'Rocket' } } };
+  const saved = { ...state(), sections: [], subsections: {}, noteFolders: [], taskAppearance: { accent: 'teal', icons: { '["Work",null]': 'Rocket' }, subsections: { '["Work","General"]': { accent: 'blue', visual: 'book' } } } };
   globalThis.localStorage = { getItem(key) { return key === 'synapse_second_brain_state' ? JSON.stringify(saved) : null; } };
   try {
     const reloaded = await loadInitialState('test');
