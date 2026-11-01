@@ -27,7 +27,6 @@ export function ManagedRoot() {
   const [googleAvailable, setGoogleAvailable] = useState(true);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isGuest, setIsGuest] = useState(false);
   const [mode, setMode] = useState<"signin" | "signup" | "reset" | "recovery">(
     new URLSearchParams(window.location.search).has("recovery") ? "recovery" : "signin"
   );
@@ -74,7 +73,7 @@ export function ManagedRoot() {
 
     const { data: subscription } = client.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY" && mounted) setMode("recovery");
-      if (["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED"].includes(event)) {
+      if (["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED", "PASSWORD_RECOVERY"].includes(event)) {
         if (mounted && event === "SIGNED_OUT") {
           vectorVault.setAccount("");
           setUser(null);
@@ -104,7 +103,7 @@ export function ManagedRoot() {
         const trimmedEmail = email.trim().toLowerCase();
         const trimmedName = name.trim();
         if (!trimmedEmail) throw new Error("Please enter your email address.");
-        if (password.length < 8) throw new Error("Password must be at least 8 characters.");
+        if (password.length < 12) throw new Error("Password must be at least 12 characters.");
 
         const { data, error: signUpError } = await client.auth.signUp({
           email: trimmedEmail,
@@ -132,7 +131,7 @@ export function ManagedRoot() {
         if (resetError) throw resetError;
         setNotice(`If an account exists for ${trimmedEmail}, you will receive a password reset link.`);
       } else if (mode === "recovery") {
-        if (password.length < 8) throw new Error("Password must be at least 8 characters.");
+        if (password.length < 12) throw new Error("Password must be at least 12 characters.");
         const { error: updateError } = await client.auth.updateUser({ password });
         if (updateError) throw updateError;
         window.history.replaceState({}, "", "/");
@@ -183,10 +182,6 @@ export function ManagedRoot() {
 
   if (user && mode !== "recovery") {
     return <App key={user.id} />;
-  }
-
-  if (isGuest) {
-    return <App key="guest" />;
   }
 
   return (
@@ -273,7 +268,7 @@ export function ManagedRoot() {
           <>
             <button
               type="button"
-              disabled={busy || !managedAuthConfigured}
+              disabled={busy || !managedAuthConfigured || !googleAvailable}
               onClick={handleGoogleClick}
               className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-[#141727] hover:bg-slate-50 dark:hover:bg-[#1a1e35] text-slate-700 dark:text-slate-200 text-xs font-bold shadow-xs hover:shadow-sm hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
             >
@@ -402,7 +397,7 @@ export function ManagedRoot() {
                   <input
                     type={showPassword ? "text" : "password"}
                     required
-                    minLength={mode === "signin" ? 1 : 8}
+                    minLength={mode === "signin" ? 1 : 12}
                     maxLength={128}
                     autoComplete={mode === "signin" ? "current-password" : "new-password"}
                     placeholder="••••••••••••"
@@ -421,7 +416,7 @@ export function ManagedRoot() {
                 </div>
                 {mode === "signup" && (
                   <span className="block text-[10px] text-slate-400 mt-1">
-                    At least 8 characters recommended.
+                    At least 12 characters required.
                   </span>
                 )}
               </div>
@@ -472,14 +467,9 @@ export function ManagedRoot() {
             </button>
           )}
 
-          {/* Guest Mode Option */}
-          <button
-            type="button"
-            onClick={() => setIsGuest(true)}
-            className="text-[11px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-          >
-            Want to try locally first? <span className="underline font-medium">Continue as Guest</span>
-          </button>
+          <p className="text-[11px] text-slate-500 text-center">
+            Sign in to save your workspace to your account and access it on other devices.
+          </p>
         </div>
       </section>
     </main>

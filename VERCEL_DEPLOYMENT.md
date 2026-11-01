@@ -1,84 +1,50 @@
-# 🚀 Deploying Synapse Second Brain on Vercel
+# Vercel deployment
 
-Synapse Second Brain is configured for **1-click Git deployment** to Vercel with full cloud account authentication (Email/Password Sign-Up, Sign-In, Password Reset, and Google OAuth) powered by Supabase.
+Vercel hosts the Vite frontend. Supabase provides accounts and persistent PostgreSQL storage.
 
----
+## Build settings
 
-## ⚡ Quick Start: Deploy from Git to Vercel
+Use the repository root (leave Root Directory empty), Framework Preset **Vite**, Node.js **22.x**, Install Command `npm ci --include=dev`, Build Command `npm run build`, and Output Directory `dist`. These commands are also in `vercel.json`. Remove conflicting dashboard overrides, especially an empty/skip Install Command.
 
-1. **Push your code to GitHub**:
-   ```bash
-   git add .
-   git commit -m "feat: configure Vercel deployment with full auth"
-   git push origin main
-   ```
+The failed log was for commit `713c076`. It ran `tsc && vite build` with no TypeScript executable available. The log contains no dependency-install step; the live Vercel dashboard was subsequently verified to have Root Directory set to `src-tauri`, which points at the desktop Rust package rather than the frontend. Clear Root Directory and use the Vite preset. Redeploy the latest pushed commit, not the failed commit. Clearing cache does not change which commit is deployed.
 
-2. **Import into Vercel**:
-   - Go to [vercel.com](https://vercel.com) and log in.
-   - Click **"Add New..."** > **"Project"**.
-   - Select your GitHub repository (`second-brain-ai`).
-   - Framework Preset: **Vite** (auto-detected).
-   - Build Command: `npm run build` (auto-detected).
-   - Output Directory: `dist` (auto-detected).
+The lockfile matches the package manifest. Build tools are installed even if npm is configured to omit dev dependencies, and the build runs TypeScript checks before bundling.
 
-3. **Environment Variables**:
-   The application automatically bundles with the pre-configured Supabase project (`sgacmfewjzmhixewqpad`).
-   
-   If you wish to customize environment variables in Vercel:
-   | Variable | Value | Description |
-   | :--- | :--- | :--- |
-   | `VITE_SUPABASE_URL` | `https://sgacmfewjzmhixewqpad.supabase.co` | Supabase Project URL |
-   | `VITE_SUPABASE_PUBLISHABLE_KEY` | `sb_publishable_ka6-aemxLBgnBFywALxfWw_dGLJc7CW` | Supabase Public Key |
-   | `VITE_AUTH_PROVIDER` | `supabase` | Enables managed account portal |
-   | `VITE_OPENROUTER_API_KEY` | *(optional)* | Global fallback OpenRouter AI key (users can also enter theirs in Settings) |
-   | `VITE_GOOGLE_CLIENT_ID` | *(optional)* | Google Web Client ID for Google Identity Services |
+## Public configuration
 
-4. Click **"Deploy"**!
-   Vercel will build and assign your live production URL: `https://<your-project>.vercel.app`.
+The default public Supabase URL and publishable key come from `hosting/independent.json`. To use another project, set both `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in Vercel and rebuild. `VITE_AUTH_PROVIDER=supabase` enables hosted authentication and is the default.
 
----
+Never put a Supabase secret/service-role key, SMTP password, Google client secret, or private AI key in a `VITE_*` variable: these variables are public browser code. Users should enter their own OpenRouter key in the app; it stays scoped to the account on that device.
 
-## 🔐 Authentication Features
+## Required Supabase setup
 
-### 1. Email & Password Sign-Up / Login
-- Users can create accounts with **Full Name**, **Email**, and **Password** (min 8 characters).
-- Password hashing and session management are handled securely by Supabase with PKCE tokens.
-- Each user gets their own isolated private second brain stored in PostgreSQL with row-level security.
-- Includes **Forgot Password** and **Password Reset** email recovery flows.
+1. Apply `supabase/migrations/202610300001_brain_accounts.sql` once to the selected Supabase project. It creates the private `brains` table and revision-checked `save_brain` RPC. Do not rerun it on an already initialized database.
+2. In Authentication > URL Configuration, set Site URL to the exact production Vercel origin. Add that origin followed by `/` and by `/?recovery=1` to Redirect URLs. Keep existing Cloudflare entries if that deployment is still used.
+3. Enable Email signups and keep email confirmation on. Configure custom SMTP in Authentication > Emails > SMTP Settings for public signup and password resets. Supabase's default sender only delivers to project-team addresses and has restrictive limits: https://supabase.com/docs/guides/auth/auth-smtp.
+4. If offering Google login, enable Google in Authentication > Sign In / Providers and enter its credentials directly there. Use `https://<project-ref>.supabase.co/auth/v1/callback` as the Google OAuth client's authorized callback. Google login is disabled in the UI when Supabase reports the provider is off.
 
-### 2. Google Sign-In (OAuth)
-To activate Google Sign-In for your live Vercel domain:
+## Storage behavior
 
-1. **Google Cloud Console** ([console.cloud.google.com](https://console.cloud.google.com)):
-   - Go to **APIs & Services** > **Credentials**.
-   - Under OAuth 2.0 Client IDs, open or create your **Web application** client.
-   - **Authorized JavaScript origins**:
-     - `https://<your-project>.vercel.app`
-     - `http://localhost:5173` (for local web testing)
-   - **Authorized redirect URIs**:
-     - `https://sgacmfewjzmhixewqpad.supabase.co/auth/v1/callback`
-   - Copy your **Client ID** and **Client Secret**.
+Tasks, goals and milestones, habits/history, journal entries, notes and folders, chat history and archived conversations, sections, preferences, daily brief, and audit log are stored in the signed-in user's cloud snapshot. Account access is enforced by database row-level security and the save RPC. There is no hosted guest mode.
 
-2. **Supabase Dashboard** ([supabase.com/dashboard](https://supabase.com/dashboard/project/sgacmfewjzmhixewqpad)):
-   - Open your project: `iris-second-brain` (`sgacmfewjzmhixewqpad`).
-   - Go to **Authentication** > **Providers** > **Google**.
-   - Toggle **Enable Google provider** to ON.
-   - Paste your **Client ID** and **Client Secret**.
-   - Under **URL Configuration**:
-     - Set **Site URL** to: `https://<your-project>.vercel.app`
-     - Add `https://<your-project>.vercel.app/**` to **Redirect URLs**.
-   - Click **Save**.
+The sync bar shows Saving, Synced, or a failure. Failed saves offer Retry save; export data before closing or reloading after a failure. Conflicts require export and reload; Retry does not overwrite another device's newer version. Snapshots have a 2 MiB limit, so storage is not unlimited. API keys are device-local and excluded from cloud snapshots and exports.
 
-Once enabled, clicking **"Continue with Google"** will immediately redirect users through Google's official sign-in screen and return them authenticated to your deployed Synapse app!
+## Verification
 
-### 3. Guest Offline Mode
-- Users can also click **"Continue as Guest"** on the auth screen to explore the app immediately using local offline storage without signing in.
+Run `npm ci --include=dev`, `npm test`, and `npm run build`. Tests cover PostgreSQL account isolation, full workspace round trips, stale-write rejection, API-key exclusion, deleted-folder/section restoration, and agent persistence failures.
 
----
+After deployment, create a disposable account, follow the confirmation email back to Vercel, sign out/in, create records across the app, wait for Synced, reload, and sign into the same account in another browser to verify records. Check a second account cannot see them. Exercise password reset and Google separately. Local tests and a successful build do not establish live email delivery or OAuth redirects.
 
-## 📁 Key Deployment Files
+## Verification on October 31, 2026
 
-- `vercel.json`: Handles SPA client-side routing rewrites (`/(.*)` -> `/index.html`) so refreshing on any page or returning from OAuth redirects loads without 404 errors.
-- `vite.config.ts`: Injects public Supabase configuration automatically so Vercel builds out of the box with zero manual environment variable setup.
-- `src/components/ManagedRoot.tsx`: The sign-up / login / Google Auth screen with ambient silk ribbons and dark/light mode.
-- `src/components/ManagedAccountModal.tsx`: Account management dialog showing user profile, sync state, and sign out controls.
+A fresh install in a temporary copy built successfully. The final workspace passed all 48 tests and the production build. Using the production bundle locally against the actual Supabase project, a temporary dashboard-confirmed account signed in, created a task and note, signed out, and signed back in. Exported workspace contents before and after sign-in matched exactly after normalizing JSON object-key order. This verifies real cloud writes and reads for those records; it does not verify confirmation emails or Vercel redirects.
+
+The live project currently has Google and custom SMTP disabled. Custom SMTP remains required for public email delivery. The Site URL and exact root/recovery redirect URLs are now configured for the verified Vercel production origin, with existing Cloudflare redirects retained. The temporary test account and its synthetic cloud records were deleted after user approval.
+
+The supplied Vercel deployment is https://vercel.com/ur-mommmm-s-projects/second-brain-ai-src-tauri/Hf7pZKLDA7RWuUstCZGa9j7gtk8R. Its project Root Directory was verified as `src-tauri`. After user approval, Root Directory was cleared and the Vite framework preset was saved.
+
+The verified production domain is `https://second-brain-ai-src-tauri.vercel.app`; a production redeploy of main commit `638008b` is now Ready at that domain.
+
+Production deployment verified Ready: https://vercel.com/ur-mommmm-s-projects/second-brain-ai-src-tauri/5rvuDB9cWzGrabUUQnxNEz1Aq9Pt. This deploy uses the existing GitHub commit `638008b`, not the uncommitted local fixes from this session.
+
+The public production origin was opened in the browser and displayed the iris account portal. Live signup confirmation/reset delivery remains unverified because custom SMTP is off.

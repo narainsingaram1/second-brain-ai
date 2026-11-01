@@ -571,7 +571,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   const finalKey = (managedAuthEnabled ? "" : storedState.openRouterKey || envKey) || (typeof localStorage !== "undefined" ? localStorage.getItem(credentialKey) : null) || "";
 
   // Ensure sections exist
-  const sections = storedState.sections && storedState.sections.length > 0
+  const sections = Array.isArray(storedState.sections)
     ? storedState.sections
     : DEFAULT_SECTIONS;
 
@@ -621,7 +621,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   });
 
   // Normalize Note Folders hierarchy
-  const rawFolders = storedState.noteFolders && storedState.noteFolders.length > 0
+  const rawFolders = Array.isArray(storedState.noteFolders)
     ? storedState.noteFolders
     : DEFAULT_NOTE_FOLDERS;
   const noteFolders: NoteFolder[] = rawFolders.map((f: any) => ({

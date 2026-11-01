@@ -216,6 +216,19 @@ test('canonical storage failures propagate and the save queue recovers', async (
   } finally { globalThis.localStorage = previousStorage; console.warn = originalWarn; console.error = originalError; }
 });
 
+test('reloading a saved workspace preserves intentionally empty sections and folders', async () => {
+  const { loadInitialState } = await server.ssrLoadModule('/src/services/storage.ts');
+  const previousStorage = globalThis.localStorage;
+  const saved = { ...state(), sections: [], subsections: {}, noteFolders: [] };
+  globalThis.localStorage = { getItem(key) { return key === 'synapse_second_brain_state' ? JSON.stringify(saved) : null; } };
+  try {
+    const reloaded = await loadInitialState('test');
+    assert.deepEqual(reloaded.sections, []);
+    assert.deepEqual(reloaded.noteFolders, []);
+    assert.equal(reloaded.tasks.length, saved.tasks.length);
+  } finally { globalThis.localStorage = previousStorage; }
+});
+
 test('neural passage cache reuses unchanged content, refreshes edits and never returns deletions', async () => {
   const previousIDB = globalThis.indexedDB;
   const store = new Map();

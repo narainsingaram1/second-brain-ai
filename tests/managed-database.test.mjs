@@ -6,7 +6,20 @@ import { PGlite } from '@electric-sql/pglite';
 const migration = await readFile(new URL('../supabase/migrations/202610300001_brain_accounts.sql', import.meta.url), 'utf8');
 const owner = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
-const state = { tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [], sections: [], subsections: {}, openRouterKey: 'must-not-persist', userId: other, unexpectedSecret: 'must-not-persist' };
+const workspace = {
+  tasks: [{ id: 'task-1', title: 'Saved task', completed: false }],
+  goals: [{ id: 'goal-1', title: 'Saved goal', milestones: [{ id: 'milestone-1', completed: true }] }],
+  habits: [{ id: 'habit-1', history: { '2026-10-31': true } }],
+  journalEntries: [{ id: 'journal-1', content: 'Saved reflection' }],
+  knowledgeItems: [{ id: 'note-1', title: 'Saved note', content: 'Full note contents', folderId: 'folder-1' }],
+  chatHistory: [{ id: 'message-1', role: 'user', content: 'Saved conversation' }],
+  sections: ['Work'], subsections: { Work: ['General'] },
+  noteFolders: [{ id: 'folder-1', name: 'Notes' }],
+  conversationId: 'thread-1', conversations: [{ id: 'older-thread', messages: [] }],
+  selectedModel: 'test/model', theme: 'dark', dailyBrief: 'Saved brief',
+  auditLog: [{ id: 'audit-1', action: 'Created task' }],
+};
+const state = { ...workspace, openRouterKey: 'must-not-persist', userId: other, unexpectedSecret: 'must-not-persist' };
 
 test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conflicts, and credential exclusion', async () => {
   const db = new PGlite();
@@ -26,6 +39,7 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
     const row = (await db.query('select * from public.brains')).rows[0];
     assert.equal(row.user_id, owner); assert.equal(row.state.openRouterKey, undefined);
     assert.equal(row.state.userId, undefined); assert.equal(row.state.unexpectedSecret, undefined);
+    assert.deepEqual(row.state, workspace, 'every workspace collection and preference round-trips intact');
     await assert.rejects(save(1), error => error.code === '40001');
     await assert.rejects(save(0), error => error.code === '40001');
     await assert.rejects(save(2, other), error => error.code === '42501');
@@ -41,6 +55,8 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
     assert.equal((await save(0, other)).rows[0].revision, 1);
     const ownRows = (await db.query('select * from public.brains')).rows;
     assert.equal(ownRows.length, 1); assert.equal(ownRows[0].user_id, other);
+    await asUser(owner);
+    assert.deepEqual((await db.query('select state from public.brains')).rows[0].state, workspace, 'records survive changing accounts and signing back in');
     await db.exec('reset role; set role anon');
     await assert.rejects(db.query('select * from public.brains'), error => error.code === '42501');
     await assert.rejects(save(0), error => error.code === '42501');
