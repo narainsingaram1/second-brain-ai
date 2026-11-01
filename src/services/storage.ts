@@ -1,3 +1,4 @@
+import { normalizeTaskAppearance } from "../utils/taskAppearance";
 import { managedAuthEnabled } from "./managedAuth";
 import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
@@ -694,6 +695,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     openRouterKey: finalKey,
     selectedModel: storedState.selectedModel || "anthropic/claude-3.5-sonnet",
     theme: storedState.theme || "light",
+    taskAppearance: normalizeTaskAppearance(storedState.taskAppearance),
     dailyBrief: storedState.dailyBrief,
     auditLog: storedState.auditLog || [],
   };

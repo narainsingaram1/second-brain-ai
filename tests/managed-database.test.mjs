@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 
 const migration = await readFile(new URL('../supabase/migrations/202610300001_brain_accounts.sql', import.meta.url), 'utf8');
+const appearanceMigration = await readFile(new URL('../supabase/migrations/202611010001_task_appearance.sql', import.meta.url), 'utf8');
 const owner = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
 const workspace = {
@@ -17,6 +18,7 @@ const workspace = {
   noteFolders: [{ id: 'folder-1', name: 'Notes' }],
   conversationId: 'thread-1', conversations: [{ id: 'older-thread', messages: [] }],
   selectedModel: 'test/model', theme: 'dark', dailyBrief: 'Saved brief',
+  taskAppearance: { accent: 'green', icons: { '["Work",null]': 'Rocket' } },
   auditLog: [{ id: 'audit-1', action: 'Created task' }],
 };
 const state = { ...workspace, openRouterKey: 'must-not-persist', userId: other, unexpectedSecret: 'must-not-persist' };
@@ -31,6 +33,7 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
       grant execute on function auth.uid() to anon, authenticated;`);
     await db.query('insert into auth.users values ($1), ($2)', [owner, other]);
     await db.exec(migration);
+    await db.exec(appearanceMigration);
     const asUser = async id => { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub', $1, false)", [id]); await db.exec('set role authenticated'); };
     const save = (revision, uid = owner, payload = state) => db.query('select public.save_brain($1::jsonb,$2::bigint,$3::uuid) as revision', [JSON.stringify(payload), revision, uid]);
     await asUser(owner);

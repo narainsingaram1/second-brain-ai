@@ -164,6 +164,11 @@ export interface AuditLogEntry {
   canUndo: boolean;
 }
 
+export interface TaskAppearance {
+  accent: string;
+  icons: Record<string, string>;
+}
+
 export interface BrainState {
   userId?: string;
   tasks: Task[];
@@ -180,6 +185,7 @@ export interface BrainState {
   openRouterKey: string;
   selectedModel: string;
   theme: 'light' | 'dark';
+  taskAppearance?: TaskAppearance;
   dailyBrief?: DailyBrief;
   auditLog?: AuditLogEntry[];
 }

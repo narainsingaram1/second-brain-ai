@@ -245,7 +245,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
               <span>
                 {MONTH_NAMES[currentMonth]} {currentYear}
               </span>
-              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 border border-blue-200/60 dark:border-blue-800">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full task-theme-bg task-theme-text task-theme-dark-bg task-theme-dark-text border task-theme-border task-theme-dark-border">
                 {totalTasksThisMonth} {totalTasksThisMonth === 1 ? "task" : "tasks"}
               </span>
             </h2>
@@ -341,7 +341,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                   onClick={() => setSelectedDate(cell.dateStr)}
                   className={`min-h-[92px] sm:min-h-[105px] p-1.5 sm:p-2 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer group relative ${
                     isCellSelected
-                      ? "ring-2 ring-blue-500 bg-blue-50/20 dark:bg-blue-950/20 border-blue-300 dark:border-blue-700 shadow-xs"
+                      ? "ring-2 task-theme-ring task-theme-bg task-theme-dark-bg task-theme-border task-theme-dark-border shadow-xs"
                       : cell.isCurrentMonth
                       ? "bg-slate-50/50 dark:bg-[#161a25]/60 border-slate-200/70 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700"
                       : "bg-slate-100/40 dark:bg-slate-900/20 border-slate-100 dark:border-slate-800/40 opacity-40 hover:opacity-75"
@@ -352,7 +352,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                     <span
                       className={`text-xs font-extrabold w-6 h-6 flex items-center justify-center rounded-full transition-all ${
                         cell.isToday
-                          ? "bg-blue-600 text-white shadow-2xs font-black"
+                          ? "task-theme-bg-solid text-white shadow-2xs font-black"
                           : cell.isCurrentMonth
                           ? "text-slate-800 dark:text-slate-200"
                           : "text-slate-400"
@@ -368,7 +368,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                         onAddTask(sections[0], subsections[sections[0]]?.[0], cell.dateStr);
                       }}
                       title={`Add task on ${cell.dateStr}`}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-all"
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 task-theme-hover-text task-theme-hover-bg task-theme-dark-hover-bg transition-all"
                     >
                       <Plus className="w-3 h-3" />
                     </button>
@@ -391,7 +391,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             isCompleted
                               ? "bg-slate-200/60 dark:bg-slate-800/60 text-slate-400 line-through"
                               : isInProgress
-                              ? "bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                              ? "task-theme-bg task-theme-dark-bg task-theme-text task-theme-dark-text border task-theme-border task-theme-dark-border"
                               : task.priority === "urgent"
                               ? "bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300"
                               : task.priority === "high"
@@ -407,7 +407,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             {isCompleted ? (
                               <Check className="w-2.5 h-2.5 stroke-[3] text-emerald-600" />
                             ) : isInProgress ? (
-                              <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                              <div className="w-2 h-2 rounded-full task-theme-bg-solid animate-pulse" />
                             ) : (
                               <div className="w-2 h-2 rounded-full border border-slate-400" />
                             )}
@@ -418,7 +418,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                     })}
 
                     {dayTasks.length > 3 && (
-                      <div className="text-[9px] font-extrabold text-blue-600 dark:text-blue-400 pl-1">
+                      <div className="text-[9px] font-extrabold task-theme-text task-theme-dark-text pl-1">
                         +{dayTasks.length - 3} more
                       </div>
                     )}
@@ -446,14 +446,14 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
           <div className="bg-white dark:bg-[#12151e] rounded-4xl border border-slate-200/90 dark:border-slate-800 shadow-sm p-5 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <CalendarIcon className="w-4 h-4 text-blue-500" />
+                <CalendarIcon className="w-4 h-4 task-theme-text" />
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
                   Agenda for {selectedDate}
                 </h3>
               </div>
               <button
                 onClick={() => onAddTask(sections[0], subsections[sections[0]]?.[0], selectedDate)}
-                className="flex items-center gap-1 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                className="flex items-center gap-1 text-[11px] font-bold task-theme-text task-theme-dark-text hover:underline"
               >
                 <Plus className="w-3 h-3" />
                 <span>Add Task</span>
@@ -470,7 +470,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                 </p>
                 <button
                   onClick={() => onAddTask(sections[0], subsections[sections[0]]?.[0], selectedDate)}
-                  className="text-xs font-bold text-slate-800 dark:text-slate-200 hover:text-blue-600 dark:hover:text-blue-400"
+                  className="text-xs font-bold text-slate-800 dark:text-slate-200 task-theme-hover-text task-theme-dark-hover-text"
                 >
                   + Create task on {selectedDate}
                 </button>
@@ -488,7 +488,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                         taskStatus === "completed"
                           ? "bg-slate-50/50 dark:bg-slate-900/20 border-slate-200/50 dark:border-slate-800/50 opacity-60"
                           : taskStatus === "in_progress"
-                          ? "bg-white dark:bg-[#161a25] border-blue-400/80 dark:border-blue-700 shadow-2xs"
+                          ? "bg-white dark:bg-[#161a25] task-theme-border task-theme-dark-border shadow-2xs"
                           : "bg-white dark:bg-[#161a25] border-slate-200/80 dark:border-slate-800/80 hover:border-slate-300"
                       }`}
                     >
@@ -499,13 +499,13 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             taskStatus === "completed"
                               ? "bg-emerald-500 text-white"
                               : taskStatus === "in_progress"
-                              ? "border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600"
-                              : "border-2 border-slate-300 dark:border-slate-600 hover:border-blue-500"
+                              ? "border-2 task-theme-border task-theme-bg task-theme-dark-bg task-theme-text"
+                              : "border-2 border-slate-300 dark:border-slate-600 task-theme-hover-border"
                           }`}
                         >
                           {taskStatus === "completed" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                           {taskStatus === "in_progress" && (
-                            <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />
+                            <div className="w-1.5 h-1.5 rounded-full task-theme-bg-solid animate-pulse" />
                           )}
                         </button>
                         <div className="min-w-0">

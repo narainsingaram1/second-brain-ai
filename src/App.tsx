@@ -1,3 +1,4 @@
+import { renameTaskIcon } from "./utils/taskAppearance";
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
@@ -483,6 +484,7 @@ export const App: React.FC = () => {
       );
       return {
         ...prev,
+        taskAppearance: renameTaskIcon(prev.taskAppearance, section, oldName, trimmed),
         subsections: {
           ...prev.subsections,
           [section]: updatedSubs,
@@ -875,6 +877,8 @@ export const App: React.FC = () => {
                   tasks={state.tasks}
                   sections={state.sections}
                   subsections={state.subsections}
+                  appearance={state.taskAppearance}
+                  onAppearanceChange={(taskAppearance) => setState(prev => prev ? { ...prev, taskAppearance } : prev)}
                   onToggleTask={handleToggleTask}
                   onStatusChange={handleStatusChange}
                   onAddTask={(section, subsection, defaultDueDate) => {

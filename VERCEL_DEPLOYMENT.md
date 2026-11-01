@@ -19,9 +19,10 @@ Never put a Supabase secret/service-role key, SMTP password, Google client secre
 ## Required Supabase setup
 
 1. Apply `supabase/migrations/202610300001_brain_accounts.sql` once to the selected Supabase project. It creates the private `brains` table and revision-checked `save_brain` RPC. Do not rerun it on an already initialized database.
-2. In Authentication > URL Configuration, set Site URL to the exact production Vercel origin. Add that origin followed by `/` and by `/?recovery=1` to Redirect URLs. Keep existing Cloudflare entries if that deployment is still used.
-3. Enable Email signups and keep email confirmation on. Configure custom SMTP in Authentication > Emails > SMTP Settings for public signup and password resets. Supabase's default sender only delivers to project-team addresses and has restrictive limits: https://supabase.com/docs/guides/auth/auth-smtp.
-4. If offering Google login, enable Google in Authentication > Sign In / Providers and enter its credentials directly there. Use `https://<project-ref>.supabase.co/auth/v1/callback` as the Google OAuth client's authorized callback. Google login is disabled in the UI when Supabase reports the provider is off.
+2. Apply `supabase/migrations/202611010001_task_appearance.sql` to retain task accent and icon preferences in cloud saves. This extends the existing save function without changing account isolation or revision checks.
+3. In Authentication > URL Configuration, set Site URL to the exact production Vercel origin. Add that origin followed by `/` and by `/?recovery=1` to Redirect URLs. Keep existing Cloudflare entries if that deployment is still used.
+4. Enable Email signups and keep email confirmation on. Configure custom SMTP in Authentication > Emails > SMTP Settings for public signup and password resets. Supabase's default sender only delivers to project-team addresses and has restrictive limits: https://supabase.com/docs/guides/auth/auth-smtp.
+5. If offering Google login, enable Google in Authentication > Sign In / Providers and enter its credentials directly there. Use `https://<project-ref>.supabase.co/auth/v1/callback` as the Google OAuth client's authorized callback. Google login is disabled in the UI when Supabase reports the provider is off.
 
 ## Storage behavior
 
@@ -48,3 +49,7 @@ The verified production domain is `https://second-brain-ai-src-tauri.vercel.app`
 Production deployment verified Ready: https://vercel.com/ur-mommmm-s-projects/second-brain-ai-src-tauri/5rvuDB9cWzGrabUUQnxNEz1Aq9Pt. This deploy uses the existing GitHub commit `638008b`, not the uncommitted local fixes from this session.
 
 The public production origin was opened in the browser and displayed the iris account portal. Live signup confirmation/reset delivery remains unverified because custom SMTP is off.
+
+## Task appearance
+
+Tasks > Appearance offers eight coordinated accent palettes, with separate light and dark colors. Click any section or subsection icon to search 119 icons across eight categories. Preferences are stored in the workspace snapshot, included in backups, and subsection icons follow renames. The production save function was updated and verified to allow `taskAppearance` on November 1, 2026.

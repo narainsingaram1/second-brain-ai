@@ -307,15 +307,15 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                               <button
                                 onClick={(e) => handleCycleStatus(e, task)}
                                 title="In Progress — click to mark complete"
-                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 border-blue-500 bg-blue-50 dark:bg-blue-950/40 text-blue-600 hover:scale-105"
+                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 task-theme-border task-theme-bg task-theme-dark-bg task-theme-text hover:scale-105"
                               >
-                                <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                                <div className="w-2 h-2 rounded-full task-theme-bg-solid animate-pulse" />
                               </button>
                             ) : (
                               <button
                                 onClick={(e) => handleCycleStatus(e, task)}
                                 title="Not Started — click to set In Progress"
-                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 border-slate-300 dark:border-slate-600 hover:border-blue-500 hover:scale-105 transition-all"
+                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 border-slate-300 dark:border-slate-600 task-theme-hover-border hover:scale-105 transition-all"
                               />
                             )}
 
@@ -345,7 +345,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                                 taskStatus === "completed"
                                   ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                                   : taskStatus === "in_progress"
-                                  ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 ring-1 ring-blue-400/30"
+                                  ? "task-theme-bg task-theme-text task-theme-dark-bg task-theme-dark-text ring-1 task-theme-ring"
                                   : "text-slate-400 bg-slate-100 dark:bg-slate-800"
                               }`}
                             >
@@ -363,7 +363,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                                   isOverdue
                                     ? "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 font-bold"
                                     : isToday
-                                    ? "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400 font-bold"
+                                    ? "task-theme-bg task-theme-text task-theme-dark-bg task-theme-dark-text font-bold"
                                     : "text-slate-400"
                                 }`}
                               >
