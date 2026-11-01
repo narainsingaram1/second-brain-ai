@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { OPENROUTER_MODELS, testOpenRouterKey } from "../services/openrouter";
 import {
   Key,
+  Brain,
   Eye,
   EyeOff,
   CheckCircle2,
@@ -25,6 +26,7 @@ interface OpenRouterSettingsModalProps {
   onSelectModel: (model: string) => void;
   onExportBackup: () => void;
   workspaceControls?: React.ReactNode;
+  onOpenMemory?: () => void;
 }
 
 export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = ({
@@ -36,6 +38,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   onSelectModel,
   onExportBackup,
   workspaceControls,
+  onOpenMemory,
 }) => {
   const [keyInput, setKeyInput] = useState(openRouterKey);
   const [showKey, setShowKey] = useState(false);
@@ -230,6 +233,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </div>
           </div>
 
+          {onOpenMemory && <button type="button" className="memory-settings-link" onClick={onOpenMemory}><Brain size={21}/><span><strong>Memory</strong><small>View, edit and manage what Synapse remembers about you</small></span><span className="ml-auto">→</span></button>}
           {workspaceControls && (
             <section className="space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
               <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Workspace & Sync</h4>

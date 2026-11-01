@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 
 const migration = await readFile(new URL('../supabase/migrations/202610300001_brain_accounts.sql', import.meta.url), 'utf8');
 const appearanceMigration = await readFile(new URL('../supabase/migrations/202611010001_task_appearance.sql', import.meta.url), 'utf8');
+const memoryMigration = await readFile(new URL('../supabase/migrations/202611010002_agent_memory.sql', import.meta.url), 'utf8');
 const owner = '11111111-1111-4111-8111-111111111111';
 const other = '22222222-2222-4222-8222-222222222222';
 const workspace = {
@@ -19,6 +20,7 @@ const workspace = {
   conversationId: 'thread-1', conversations: [{ id: 'older-thread', messages: [] }],
   selectedModel: 'test/model', theme: 'dark', dailyBrief: 'Saved brief',
   taskAppearance: { accent: 'green', icons: { '["Work",null]': 'Rocket' }, subsections: { '["Work","General"]': { accent: 'blue', visual: 'book' } } },
+  agentMemory: { version: 1, enabled: true, automaticLearning: true, entries: [{ id: 'memory-1', topic: 'writing style', category: 'preference', content: 'Prefers concise answers.', sources: [{ conversationId: 'thread-1', messageId: 'message-1', excerpt: 'I prefer concise answers.' }], createdAt: '2026-11-01T12:00:00Z', updatedAt: '2026-11-01T12:00:00Z', pinned: true }], suppressed: [{ topicHash: 'ab123', sourceIds: ['forgotten'], forgottenAt: '2026-11-01T12:00:00Z' }] },
   auditLog: [{ id: 'audit-1', action: 'Created task' }],
 };
 const state = { ...workspace, openRouterKey: 'must-not-persist', userId: other, unexpectedSecret: 'must-not-persist' };
@@ -34,6 +36,7 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
     await db.query('insert into auth.users values ($1), ($2)', [owner, other]);
     await db.exec(migration);
     await db.exec(appearanceMigration);
+    await db.exec(memoryMigration);
     const asUser = async id => { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub', $1, false)", [id]); await db.exec('set role authenticated'); };
     const save = (revision, uid = owner, payload = state) => db.query('select public.save_brain($1::jsonb,$2::bigint,$3::uuid) as revision', [JSON.stringify(payload), revision, uid]);
     await asUser(owner);
@@ -43,9 +46,18 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
     assert.equal(row.user_id, owner); assert.equal(row.state.openRouterKey, undefined);
     assert.equal(row.state.userId, undefined); assert.equal(row.state.unexpectedSecret, undefined);
     assert.deepEqual(row.state, workspace, 'every workspace collection and preference round-trips intact');
+    await db.exec('begin');
+    try {
+      const { agentMemory: _memory, ...legacyState } = state;
+      assert.equal((await save(2, owner, legacyState)).rows[0].revision, 3);
+      assert.deepEqual((await db.query('select state from public.brains')).rows[0].state.agentMemory, workspace.agentMemory, 'older clients preserve memory when they omit the new field');
+    } finally { await db.exec('rollback'); }
     await assert.rejects(save(1), error => error.code === '40001');
     await assert.rejects(save(0), error => error.code === '40001');
     await assert.rejects(save(2, other), error => error.code === '42501');
+    for (const invalid of [null, {}, { ...workspace.agentMemory, version: 2 }, { ...workspace.agentMemory, entries: Array.from({ length: 501 }, (_, i) => ({ ...workspace.agentMemory.entries[0], id: `id-${i}`, topic: `topic-${i}` })) }, { ...workspace.agentMemory, entries: [{ ...workspace.agentMemory.entries[0], content: 'api_key=sk-do-not-store-1234567890' }] }, { ...workspace.agentMemory, entries: [{ ...workspace.agentMemory.entries[0], sources: [{ conversationId: 'x', messageId: 'x', excerpt: 'ok', secret: 'hidden' }] }] }]) {
+      await assert.rejects(save(2, owner, { ...state, agentMemory: invalid }), error => error.code === '22023');
+    }
     await assert.rejects(save(2, owner, {}), error => error.code === '22023');
     await assert.rejects(save(-1), error => error.code === '22023');
     await assert.rejects(save(2, owner, { ...state, selectedModel: 'x'.repeat(2097152) }), error => error.code === '22023');

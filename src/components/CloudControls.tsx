@@ -1,3 +1,4 @@
+import { normalizeAgentMemory } from "../services/agentMemory";
 import { managedAuthEnabled, signOutManaged } from "../services/managedAuth";
 import { useEffect, useRef, useState } from "react";
 import type { BrainState } from "../types";
@@ -42,10 +43,11 @@ export function CloudControls({ state, onImport }: { state: BrainState; onImport
           for (const field of ["tasks", "goals", "habits", "journalEntries", "knowledgeItems", "chatHistory", "sections"]) {
             if (!Array.isArray(data[field])) throw new Error(`Invalid backup: missing ${field}`);
           }
+          const agentMemory = normalizeAgentMemory(data.agentMemory === undefined ? state.agentMemory : data.agentMemory);
           if (!window.confirm("Replace the cloud records with this backup? Export your current records first if you need to keep them.")) return;
           markCloudDirty();
           const { openRouterKey: _key, userId: _id, ...records } = data;
-          onImport({ ...state, ...records, userId: state.userId, openRouterKey: state.openRouterKey });
+          onImport({ ...state, ...records, agentMemory, userId: state.userId, openRouterKey: state.openRouterKey });
         } catch (error) { window.alert(error instanceof Error ? error.message : "Could not import backup"); }
         event.target.value = "";
       }} /></>}

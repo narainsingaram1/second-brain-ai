@@ -1,9 +1,23 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { AIMessage, BrainState, ConversationThread } from "../types";
-import { AgentExecutionResult, AgentOptions, AutonomousBrainAgent, RunConversation } from "../services/agentDispatcher";
+import {
+  AutonomousBrainAgent,
+  RunConversation,
+} from "../services/agentDispatcher";
 import { applyMutation } from "../services/brainTools";
 import { persistBrainState } from "../services/storage";
+import {
+  applyMemoryChange,
+  clearMemoryIndex,
+  normalizeAgentMemory,
+  type AgentMemory,
+  type MemoryChange,
+} from "../services/agentMemory";
+import {
+  invalidateMemoryEmbedding,
+  setMemoryAccount,
+} from "../services/memorySemantic";
 
 export interface BrainConversation {
   run: RunConversation;
@@ -12,77 +26,310 @@ export interface BrainConversation {
   stop: () => void;
   startNew: () => void;
   resume: (id: string) => void;
+  temporary?: boolean;
+  setTemporary?: (temporary: boolean) => void;
+  messages?: AIMessage[];
+  changeMemory?: (change: MemoryChange) => Promise<AgentMemory>;
 }
 function archiveCurrent(state: BrainState): ConversationThread[] {
   const archived = state.conversations || [];
-  if (!state.chatHistory.some(m => m.role === "user")) return archived;
-  const thread = { id: state.conversationId || crypto.randomUUID(), title: conversationTitle(state.chatHistory), messages: state.chatHistory, updatedAt: new Date().toISOString() };
-  return [thread, ...archived.filter(t => t.id !== thread.id)];
+  if (!state.chatHistory.some((m) => m.role === "user")) return archived;
+  const thread = {
+    id: state.conversationId || crypto.randomUUID(),
+    title: conversationTitle(state.chatHistory),
+    messages: state.chatHistory,
+    updatedAt: new Date().toISOString(),
+  };
+  return [thread, ...archived.filter((t) => t.id !== thread.id)];
 }
-
-export function useBrainConversation(state: BrainState | null, setState: Dispatch<SetStateAction<BrainState | null>>, onBeforeMutation: (state: BrainState) => void) {
+export function useBrainConversation(
+  state: BrainState | null,
+  setState: Dispatch<SetStateAction<BrainState | null>>,
+  onBeforeMutation: (state: BrainState) => void,
+) {
   const latest = useRef(state);
   latest.current = state;
   const active = useRef<AbortController | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [progress, setProgress] = useState("");
-  useEffect(() => () => active.current?.abort(), [state?.userId]);
-  const run: RunConversation = async (prompt: string, options: AgentOptions = {}): Promise<AgentExecutionResult> => {
-    if (active.current) throw new Error("A conversation is already running. Stop it before sending another message.");
-    const initial = latest.current;
-    if (!initial) throw new Error("Your records are still loading.");
+  const generation = useRef(0);
+  const [busy, setBusy] = useState(false),
+    [progress, setProgress] = useState("");
+  const [temporary, setTemporaryState] = useState(false),
+    [temporaryMessages, setTemporaryMessages] = useState<AIMessage[]>([]);
+  const tempLatest = useRef(temporaryMessages);
+  tempLatest.current = temporaryMessages;
+  const tempId = useRef(crypto.randomUUID());
+  const publish = (next: BrainState) => {
+    latest.current = next;
+    setState(next);
+  };
+  useEffect(() => {
+    generation.current++;
+    active.current?.abort();
+    active.current = null;
+    clearMemoryIndex();
+    setMemoryAccount(state?.userId || "guest");
+    setTemporaryState(false);
+    setTemporaryMessages([]);
+    setBusy(false);
+    setProgress("");
+    return () => {
+      generation.current++;
+      active.current?.abort();
+      clearMemoryIndex();
+      setMemoryAccount("");
+    };
+  }, [state?.userId]);
+  const changeMemory = async (
+    change: MemoryChange,
+    agentOwned = false,
+  ): Promise<AgentMemory> => {
+    if (!agentOwned) active.current?.abort();
+    const account = latest.current?.userId,
+      run = generation.current;
+    if (!latest.current) throw new Error("Workspace is loading.");
+    let saved: AgentMemory | undefined;
+    const previousEntries = normalizeAgentMemory(
+      latest.current.agentMemory,
+    ).entries;
+    await persistBrainState(
+      () => {
+        const current = latest.current;
+        if (
+          !current ||
+          current.userId !== account ||
+          generation.current !== run
+        )
+          throw new Error("Account changed; memory save stopped.");
+        saved = applyMemoryChange(current.agentMemory, change);
+        return { ...current, agentMemory: saved };
+      },
+      account,
+      (snapshot) => {
+        const current = latest.current;
+        if (
+          !current ||
+          current.userId !== account ||
+          generation.current !== run
+        )
+          throw new Error("Account changed during memory save.");
+        publish({ ...current, agentMemory: snapshot.agentMemory });
+      },
+    );
+    clearMemoryIndex();
+    if (change.kind !== "settings") {
+      const changedIds = previousEntries
+        .filter((previous) => {
+          const next = saved!.entries.find((entry) => entry.id === previous.id);
+          return (
+            !next ||
+            next.content !== previous.content ||
+            next.topic !== previous.topic
+          );
+        })
+        .map((entry) => entry.id);
+      await Promise.all(
+        changedIds.map((id) =>
+          invalidateMemoryEmbedding(account || "guest", id),
+        ),
+      );
+    }
+    return saved!;
+  };
+  const run: RunConversation = async (prompt, options = {}) => {
+    if (active.current)
+      throw new Error(
+        "A conversation is already running. Stop it before sending another message.",
+      );
+    const workspace = latest.current;
+    if (!workspace) throw new Error("Your records are still loading.");
+    const runGeneration = generation.current;
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
-    const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
-    const publish = (next: BrainState) => { latest.current = next; setState(next); };
-    const timestamp = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    const user: AIMessage = { id: crypto.randomUUID(), role: "user", content: prompt, timestamp: timestamp() };
-    publish({ ...initial, chatHistory: [...initial.chatHistory, user] });
-    try {
-      const result = await AutonomousBrainAgent.execute(prompt, initial, initial.openRouterKey, initial.selectedModel, {
-        signal,
-        onProgress: message => { setProgress(message); options.onProgress?.(message); },
-        commit: async mutation => {
-          signal.throwIfAborted();
-          const before = latest.current;
-          if (!before || before.userId !== initial.userId) throw new Error("Account changed; action stopped.");
-          if (mutation.expected) {
-            const current = mutation.type === "task" ? before.tasks.find(r => r.id === mutation.record.id) : before.habits.find(r => r.id === mutation.record.id);
-            if (JSON.stringify(current) !== JSON.stringify(mutation.expected)) throw new Error("This record changed during the conversation. Start a new turn to review its current state.");
-          }
-          const audit = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: timestamp(), action: mutation.action, entityType: mutation.type,
-            entityTitle: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", canUndo: true };
-          const next = { ...applyMutation(before, mutation), auditLog: [audit, ...(before.auditLog || [])].slice(0, 100) };
-          await persistBrainState(next, initial.userId);
-          if (latest.current?.userId === initial.userId) {
-            onBeforeMutation(before);
-            // Preserve unrelated edits made while the durable write was in progress.
-            publish({ ...applyMutation(latest.current!, mutation), auditLog: [audit, ...(latest.current!.auditLog || [])].slice(0, 100) });
-          }
-        },
+    const signal = options.signal
+      ? AbortSignal.any([options.signal, controller.signal])
+      : controller.signal;
+    const isCurrent = () =>
+      latest.current?.userId === workspace.userId &&
+      generation.current === runGeneration;
+    const timestamp = () =>
+      new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const user: AIMessage = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content: prompt,
+      timestamp: timestamp(),
+    };
+    const conversationId = workspace.conversationId || crypto.randomUUID();
+    const initial = temporary
+      ? {
+          ...workspace,
+          chatHistory: tempLatest.current,
+          conversations: [],
+          conversationId: tempId.current,
+        }
+      : { ...workspace, conversationId };
+    if (temporary) {
+      tempLatest.current = [...tempLatest.current, user];
+      setTemporaryMessages(tempLatest.current);
+    } else
+      publish({
+        ...workspace,
+        conversationId,
+        chatHistory: [...workspace.chatHistory, user],
       });
-      if (latest.current?.userId === initial.userId) {
-        const assistant: AIMessage = { id: crypto.randomUUID(), role: "assistant", content: result.queryAnswer, timestamp: timestamp(),
-          sources: result.citations.map(({ id, type, title, offset }) => ({ id, type, title, offset })) };
-        publish({ ...latest.current!, chatHistory: [...latest.current!.chatHistory, assistant] });
+    try {
+      const result = await AutonomousBrainAgent.execute(
+        prompt,
+        initial,
+        initial.openRouterKey,
+        initial.selectedModel,
+        {
+          ...options,
+          signal,
+          temporary,
+          currentMessage: user,
+          getMemory: () =>
+            isCurrent()
+              ? latest.current?.agentMemory
+              : { ...normalizeAgentMemory(undefined), enabled: false },
+          commitMemory: async (change) => {
+            signal.throwIfAborted();
+            if (!isCurrent()) throw new Error("Account changed.");
+            const memory = await changeMemory(change, true);
+            return memory;
+          },
+          onProgress: (message) => {
+            if (isCurrent()) setProgress(message);
+            options.onProgress?.(message);
+          },
+          commit: async (mutation) => {
+            signal.throwIfAborted();
+            const before = latest.current;
+            if (!before || !isCurrent())
+              throw new Error("Account changed; action stopped.");
+            const audit = {
+              id: crypto.randomUUID(),
+              timestamp: new Date().toISOString(),
+              timeString: timestamp(),
+              action: mutation.action,
+              entityType: mutation.type,
+              entityTitle:
+                "name" in mutation.record
+                  ? mutation.record.name
+                  : mutation.record.title || "Note",
+              canUndo: true,
+            };
+            await persistBrainState(
+              () => {
+                const current = latest.current;
+                if (!current || !isCurrent())
+                  throw new Error("Account changed; action stopped.");
+                if (mutation.expected) {
+                  const record =
+                    mutation.type === "task"
+                      ? current.tasks.find((r) => r.id === mutation.record.id)
+                      : current.habits.find((r) => r.id === mutation.record.id);
+                  if (
+                    JSON.stringify(record) !== JSON.stringify(mutation.expected)
+                  )
+                    throw new Error(
+                      "This record changed during the conversation. Start a new turn to review its current state.",
+                    );
+                }
+                return {
+                  ...applyMutation(current, mutation),
+                  auditLog: [audit, ...(current.auditLog || [])].slice(0, 100),
+                };
+              },
+              initial.userId,
+              () => {
+                if (isCurrent()) {
+                  onBeforeMutation(before);
+                  publish({
+                    ...applyMutation(latest.current!, mutation),
+                    auditLog: [
+                      audit,
+                      ...(latest.current!.auditLog || []),
+                    ].slice(0, 100),
+                  });
+                }
+              },
+            );
+          },
+        },
+      );
+      if (isCurrent()) {
+        const assistant: AIMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: result.queryAnswer,
+          timestamp: timestamp(),
+          sources: result.citations.map(({ id, type, title, offset }) => ({
+            id,
+            type,
+            title,
+            offset,
+          })),
+          rememberedIds: result.rememberedIds,
+          memoryNotice: result.memoryNotice,
+        };
+        if (temporary) {
+          tempLatest.current = [...tempLatest.current, assistant];
+          setTemporaryMessages(tempLatest.current);
+        } else
+          publish({
+            ...latest.current!,
+            chatHistory: [...latest.current!.chatHistory, assistant],
+          });
       }
       return result;
     } finally {
-      active.current = null;
-      setBusy(false);
-      setProgress("");
+      if (active.current === controller) {
+        active.current = null;
+        setBusy(false);
+        setProgress("");
+      }
     }
   };
   const switchConversation = (id?: string) => {
     if (active.current || !latest.current) return;
-    const current = latest.current;
-    const thread = id ? current.conversations?.find(t => t.id === id) : undefined;
+    if (temporary && !id) {
+      tempId.current = crypto.randomUUID();
+      tempLatest.current = [];
+      setTemporaryMessages([]);
+      return;
+    }
+    setTemporaryState(false);
+    setTemporaryMessages([]);
+    const current = latest.current,
+      thread = id ? current.conversations?.find((t) => t.id === id) : undefined;
     if (id && !thread) return;
-    const next = { ...current, conversations: archiveCurrent(current).filter(t => t.id !== id),
-      conversationId: thread?.id || crypto.randomUUID(), chatHistory: thread?.messages || [] };
-    latest.current = next;
-    setState(next);
+    publish({
+      ...current,
+      conversations: archiveCurrent(current).filter((t) => t.id !== id),
+      conversationId: thread?.id || crypto.randomUUID(),
+      chatHistory: thread?.messages || [],
+    });
   };
-  return { run, busy, progress, stop: () => active.current?.abort(), startNew: () => switchConversation(), resume: (id: string) => switchConversation(id) };
+  const setTemporary = (value: boolean) => {
+    if (active.current) return;
+    generation.current++;
+    tempId.current = crypto.randomUUID();
+    tempLatest.current = [];
+    setTemporaryMessages([]);
+    setTemporaryState(value);
+  };
+  return {
+    run,
+    busy,
+    progress,
+    stop: () => active.current?.abort(),
+    startNew: () => switchConversation(),
+    resume: (id: string) => switchConversation(id),
+    temporary,
+    setTemporary,
+    messages: temporary ? temporaryMessages : state?.chatHistory,
+    changeMemory,
+  };
 }

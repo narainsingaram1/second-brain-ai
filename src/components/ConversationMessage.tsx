@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowUpRight, BookmarkPlus, Check, Copy, Sparkles } from "lucide-react";
+import { Brain, ArrowUpRight, BookmarkPlus, Check, Copy, Sparkles } from "lucide-react";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "../utils/chatPresentation";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -34,6 +34,8 @@ export function ConversationMessage({ message, state, onSaveNote }: { message: A
         return <button type="button" className={`chat-inline-reference ${repeatsTitle ? "is-citation" : ""}`} aria-label={`Open ${type === "knowledge" ? "note" : type}: ${title}`} title={title} onClick={() => setSelected(source)}><RecordIcon type={type} />{!repeatsTitle && <span>{title}</span>}<ArrowUpRight size={12} className="shrink-0 opacity-60" /></button>;
       }} />
       <SourceReferences sources={message.sources} state={state} onSelect={setSelected} />
+      {message.rememberedIds?.length ? <button type="button" className="memory-remembered" onClick={() => window.dispatchEvent(new CustomEvent("synapse-open-memory", { detail: { id: message.rememberedIds![0] } }))}><Brain size={12} />Remembered{message.rememberedIds.length > 1 ? ` ${message.rememberedIds.length} facts` : ""}<ArrowUpRight size={11}/></button> : null}
+      {message.memoryNotice && <p className="memory-chat-notice" role="status">Memory: {message.memoryNotice}</p>}
       <div className="chat-message-actions">
         <button type="button" onClick={copy} className="chat-icon-button" aria-label={copied ? "Copied response" : "Copy response"} title={copied ? "Copied" : "Copy response"}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
         {onSaveNote && <button type="button" onClick={save} disabled={saved} className="chat-icon-button" aria-label={saved ? "Saved to notes" : "Save response as note"} title={saved ? "Saved to notes" : "Save as note"}>{saved ? <Check size={15} /> : <BookmarkPlus size={15} />}</button>}

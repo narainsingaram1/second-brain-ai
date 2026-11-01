@@ -1,9 +1,10 @@
+import { MemoryModal } from "./components/MemoryModal";
 import { renameTaskIcon } from "./utils/taskAppearance";
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
 import { loadInitialState, persistBrainState } from "./services/storage";
 import { initAuth } from "./services/auth";
@@ -65,6 +66,14 @@ export const App: React.FC = () => {
   // Modals state
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMemoryOpen, setIsMemoryOpen] = useState(false);
+  const [selectedMemoryId, setSelectedMemoryId] = useState<string | undefined>();
+  const closeMemory = useCallback(() => setIsMemoryOpen(false), []);
+  useEffect(() => {
+    const open = (event: Event) => { setSelectedMemoryId((event as CustomEvent<{ id?: string }>).detail?.id); setIsSettingsOpen(false); setIsMemoryOpen(true); };
+    window.addEventListener("synapse-open-memory", open);
+    return () => window.removeEventListener("synapse-open-memory", open);
+  }, []);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDefaultSection, setTaskModalDefaultSection] = useState<string>("Academic");
   const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
@@ -85,6 +94,7 @@ export const App: React.FC = () => {
   // Undo / Redo History Stack (30 rolling snapshots)
   const historyPast = useRef<BrainState[]>([]);
   const historyFuture = useRef<BrainState[]>([]);
+  useEffect(() => { historyPast.current = []; historyFuture.current = []; }, [state?.userId]);
 
   const conversation = useBrainConversation(state, setState, before => {
     historyPast.current = [...historyPast.current.slice(-29), structuredClone(before)];
@@ -153,10 +163,11 @@ export const App: React.FC = () => {
 
   // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
   useEffect(() => {
+    if (!(window as any).__TAURI_INTERNALS__ && !(window as any).__TAURI__) return;
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event")
       .then(({ listen }) => {
-        listen("open-quick-capture", () => {
+        return listen("open-quick-capture", () => {
           setIsQuickCaptureOpen(true);
         }).then((unsub) => {
           unlisten = unsub;
@@ -169,10 +180,17 @@ export const App: React.FC = () => {
     };
   }, []);
 
+  const latestSaveState = useRef(state);
+  latestSaveState.current = state;
+
   // Sync state to storage & database whenever it changes
   useEffect(() => {
     if (state) {
-      persistBrainState(state, session.currentUser?.id).catch(error => console.error("State save failed:", error));
+      persistBrainState(() => {
+        const latest = latestSaveState.current;
+        if (!latest || latest.userId !== state.userId) throw new Error("Account changed; save stopped.");
+        return latest;
+      }, state.userId).catch(error => console.error("State save failed:", error));
     }
   }, [state, session]);
 
@@ -222,7 +240,7 @@ export const App: React.FC = () => {
     if (historyPast.current.length === 0 || !state) return;
     const previousState = historyPast.current.pop()!;
     historyFuture.current.push(JSON.parse(JSON.stringify(state)));
-    setState(previousState);
+    setState(current => current ? { ...previousState, agentMemory: current.agentMemory } : current);
     setUndoToast({
       message: "State restored (⌘Z)",
       onUndo: handleRedo,
@@ -235,13 +253,14 @@ export const App: React.FC = () => {
     if (historyFuture.current.length === 0 || !state) return;
     const nextState = historyFuture.current.pop()!;
     historyPast.current.push(JSON.parse(JSON.stringify(state)));
-    setState(nextState);
+    setState(current => current ? { ...nextState, agentMemory: current.agentMemory } : current);
     setUndoToast(null);
   };
 
   // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.closest("input, textarea, select"))) return;
       // ⌘Z Undo (without shift)
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.code === "KeyZ") {
         e.preventDefault();
@@ -818,7 +837,7 @@ export const App: React.FC = () => {
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full relative z-10 overflow-hidden">
         {/* Top Right Header matching screenshot */}
-        {!(isChatTab && state.chatHistory.some(m => m.role === "user")) && <TopHeader
+        {!(isChatTab && (conversation.messages || state.chatHistory).some(m => m.role === "user")) && <TopHeader
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           theme={state.theme}
           onToggleTheme={handleToggleTheme}
@@ -1112,9 +1131,12 @@ export const App: React.FC = () => {
         onSaveKey={handleSaveOpenRouterKey}
         selectedModel={state.selectedModel}
         onSelectModel={handleSelectModel}
+        onOpenMemory={() => { setIsSettingsOpen(false); setSelectedMemoryId(undefined); setIsMemoryOpen(true); }}
         onExportBackup={handleExportBackup}
         workspaceControls={cloudEnabled ? <CloudControls state={state} onImport={setState} /> : undefined}
       />
+
+      {isMemoryOpen && <MemoryModal key={state.userId} state={state} onClose={closeMemory} selectedId={selectedMemoryId} onChange={conversation.changeMemory} onOpenSource={id => { if (id !== state.conversationId && id !== "current") conversation.resume(id); setActiveTab("home"); setIsMemoryOpen(false); }} />}
 
       <TaskModal
         isOpen={isTaskModalOpen}

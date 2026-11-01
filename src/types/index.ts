@@ -1,3 +1,4 @@
+import type { AgentMemory } from "../services/agentMemory";
 export type LifeDomain = 'career' | 'health' | 'mindset' | 'learning' | 'ai';
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'completed';
@@ -134,6 +135,8 @@ export interface AIMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: string;
+  rememberedIds?: string[];
+  memoryNotice?: string;
 }
 
 export interface ConversationThread {
@@ -176,6 +179,7 @@ export interface TaskAppearance {
 }
 
 export interface BrainState {
+  agentMemory?: AgentMemory;
   userId?: string;
   tasks: Task[];
   goals: Goal[];

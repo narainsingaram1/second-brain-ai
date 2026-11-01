@@ -1,3 +1,4 @@
+import "../memory.css";
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpRight, CheckSquare, Clock3, Lightbulb, MessageCircle, Mic, MicOff, Plus, Settings2, Sparkles, Square, Target } from "lucide-react";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
@@ -36,7 +37,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const visible = active ? messages.filter(m => m.role !== "system") : [];
   const last = visible[visible.length - 1];
   const title = conversationTitle(messages);
-  const archives = state?.conversations || [];
+  const archives = conversation.temporary ? [] : state?.conversations || [];
   const bottom = (smooth = false) => {
     if (!active) return;
     pinned.current = true;
@@ -112,12 +113,12 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const composer = (
     <div className="chat-composer-dock">
       <div className="chat-composer-width">
-        {error && <p role="alert" className="chat-error">{error}</p>}
+        {conversation.temporary && !active && <p className="chat-composer-hint">Temporary chat: saved memory is off and this transcript is not saved.</p>}{error && <p role="alert" className="chat-error">{error}</p>}
         <form onSubmit={submit} className="chat-composer">
           <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} aria-label="Message Synapse" placeholder={active ? "Ask a follow-up…" : "Ask Synapse anything…"} />
           <div className="chat-composer-toolbar">
             <div className="flex items-center gap-2 min-w-0"><Sparkles size={14} className="text-indigo-500 shrink-0" /><span className="chat-model" title={state?.selectedModel}>{state?.selectedModel?.split("/").pop() || "Synapse"}</span>{onOpenSettings && <button type="button" className="chat-icon-button" onClick={onOpenSettings} aria-label="Configure AI provider"><Settings2 size={15} /></button>}</div>
-            <div className="flex items-center gap-1.5"><button type="button" onClick={dictate} className={`chat-icon-button ${recording ? "text-red-500" : ""}`} aria-label={recording ? "Stop dictation" : "Voice input"} aria-pressed={recording}>{recording ? <MicOff size={17} /> : <Mic size={17} />}</button>
+            <div className="flex items-center gap-1.5">{conversation.setTemporary && <button type="button" className="chat-temporary" disabled={conversation.busy} aria-label="Temporary chat" aria-pressed={conversation.temporary || false} onClick={() => conversation.setTemporary?.(!conversation.temporary)} title="Temporary chats do not use saved memory or save their transcript">{conversation.temporary ? "Temporary on" : "Temporary"}</button>}<button type="button" onClick={dictate} className={`chat-icon-button ${recording ? "text-red-500" : ""}`} aria-label={recording ? "Stop dictation" : "Voice input"} aria-pressed={recording}>{recording ? <MicOff size={17} /> : <Mic size={17} />}</button>
               {conversation.busy ? <button type="button" onClick={conversation.stop} className="chat-send is-stop" aria-label="Stop response"><Square size={13} fill="currentColor" /></button> : <button type="submit" className="chat-send" disabled={!input.trim()} aria-label="Send message"><ArrowUp size={19} /></button>}
             </div>
           </div>
@@ -128,7 +129,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   );
   return <section className={`chat-workspace ${active ? "is-conversation" : "is-welcome"} ${compact ? "is-compact" : ""}`} aria-label="AI conversation">
     {active && <header className="chat-toolbar">
-      <div className="min-w-0"><h1 className="truncate text-sm font-semibold" title={title}>{title}</h1><p className="text-[11px] text-slate-400 mt-0.5">Your second brain</p></div>
+      <div className="min-w-0"><h1 className="truncate text-sm font-semibold" title={title}>{title}</h1><p className="text-[11px] text-slate-400 mt-0.5">{conversation.temporary ? "Temporary · memory off · transcript not saved" : "Your second brain"}</p></div>
       <div className="flex items-center gap-2 shrink-0"><button type="button" onClick={conversation.startNew} disabled={conversation.busy} className="chat-new-button" aria-label="New chat"><Plus size={15} /><span>New chat</span></button>{onOpenSettings && <button type="button" onClick={onOpenSettings} className="chat-icon-button" aria-label="AI settings"><Settings2 size={17} /></button>}</div>
     </header>}
     <div className="chat-message-region">

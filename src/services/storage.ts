@@ -1,3 +1,4 @@
+import { normalizeAgentMemory } from "./agentMemory";
 import { normalizeTaskAppearance } from "../utils/taskAppearance";
 import { managedAuthEnabled } from "./managedAuth";
 import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
@@ -681,6 +682,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 
   return {
     userId: targetUserId,
+    agentMemory: normalizeAgentMemory(storedState.agentMemory),
     tasks,
     goals,
     sections,
@@ -704,15 +706,9 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 /**
  * Persists brain state canonically with versioned envelope, avoiding triple-store race conditions.
  */
-export async function persistBrainState(state: BrainState, userId?: string): Promise<void> {
-  const targetUserId = userId || state.userId || "guest";
-  
-  // Guarantee task normalization before persisting
-  const normalizedTasks = state.tasks.map((t) => normalizeTask(t));
-  const cleanState = { ...state, tasks: normalizedTasks, userId: targetUserId };
-  
-  // Serialized through mutex queue to guarantee transactional ordering
-  persistQueue = persistQueue.catch(() => {}).then(async () => {
+async function persistNow(state: BrainState, targetUserId: string): Promise<void> {
+  const cleanState = { ...state, tasks: state.tasks.map(t => normalizeTask(t)), userId: targetUserId,
+    agentMemory: normalizeAgentMemory(state.agentMemory) };
     if (cloudEnabled) {
       await saveCloud(cleanState);
       if (managedAuthEnabled) {
@@ -739,8 +735,8 @@ export async function persistBrainState(state: BrainState, userId?: string): Pro
         throw new Error("Could not save changes to desktop storage.");
       }
       // Credentials are a separate write; failure must not misreport an already saved action.
-      if (state.openRouterKey) {
-        import("@tauri-apps/api/core").then(({ invoke }) => invoke("save_openrouter_api_key", { apiKey: state.openRouterKey })).catch(() => {});
+      if (cleanState.openRouterKey) {
+        import("@tauri-apps/api/core").then(({ invoke }) => invoke("save_openrouter_api_key", { apiKey: cleanState.openRouterKey })).catch(() => {});
       }
       // Non-blocking background sync to IndexedDB for multi-user database records
       saveUserStateToDB(targetUserId, cleanState).catch(() => {});
@@ -760,11 +756,20 @@ export async function persistBrainState(state: BrainState, userId?: string): Pro
     try {
       localStorage.setItem(STORAGE_ENVELOPE_KEY, envelopeJson);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanState));
-      if (state.openRouterKey) {
-        localStorage.setItem("synapse_openrouter_key", state.openRouterKey);
+      if (cleanState.openRouterKey) {
+        localStorage.setItem("synapse_openrouter_key", cleanState.openRouterKey);
       }
     } catch {}
-  });
 
+}
+
+export async function persistBrainState(input: BrainState | (() => BrainState), userId?: string, onPersisted?: (saved: BrainState) => void): Promise<void> {
+  persistQueue = persistQueue.catch(() => {}).then(async () => {
+    const state = typeof input === "function" ? input() : input;
+    const targetUserId = userId || state.userId || "guest";
+    if (state.userId && state.userId !== targetUserId) throw new Error("Account changed; save stopped.");
+    await persistNow(state, targetUserId);
+    onPersisted?.(state);
+  });
   return persistQueue;
 }

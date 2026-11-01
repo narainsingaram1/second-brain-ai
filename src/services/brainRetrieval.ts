@@ -57,7 +57,7 @@ async function storeEmbedding(key: string, vector: number[]): Promise<void> {
     });
   } catch { /* An unavailable cache does not invalidate retrieved evidence. */ }
 }
-async function embed(inputs: string[], key: string, signal?: AbortSignal): Promise<number[][]> {
+export async function embed(inputs: string[], key: string, signal?: AbortSignal): Promise<number[][]> {
   const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
     method: "POST", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
     headers: { Authorization: `Bearer ${key.trim()}`, "Content-Type": "application/json" },

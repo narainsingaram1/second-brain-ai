@@ -14,7 +14,8 @@ interface HomeViewProps {
   onNewNote: () => void;
 }
 export function HomeView({ conversation, brainState, onSaveKnowledge, onOpenSettings, onNavigate, onNewTask, onNewNote }: HomeViewProps) {
-  const active = brainState.chatHistory.some(message => message.role === "user");
+  const messages = conversation.messages || brainState.chatHistory;
+  const active = messages.some(message => message.role === "user");
   const now = new Date();
   const today = getLocalDateString();
   const week = Array.from({ length: 7 }, (_, index) => {
@@ -26,7 +27,7 @@ export function HomeView({ conversation, brainState, onSaveKnowledge, onOpenSett
   const tasks = todayTasks.slice(0, 3);
   const goals = (brainState.goals || []).filter(goal => goal.status !== "achieved").slice(0, 3);
   return <div className={`home-layout ${active ? "has-conversation" : ""}`}>
-    <ChatWorkspace conversation={conversation} state={brainState} messages={brainState.chatHistory} onSaveNote={onSaveKnowledge} onOpenSettings={onOpenSettings} />
+    <ChatWorkspace conversation={conversation} state={brainState} messages={messages} onSaveNote={onSaveKnowledge} onOpenSettings={onOpenSettings} />
     {!active && <aside className="home-rail" aria-label="Your day at a glance">
       <section className="day-card soft-card">
         <div className="rail-heading"><h2>{now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}</h2><button onClick={() => onNavigate("tasks")} aria-label="View all tasks"><ArrowUpRight size={17} /></button></div>
