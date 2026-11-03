@@ -1,6 +1,7 @@
 import type { BrainState } from "../types";
 import {
   activeMemories,
+  MEMORY_LIMIT,
   memoryHash,
   normalizeAgentMemory,
   searchMemories,
@@ -12,6 +13,7 @@ let owner = "",
   generation = 0;
 let controller = new AbortController();
 const vectors = new Map<string, { signature: string; vector: number[] }>();
+const queryVectors = new Map<string, number[]>();
 function db() {
   return (dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
     const r = indexedDB.open("synapse_memory_embeddings_v1", 1);
@@ -59,6 +61,7 @@ export function setMemoryAccount(id: string) {
   owner = id;
   generation++;
   vectors.clear();
+  queryVectors.clear();
 }
 export async function invalidateMemoryEmbedding(userId: string, id: string) {
   if (owner === userId) {
@@ -119,9 +122,16 @@ export async function semanticMemorySearch(
         }),
       );
     }
-    const [q] = await embed([query], key, abort);
+    const queryKey = query.trim();
+    let q = queryVectors.get(queryKey);
+    if (!q) {
+      [q] = await embed([query], key, abort);
+    }
     if (generation !== run || owner !== runOwner)
       throw new Error("Memory changed during search. Search again.");
+    queryVectors.delete(queryKey);
+    queryVectors.set(queryKey, q);
+    if (queryVectors.size > 64) queryVectors.delete(queryVectors.keys().next().value!);
     const similarity = (v: number[]) => {
       if (v.length !== q.length) return 0;
       let dot = 0,
@@ -134,10 +144,19 @@ export async function semanticMemorySearch(
       }
       return a && b ? dot / Math.sqrt(a * b) : 0;
     };
-    const ranked = data
+    const semantic = data
       .map((item) => ({ ...item.entry, score: similarity(item.vector!) }))
       .filter((item) => item.score >= 0.3)
       .sort((a, b) => b.score - a.score);
+    // Fuse both rankings. A strong exact match must survive a weak embedding.
+    const lexical = searchMemories(state, query, 0, MEMORY_LIMIT).results;
+    const scores = new Map<string, number>();
+    for (const list of [lexical, semantic])
+      list.forEach((entry, rank) => scores.set(entry.id, (scores.get(entry.id) || 0) + 1 / (60 + rank + 1)));
+    const ranked = entries
+      .filter(entry => scores.has(entry.id))
+      .map(entry => ({ ...entry, score: scores.get(entry.id)! }))
+      .sort((a, b) => b.score - a.score || b.updatedAt.localeCompare(a.updatedAt));
     return {
       results: ranked.slice(offset, offset + 10),
       total: ranked.length,

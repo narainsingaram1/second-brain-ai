@@ -411,7 +411,22 @@ export function prepareMemoryChange(
     throw new Error(
       "Automatic learning is disabled or the user declined saving.",
     );
-  const source = memorySource(state, args.messageId, args.excerpt);
+  // The current turn is authoritative even before React publishes it to history.
+  // A model-generated ID is only a hint: an exact quote of the current user's
+  // text is sufficient to bind provenance without accepting assistant evidence.
+  const excerpt = typeof args.excerpt === "string" ? args.excerpt.trim() : "";
+  const isCurrentQuote = currentMessage.role === "user" &&
+    currentMessage.content === prompt && excerpt.length > 0 &&
+    excerpt.length <= 500 && currentMessage.content.includes(excerpt);
+  const sourceState = {
+    ...state,
+    chatHistory: [...state.chatHistory.filter(m => m.id !== currentMessage.id), currentMessage],
+  };
+  const source = memorySource(
+    sourceState,
+    isCurrentQuote ? currentMessage.id : args.messageId,
+    excerpt,
+  );
   if (!explicit && source.messageId !== currentMessage.id)
     throw new Error(
       "Past conversations require explicit import or a current request to remember them.",
@@ -477,7 +492,7 @@ export function clearMemoryIndex() {
   archiveIndex.clear();
   archiveWords.clear();
 }
-export function searchMemories(state: BrainState, query: string, offset = 0) {
+export function searchMemories(state: BrainState, query: string, offset = 0, limit = 10) {
   const memory = normalizeAgentMemory(state.agentMemory);
   if (!memory.enabled)
     return {
@@ -502,13 +517,14 @@ export function searchMemories(state: BrainState, query: string, offset = 0) {
         words: new Set(terms(entry.topic + " " + entry.content)),
       });
   }
-  const queryTerms = terms(query);
+  const stopWords = new Set(["what", "which", "who", "how", "is", "are", "was", "the", "my", "me", "you", "your", "do", "does", "did", "can", "could", "please", "about", "have", "has", "remember", "tell", "and", "to", "of", "in", "it"]);
+  const queryTerms = terms(query).filter(term => !stopWords.has(term));
   const ranked = entries
     .map((entry) => {
       const words = index.get(entry.id)!.words;
       const score = queryTerms.reduce(
         (n, term) =>
-          n + (words.has(term) ? 2 : 0) + (entry.topic.includes(term) ? 2 : 0),
+          n + (words.has(term) ? 2 : 0) + (terms(entry.topic).includes(term) ? 2 : 0),
         0,
       );
       return { ...entry, score };
@@ -521,9 +537,9 @@ export function searchMemories(state: BrainState, query: string, offset = 0) {
         b.updatedAt.localeCompare(a.updatedAt),
     );
   return {
-    results: ranked.slice(offset, offset + 10),
+    results: ranked.slice(offset, offset + limit),
     total: ranked.length,
-    nextOffset: offset + 10 < ranked.length ? offset + 10 : null,
+    nextOffset: offset + limit < ranked.length ? offset + limit : null,
     mode: "keyword",
   };
 }
@@ -535,11 +551,15 @@ export function memoryContext(state: BrainState, query: string): string {
       .filter((m) => m.pinned)
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 6),
+    ...searchMemories(state, query).results,
+    ...activeMemories(memory)
+      .filter((m) => m.category === "fact" && /\b(name|identity)\b/i.test(m.topic))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      .slice(0, 2),
     ...activeMemories(memory)
       .filter((m) => m.category === "preference")
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
       .slice(0, 4),
-    ...searchMemories(state, query).results,
   ];
   const used = new Set<string>();
   const items: unknown[] = [];

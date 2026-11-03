@@ -590,3 +590,180 @@ test("account changes cancel in-flight semantic indexing before vectors can be r
   assert.ok(finish);setMemoryAccount('bob');finish();await assert.rejects(pending);
   assert.equal((await semanticMemorySearch({...state(),userId:'bob'},'context',0,'key')).total,0);
 });
+
+test("current personal facts bind to actual user evidence even with absent or incorrect model IDs", async () => {
+  for (const [content, topic, category, messageId] of [
+    ["My name is Narain Singaram", "name", "fact", undefined],
+    ["my favorite color is blue", "favorite color", "preference", "wrong-model-id"],
+  ]) {
+    const s = state();
+    s.chatHistory = [{ ...user, id: "assistant-only", role: "assistant", content: "Earlier reply" }];
+    const current = { ...user, id: crypto.randomUUID(), content };
+    let saved = s.agentMemory;
+    const requests = provider([
+      completion(null, [call("remember_memory", { topic, category, content, excerpt: content, ...(messageId ? { messageId } : {}) })]),
+      completion("Remembered."),
+    ]);
+    const result = await AutonomousBrainAgent.execute(content, s, undefined, undefined, {
+      currentMessage: current,
+      commitMemory: async change => (saved = memory.applyMemoryChange(saved, change)),
+    });
+    assert.equal(result.status, "complete");
+    assert.equal(result.memoryNotice, undefined);
+    assert.equal(saved.entries.length, 1);
+    assert.equal(saved.entries[0].sources[0].messageId, current.id);
+    assert.equal(saved.entries[0].sources[0].excerpt, content);
+    assert.equal(requests.length, 2, "Saving needs no separate extraction call");
+    assert.equal(s.chatHistory.length, 1, "Original history remains untouched");
+  }
+});
+
+test("binding current evidence never substitutes assistant claims or unrelated past user statements", () => {
+  const s = state();
+  s.chatHistory.push({ ...user, id: "assistant", role: "assistant", content: "Your favorite color is red" });
+  const current = { ...user, id: "current-user", content: "Hello" };
+  for (const evidence of [
+    { messageId: "assistant", excerpt: "Your favorite color is red" },
+    { messageId: "missing", excerpt: "My name is Somebody Else" },
+    { messageId: user.id, excerpt: user.content },
+  ]) {
+    assert.throws(() => memory.prepareMemoryChange("remember_memory", { ...args, ...evidence }, s, current.content, current), /real user message|Past conversations/);
+  }
+});
+
+test("conversation recall sees the current message and never duplicates it in the provider history", async () => {
+  const s = state();
+  const current = { ...user, id: "current-user", content: "My name is Narain Singaram" };
+  s.chatHistory = [current];
+  const requests = provider([
+    completion(null, [call("recall_conversation", { offset: 0 })]),
+    completion("Hello Narain."),
+  ]);
+  await AutonomousBrainAgent.execute(current.content, s, undefined, undefined, { currentMessage: current });
+  assert.equal(requests[0].messages.filter(m => m.role === "user" && m.content === current.content).length, 1);
+  const output = JSON.parse(requests[1].messages.find(m => m.role === "tool").content);
+  assert.match(output.content, /Narain Singaram/);
+  assert.equal((output.content.match(/current-user/g) || []).length, 1);
+});
+
+test("a recovered memory save clears its warning while retaining unrelated failed saves", async () => {
+  const s = state(); s.chatHistory = [];
+  let saved = s.agentMemory;
+  const corrected = { ...args, excerpt: user.content };
+  provider([
+    completion(null, [
+      call("remember_memory", { ...args, excerpt: "not actually said" }),
+      call("remember_memory", { ...args, topic: "unrelated", excerpt: "also not said" }),
+    ]),
+    completion(null, [call("remember_memory", corrected)]),
+    completion("Remembered your writing preference."),
+  ]);
+  const result = await AutonomousBrainAgent.execute(user.content, s, undefined, undefined, {
+    currentMessage: user,
+    commitMemory: async change => (saved = memory.applyMemoryChange(saved, change)),
+  });
+  assert.equal(saved.entries.length, 1);
+  assert.ok(result.memoryNotice, "An unrelated failed save must remain visible");
+  provider([
+    completion(null, [call("remember_memory", { ...args, excerpt: "not actually said" })]),
+    completion(null, [call("remember_memory", corrected)]),
+    completion("Remembered."),
+  ]);
+  const recovered = await AutonomousBrainAgent.execute(user.content, s, undefined, undefined, {
+    currentMessage: user,
+    commitMemory: async change => memory.applyMemoryChange(s.agentMemory, change),
+  });
+  assert.equal(recovered.memoryNotice, undefined);
+  assert.equal(recovered.rememberedIds.length, 1);
+});
+
+test("keyword retrieval ignores conversational filler and new chats receive basic identity", () => {
+  const s = state();
+  s.agentMemory.entries = [
+    { ...entry("identity", "The user's name is Narain Singaram."), topic: "name", category: "fact" },
+    { ...entry("color", "My favorite color is blue."), topic: "favorite color" },
+    { ...entry("work", "My project is a weather app."), topic: "project", category: "project" },
+  ];
+  assert.deepEqual(memory.searchMemories(s, "What is my favorite color?").results.map(e => e.id), ["color"]);
+  assert.equal(memory.searchMemories(s, "What do you remember about me?").total, 3, "Broad personal recall still lists all memories");
+  assert.equal(memory.searchMemories(s, "").total, 3, "An empty query still lists all memories");
+  assert.match(memory.memoryContext(s, "Hi there"), /Narain Singaram/);
+});
+
+test("hybrid memory search preserves keyword matches and caches repeated query embeddings per account", async () => {
+  const s = state();
+  s.userId = "hybrid-fixture";
+  s.agentMemory.entries = [
+    { ...entry("color", "Favorite color is blue."), topic: "favorite color" },
+    { ...entry("style", "Use brief explanations."), topic: "writing style" },
+  ];
+  setMemoryAccount(s.userId);
+  let queryCalls = 0;
+  globalThis.fetch = async (_url, options) => {
+    const { input } = JSON.parse(options.body);
+    if (input.length === 1 && input[0] === "favorite color") queryCalls++;
+    return Response.json({ data: input.map((text, index) => ({ index, embedding: text.startsWith("favorite color\n") ? [0, 1] : [1, 0] })) });
+  };
+  const first = await semanticMemorySearch(s, "favorite color", 0, "fixture");
+  assert.equal(first.mode, "hybrid");
+  assert.equal(first.total, 2);
+  assert.ok(first.results.some(e => e.id === "color"), "Exact keyword evidence survives low cosine similarity");
+  await semanticMemorySearch(s, "favorite color", 0, "fixture");
+  assert.equal(queryCalls, 1);
+  setMemoryAccount("another-hybrid-account");
+  await semanticMemorySearch({ ...s, userId: "another-hybrid-account" }, "favorite color", 0, "fixture");
+  assert.equal(queryCalls, 2, "Query cache is isolated across accounts");
+});
+
+test("saved personal facts survive storage reload and are retrieved in a fresh conversation", async () => {
+  const { persistBrainState, loadInitialState } = await server.ssrLoadModule("/src/services/storage.ts");
+  const previousStorage = globalThis.localStorage;
+  const data = new Map();
+  globalThis.localStorage = {
+    getItem: key => data.get(key) || null,
+    setItem: (key, value) => data.set(key, value),
+    removeItem: key => data.delete(key),
+  };
+  try {
+    let latest = state(); latest.chatHistory = [];
+    const save = async change => {
+      await persistBrainState(
+        () => ({ ...latest, agentMemory: memory.applyMemoryChange(latest.agentMemory, change) }),
+        latest.userId,
+        snapshot => { latest = snapshot; },
+      );
+      return latest.agentMemory;
+    };
+    for (const [text, topic, category] of [
+      ["My name is Narain Singaram", "name", "fact"],
+      ["my favorite color is blue", "favorite color", "preference"],
+    ]) {
+      provider([
+        completion(null, [call("remember_memory", { topic, category, content: text, excerpt: text })]),
+        completion("Remembered."),
+      ]);
+      const result = await AutonomousBrainAgent.execute(text, latest, undefined, undefined, { commitMemory: save });
+      assert.equal(result.rememberedIds.length, 1);
+      assert.equal(result.memoryNotice, undefined);
+    }
+    const restored = await loadInitialState(latest.userId);
+    assert.equal(restored.agentMemory.entries.length, 2);
+    restored.chatHistory = [];
+    restored.conversationId = "fresh-conversation";
+    const requests = provider([
+      completion(null, [call("search_memories", { query: "favorite color" })]),
+      request => {
+        const evidence = JSON.parse(request.messages.filter(m => m.role === "tool").at(-1).content);
+        assert.equal(evidence.results.length, 1);
+        assert.match(evidence.results[0].content, /blue/);
+        return completion("Your favorite color is blue.");
+      },
+    ]);
+    const answer = await AutonomousBrainAgent.execute("What is my favorite color?", restored);
+    assert.match(requests[0].messages[0].content, /Narain Singaram/);
+    assert.match(answer.queryAnswer, /blue/);
+    assert.equal(answer.rememberedIds.length, 0, "Recall does not resave existing memories");
+  } finally {
+    globalThis.localStorage = previousStorage;
+  }
+});
