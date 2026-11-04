@@ -1,6 +1,7 @@
+import { PageHeading } from "./workspace/PageHeading";
 import React, { useState } from "react";
 import { Goal, GoalSector, GoalTimeframe, GoalStatus } from "../types";
-import { MountainHeroIllustration } from "./MountainHeroIllustration";
+
 import confetti from "canvas-confetti";
 import {
   Target,
@@ -104,7 +105,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
   onDeleteGoal,
   onToggleMilestone,
   onUpdateGoalStatus,
-  theme = "dark",
+
 }) => {
   const [selectedSector, setSelectedSector] = useState<GoalSector | "all">("all");
   const [selectedTimeframe, setSelectedTimeframe] = useState<GoalTimeframe | "all">("all");
@@ -166,53 +167,20 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
       {/* ========================================================= */}
       {/* 1. HERO HEADER WITH MOUNTAIN PEAK SUMMIT ARTWORK          */}
       {/* ========================================================= */}
-      <div className="relative rounded-3xl p-6 sm:p-8 bg-white/90 dark:bg-[#0c0e1e]/90 border border-slate-200/80 dark:border-slate-800/80 shadow-sm overflow-hidden flex flex-col justify-between min-h-[170px] sm:min-h-[190px]">
-        {/* Mountain Illustration Layer on Right */}
-        <div className="absolute right-0 top-0 bottom-0 w-full sm:w-[540px] pointer-events-none opacity-90 dark:opacity-100">
-          <MountainHeroIllustration theme={theme} />
-        </div>
-
-        {/* Hero Content on Left (Above Illustration) */}
-        <div className="relative z-10 max-w-xl space-y-2">
-          {/* Breadcrumb matching screenshot: Life Vision / Mastery */}
-          <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-500 dark:text-indigo-400">
-            <span>Life Vision</span>
-            <span className="text-slate-400 dark:text-slate-600">/</span>
-            <span>Mastery</span>
-          </div>
-
-          <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-slate-900 dark:text-white">
-            Life Goals & Horizons
-          </h1>
-          <p className="text-xs sm:text-[13px] text-slate-500 dark:text-slate-400 leading-relaxed font-medium max-w-lg">
-            Macro self-improvement across Career, Academics, Finance, Health, Mindset, and Personal Growth.
-          </p>
-        </div>
-
-        {/* Top Right Floating Action: + New Life Goal */}
-        <div className="relative z-10 pt-4 sm:pt-0 sm:absolute sm:top-8 sm:right-8">
-          <button
-            onClick={onAddGoal}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:opacity-95 text-white text-xs font-bold shadow-md shadow-indigo-500/25 hover:scale-105 active:scale-95 transition-all"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>New Life Goal</span>
-          </button>
-        </div>
-      </div>
+      <PageHeading eyebrow="PERSONAL GROWTH / DIRECTION" title="Goals" description="Give your everyday work a bigger purpose."><button className="workspace-primary" onClick={onAddGoal}><Plus size={16}/>New goal</button></PageHeading>
 
       {/* ========================================================= */}
       {/* 2. TOP METRIC CARDS ROW (4 Cards matching screenshot)     */}
       {/* ========================================================= */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Card 1: Active Goals */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-[#121428] border border-purple-400/40 dark:border-purple-500/30 shadow-md shadow-purple-500/5 flex flex-col justify-between">
+        <div className="p-5 rounded-3xl bg-panel border border-purple-400/40 dark:border-purple-500/30 shadow-md shadow-purple-500/5 flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-purple-500/10 text-purple-500 dark:text-purple-400 border border-purple-500/20 flex items-center justify-center shrink-0">
                 <Target className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-bold text-muted">
                 Active Goals
               </span>
             </div>
@@ -226,7 +194,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           </div>
 
           <div className="mt-3">
-            <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+            <div className="text-3xl font-black text-ink tracking-tight">
               {activeGoalsCount}
             </div>
             <p className="text-[11px] text-slate-400 mt-0.5">Across 6 life sectors</p>
@@ -234,13 +202,13 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
         </div>
 
         {/* Card 2: Avg Progress */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-[#101824] border border-slate-200/80 dark:border-emerald-500/20 shadow-xs flex flex-col justify-between">
+        <div className="p-5 rounded-3xl bg-panel border border-slate-200/80 dark:border-emerald-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-500 dark:text-emerald-400 border border-emerald-500/20 flex items-center justify-center shrink-0">
                 <TrendingUp className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-bold text-muted">
                 Avg Progress
               </span>
             </div>
@@ -254,10 +222,10 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           </div>
 
           <div className="mt-3">
-            <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+            <div className="text-3xl font-black text-ink tracking-tight">
               {avgProgress}%
             </div>
-            <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-2 overflow-hidden">
+            <div className="w-full bg-raised h-1.5 rounded-full mt-2 overflow-hidden">
               <div
                 className="bg-emerald-500 h-full rounded-full transition-all duration-500"
                 style={{ width: `${avgProgress}%` }}
@@ -267,13 +235,13 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
         </div>
 
         {/* Card 3: Milestones Met */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-[#10162a] border border-slate-200/80 dark:border-blue-500/20 shadow-xs flex flex-col justify-between">
+        <div className="p-5 rounded-3xl bg-panel border border-slate-200/80 dark:border-blue-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 dark:text-blue-400 border border-blue-500/20 flex items-center justify-center shrink-0">
                 <Flag className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-bold text-muted">
                 Milestones Met
               </span>
             </div>
@@ -287,7 +255,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           </div>
 
           <div className="mt-3">
-            <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+            <div className="text-3xl font-black text-ink tracking-tight">
               {completedMilestones}{" "}
               <span className="text-base font-normal text-slate-400">/ {totalMilestones}</span>
             </div>
@@ -296,13 +264,13 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
         </div>
 
         {/* Card 4: Achieved */}
-        <div className="p-5 rounded-3xl bg-white dark:bg-[#181622] border border-slate-200/80 dark:border-amber-500/20 shadow-xs flex flex-col justify-between">
+        <div className="p-5 rounded-3xl bg-panel border border-slate-200/80 dark:border-amber-500/20 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-500 dark:text-amber-400 border border-amber-500/20 flex items-center justify-center shrink-0">
                 <Trophy className="w-4 h-4" />
               </div>
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-bold text-muted">
                 Achieved
               </span>
             </div>
@@ -316,7 +284,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           </div>
 
           <div className="mt-3">
-            <div className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">
+            <div className="text-3xl font-black text-ink tracking-tight">
               {achievedGoals}
             </div>
             <p className="text-[11px] text-slate-400 mt-0.5">Major life summits reached</p>
@@ -334,7 +302,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           className={`flex items-center gap-2 px-4 py-2 rounded-full text-xs font-bold transition-all shrink-0 ${
             selectedSector === "all"
               ? "bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
-              : "bg-slate-100 hover:bg-slate-200 dark:bg-[#141628] dark:hover:bg-[#1c1f38] text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800"
+              : "bg-slate-100 hover:bg-slate-200 dark:bg-[#141628] dark:hover:bg-[#1c1f38] text-slate-600 dark:text-slate-300 border border-line"
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
@@ -355,7 +323,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
               className={`flex items-center gap-2 px-3.5 py-2 rounded-full text-xs font-bold transition-all shrink-0 ${
                 isSelected
                   ? "bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20"
-                  : "bg-slate-100 hover:bg-slate-200 dark:bg-[#141628] dark:hover:bg-[#1c1f38] text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-800"
+                  : "bg-slate-100 hover:bg-slate-200 dark:bg-[#141628] dark:hover:bg-[#1c1f38] text-slate-600 dark:text-slate-300 border border-line"
               }`}
             >
               <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -378,7 +346,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
             className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors shrink-0 ${
               selectedTimeframe === "all"
                 ? "bg-slate-200 text-slate-900 dark:bg-[#1c1f38] dark:text-white"
-                : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                : "text-muted hover:text-slate-900 dark:hover:text-white"
             }`}
           >
             All Horizons
@@ -390,7 +358,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors shrink-0 ${
                 selectedTimeframe === tf
                   ? "bg-slate-200 text-slate-900 dark:bg-[#1c1f38] dark:text-white font-bold"
-                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                  : "text-muted hover:text-slate-900 dark:hover:text-white"
               }`}
             >
               {TIMEFRAME_LABELS[tf]}
@@ -399,16 +367,16 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
         </div>
 
         {/* Right: Search & Status Dropdown */}
-        <div className="flex items-center gap-2">
+        <div className="goal-filter-controls flex items-center gap-2">
           {/* Search Input */}
-          <div className="flex items-center bg-slate-100 dark:bg-[#111324] border border-slate-200/80 dark:border-slate-800 rounded-full px-3 py-1.5 text-xs">
+          <div className="flex items-center bg-slate-100 dark:bg-[#111324] border border-line rounded-full px-3 py-1.5 text-xs">
             <Search className="w-3.5 h-3.5 text-slate-400 mr-1.5 shrink-0" />
             <input
               type="text"
               placeholder="Search goals..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-transparent focus:outline-none text-slate-900 dark:text-slate-100 placeholder:text-slate-400 w-28 sm:w-36 text-xs"
+              className="bg-transparent focus:outline-none text-ink placeholder:text-slate-400 w-28 sm:w-36 text-xs"
             />
             {searchQuery && (
               <button
@@ -421,7 +389,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           </div>
 
           {/* Status Dropdown */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#111324] border border-slate-200/80 dark:border-slate-800 rounded-full px-3 py-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-[#111324] border border-line rounded-full px-3 py-1.5 text-xs font-semibold text-muted">
             <span>Status:</span>
             <select
               value={selectedStatus}
@@ -453,7 +421,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           return (
             <div
               key={goal.id}
-              className="group relative flex flex-col justify-between p-6 rounded-3xl bg-white dark:bg-[#121424] border border-slate-200/80 dark:border-[#232646] hover:border-indigo-500/40 hover:shadow-lg transition-all min-h-[220px]"
+              className="group relative flex flex-col justify-between p-6 rounded-3xl bg-panel border border-slate-200/80 dark:border-[#232646] hover:border-indigo-500/40 hover:shadow-lg transition-all min-h-[220px]"
             >
               <div>
                 {/* Top Row: Sector Badge + Horizon Badge + Progress + Options */}
@@ -466,13 +434,13 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
                     </span>
 
                     {/* Horizon Badge */}
-                    <span className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300">
+                    <span className="px-2.5 py-1 rounded-xl text-[11px] font-semibold bg-raised text-slate-600 dark:text-slate-300">
                       {TIMEFRAME_LABELS[goal.timeframe]}
                     </span>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-black font-mono text-slate-500 dark:text-slate-400">
+                    <span className="text-xs font-black font-mono text-muted">
                       {goal.progress}%
                     </span>
 
@@ -489,7 +457,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
                       {activeMenuGoalId === goal.id && (
                         <div
                           onClick={(e) => e.stopPropagation()}
-                          className="absolute right-0 mt-1 w-44 bg-white dark:bg-[#1a1e2d] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-1 z-30 flex flex-col gap-0.5 text-xs font-semibold animate-fade-in"
+                          className="absolute right-0 mt-1 w-44 bg-panel rounded-2xl border border-line shadow-xl p-1 z-30 flex flex-col gap-0.5 text-xs font-semibold animate-fade-in"
                         >
                           <button
                             onClick={() => {
@@ -535,13 +503,13 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
                 </div>
 
                 {/* Title */}
-                <h3 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white mt-3.5 mb-1.5 leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                <h3 className="text-base sm:text-lg font-bold text-ink mt-3.5 mb-1.5 leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                   {goal.title}
                 </h3>
 
                 {/* Description */}
                 {goal.description && (
-                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed font-normal mb-3 line-clamp-2">
+                  <p className="text-xs text-muted leading-relaxed font-normal mb-3 line-clamp-2">
                     {goal.description}
                   </p>
                 )}
@@ -554,7 +522,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
                       {completedCount} of {milestones.length} milestones ({goal.progress}%)
                     </span>
                   </div>
-                  <div className="w-full bg-slate-100 dark:bg-slate-800/80 h-2 rounded-full overflow-hidden">
+                  <div className="w-full bg-raised h-2 rounded-full overflow-hidden">
                     <div
                       className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 h-full rounded-full transition-all duration-500 shadow-[0_0_12px_rgba(168,85,247,0.5)]"
                       style={{ width: `${goal.progress}%` }}
@@ -635,12 +603,12 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
         {/* Create a New Life Goal Card (Matching right slot in screenshot) */}
         <div
           onClick={onAddGoal}
-          className="group relative flex flex-col items-center justify-center p-8 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-indigo-500/50 bg-slate-50/30 dark:bg-slate-900/10 cursor-pointer min-h-[220px] transition-all hover:scale-[1.01]"
+          className="group relative flex flex-col items-center justify-center p-8 rounded-3xl border-2 border-dashed border-line hover:border-indigo-500/50 bg-slate-50/30 dark:bg-slate-900/10 cursor-pointer min-h-[220px] transition-all hover:scale-[1.01]"
         >
-          <div className="w-11 h-11 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 flex items-center justify-center text-slate-600 dark:text-slate-300 group-hover:bg-gradient-to-tr group-hover:from-blue-600 group-hover:to-purple-600 group-hover:text-white group-hover:border-transparent group-hover:scale-110 shadow-sm transition-all mb-3">
+          <div className="w-11 h-11 rounded-full bg-raised border border-slate-200 dark:border-slate-700/80 flex items-center justify-center text-slate-600 dark:text-slate-300 group-hover:bg-gradient-to-tr group-hover:from-blue-600 group-hover:to-purple-600 group-hover:text-white group-hover:border-transparent group-hover:scale-110 shadow-sm transition-all mb-3">
             <Plus className="w-5 h-5 stroke-[2.5]" />
           </div>
-          <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1 group-hover:text-indigo-500 transition-colors">
+          <h4 className="text-sm font-bold text-ink mb-1 group-hover:text-indigo-500 transition-colors">
             Create a new life goal
           </h4>
           <p className="text-xs text-slate-400 text-center max-w-[220px]">

@@ -59,7 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
   ];
 
   return (
-    <header className="w-full flex items-center justify-between px-6 py-4 border-b border-slate-200/60 dark:border-slate-800/80 bg-white/80 dark:bg-[#0e1015]/80 backdrop-blur-md sticky top-0 z-40">
+    <header className="w-full flex items-center justify-between px-6 py-4 border-b border-line bg-panel backdrop-blur-md sticky top-0 z-40">
       {/* Left: Minimalist Brand like [untitled] in attachment */}
       <div className="flex items-center gap-3">
         <button
@@ -71,14 +71,14 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={() => setActiveTab("tasks")}
-          className="font-mono text-base font-bold tracking-tight text-slate-900 dark:text-white flex items-center gap-1 hover:opacity-80 transition-opacity"
+          className="font-mono text-base font-bold tracking-tight text-ink flex items-center gap-1 hover:opacity-80 transition-opacity"
         >
           <span>[synapse]</span>
         </button>
       </div>
 
       {/* Center: Clean Minimal Navigation Pills */}
-      <nav className="flex items-center bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-full border border-slate-200/50 dark:border-slate-700/50">
+      <nav className="flex items-center bg-raised p-1 rounded-full border border-slate-200/50 dark:border-slate-700/50">
         {navItems.map((item) => {
           const isActive = activeTab === item.id;
           return (
@@ -112,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
             placeholder="Search... ⌘K"
             className="w-full bg-transparent text-xs text-slate-800 dark:text-slate-200 placeholder-slate-400 focus:outline-none font-medium cursor-pointer"
           />
-          <span className="text-[10px] text-slate-400 hidden sm:inline ml-1 font-mono">⌘K</span>
+          <span className="text-[11px] text-slate-400 hidden sm:inline ml-1 font-mono">⌘K</span>
         </div>
 
         {/* Universal Quick Capture shortcut button */}
@@ -124,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
           >
             <Zap className="w-3.5 h-3.5 fill-white" />
             <span className="hidden lg:inline">Quick Capture</span>
-            <span className="text-[10px] opacity-80 font-mono hidden sm:inline">⌘⌥N</span>
+            <span className="text-[11px] opacity-80 font-mono hidden sm:inline">⌘⌥N</span>
           </button>
         )}
 
@@ -192,7 +192,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* User Account / Sign In Profile Pill */}
         {onOpenAuth && (
-          <div className="pl-1 border-l border-slate-200 dark:border-slate-800">
+          <div className="pl-1 border-l border-line">
             {session?.currentUser ? (
               <button
                 onClick={onOpenAuth}

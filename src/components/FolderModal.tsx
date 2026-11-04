@@ -1,3 +1,4 @@
+import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect } from "react";
 import { NoteFolder, NoteFolderColor } from "../types";
 import { Folder, X, Trash2, FolderPlus, Palette } from "lucide-react";
@@ -85,8 +86,8 @@ export const FolderModal: React.FC<FolderModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white dark:bg-[#141721] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+    <DialogBackdrop onClose={onClose} label="Folder details" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
@@ -94,7 +95,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               {folder ? <Folder className="w-4 h-4" /> : <FolderPlus className="w-4 h-4" />}
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+              <h3 className="font-extrabold text-sm text-ink">
                 {folder ? "Edit Folder" : "New Folder"}
               </h3>
               <p className="text-[11px] text-slate-400">
@@ -102,8 +103,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
+          <button aria-label="Close dialog" onClick={onClose}
             className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -123,7 +123,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               placeholder="e.g. CS 1332, Exams, Research, Architecture"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800/80 text-xs font-semibold text-slate-900 dark:text-slate-100 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-raised text-xs font-semibold text-ink px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
 
@@ -134,7 +134,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
             <select
               value={parentId || ""}
               onChange={(e) => setParentId(e.target.value ? e.target.value : null)}
-              className="w-full bg-slate-100 dark:bg-slate-800/80 text-xs font-semibold text-slate-800 dark:text-slate-200 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-raised text-xs font-semibold text-slate-800 dark:text-slate-200 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700/80 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">📁 Root (Top-level folder)</option>
               {eligibleParents.map((p) => {
@@ -147,7 +147,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                 );
               })}
             </select>
-            <p className="text-[10px] text-slate-400 mt-1">
+            <p className="text-[11px] text-slate-400 mt-1">
               Select a parent folder to nest this folder inside it, or choose Root.
             </p>
           </div>
@@ -212,6 +212,6 @@ export const FolderModal: React.FC<FolderModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

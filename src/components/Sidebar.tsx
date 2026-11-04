@@ -1,117 +1,150 @@
-import React from "react";
 import {
-  Sparkles,
-  Home,
-  Target,
-  CheckSquare,
-  BarChart2,
   BookOpen,
+  CheckSquare,
+  ChevronLeft,
+  ChevronRight,
   FileText,
+  Flame,
+  Home,
+  Layers,
+  Plus,
   Settings2,
-  ChevronsLeft,
-  ChevronsRight,
+  Sparkles,
+  Target,
 } from "lucide-react";
-
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   onOpenSettings?: () => void;
+  onQuickCapture: () => void;
+  counts: { tasks: number; notes: number; goals: number };
 }
-
-export const Sidebar: React.FC<SidebarProps> = ({
+const groups = [
+  {
+    label: "WORKSPACE",
+    items: [
+      { id: "home", label: "Home", icon: Home },
+      { id: "tasks", label: "Tasks", icon: CheckSquare },
+      { id: "knowledge", label: "Notes", icon: FileText },
+    ],
+  },
+  {
+    label: "PERSONAL GROWTH",
+    items: [
+      { id: "goals", label: "Goals", icon: Target },
+      { id: "habits", label: "Habits", icon: Flame },
+      { id: "journal", label: "Journal", icon: BookOpen },
+    ],
+  },
+  {
+    label: "THINK TOGETHER",
+    items: [{ id: "copilot", label: "Iris Copilot", icon: Sparkles }],
+  },
+];
+export function Sidebar({
   activeTab,
   setActiveTab,
   collapsed,
   onToggleCollapse,
   onOpenSettings,
-}) => {
-  const navItems = [
-    { id: "home", label: "Home", icon: Home },
-    { id: "goals", label: "Goals", icon: Target },
-    { id: "tasks", label: "Tasks", icon: CheckSquare },
-    { id: "habits", label: "Habits", icon: BarChart2 },
-    { id: "journal", label: "Journal", icon: BookOpen },
-    { id: "knowledge", label: "Notes", icon: FileText },
-    { id: "copilot", label: "Copilot", icon: Sparkles },
-  ];
-
+  onQuickCapture,
+  counts,
+}: SidebarProps) {
   return (
-    <aside
-      className={`synapse-sidebar shrink-0 flex flex-col justify-between transition-all duration-300 ease-in-out border-r border-slate-200/60 dark:border-slate-800/60 bg-white/70 dark:bg-[#090b14]/90 backdrop-blur-xl z-30 select-none ${
-        collapsed ? "w-[72px] px-2.5 py-5" : "w-[240px] px-4 py-5"
-      }`}
-    >
-      {/* Top Branding Section */}
-      <div className="space-y-6">
-        <div className={`sidebar-brand-row flex items-center px-1 ${collapsed ? "flex-col gap-3" : "justify-between"}`}>
-          <div
-            onClick={() => setActiveTab("home")}
-            className="flex items-center gap-2.5 cursor-pointer group"
-          >
-            {/* Sparkle 4-point Icon with Vibrant Gradient */}
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-md shadow-indigo-500/20 group-hover:scale-105 transition-transform shrink-0">
-              <Sparkles className="w-4 h-4 text-white fill-white/30" />
-            </div>
-
-            {!collapsed && (
-              <span className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white flex items-center">
-                <span>iris<span className="brand-period">.</span></span>
-              </span>
-            )}
-          </div>
-
-          <button
-            onClick={onToggleCollapse}
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            aria-expanded={!collapsed}
-            className="hidden md:flex items-center justify-center shrink-0 p-1.5 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          >
-            {collapsed ? (
-              <ChevronsRight className="w-4 h-4" />
-            ) : (
-              <ChevronsLeft className="w-4 h-4" />
-            )}
-          </button>
-        </div>
-
-        {/* Navigation Items */}
-        <nav className="sidebar-nav space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-
-            return (
-              <button
-                key={item.id}
-                aria-current={isActive ? "page" : undefined}
-                onClick={() => setActiveTab(item.id)}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all group ${
-                  isActive
-                    ? "bg-[#eceef8] dark:bg-[#181a32] text-indigo-600 dark:text-[#a5b4fc] border border-indigo-200/50 dark:border-indigo-500/20 shadow-xs"
-                    : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100/70 dark:hover:bg-slate-800/40"
-                } ${collapsed ? "justify-center px-0" : ""}`}
-                title={collapsed ? item.label : undefined}
-              >
-                <Icon
-                  className={`w-4 h-4 shrink-0 transition-transform group-hover:scale-110 ${
-                    isActive
-                      ? "text-indigo-600 dark:text-[#818cf8]"
-                      : "text-slate-400 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-white"
-                  }`}
-                />
-                {!collapsed && <span className="truncate">{item.label}</span>}
-              </button>
-            );
-          })}
-        </nav>
+    <aside className={`synapse-sidebar ${collapsed ? "is-collapsed" : ""}`}>
+      <div className="sidebar-brand-row">
+        <button
+          className="iris-brand"
+          aria-label="Iris home"
+          onClick={() => setActiveTab("home")}
+        >
+          <span className="iris-mark" />
+          {!collapsed && (
+            <span>
+              Iris<span className="brand-period">.</span>
+            </span>
+          )}
+        </button>
+        <button
+          className="sidebar-collapse icon-control"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-expanded={!collapsed}
+        >
+          {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        </button>
       </div>
+      <button
+        className="sidebar-capture"
+        onClick={onQuickCapture}
+        title="Create a note or task"
+      >
+        <Plus size={17} />
+        {!collapsed && (
+          <>
+            <span>Quick create</span>
+            <kbd>⌘⌥N</kbd>
+          </>
+        )}
+      </button>
+      <nav className="sidebar-nav" aria-label="Main navigation">
+        {groups.map((group) => (
+          <div className="nav-group" key={group.label}>
+            {!collapsed && <p className="nav-label">{group.label}</p>}
+            {group.items.map((item) => {
+              const count =
+                item.id === "tasks"
+                  ? counts.tasks
+                  : item.id === "knowledge"
+                    ? counts.notes
+                    : item.id === "goals"
+                      ? counts.goals
+                      : undefined;
+              return (
+                <button
+                  key={item.id}
+                  aria-current={activeTab === item.id ? "page" : undefined}
+                  onClick={() => setActiveTab(item.id)}
+                  title={item.label}
+                >
+                  <item.icon size={18} />
+                  {!collapsed && (
+                    <>
+                      <span>{item.label}</span>
+                      {count !== undefined && count > 0 && (
+                        <small>{count}</small>
+                      )}
+                    </>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </nav>
       <div className="sidebar-bottom">
-        {!collapsed && <div className="sidebar-note"><span className="sidebar-note-mark">✧</span><p>A little space<br/>for a clearer mind.</p></div>}
-        <button onClick={onOpenSettings} className="sidebar-settings" title="Workspace settings"><Settings2 size={17}/>{!collapsed && <><span>Workspace settings</span><span className="settings-dot"/></>}</button>
+        {!collapsed && (
+          <div className="sidebar-note">
+            <Layers size={20} />
+            <strong>
+              Less scattered.
+              <br />
+              More connected.
+            </strong>
+            <p>Your thoughts have a home here.</p>
+          </div>
+        )}
+        <button
+          className="sidebar-settings"
+          onClick={onOpenSettings}
+          title="Settings"
+        >
+          <Settings2 size={18} />
+          {!collapsed && <span>Settings & preferences</span>}
+        </button>
       </div>
     </aside>
   );
-};
+}

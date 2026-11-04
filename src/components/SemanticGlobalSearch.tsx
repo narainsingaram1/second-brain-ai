@@ -1,3 +1,4 @@
+import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect, useRef } from "react";
 import { Task, Habit, JournalEntry, KnowledgeItem, BrainState, Goal } from "../types";
 import { vectorVault, SearchResult } from "../services/vectorVault";
@@ -306,11 +307,11 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
   };
 
   return (
-    <div
+    <DialogBackdrop onClose={onClose} label="Search workspace"
       onKeyDown={handleKeyDown}
       className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-slate-950/70 backdrop-blur-md animate-fade-in"
     >
-      <div className="bg-white/95 dark:bg-[#10121a]/95 backdrop-blur-2xl rounded-3xl border border-slate-200/90 dark:border-slate-800/90 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col ring-1 ring-slate-900/5 dark:ring-white/10">
+      <div className="workspace-dialog bg-panel backdrop-blur-2xl rounded-3xl border border-line shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col ring-1 ring-slate-900/5 dark:ring-white/10">
         {/* Search Omnibar Input */}
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center gap-3">
           <Search className="w-5 h-5 text-indigo-500 shrink-0" />
@@ -320,13 +321,12 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search tasks, habits, reflections, and notes semantically... (⌘K)"
-            className="w-full bg-transparent text-sm font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
+            className="w-full bg-transparent text-sm font-medium text-ink placeholder-slate-400 focus:outline-none"
           />
           {isSearching && (
             <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin shrink-0" />
           )}
-          <button
-            onClick={onClose}
+          <button aria-label="Close dialog" onClick={onClose}
             className="p-1 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -393,14 +393,14 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
                     </div>
                     <div className="min-w-0 space-y-0.5">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                        <span className="text-xs font-bold text-ink truncate">
                           {item.title}
                         </span>
-                        <span className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                        <span className="text-[11px] font-mono uppercase tracking-wider px-1.5 py-0.2 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                           {item.type}
                         </span>
                       </div>
-                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate max-w-[420px]">
+                      <p className="text-[11px] text-muted truncate max-w-[420px]">
                         {item.snippet}
                       </p>
                     </div>
@@ -408,17 +408,17 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
 
                   <div className="flex items-center gap-2 shrink-0">
                     {pct !== null && pct > 40 && (
-                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                      <span className="text-[11px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
                         {pct}% match
                       </span>
                     )}
                     {item.isKeywordMatch && (
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400">
                         keyword
                       </span>
                     )}
                     {item.date && (
-                      <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                      <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
                         {item.date}
                       </span>
                     )}
@@ -451,6 +451,6 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
           </span>
         </div>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

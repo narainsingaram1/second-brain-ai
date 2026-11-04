@@ -90,44 +90,8 @@ export const JournalView: React.FC<JournalViewProps> = ({
 }) => {
   const todayStr = new Date().toISOString().split("T")[0];
 
-  // Default initial entries to match user screenshot if no prior entries exist
-  const DEFAULT_PAST_ENTRIES: JournalEntry[] = [
-    {
-      id: "journal-2026-10-26",
-      date: "2026-10-26",
-      title: "Deep Architecture Flow & Clarity",
-      content:
-        "Felt in the zone today. Made great progress on 2110 project and felt confident in algorithm invariants. Energy stayed elevated after the morning workout.",
-      mood: "great",
-      wins: ["Completed CS 2110 core invariant implementation", "Maintained 90m deep work block without checking phone"],
-      challenges: ["Slight afternoon dip around 3pm before hydration"],
-      tags: ["DeepWork", "Academic"],
-    },
-    {
-      id: "journal-2026-10-25",
-      date: "2026-10-25",
-      title: "Energy Calibration & Habit Momentum",
-      content:
-        "A bit tired in the morning but recovered well after gym. Good progress on goals and reviewed systems roadmap.",
-      mood: "neutral",
-      wins: ["Hit all daily habits consistently", "Drafted technical roadmap"],
-      challenges: ["Needed extra 15m to get into focus block"],
-      tags: ["Habits", "Fitness"],
-    },
-    {
-      id: "journal-2026-10-24",
-      date: "2026-10-24",
-      title: "Overcoming Friction",
-      content:
-        "Struggled with focus early on, but got back on track in the evening after resetting mindset.",
-      mood: "tired",
-      wins: ["Recovered evening momentum", "Reflected on boundary management"],
-      challenges: ["Context switching early morning"],
-      tags: ["Mindset"],
-    },
-  ];
-
-  const allMergedEntries = entries && entries.length > 0 ? entries : DEFAULT_PAST_ENTRIES;
+  // The journal reflects saved entries only.
+  const allMergedEntries = entries || [];
 
   const todayEntry = allMergedEntries.find((e) => e.date === todayStr) || {
     id: `journal-${todayStr}`,
@@ -192,7 +156,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
       shortLabel: "Fatigued",
       icon: Cloud,
       selectedStyle:
-        "border-2 border-slate-400 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-xs",
+        "border-2 border-slate-400 bg-raised text-slate-700 dark:text-slate-200 shadow-xs",
       badgeStyle:
         "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40",
     },
@@ -411,23 +375,23 @@ export const JournalView: React.FC<JournalViewProps> = ({
       {/* ========================================================= */}
       {/* TOP HEADER MATCHING USER REFERENCE SCREENSHOT            */}
       {/* ========================================================= */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="page-heading">
         {/* Left: Open Book Badge + Title + Subtitle */}
         <div className="flex items-center gap-3.5">
           <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-100/80 dark:border-indigo-900/40 flex items-center justify-center shrink-0 shadow-xs">
             <BookOpen className="w-6 h-6 stroke-[2.2]" />
           </div>
           <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
-              Reflective Journal & Cognitive Synthesis
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink">
+              Journal
             </h1>
-            <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 font-medium mt-0.5">
-              Capture subconscious flow, track emotional calibration, and receive deep AI coaching.
+            <p className="text-xs sm:text-sm text-muted font-medium mt-0.5">
+              Make room to reflect. Keep the moments, lessons, and ideas that matter.
             </p>
           </div>
         </div>
 
-        {/* Right: AI Cognitive Synthesis button + Save Entry button */}
+        {/* Right: Reflect with Iris button + Save Entry button */}
         <div className="flex items-center gap-2.5 shrink-0 self-end sm:self-auto">
           <button
             onClick={() => handleTriggerSynthesis("full")}
@@ -435,12 +399,12 @@ export const JournalView: React.FC<JournalViewProps> = ({
             className="flex items-center gap-2 px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-xs sm:text-sm shadow-md shadow-indigo-500/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
           >
             <Sparkles className="w-4 h-4 fill-white/80" />
-            <span>{isSynthesizing ? "Synthesizing..." : "AI Cognitive Synthesis"}</span>
+            <span>{isSynthesizing ? "Synthesizing..." : "Reflect with Iris"}</span>
           </button>
 
           <button
             onClick={handleSave}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-slate-200/90 dark:border-slate-800 bg-white dark:bg-[#121424] text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 font-bold text-xs sm:text-sm shadow-xs active:scale-95 transition-all"
+            className="flex items-center gap-2 px-4 py-2.5 rounded-2xl border border-line bg-panel text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/60 font-bold text-xs sm:text-sm shadow-xs active:scale-95 transition-all"
           >
             <Save className="w-4 h-4 stroke-[2]" />
             <span>{savedSuccess ? "Saved!" : "Save Entry"}</span>
@@ -456,11 +420,11 @@ export const JournalView: React.FC<JournalViewProps> = ({
         {/* LEFT COLUMN (8 cols): Main Journal Form Card              */}
         {/* --------------------------------------------------------- */}
         <div className="lg:col-span-8 space-y-4">
-          <div className="rounded-3xl border border-slate-200/80 dark:border-[#232646] bg-white dark:bg-[#101223] p-5 sm:p-6 shadow-xs space-y-5">
+          <div className="rounded-3xl border border-slate-200/80 dark:border-[#232646] bg-panel p-5 sm:p-6 shadow-xs space-y-5">
             {/* Top row: Date Selector Pill + Progress Indicator */}
             <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
               {/* Date Pill with Calendar and Chevron buttons */}
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 shadow-2xs">
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-line bg-white dark:bg-slate-900/60 text-slate-700 dark:text-slate-300 shadow-2xs">
                 <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <button
                   type="button"
@@ -517,7 +481,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                     className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-2xl text-xs font-semibold transition-all cursor-pointer ${
                       isSelected
                         ? m.selectedStyle
-                        : "border border-slate-200/70 dark:border-slate-800 bg-white/70 dark:bg-slate-900/40 text-slate-500 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200"
+                        : "border border-line bg-white/70 dark:bg-slate-900/40 text-muted hover:border-slate-300 dark:hover:border-slate-700 hover:text-slate-800 dark:hover:text-slate-200"
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5" />
@@ -537,14 +501,14 @@ export const JournalView: React.FC<JournalViewProps> = ({
                 placeholder="e.g. Productive Monday, Reset, Learning Mode..."
                 value={currentEntry.title}
                 onChange={(e) => setCurrentEntry((prev) => ({ ...prev, title: e.target.value }))}
-                className="w-full rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/30 px-4 py-2.5 text-xs sm:text-sm font-medium text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
+                className="w-full rounded-2xl border border-line bg-slate-50/40 dark:bg-slate-900/30 px-4 py-2.5 text-xs sm:text-sm font-medium text-ink placeholder:text-slate-400 focus:outline-none focus:border-indigo-400 dark:focus:border-indigo-500 transition-colors"
               />
             </div>
 
             {/* Row 4: Main Content Container with Top Toolbar */}
-            <div className="rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/30 dark:bg-slate-900/20 overflow-hidden focus-within:border-indigo-400 dark:focus-within:border-indigo-500/80 transition-colors">
+            <div className="rounded-2xl border border-line bg-slate-50/30 dark:bg-slate-900/20 overflow-hidden focus-within:border-indigo-400 dark:focus-within:border-indigo-500/80 transition-colors">
               {/* Toolbar */}
-              <div className="flex items-center justify-between border-b border-slate-200/60 dark:border-slate-800/80 px-3 py-2 bg-white/70 dark:bg-slate-900/50">
+              <div className="flex items-center justify-between border-b border-line px-3 py-2 bg-white/70 dark:bg-slate-900/50">
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
@@ -603,7 +567,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                   </button>
 
                   {isAiMenuOpen && (
-                    <div className="absolute right-0 top-full mt-1.5 w-56 rounded-2xl bg-white dark:bg-[#141721] border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 z-20 space-y-1 animate-fade-in">
+                    <div className="absolute right-0 top-full mt-1.5 w-56 rounded-2xl bg-panel border border-line shadow-xl p-1.5 z-20 space-y-1 animate-fade-in">
                       <button
                         onClick={() => handleAiWritingAction("deepen")}
                         className="w-full text-left px-3 py-2 rounded-xl text-xs text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 font-medium"
@@ -637,7 +601,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                 placeholder="What went down today? How did you manage energy, deep work, and habits? What were the standout moments?"
                 value={currentEntry.content}
                 onChange={(e) => setCurrentEntry((prev) => ({ ...prev, content: e.target.value }))}
-                className="w-full bg-transparent px-4 py-3.5 text-xs sm:text-sm leading-relaxed text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none resize-none font-medium"
+                className="w-full bg-transparent px-4 py-3.5 text-xs sm:text-sm leading-relaxed text-ink placeholder:text-slate-400 focus:outline-none resize-none font-medium"
               />
             </div>
 
@@ -769,7 +733,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
               </button>
             </div>
 
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
+            <p className="text-[11px] text-muted leading-relaxed font-medium">
               Turn your thoughts into deeper insights, pattern analysis, and personalized coaching.
             </p>
 
@@ -778,17 +742,17 @@ export const JournalView: React.FC<JournalViewProps> = ({
               {/* 1. Generate Full Analysis */}
               <div
                 onClick={() => handleTriggerSynthesis("full")}
-                className="flex items-center justify-between p-3 rounded-2xl bg-white/90 dark:bg-[#121424]/90 border border-slate-200/70 dark:border-slate-800 hover:border-indigo-400/60 dark:hover:border-indigo-500/50 cursor-pointer transition-all group shadow-2xs"
+                className="flex items-center justify-between p-3 rounded-2xl bg-panel border border-line hover:border-indigo-400/60 dark:hover:border-indigo-500/50 cursor-pointer transition-all group shadow-2xs"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     <BarChart3 className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    <h4 className="text-xs font-bold text-ink truncate">
                       Generate Full Analysis
                     </h4>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate font-medium">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate font-medium">
                       Thought patterns, emotions, and insights
                     </p>
                   </div>
@@ -799,17 +763,17 @@ export const JournalView: React.FC<JournalViewProps> = ({
               {/* 2. Extract Action Items */}
               <div
                 onClick={() => handleTriggerSynthesis("actions")}
-                className="flex items-center justify-between p-3 rounded-2xl bg-white/90 dark:bg-[#121424]/90 border border-slate-200/70 dark:border-slate-800 hover:border-purple-400/60 dark:hover:border-purple-500/50 cursor-pointer transition-all group shadow-2xs"
+                className="flex items-center justify-between p-3 rounded-2xl bg-panel border border-line hover:border-purple-400/60 dark:hover:border-purple-500/50 cursor-pointer transition-all group shadow-2xs"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     <ListChecks className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    <h4 className="text-xs font-bold text-ink truncate">
                       Extract Action Items
                     </h4>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate font-medium">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate font-medium">
                       Convert insights into tasks and habits
                     </p>
                   </div>
@@ -820,17 +784,17 @@ export const JournalView: React.FC<JournalViewProps> = ({
               {/* 3. Reflect on Trends */}
               <div
                 onClick={() => handleTriggerSynthesis("trends")}
-                className="flex items-center justify-between p-3 rounded-2xl bg-white/90 dark:bg-[#121424]/90 border border-slate-200/70 dark:border-slate-800 hover:border-blue-400/60 dark:hover:border-blue-500/50 cursor-pointer transition-all group shadow-2xs"
+                className="flex items-center justify-between p-3 rounded-2xl bg-panel border border-line hover:border-blue-400/60 dark:hover:border-blue-500/50 cursor-pointer transition-all group shadow-2xs"
               >
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
                     <TrendingUp className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    <h4 className="text-xs font-bold text-ink truncate">
                       Reflect on Trends
                     </h4>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 truncate font-medium">
+                    <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate font-medium">
                       See progress over time
                     </p>
                   </div>
@@ -847,7 +811,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleCopySynthesis}
-                      className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                     >
                       {isCopiedSynthesis ? (
                         <Check className="w-3 h-3 text-emerald-500" />
@@ -859,7 +823,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                     {onSaveKnowledge && (
                       <button
                         onClick={handleSaveSynthesisToNotes}
-                        className="flex items-center gap-1 text-[10px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
+                        className="flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold hover:underline"
                       >
                         {isSavedNoteSuccess ? (
                           <Check className="w-3 h-3 text-emerald-500" />
@@ -879,10 +843,10 @@ export const JournalView: React.FC<JournalViewProps> = ({
           </div>
 
           {/* Card 2: PREVIOUS ENTRIES */}
-          <div className="rounded-3xl border border-slate-200/80 dark:border-[#232646] bg-white dark:bg-[#101223] p-5 shadow-xs space-y-3.5">
+          <div className="rounded-3xl border border-slate-200/80 dark:border-[#232646] bg-panel p-5 shadow-xs space-y-3.5">
             {/* Header */}
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold tracking-wider uppercase text-slate-500 dark:text-slate-400">
+              <span className="text-xs font-bold tracking-wider uppercase text-muted">
                 PREVIOUS ENTRIES
               </span>
               <button
@@ -908,22 +872,22 @@ export const JournalView: React.FC<JournalViewProps> = ({
                     className={`flex items-center justify-between gap-3 p-2.5 rounded-2xl border transition-all cursor-pointer ${
                       isSelected
                         ? "bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700 shadow-xs"
-                        : "bg-slate-50/60 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700"
+                        : "bg-slate-50/60 dark:bg-slate-900/40 border-line hover:border-slate-300 dark:hover:border-slate-700"
                     }`}
                   >
                     {/* Left Date Box */}
                     <div className="w-10 h-10 rounded-xl bg-white dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700/80 flex flex-col items-center justify-center shrink-0 shadow-2xs">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight leading-none">
+                      <span className="text-[11px] font-bold text-slate-400 uppercase tracking-tight leading-none">
                         {month}
                       </span>
-                      <span className="text-xs font-black text-slate-900 dark:text-white leading-none mt-0.5">
+                      <span className="text-xs font-black text-ink leading-none mt-0.5">
                         {day}
                       </span>
                     </div>
 
                     {/* Middle Info */}
                     <div className="min-w-0 flex-1">
-                      <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                      <h4 className="text-xs font-bold text-ink truncate">
                         {entry.title || "Untitled Reflection"}
                       </h4>
                       <p className="text-[11px] text-slate-400 dark:text-slate-500 truncate mt-0.5 font-medium">
@@ -933,7 +897,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
 
                     {/* Right Mood Pill */}
                     <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize shrink-0 ${moodConfig.badgeStyle}`}
+                      className={`px-2 py-0.5 rounded-full text-[11px] font-bold capitalize shrink-0 ${moodConfig.badgeStyle}`}
                     >
                       {moodConfig.shortLabel || moodConfig.label}
                     </span>
@@ -950,9 +914,9 @@ export const JournalView: React.FC<JournalViewProps> = ({
       {/* ========================================================= */}
       {isAllEntriesModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white dark:bg-[#121424] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col overflow-hidden">
+          <div className="bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+              <h3 className="text-sm font-bold text-ink">
                 All Journal Entries ({allMergedEntries.length})
               </h3>
               <button
@@ -973,12 +937,12 @@ export const JournalView: React.FC<JournalViewProps> = ({
                   className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] text-slate-400 font-bold uppercase">{e.date}</div>
-                    <div className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                    <div className="text-[11px] text-slate-400 font-bold uppercase">{e.date}</div>
+                    <div className="text-xs font-bold text-ink truncate">
                       {e.title || "Untitled Reflection"}
                     </div>
                   </div>
-                  <span className="text-[10px] font-bold capitalize px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                  <span className="text-[11px] font-bold capitalize px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
                     {e.mood}
                   </span>
                 </div>

@@ -333,7 +333,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       aria-label={isFullscreen ? "Full-screen note editor" : undefined}
       onKeyDownCapture={e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); flushSave(); } }}
       style={{ "--note-font-size": `${textSize}px` } as React.CSSProperties}
-      className={`note-editor w-full flex flex-col bg-white dark:bg-[#10131d] rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all ${
+      className={`note-editor w-full flex flex-col bg-panel rounded-3xl border border-line shadow-sm transition-all ${
         isFullscreen ? "note-editor-fullscreen fixed inset-0 z-[100] rounded-none border-none p-4 sm:p-8 overflow-y-auto" : "p-4 sm:p-6"
       }`}
     >
@@ -349,7 +349,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </button>
 
           {/* Folder Selector Dropdown */}
-          <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300">
+          <div className="flex items-center gap-1.5 bg-raised px-2.5 py-1 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300">
             <FolderIcon className="w-3.5 h-3.5 text-blue-500" />
             <select
               aria-label="Note folder"
@@ -404,12 +404,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </div>
 
           {/* View Mode Switcher */}
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl">
+          <div className="flex items-center bg-raised p-0.5 rounded-xl">
             <button
               onClick={() => { currentContent(); setMode("write"); }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 mode === "write"
-                  ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
+                  ? "bg-panel text-ink shadow-xs"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
               title="Edit with live formatting"
@@ -421,7 +421,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               onClick={() => { currentContent(); setMode("source"); }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 mode === "source"
-                  ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
+                  ? "bg-panel text-ink shadow-xs"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
               title="Edit Markdown source"
@@ -433,7 +433,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               onClick={() => { currentContent(); setMode("preview"); }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 mode === "preview"
-                  ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
+                  ? "bg-panel text-ink shadow-xs"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
               title="Preview Mode"
@@ -459,7 +459,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             </button>
 
             {aiMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-white dark:bg-[#141721] rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl p-1.5 z-40 flex flex-col gap-1 text-xs font-semibold animate-fade-in">
+              <div className="absolute right-0 mt-2 w-56 bg-panel rounded-2xl border border-line shadow-xl p-1.5 z-40 flex flex-col gap-1 text-xs font-semibold animate-fade-in">
                 <button
                   onClick={() => runAIAssistant("summarize")}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-left transition-colors"
@@ -566,7 +566,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           placeholder="Untitled Note..."
           value={title}
           onChange={(e) => handleTitleChange(e.target.value)}
-          className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-white bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
+          className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-ink bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
         />
       </div>
 
@@ -576,7 +576,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         {tags.map((t) => (
           <span
             key={t}
-            className="group flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-[11px] font-semibold text-slate-600 dark:text-slate-300"
+            className="group flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-raised text-[11px] font-semibold text-slate-600 dark:text-slate-300"
           >
             <span>#{t}</span>
             <button

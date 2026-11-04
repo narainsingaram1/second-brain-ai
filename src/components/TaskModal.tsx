@@ -1,3 +1,4 @@
+import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect } from "react";
 import { Task, TaskStatus } from "../types";
 import { normalizeTask } from "../utils/taskState";
@@ -124,20 +125,19 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
-      <div className="bg-white dark:bg-[#141721] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-lg overflow-visible flex flex-col">
+    <DialogBackdrop onClose={onClose} label="Task details" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-lg overflow-visible flex flex-col">
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <h3 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
+            <h3 className="font-extrabold text-base tracking-tight text-ink">
               {task ? "Edit Task" : "New Task"}
             </h3>
             <p className="text-[11px] text-slate-400 mt-0.5">
               {task ? "Update task details and due date" : "Add an actionable item to your second brain"}
             </p>
           </div>
-          <button
-            onClick={onClose}
+          <button aria-label="Close dialog" onClick={onClose}
             className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -156,7 +156,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               placeholder="e.g. CS 1332 Homework or Job Application"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-slate-900 dark:text-slate-100 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white transition-all"
+              className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-ink px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white transition-all"
             />
           </div>
 
@@ -170,7 +170,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               placeholder="Optional notes or details..."
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs text-slate-900 dark:text-slate-100 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white resize-none transition-all"
+              className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs text-ink p-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white resize-none transition-all"
             />
           </div>
 
@@ -201,7 +201,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsAddingNewSub(!isAddingNewSub)}
-                  className="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline"
+                  className="text-[11px] text-blue-600 dark:text-blue-400 font-bold hover:underline"
                 >
                   {isAddingNewSub ? "Select" : "+ New"}
                 </button>
@@ -245,13 +245,13 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
               Progress Status
             </label>
-            <div className="grid grid-cols-3 gap-2 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
+            <div className="grid grid-cols-3 gap-2 bg-raised p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
               <button
                 type="button"
                 onClick={() => setStatus("not_started")}
                 className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                   status === "not_started"
-                    ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                    ? "bg-white dark:bg-slate-700 text-ink shadow-xs"
                     : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 }`}
               >
@@ -317,25 +317,25 @@ export const TaskModal: React.FC<TaskModalProps> = ({
 
           {/* Quick Date Presets */}
           <div className="flex items-center gap-1.5 pt-1">
-            <span className="text-[10px] text-slate-400 font-semibold">Quick pick:</span>
+            <span className="text-[11px] text-slate-400 font-semibold">Quick pick:</span>
             <button
               type="button"
               onClick={() => setPresetDate(0)}
-              className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
             >
               Today
             </button>
             <button
               type="button"
               onClick={() => setPresetDate(1)}
-              className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
             >
               Tomorrow
             </button>
             <button
               type="button"
               onClick={() => setPresetDate(7)}
-              className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
+              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
             >
               In 7 Days
             </button>
@@ -343,7 +343,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
               <button
                 type="button"
                 onClick={() => setDueDate("")}
-                className="text-[10px] font-semibold text-slate-400 hover:text-rose-500 ml-auto transition-colors"
+                className="text-[11px] font-semibold text-slate-400 hover:text-rose-500 ml-auto transition-colors"
               >
                 Clear date
               </button>
@@ -386,6 +386,6 @@ export const TaskModal: React.FC<TaskModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

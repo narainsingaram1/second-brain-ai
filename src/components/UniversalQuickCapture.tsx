@@ -1,3 +1,4 @@
+import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect, useRef } from "react";
 import { Task, JournalEntry, KnowledgeItem, Habit, BrainState } from "../types";
 import { normalizeTask } from "../utils/taskState";
@@ -327,11 +328,11 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-fade-in">
+    <DialogBackdrop onClose={onClose} label="Quick create" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-fade-in">
       {/* Floating HUD Card */}
       <div
         onKeyDown={handleKeyDown}
-        className="bg-white/95 dark:bg-[#12151e]/95 backdrop-blur-2xl rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-2xl w-full max-w-xl overflow-hidden flex flex-col transition-all duration-200 ring-1 ring-slate-900/5 dark:ring-white/10"
+        className="workspace-dialog bg-panel backdrop-blur-2xl rounded-3xl border border-line shadow-2xl w-full max-w-xl overflow-hidden flex flex-col transition-all duration-200 ring-1 ring-slate-900/5 dark:ring-white/10"
       >
         {/* Top Header Row with Classification Badges */}
         <div className="px-5 pt-4 pb-2 flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60">
@@ -342,13 +343,13 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
             <span className="font-mono text-xs font-bold text-slate-800 dark:text-slate-200">
               [quick capture]
             </span>
-            <span className="text-[10px] text-slate-400 font-mono px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800">
+            <span className="text-[11px] text-slate-400 font-mono px-1.5 py-0.5 rounded-md bg-raised">
               ⌘⌥N
             </span>
           </div>
 
           {/* Type Selector Pills */}
-          <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-800/80 p-0.5 rounded-full border border-slate-200/50 dark:border-slate-700/50">
+          <div className="flex items-center gap-1 bg-raised p-0.5 rounded-full border border-slate-200/50 dark:border-slate-700/50">
             {[
               { id: "task", label: "Task", icon: CheckCircle2 },
               { id: "knowledge", label: "Note", icon: FileText },
@@ -377,8 +378,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
             })}
           </div>
 
-          <button
-            onClick={onClose}
+          <button aria-label="Close dialog" onClick={onClose}
             className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
           >
             <X className="w-4 h-4" />
@@ -394,7 +394,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Capture anything... 'CS 1332 lab due Friday', 'Felt energized after morning run', 'Read article on transformers', or drop a URL"
-              className="w-full bg-transparent text-sm font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none resize-none leading-relaxed"
+              className="w-full bg-transparent text-sm font-medium text-ink placeholder-slate-400 focus:outline-none resize-none leading-relaxed"
             />
 
             {/* Voice Wave Animation if Recording */}
@@ -413,7 +413,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
               <span className="font-extrabold capitalize text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
                 {activeType}
                 {!isManualOverride && (
-                  <span className="text-[10px] font-mono text-slate-400 font-normal">
+                  <span className="text-[11px] font-mono text-slate-400 font-normal">
                     ({confidence}% match)
                   </span>
                 )}
@@ -428,7 +428,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-bold transition-all ${
                   isRecording
                     ? "bg-red-50 text-red-600 dark:bg-red-950/60 dark:text-red-300 ring-1 ring-red-400"
-                    : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200"
+                    : "bg-raised text-slate-600 dark:text-slate-300 hover:bg-slate-200"
                 }`}
               >
                 {isRecording ? <MicOff className="w-3.5 h-3.5" /> : <Mic className="w-3.5 h-3.5" />}
@@ -451,7 +451,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
           </div>
 
           {/* Contextual Quick Attributes Bar */}
-          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800/60 flex flex-wrap items-center gap-2.5 text-xs">
+          <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line flex flex-wrap items-center gap-2.5 text-xs">
             {activeType === "task" && (
               <>
                 {/* Priority Selector */}
@@ -460,7 +460,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
                     <button
                       key={p}
                       onClick={() => setPriority(p)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold capitalize transition-all ${
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-bold capitalize transition-all ${
                         priority === p
                           ? p === "urgent"
                             ? "bg-red-600 text-white"
@@ -515,7 +515,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
                     <button
                       key={m.id}
                       onClick={() => setMood(m.id as any)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all ${
                         mood === m.id
                           ? "bg-purple-600 text-white shadow-2xs"
                           : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
@@ -540,7 +540,7 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
                     <button
                       key={f.id}
                       onClick={() => setFrequency(f.id as any)}
-                      className={`px-2 py-0.5 rounded-lg text-[10px] font-bold transition-all ${
+                      className={`px-2 py-0.5 rounded-lg text-[11px] font-bold transition-all ${
                         frequency === f.id
                           ? "bg-amber-600 text-white shadow-2xs"
                           : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
@@ -576,13 +576,13 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
         <div className="px-5 py-3.5 bg-slate-50/70 dark:bg-slate-900/60 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
           <div className="flex items-center gap-3 text-[11px] text-slate-400 font-mono">
             <span>
-              <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[10px] font-bold">
+              <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[11px] font-bold">
                 ⌘↵
               </kbd>{" "}
               Save
             </span>
             <span>
-              <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[10px] font-bold">
+              <kbd className="px-1.5 py-0.5 bg-slate-200 dark:bg-slate-800 rounded text-[11px] font-bold">
                 esc
               </kbd>{" "}
               Close
@@ -608,6 +608,6 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

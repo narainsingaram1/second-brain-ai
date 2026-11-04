@@ -37,7 +37,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
       if (match[2]) {
         // Bold: **text**
         elements.push(
-          <strong key={match.index} className="font-extrabold text-slate-900 dark:text-white">
+          <strong key={match.index} className="font-extrabold text-ink">
             {match[2]}
           </strong>
         );
@@ -60,7 +60,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
         elements.push(
           <code
             key={match.index}
-            className="px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-rose-600 dark:text-rose-400 font-mono text-[11px] font-semibold"
+            className="px-1.5 py-0.5 rounded-md bg-raised text-rose-600 dark:text-rose-400 font-mono text-[11px] font-semibold"
           >
             {match[5]}
           </code>
@@ -186,7 +186,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
     // Horizontal Rule
     if (trimmed === "---" || trimmed === "***" || trimmed === "___") {
       renderedElements.push(
-        <hr key={`hr-${i}`} className="my-6 border-slate-200 dark:border-slate-800" />
+        <hr key={`hr-${i}`} className="my-6 border-line" />
       );
       continue;
     }
@@ -196,7 +196,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
       renderedElements.push(
         <h1
           key={`h1-${i}`}
-          className="text-2xl font-black text-slate-900 dark:text-white mt-6 mb-3 tracking-tight"
+          className="text-2xl font-black text-ink mt-6 mb-3 tracking-tight"
         >
           {renderInline(line.slice(2))}
         </h1>
@@ -207,7 +207,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
       renderedElements.push(
         <h2
           key={`h2-${i}`}
-          className="text-xl font-extrabold text-slate-900 dark:text-white mt-5 mb-2.5 tracking-tight"
+          className="text-xl font-extrabold text-ink mt-5 mb-2.5 tracking-tight"
         >
           {renderInline(line.slice(3))}
         </h2>

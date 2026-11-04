@@ -1,3 +1,4 @@
+import { PageHeading } from "./workspace/PageHeading";
 import React from "react";
 import { Habit } from "../types";
 import { Flame, Plus, Check, Trophy, Trash2 } from "lucide-react";
@@ -47,58 +48,41 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6">
       {/* Top Header Card */}
-      <div className="bg-white/80 dark:bg-[#141721]/80 backdrop-blur-xl rounded-4xl p-6 border border-slate-300/70 dark:border-slate-800 shadow-card flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
-            Daily Habits
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            Build unshakeable daily rituals with visual streaks and progressive momentum
-          </p>
-        </div>
-
-        <button
-          onClick={onAddHabit}
-          className="tactile-btn flex items-center gap-2 px-4 py-2 rounded-full bg-[#0d0f14] dark:bg-white text-white dark:text-slate-900 text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
-        >
-          <Plus className="w-4 h-4" />
-          <span>New Daily Habit</span>
-        </button>
-      </div>
+      <PageHeading eyebrow="PERSONAL GROWTH / CONSISTENCY" title="Habits" description="Small actions, repeated. Build a rhythm that works for you."><button className="workspace-primary" onClick={onAddHabit}><Plus size={16}/>New habit</button></PageHeading>
 
       {/* Metric Cards Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white dark:bg-[#141721] rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center gap-4">
+        <div className="bg-panel rounded-3xl p-5 border border-line shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
             <Check className="w-6 h-6 stroke-[3]" />
           </div>
           <div>
             <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Completed Today</span>
-            <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">
+            <div className="text-2xl font-extrabold text-ink mt-0.5">
               {completedToday} <span className="text-sm font-semibold text-slate-400">/ {habits.length}</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-[#141721] rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center gap-4">
+        <div className="bg-panel rounded-3xl p-5 border border-line shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-500 flex items-center justify-center">
             <Flame className="w-6 h-6 fill-amber-500" />
           </div>
           <div>
             <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Top Current Streak</span>
-            <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">
+            <div className="text-2xl font-extrabold text-ink mt-0.5">
               {Math.max(...habits.map((h) => h.streak), 0)} <span className="text-sm font-semibold text-slate-400">Days</span>
             </div>
           </div>
         </div>
 
-        <div className="bg-white dark:bg-[#141721] rounded-3xl p-5 border border-slate-200/80 dark:border-slate-800 shadow-sm flex items-center gap-4">
+        <div className="bg-panel rounded-3xl p-5 border border-line shadow-sm flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
             <Trophy className="w-6 h-6" />
           </div>
           <div>
             <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">All-Time Best Record</span>
-            <div className="text-2xl font-extrabold text-slate-900 dark:text-white mt-0.5">
+            <div className="text-2xl font-extrabold text-ink mt-0.5">
               {bestOverallStreak} <span className="text-sm font-semibold text-slate-400">Days</span>
             </div>
           </div>
@@ -106,7 +90,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
       </div>
 
       {/* 7-Day Habit Matrix */}
-      <div className="bg-white dark:bg-[#141721] rounded-4xl border border-slate-200/80 dark:border-slate-800 shadow-sm p-6 overflow-x-auto">
+      <div className="bg-panel rounded-4xl border border-line shadow-sm p-6 overflow-x-auto">
         <div className="min-w-[700px]">
           {/* Header Row with Days */}
           <div className="grid grid-cols-12 gap-3 pb-4 border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider">
@@ -128,7 +112,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                 {/* Name & Domain */}
                 <div className="col-span-5 pr-2 flex items-center justify-between group/habit">
                   <div>
-                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100">{habit.name}</h4>
+                    <h4 className="text-sm font-bold text-ink">{habit.name}</h4>
                     <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
                       <span className="capitalize">{habit.domain}</span>
                       <span>•</span>
@@ -152,12 +136,12 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                       <span>{habit.streak}d</span>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 font-bold text-xs border border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-raised text-slate-400 font-bold text-xs border border-slate-200 dark:border-slate-700">
                       <Flame className="w-3.5 h-3.5 text-slate-400" />
                       <span>0d</span>
                     </div>
                   )}
-                  <span className="text-[10px] text-slate-400 font-medium mt-0.5">
+                  <span className="text-[11px] text-slate-400 font-medium mt-0.5">
                     best: {habit.bestStreak}d
                   </span>
                 </div>
@@ -174,7 +158,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
                         className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
                           isDone
                             ? "bg-emerald-500 text-white shadow-sm scale-105"
-                            : "bg-slate-100 dark:bg-slate-800 text-transparent hover:border hover:border-emerald-400"
+                            : "bg-raised text-transparent hover:border hover:border-emerald-400"
                         } ${day.isToday ? "ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-slate-900" : ""}`}
                       >
                         <Check className="w-3.5 h-3.5 stroke-[3]" />

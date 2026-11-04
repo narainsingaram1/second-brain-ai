@@ -13,6 +13,7 @@ interface ChatWorkspaceProps {
   onSaveNote?: (note: KnowledgeItem) => void;
   onOpenSettings?: () => void;
   compact?: boolean;
+  externalError?: string;
 }
 const suggestions = [
   { icon: MessageCircle, title: "Explore a thought", detail: "Find a little clarity", prompt: "Help me think through " },
@@ -20,9 +21,10 @@ const suggestions = [
   { icon: Target, title: "Review my goals", detail: "Find a clearer next step", prompt: "Review all my goals and suggest concrete improvements based on their current progress and milestones." },
   { icon: Lightbulb, title: "Connect ideas", detail: "Explore your notes", prompt: "Help me find connections between my recent notes and goals." },
 ];
-export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpenSettings, compact = false }: ChatWorkspaceProps) {
+export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpenSettings, compact = false, externalError }: ChatWorkspaceProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
+  useEffect(() => { setError(externalError || ""); }, [externalError]);
   const [showJump, setShowJump] = useState(false);
   const [recording, setRecording] = useState(false);
   const [showAllRecent, setShowAllRecent] = useState(false);
@@ -115,9 +117,9 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
       <div className="chat-composer-width">
         {conversation.temporary && !active && <p className="chat-composer-hint">Temporary chat: saved memory is off and this transcript is not saved.</p>}{error && <p role="alert" className="chat-error">{error}</p>}
         <form onSubmit={submit} className="chat-composer">
-          <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} aria-label="Message Synapse" placeholder={active ? "Ask a follow-up…" : "Ask Synapse anything…"} />
+          <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} aria-label="Message Iris" placeholder={active ? "Ask a follow-up…" : "Ask Iris anything…"} />
           <div className="chat-composer-toolbar">
-            <div className="flex items-center gap-2 min-w-0"><Sparkles size={14} className="text-indigo-500 shrink-0" /><span className="chat-model" title={state?.selectedModel}>{state?.selectedModel?.split("/").pop() || "Synapse"}</span>{onOpenSettings && <button type="button" className="chat-icon-button" onClick={onOpenSettings} aria-label="Configure AI provider"><Settings2 size={15} /></button>}</div>
+            <div className="flex items-center gap-2 min-w-0"><Sparkles size={14} className="text-indigo-500 shrink-0" /><span className="chat-model" title={state?.selectedModel}>{state?.selectedModel?.split("/").pop() || "Iris"}</span>{onOpenSettings && <button type="button" className="chat-icon-button" onClick={onOpenSettings} aria-label="Configure AI provider"><Settings2 size={15} /></button>}</div>
             <div className="flex items-center gap-1.5">{conversation.setTemporary && <button type="button" className="chat-temporary" disabled={conversation.busy} aria-label="Temporary chat" aria-pressed={conversation.temporary || false} onClick={() => conversation.setTemporary?.(!conversation.temporary)} title="Temporary chats do not use saved memory or save their transcript">{conversation.temporary ? "Temporary on" : "Temporary"}</button>}<button type="button" onClick={dictate} className={`chat-icon-button ${recording ? "text-red-500" : ""}`} aria-label={recording ? "Stop dictation" : "Voice input"} aria-pressed={recording}>{recording ? <MicOff size={17} /> : <Mic size={17} />}</button>
               {conversation.busy ? <button type="button" onClick={conversation.stop} className="chat-send is-stop" aria-label="Stop response"><Square size={13} fill="currentColor" /></button> : <button type="submit" className="chat-send" disabled={!input.trim()} aria-label="Send message"><ArrowUp size={19} /></button>}
             </div>

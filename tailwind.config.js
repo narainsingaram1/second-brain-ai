@@ -8,6 +8,14 @@ export default {
   theme: {
     extend: {
       colors: {
+        panel: "var(--workspace-panel)",
+        raised: "var(--workspace-raised)",
+        line: "var(--workspace-line)",
+        ink: "var(--workspace-ink)",
+        muted: "var(--workspace-muted)",
+        accent: "var(--workspace-accent)",
+        tint: "var(--workspace-tint)",
+        primary: "#8151ca",
         canvas: {
           light: "#edf0f5",
           dark: "#0b0d13",
@@ -35,9 +43,9 @@ export default {
         innerPill: "inset 0 1px 2px rgba(0,0,0,0.04)",
       },
       borderRadius: {
-        "3xl": "1.75rem",
-        "4xl": "2.25rem",
-        "5xl": "3rem",
+        "3xl": "0.875rem",
+        "4xl": "1rem",
+        "5xl": "1.25rem",
       },
     },
   },

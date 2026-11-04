@@ -1,3 +1,4 @@
+import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState } from "react";
 import { Habit, LifeDomain } from "../types";
 import { X, Flame } from "lucide-react";
@@ -38,17 +39,16 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white dark:bg-[#141721] rounded-4xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+    <DialogBackdrop onClose={onClose} label="New habit" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-4xl border border-line shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
             <Flame className="w-5 h-5 text-amber-500 fill-amber-500" />
-            <h3 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
+            <h3 className="font-extrabold text-base tracking-tight text-ink">
               New Daily Habit
             </h3>
           </div>
-          <button
-            onClick={onClose}
+          <button aria-label="Close dialog" onClick={onClose}
             className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
           >
             <X className="w-4 h-4" />
@@ -66,7 +66,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
               placeholder="e.g. 20-Minute Deep Reading"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-900 dark:text-slate-100 px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              className="w-full bg-raised text-xs font-bold text-ink px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
             />
           </div>
 
@@ -79,7 +79,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
               placeholder="e.g. Right after morning coffee, sit by the window without phone"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-slate-100 dark:bg-slate-800 text-xs text-slate-900 dark:text-slate-100 p-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
+              className="w-full bg-raised text-xs text-ink p-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"
             />
           </div>
 
@@ -91,7 +91,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
               <select
                 value={domain}
                 onChange={(e) => setDomain(e.target.value as any)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
+                className="w-full bg-raised text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
               >
                 <option value="health">Health & Vitality</option>
                 <option value="career">Career & Projects</option>
@@ -107,7 +107,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
               <select
                 value={frequency}
                 onChange={(e) => setFrequency(e.target.value as any)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
+                className="w-full bg-raised text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
               >
                 <option value="daily">Daily</option>
                 <option value="weekdays">Weekdays</option>
@@ -122,7 +122,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
               <select
                 value={timeOfDay}
                 onChange={(e) => setTimeOfDay(e.target.value as any)}
-                className="w-full bg-slate-100 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
+                className="w-full bg-raised text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none"
               >
                 <option value="morning">Morning</option>
                 <option value="afternoon">Afternoon</option>
@@ -141,13 +141,13 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-full bg-[#0d0f14] dark:bg-white text-white dark:text-slate-900 text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
+              className="px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
             >
               Start Habit
             </button>
           </div>
         </form>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

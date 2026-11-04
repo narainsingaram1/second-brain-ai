@@ -11,7 +11,7 @@ import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { normalizeTask, setTaskStatus, toggleTaskCompleted } from "./utils/taskState";
 import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrouter";
-import { RibbonBackdrop } from "./components/RibbonBackdrop";
+import { ChatWorkspace } from "./components/ChatWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { TopHeader } from "./components/TopHeader";
 import { HomeView } from "./components/HomeView";
@@ -49,7 +49,8 @@ export const App: React.FC = () => {
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const isChatTab = activeTab === "home" || activeTab === "copilot";
+  const isChatTab = activeTab === "copilot";
+  const [chatLaunchError, setChatLaunchError] = useState("");
   useEffect(() => {
     const viewport = window.visualViewport;
     const resize = () => document.documentElement.style.setProperty("--app-viewport-height", `${viewport?.height || window.innerHeight}px`);
@@ -802,8 +803,7 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="synapse-app h-[var(--app-viewport-height,100dvh)] overflow-hidden bg-[#f8f9fd] dark:bg-[#090b14] text-slate-900 dark:text-slate-100 flex font-sans transition-colors duration-300 relative">
-      <RibbonBackdrop />
+    <div className="synapse-app h-[var(--app-viewport-height,100dvh)] overflow-hidden flex font-sans transition-colors duration-300 relative">
       {syncError && !isSettingsOpen && (
         <div role="alert" className="fixed bottom-4 left-4 right-4 sm:left-auto sm:max-w-md z-50 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-slate-900 p-4 text-xs text-amber-900 dark:text-amber-200 shadow-lg">
           <p>{syncError}</p>
@@ -813,9 +813,12 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      <a className="skip-link" href="#main-content">Skip to content</a>
       {/* Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
+        counts={{ tasks: state.tasks.filter(task => !task.completed).length, notes: state.knowledgeItems.length, goals: state.goals.filter(goal => goal.status !== "achieved").length }}
+        onQuickCapture={() => setIsQuickCaptureOpen(true)}
         setActiveTab={setActiveTab}
         collapsed={isSidebarCollapsed || isNarrow}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
@@ -825,22 +828,34 @@ export const App: React.FC = () => {
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full relative z-10 overflow-hidden">
         {/* Top Right Header matching screenshot */}
-        {!(isChatTab && (conversation.messages || state.chatHistory).some(m => m.role === "user")) && <TopHeader
+        <TopHeader
+          activeTab={activeTab}
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           theme={state.theme}
           onToggleTheme={handleToggleTheme}
           session={session}
           onOpenAuth={() => managedAuthEnabled ? setIsAuthModalOpen(true) : cloudEnabled ? window.location.assign("/signout-with-chatgpt?return_to=/") : setIsAuthModalOpen(true)}
           onOpenNotifications={() => setIsAuditLogOpen(true)}
-        />}
+        />
 
         {/* Main Content Viewport */}
-        <main className={`flex-1 min-h-0 w-full ${isChatTab ? "flex flex-col overflow-hidden" : "overflow-y-auto px-4 sm:px-8 py-2 pb-24"}`}>
+        <main id="main-content" className={`workspace-main flex-1 min-h-0 w-full ${isChatTab ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}>
           {isChatTab ? (
+            <ChatWorkspace conversation={conversation} state={state} messages={conversation.messages || state.chatHistory} onSaveNote={handleSaveKnowledge} onOpenSettings={() => setIsSettingsOpen(true)} externalError={chatLaunchError} />
+          ) : activeTab === "home" ? (
             <HomeView
               conversation={conversation}
               brainState={state}
-              onSaveKnowledge={handleSaveKnowledge}
+              displayName={session.currentUser?.name}
+              onToggleTask={handleToggleTask}
+              onEditTask={task => { setActiveEditTask(task); setIsTaskModalOpen(true); }}
+              onOpenNote={note => { setActiveEditKnowledge(note); setActiveTab("knowledge"); }}
+              onAsk={async prompt => {
+                setChatLaunchError("");
+                setActiveTab("copilot");
+                try { await conversation.run(prompt); }
+                catch (error) { setChatLaunchError(error instanceof Error ? error.message : "Could not send your message. Try again."); }
+              }}
               onNavigate={setActiveTab}
               onNewTask={() => {
                 const section = state.sections[0] || "Academic";
@@ -850,11 +865,15 @@ export const App: React.FC = () => {
                 setTaskModalDefaultDueDate(getLocalDateString());
                 setIsTaskModalOpen(true);
               }}
-              onNewNote={() => { setActiveEditKnowledge(null); setIsKnowledgeModalOpen(true); }}
-              onOpenSettings={() => setIsSettingsOpen(true)}
+              onNewNote={() => {
+                const note: KnowledgeItem = { id: crypto.randomUUID(), subject: "Untitled Note", title: "Untitled Note", summary: "", content: "", folderId: null, status: "Draft", startDate: getLocalDateString(), endDate: getLocalDateString(), createdAt: new Date().toISOString() };
+                handleSaveKnowledge(note);
+                setActiveEditKnowledge(note);
+                setActiveTab("knowledge");
+              }}
             />
           ) : (
-            <div className="w-full max-w-6xl mx-auto space-y-6">
+            <div className={`workspace-page page-${activeTab} w-full mx-auto space-y-6`}>
               {/* ========================================================= */}
               {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
               {/* ========================================================= */}
@@ -986,7 +1005,7 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
       {/* ========================================================= */}
-      {!isChatTab && (
+      {!isChatTab && activeTab !== "home" && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
           {/* Quick Pop-up Menu */}
           {isQuickAddMenuOpen && (

@@ -145,9 +145,9 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6 animate-fade-in pb-16">
       {/* Top Simple Header & Controls */}
-      <div className="bg-white/80 dark:bg-[#141721]/80 backdrop-blur-xl rounded-4xl p-5 border border-slate-200/90 dark:border-slate-800 shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-panel backdrop-blur-xl rounded-4xl p-5 border border-line shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center gap-2">
+          <h2 className="text-xl font-extrabold text-ink tracking-tight flex items-center gap-2">
             <span>Simple List View</span>
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800">
               {activeTasks.length} active ({inProgressCount} in progress)
@@ -160,8 +160,8 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
 
         {/* Group By & Completed Toggle */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
-            <span className="text-[10px] font-bold text-slate-400 uppercase px-2">Group:</span>
+          <div className="flex items-center bg-raised p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+            <span className="text-[11px] font-bold text-slate-400 uppercase px-2">Group:</span>
             {(
               [
                 { id: "section", label: "Section" },
@@ -174,7 +174,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                 onClick={() => setGroupBy(g.id)}
                 className={`px-3 py-1 rounded-xl text-xs font-bold transition-all ${
                   groupBy === g.id
-                    ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs"
+                    ? "bg-white dark:bg-slate-700 text-ink shadow-xs"
                     : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
                 }`}
               >
@@ -188,7 +188,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
             className={`px-3 py-1.5 rounded-2xl text-xs font-bold transition-all border ${
               showCompleted
                 ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 border-transparent shadow-xs"
-                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
+                : "bg-raised text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200"
             }`}
           >
             {showCompleted ? "Hiding Completed" : "Show Completed"}
@@ -199,9 +199,9 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
       {/* Inline Quick Add Input Box */}
       <form
         onSubmit={handleQuickAdd}
-        className="bg-white dark:bg-[#141721] rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-2xs p-3 flex items-center gap-2"
+        className="bg-panel rounded-3xl border border-line shadow-2xs p-3 flex items-center gap-2"
       >
-        <div className="w-6 h-6 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center shrink-0 ml-1">
+        <div className="w-6 h-6 rounded-full bg-raised text-slate-400 flex items-center justify-center shrink-0 ml-1">
           <Plus className="w-3.5 h-3.5" />
         </div>
         <input
@@ -215,7 +215,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
         <select
           value={quickAddSection}
           onChange={(e) => setQuickAddSection(e.target.value)}
-          className="text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:outline-none cursor-pointer"
+          className="text-[11px] font-bold bg-raised text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:outline-none cursor-pointer"
         >
           {sections.map((s) => (
             <option key={s} value={s}>
@@ -240,7 +240,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
           return (
             <div
               key={group.id}
-              className="bg-white dark:bg-[#12151e] rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-2xs overflow-hidden transition-all"
+              className="bg-panel rounded-3xl border border-line shadow-2xs overflow-hidden transition-all"
             >
               {/* Group Header */}
               <div
@@ -254,7 +254,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                   <h3 className="font-extrabold text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">
                     {group.title}
                   </h3>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                  <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-raised text-muted">
                     {group.tasks.length}
                   </span>
                 </div>
@@ -334,19 +334,19 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                           <div className="flex items-center gap-2 shrink-0">
                             {/* Section Pill */}
                             {groupBy !== "section" && (
-                              <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md">
+                              <span className="text-[11px] font-semibold text-muted bg-raised px-2 py-0.5 rounded-md">
                                 {task.section}
                               </span>
                             )}
 
                             {/* Status badge */}
                             <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                                 taskStatus === "completed"
                                   ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
                                   : taskStatus === "in_progress"
                                   ? "task-theme-bg task-theme-text task-theme-dark-bg task-theme-dark-text ring-1 task-theme-ring"
-                                  : "text-slate-400 bg-slate-100 dark:bg-slate-800"
+                                  : "text-slate-400 bg-raised"
                               }`}
                             >
                               {taskStatus === "completed"
@@ -359,7 +359,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                             {/* Due Date */}
                             {task.dueDate && (
                               <span
-                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full flex items-center gap-1 ${
                                   isOverdue
                                     ? "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 font-bold"
                                     : isToday

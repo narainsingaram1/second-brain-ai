@@ -190,7 +190,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
         onClick={() => setIsOpen(!isOpen)}
         className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-semibold text-slate-800 dark:text-slate-200 px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 flex items-center justify-between cursor-pointer hover:border-slate-300 dark:hover:border-slate-600 transition-colors shadow-2xs"
       >
-        <span className={value ? "text-slate-900 dark:text-slate-100 font-bold" : "text-slate-400"}>
+        <span className={value ? "text-ink font-bold" : "text-slate-400"}>
           {value ? formatDisplay(value) : placeholder}
         </span>
         <CalendarIcon className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
@@ -198,14 +198,14 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
 
       {/* Calendar Popover (Matches media_1793030139545_40384874.png) */}
       {isOpen && (
-        <div className="absolute top-full left-0 mt-2 z-50 w-[270px] bg-white dark:bg-[#161a24] rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-2xl p-3.5 animate-fade-in select-none">
+        <div className="absolute top-full left-0 mt-2 z-50 w-[270px] bg-panel rounded-2xl border border-slate-200 dark:border-slate-700/80 shadow-2xl p-3.5 animate-fade-in select-none">
           {/* Header: Month Year on left, Up/Down navigation arrows on right */}
           <div className="flex items-center justify-between px-1 pb-3">
-            <div className="flex items-center gap-1 font-bold text-xs text-slate-900 dark:text-slate-100">
+            <div className="flex items-center gap-1 font-bold text-xs text-ink">
               <span>
                 {MONTH_NAMES[viewMonth]} {viewYear}
               </span>
-              <span className="text-[10px] text-slate-400">▾</span>
+              <span className="text-[11px] text-slate-400">▾</span>
             </div>
 
             <div className="flex items-center gap-1">

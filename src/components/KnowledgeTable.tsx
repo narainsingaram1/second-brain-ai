@@ -65,7 +65,7 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
           <div className="flex-1 space-y-3">
             <div className="flex items-start justify-between">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                <h1 className="text-2xl sm:text-3xl font-extrabold text-ink tracking-tight">
                   {selectedNote.subject}
                 </h1>
                 <p className="text-xs text-slate-400 mt-1">
@@ -105,9 +105,9 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
   return (
     <div className="w-full max-w-5xl mx-auto space-y-8 animate-fade-in">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200/60 dark:border-slate-800">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-line">
         <div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+          <h1 className="text-3xl font-extrabold tracking-tight text-ink">
             Notes & Vault
           </h1>
           <p className="text-xs text-slate-400 mt-1">
@@ -116,20 +116,20 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-full px-3 py-1.5 text-xs text-slate-500">
+          <div className="flex items-center bg-raised rounded-full px-3 py-1.5 text-xs text-slate-500">
             <Search className="w-3.5 h-3.5 mr-1.5" />
             <input
               type="text"
               placeholder="Search notes..."
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              className="bg-transparent focus:outline-none text-slate-900 dark:text-slate-100 w-28 sm:w-36"
+              className="bg-transparent focus:outline-none text-ink w-28 sm:w-36"
             />
           </div>
 
           <button
             onClick={onAddItem}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-950 hover:bg-slate-800 text-white dark:bg-white dark:hover:bg-slate-100 dark:text-slate-950 text-xs font-semibold shadow-sm transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary hover:opacity-90 text-white text-xs font-semibold shadow-sm transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Note</span>
@@ -157,7 +157,7 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
               {/* Title & Metadata underneath */}
               <div className="px-1">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-900 dark:text-white truncate">
+                  <h4 className="text-xs font-bold text-ink truncate">
                     {item.subject}
                   </h4>
                   <button

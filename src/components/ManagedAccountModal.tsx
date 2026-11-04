@@ -51,12 +51,12 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-fade-in">
+    <div className="workspace-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-fade-in">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="account-title"
-        className="bg-white dark:bg-[#12151e] rounded-3xl border border-slate-200/90 dark:border-slate-800 shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+        className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
       >
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
@@ -65,7 +65,7 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
               <Sparkles className="w-4 h-4 fill-white/30" />
             </div>
             <div>
-              <h2 id="account-title" className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white">
+              <h2 id="account-title" className="font-extrabold text-sm tracking-tight text-ink">
                 Your Account
               </h2>
               <p className="text-[11px] text-slate-400">Synapse Cloud Workspace</p>
@@ -90,7 +90,7 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
           )}
 
           {/* User Profile Card */}
-          <div className="p-4 rounded-3xl bg-slate-50 dark:bg-[#161a25] border border-slate-200/80 dark:border-slate-800/80 flex items-center gap-3.5">
+          <div className="p-4 rounded-3xl bg-slate-50 dark:bg-[#161a25] border border-line flex items-center gap-3.5">
             {user?.avatar ? (
               <img
                 src={user.avatar}
@@ -104,11 +104,11 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
             )}
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                <span className="font-extrabold text-sm text-ink truncate">
                   {displayName}
                 </span>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                     user?.provider === "google"
                       ? "bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/60"
                       : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/60"
@@ -123,7 +123,7 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
 
           {/* Cloud Sync & Security Badges */}
           <div className="grid grid-cols-2 gap-2.5">
-            <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800/60 flex items-center gap-2.5">
+            <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-line flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
@@ -131,11 +131,11 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
                 <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate">
                   {syncState === "Synced" ? "Cloud Synced" : syncState}
                 </p>
-                <p className="text-[9px] text-slate-400 truncate">PostgreSQL Storage</p>
+                <p className="text-[11px] text-slate-400 truncate">PostgreSQL Storage</p>
               </div>
             </div>
 
-            <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-slate-200/70 dark:border-slate-800/60 flex items-center gap-2.5">
+            <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-line flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-4 h-4" />
               </div>
@@ -143,12 +143,12 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
                 <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate">
                   Row Isolation
                 </p>
-                <p className="text-[9px] text-slate-400 truncate">Private to Account</p>
+                <p className="text-[11px] text-slate-400 truncate">Private to Account</p>
               </div>
             </div>
           </div>
 
-          <p className="text-xs text-slate-500 dark:text-slate-400">
+          <p className="text-xs text-muted">
             Your tasks, notes, habits, journal, and conversations sync automatically across all devices signed into this account.
           </p>
 

@@ -16,7 +16,7 @@ export function records(state: BrainState, type?: RecordType): BrainRecord[] {
     ...state.habits.map(data => ({ type: "habit" as const, title: data.name, date: undefined, data })),
     ...state.journalEntries.map(data => ({ type: "journal" as const, title: data.title, date: data.date, data })),
     ...state.knowledgeItems.map(data => ({ type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data })),
-    ...state.trackerItems.map(data => ({
+    ...(state.trackerItems || []).map(data => ({
       type: "tracker" as const,
       title: data.title,
       date: trackerDate(data),

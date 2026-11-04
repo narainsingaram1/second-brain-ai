@@ -1,3 +1,4 @@
+import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect } from "react";
 import { BrainState } from "../types";
 import { vectorVault, SearchResult, VaultStats } from "../services/vectorVault";
@@ -129,8 +130,8 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-fade-in">
-      <div className="bg-white dark:bg-[#12141c] rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
+    <DialogBackdrop onClose={onClose} label="Knowledge index" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
@@ -139,10 +140,10 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
+                <h3 className="font-extrabold text-base tracking-tight text-ink">
                   Semantic Memory Vault
                 </h3>
-                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 flex items-center gap-1">
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   RAG Vector Store
                 </span>
@@ -166,8 +167,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
               <RefreshCw className={`w-3.5 h-3.5 ${isReindexing ? "animate-spin" : ""}`} />
               <span>{isReindexing ? "Re-indexing..." : "Re-index Brain"}</span>
             </button>
-            <button
-              onClick={onClose}
+            <button aria-label="Close dialog" onClick={onClose}
               className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
             >
               <X className="w-4 h-4" />
@@ -205,37 +205,37 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
           {/* Stats Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
                 <Layers className="w-3.5 h-3.5 text-blue-500" />
                 <span className="text-[11px] font-bold uppercase tracking-wider">Vector Chunks</span>
               </div>
-              <div className="text-xl font-extrabold text-slate-900 dark:text-white">
+              <div className="text-xl font-extrabold text-ink">
                 {stats?.total_chunks || 0}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                 <span className="text-[11px] font-bold uppercase tracking-wider">Indexed Items</span>
               </div>
-              <div className="text-xl font-extrabold text-slate-900 dark:text-white">
+              <div className="text-xl font-extrabold text-ink">
                 {stats?.total_items || 0}
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
                 <Cpu className="w-3.5 h-3.5 text-purple-500" />
                 <span className="text-[11px] font-bold uppercase tracking-wider">Dimensions</span>
               </div>
-              <div className="text-xl font-extrabold text-slate-900 dark:text-white">
+              <div className="text-xl font-extrabold text-ink">
                 {stats?.vector_dim || 384}d
               </div>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/60 dark:border-slate-800">
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
                 <HardDrive className="w-3.5 h-3.5 text-pink-500" />
                 <span className="text-[11px] font-bold uppercase tracking-wider">Engine</span>
@@ -249,20 +249,20 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
           {/* Interactive Semantic Search Query Tool */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-extrabold text-slate-900 dark:text-white flex items-center gap-1.5">
+              <label className="text-xs font-extrabold text-ink flex items-center gap-1.5">
                 <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
                 <span>Live Semantic Search Test (Cosine Similarity)</span>
               </label>
 
               {/* Type Filter Pills */}
-              <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-0.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
+              <div className="flex items-center gap-1 bg-raised p-0.5 rounded-xl border border-slate-200/50 dark:border-slate-700/50">
                 {["all", "task", "journal", "knowledge", "habit"].map((type) => (
                   <button
                     key={type}
                     onClick={() => setFilterType(type)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold capitalize transition-all ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold capitalize transition-all ${
                       filterType === type
-                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-2xs"
+                        ? "bg-white dark:bg-slate-700 text-ink shadow-2xs"
                         : "text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                     }`}
                   >
@@ -279,7 +279,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Ask your memory vault (e.g. 'what did I decide about CS 1332?', 'workout progress')..."
-                className="w-full bg-slate-50 dark:bg-slate-900/70 border border-slate-200 dark:border-slate-800 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium"
+                className="w-full bg-slate-50 dark:bg-slate-900/70 border border-line rounded-2xl pl-10 pr-4 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium"
               />
               {isSearching && (
                 <div className="absolute right-3.5 w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -289,12 +289,12 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
             {/* Quick Sample Queries */}
             {!searchQuery && (
               <div className="flex flex-wrap gap-1.5 pt-1">
-                <span className="text-[10px] text-slate-400 font-semibold self-center mr-1">Try:</span>
+                <span className="text-[11px] text-slate-400 font-semibold self-center mr-1">Try:</span>
                 {sampleQueries.map((q, idx) => (
                   <button
                     key={idx}
                     onClick={() => setSearchQuery(q)}
-                    className="px-2.5 py-1 rounded-xl bg-slate-100 dark:bg-slate-800/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-[10px] font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors border border-slate-200/40 dark:border-slate-700/40"
+                    className="px-2.5 py-1 rounded-xl bg-raised hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors border border-slate-200/40 dark:border-slate-700/40"
                   >
                     "{q}"
                   </button>
@@ -319,15 +319,15 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                   return (
                     <div
                       key={res.chunk.id || idx}
-                      className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-slate-200/70 dark:border-slate-800/70 space-y-2 hover:border-indigo-400/50 transition-all"
+                      className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line space-y-2 hover:border-indigo-400/50 transition-all"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           {getTypeIcon(res.chunk.item_type)}
-                          <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-md bg-slate-200/70 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
                             {res.chunk.item_type}
                           </span>
-                          <span className="font-bold text-xs text-slate-900 dark:text-white">
+                          <span className="font-bold text-xs text-ink">
                             {res.chunk.title}
                           </span>
                         </div>
@@ -351,7 +351,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                       </p>
 
                       {res.chunk.date && (
-                        <div className="flex items-center gap-1 text-[10px] text-slate-400 font-mono">
+                        <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
                           <Calendar className="w-3 h-3" />
                           <span>Timeline: {res.chunk.date}</span>
                         </div>
@@ -375,14 +375,13 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
         {/* Footer info */}
         <div className="px-6 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between text-[11px] text-slate-400">
           <span>Synced locally to SQLite / JSON Vector Vault in ~/.second_brain_ai/</span>
-          <button
-            onClick={onClose}
+          <button aria-label="Close dialog" onClick={onClose}
             className="px-4 py-1.5 rounded-xl bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-800 dark:text-slate-200 font-bold transition-colors"
           >
             Close
           </button>
         </div>
       </div>
-    </div>
+    </DialogBackdrop>
   );
 };

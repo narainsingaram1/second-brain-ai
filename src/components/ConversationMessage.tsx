@@ -26,7 +26,7 @@ export function ConversationMessage({ message, state, onSaveNote }: { message: A
   return <article data-message-id={message.id} className="chat-assistant-message">
     <div className="chat-assistant-avatar"><Sparkles size={16} aria-hidden="true" /></div>
     <div className="chat-answer min-w-0">
-      <span className="chat-assistant-name">Synapse</span>
+      <span className="chat-assistant-name">Iris</span>
       <MarkdownView className="chat-prose" content={message.content} renderReference={(type, id, before) => {
         const source = message.sources?.find(s => s.type === type && s.id === id) || { type, id, title: referenceTitle(type, id, message.sources, state) };
         const title = referenceTitle(type, id, message.sources, state);
