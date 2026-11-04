@@ -32,7 +32,7 @@ import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal"
 import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
 import { AuditLogModal } from "./components/AuditLogModal";
 import { vectorVault } from "./services/vectorVault";
-import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Undo2, Target, FileText } from "lucide-react";
+import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
 
 export const App: React.FC = () => {
   const [startupError, setStartupError] = useState("");
@@ -89,7 +89,6 @@ export const App: React.FC = () => {
   const [isVaultModalOpen, setIsVaultModalOpen] = useState(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [isAuditLogOpen, setIsAuditLogOpen] = useState(false);
-  const [undoToast, setUndoToast] = useState<{ message: string; onUndo: () => void } | null>(null);
 
   // Undo / Redo History Stack (30 rolling snapshots)
   const historyPast = useRef<BrainState[]>([]);
@@ -228,11 +227,6 @@ export const App: React.FC = () => {
       ...prev,
       auditLog: [entry, ...(prev.auditLog || []).slice(0, 99)],
     } : null));
-
-    setUndoToast({
-      message: `${action}: "${entityTitle.slice(0, 24)}"`,
-      onUndo: handleUndo,
-    });
   };
 
   // ⌘Z Undo Handler
@@ -241,11 +235,6 @@ export const App: React.FC = () => {
     const previousState = historyPast.current.pop()!;
     historyFuture.current.push(JSON.parse(JSON.stringify(state)));
     setState(current => current ? { ...previousState, agentMemory: current.agentMemory } : current);
-    setUndoToast({
-      message: "State restored (⌘Z)",
-      onUndo: handleRedo,
-    });
-    setTimeout(() => setUndoToast(null), 3500);
   };
 
   // ⌘⇧Z / ⌘Y Redo Handler
@@ -254,7 +243,6 @@ export const App: React.FC = () => {
     const nextState = historyFuture.current.pop()!;
     historyPast.current.push(JSON.parse(JSON.stringify(state)));
     setState(current => current ? { ...nextState, agentMemory: current.agentMemory } : current);
-    setUndoToast(null);
   };
 
   // Global Keyboard Shortcuts
@@ -1227,29 +1215,6 @@ export const App: React.FC = () => {
           setState((prev) => (prev ? { ...prev, auditLog: [] } : null))
         }
       />
-
-      {/* Undo/Redo Floating Action Toast */}
-      {undoToast && (
-        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-4 py-2.5 rounded-2xl bg-slate-900/95 text-white dark:bg-white/95 dark:text-slate-950 backdrop-blur-md shadow-2xl border border-slate-700/50 dark:border-slate-200/50 animate-fade-in text-xs font-semibold">
-          <span>{undoToast.message}</span>
-          <button
-            onClick={() => {
-              undoToast.onUndo();
-              setUndoToast(null);
-            }}
-            className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors"
-          >
-            <Undo2 className="w-3.5 h-3.5" />
-            <span>Undo (⌘Z)</span>
-          </button>
-          <button
-            onClick={() => setUndoToast(null)}
-            className="p-1 hover:opacity-75 transition-opacity"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
     </div>
   );
 };
