@@ -1,26 +1,65 @@
-import { useEffect, useState } from "react";
-import { EditorContent, useEditor, useEditorState } from "@tiptap/react";
+import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import { noteExtensions } from "./noteExtensions";
 import { Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
 
 interface Props { content: string; onChange: (markdown: string) => void; readOnly?: boolean }
 
-export function NoteRichText({ content, onChange, readOnly = false }: Props) {
+export interface NoteRichTextHandle { flush: () => string }
+
+export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function NoteRichText({ content, onChange, readOnly = false }, ref) {
+  const extensions = useMemo(noteExtensions, []);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const publishedRef = useRef(content);
+  const dirtyRef = useRef(false);
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clearTimers = () => {
+    if (idleTimer.current) clearTimeout(idleTimer.current);
+    if (maxTimer.current) clearTimeout(maxTimer.current);
+    idleTimer.current = maxTimer.current = null;
+  };
+  const publish = (instance: Editor) => {
+    clearTimers();
+    if (!dirtyRef.current) return publishedRef.current;
+    dirtyRef.current = false;
+    const markdown = instance.getMarkdown();
+    if (markdown !== publishedRef.current) {
+      publishedRef.current = markdown;
+      onChangeRef.current(markdown);
+    }
+    return markdown;
+  };
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState("");
   const editor = useEditor({
-    extensions: noteExtensions(),
+    extensions,
     content,
     contentType: "markdown",
     immediatelyRender: false,
+    shouldRerenderOnTransaction: false,
     editable: !readOnly,
     editorProps: { attributes: { class: "note-prose", role: "textbox", "aria-label": "Note content", "aria-multiline": "true" } },
-    onUpdate: ({ editor }) => onChange(editor.getMarkdown()),
+    onUpdate: ({ editor }) => {
+      // Editing stays in ProseMirror. Convert the full document only after a pause,
+      // with a bounded interval for long uninterrupted writing sessions.
+      dirtyRef.current = true;
+      if (idleTimer.current) clearTimeout(idleTimer.current);
+      idleTimer.current = setTimeout(() => publish(editor), 300);
+      if (!maxTimer.current) maxTimer.current = setTimeout(() => publish(editor), 2000);
+    },
   });
-  useEffect(() => { editor?.setEditable(!readOnly); }, [editor, readOnly]);
+  useImperativeHandle(ref, () => ({ flush: () => editor ? publish(editor) : publishedRef.current }), [editor]);
+  useEffect(() => () => clearTimers(), []);
+  useEffect(() => { if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly); }, [editor, readOnly]);
   useEffect(() => {
-    if (editor && content !== editor.getMarkdown()) {
+    // Echoes of our own autosave never reparse the document or move the cursor.
+    if (editor && content !== publishedRef.current) {
+      clearTimers();
+      dirtyRef.current = false;
+      publishedRef.current = content;
       editor.commands.setContent(content, { contentType: "markdown", emitUpdate: false });
     }
   }, [editor, content]);
@@ -84,4 +123,4 @@ export function NoteRichText({ content, onChange, readOnly = false }: Props) {
     <EditorContent editor={editor} />
     {!readOnly && <p className="note-writing-hint">Markdown shortcuts work as you type · Select text to format · ⌘/Ctrl+Z to undo</p>}
   </div>;
-}
+}));

@@ -29,6 +29,7 @@ button:focus-visible, a:focus-visible { outline: 2px solid var(--silk-accent); o
 .dark .synapse-sidebar { background: #171825b3; border-color: var(--silk-line); }
 .synapse-sidebar.w-\[72px\] { width: 68px; padding-inline: 9px; }
 .synapse-sidebar > div:first-child > div { padding: 0 8px; }
+.synapse-sidebar.w-\[72px\] .sidebar-brand-row { padding-inline: 0; }
 .synapse-sidebar > div:first-child > div > div > div { background: radial-gradient(circle at 35% 30%, #d1c7ff, #8c72f8 48%, #684deb); box-shadow: 0 0 18px #a58dff35, inset 0 1px 4px #ffffff99; border-radius: 12px; }
 .synapse-sidebar .font-extrabold { font-size: 20px; font-weight: 700; letter-spacing: -.8px; }
 .brand-period { color: #8a72ef; }

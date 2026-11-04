@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback } from "react";
 import { KnowledgeItem, NoteFolder } from "../types";
 import { createPortal } from "react-dom";
+import type { NoteRichTextHandle } from "./NoteRichText";
 const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
 import {
   ArrowLeft,
@@ -56,7 +57,6 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   const [mode, setMode] = useState<EditorMode>("write");
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved">("saved");
   const [isCopied, setIsCopied] = useState(false);
 
   // AI assistant state
@@ -66,6 +66,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
   const [textSize, setTextSize] = useState(18);
   const editorRootRef = useRef<HTMLDivElement>(null);
+  const richEditorRef = useRef<NoteRichTextHandle>(null);
+  const contentRef = useRef(content);
+  const autoSaveContentRef = useRef<(value: string) => void>(() => {});
+  const currentContent = () => richEditorRef.current?.flush() ?? contentRef.current;
   const inlineHostRef = useRef<HTMLDivElement>(null);
   const [portalHost] = useState(() => typeof document === "undefined" ? null : document.createElement("div"));
 
@@ -82,13 +86,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushSave = () => {
+    richEditorRef.current?.flush();
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    pendingSaveRef.current?.();
+    const save = pendingSaveRef.current;
     pendingSaveRef.current = null;
+    save?.();
   };
-  useEffect(() => () => {
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    if (!deletedRef.current) pendingSaveRef.current?.();
+  // Layout cleanup runs before the child editor detaches, preserving the final keystroke.
+  useLayoutEffect(() => () => {
+    if (!deletedRef.current) flushSave();
+    else if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+  }, []);
+  useEffect(() => {
+    const onHidden = () => { if (document.visibilityState === "hidden") flushSave(); };
+    window.addEventListener("pagehide", flushSave);
+    document.addEventListener("visibilitychange", onHidden);
+    return () => {
+      window.removeEventListener("pagehide", flushSave);
+      document.removeEventListener("visibilitychange", onHidden);
+    };
   }, []);
 
   useEffect(() => {
@@ -120,12 +136,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   // Update local state when note prop changes
   useEffect(() => {
     setTitle(note.title || note.subject || "");
-    setContent(note.content ?? note.summary ?? "");
+    contentRef.current = note.content ?? note.summary ?? "";
+    setContent(contentRef.current);
     setFolderId(note.folderId || null);
     setTags(note.tags || []);
     setPinned(Boolean(note.pinned));
     setFavorite(Boolean(note.favorite));
-    setSaveStatus("saved");
   }, [note.id]);
 
   // Debounced auto-save
@@ -137,11 +153,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     newPinned: boolean,
     newFavorite: boolean
   ) => {
-    setSaveStatus("unsaved");
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     pendingSaveRef.current = () => {
-      setSaveStatus("saving");
       const summarySnippet =
         newContent.trim().length > 200
           ? newContent.trim().slice(0, 197) + "..."
@@ -162,36 +176,37 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       };
 
       onSave(updated);
-      setSaveStatus("saved");
     };
-    saveTimeoutRef.current = setTimeout(flushSave, 400);
+    saveTimeoutRef.current = setTimeout(flushSave, 600);
   };
 
   const handleTitleChange = (val: string) => {
     setTitle(val);
-    triggerAutoSave(val, content, folderId, tags, pinned, favorite);
+    triggerAutoSave(val, currentContent(), folderId, tags, pinned, favorite);
   };
 
-  const handleContentChange = (val: string) => {
+  autoSaveContentRef.current = value => triggerAutoSave(title, value, folderId, tags, pinned, favorite);
+  const handleContentChange = useCallback((val: string) => {
+    contentRef.current = val;
     setContent(val);
-    triggerAutoSave(title, val, folderId, tags, pinned, favorite);
-  };
+    autoSaveContentRef.current(val);
+  }, []);
 
   const handleFolderChange = (val: string | null) => {
     setFolderId(val);
-    triggerAutoSave(title, content, val, tags, pinned, favorite);
+    triggerAutoSave(title, currentContent(), val, tags, pinned, favorite);
   };
 
   const handleTogglePin = () => {
     const next = !pinned;
     setPinned(next);
-    triggerAutoSave(title, content, folderId, tags, next, favorite);
+    triggerAutoSave(title, currentContent(), folderId, tags, next, favorite);
   };
 
   const handleToggleFavorite = () => {
     const next = !favorite;
     setFavorite(next);
-    triggerAutoSave(title, content, folderId, tags, pinned, next);
+    triggerAutoSave(title, currentContent(), folderId, tags, pinned, next);
   };
 
   const handleAddTag = () => {
@@ -200,26 +215,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       const nextTags = [...tags, trimmed];
       setTags(nextTags);
       setNewTagInput("");
-      triggerAutoSave(title, content, folderId, nextTags, pinned, favorite);
+      triggerAutoSave(title, currentContent(), folderId, nextTags, pinned, favorite);
     }
   };
 
   const handleRemoveTag = (tagToRemove: string) => {
     const nextTags = tags.filter((t) => t !== tagToRemove);
     setTags(nextTags);
-    triggerAutoSave(title, content, folderId, nextTags, pinned, favorite);
+    triggerAutoSave(title, currentContent(), folderId, nextTags, pinned, favorite);
   };
 
   // Copy markdown
   const handleCopy = () => {
-    navigator.clipboard.writeText(`# ${title}\n\n${content}`);
+    navigator.clipboard.writeText(`# ${title}\n\n${currentContent()}`);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
 
   // Export note as text
   const handleExport = () => {
-    const blob = new Blob([`# ${title}\n\n${content}`], { type: "text/markdown" });
+    const blob = new Blob([`# ${title}\n\n${currentContent()}`], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -236,18 +251,19 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       return;
     }
 
+    const latestContent = currentContent();
     setIsAILoading(true);
     setAiMenuOpen(false);
 
     let prompt = "";
     if (action === "summarize") {
-      prompt = `Provide a concise 3-4 bullet executive summary and key takeaways for this note:\n\nTitle: ${title}\n\n${content}`;
+      prompt = `Provide a concise 3-4 bullet executive summary and key takeaways for this note:\n\nTitle: ${title}\n\n${latestContent}`;
     } else if (action === "tasks") {
-      prompt = `Extract all concrete, actionable tasks from this note as a JSON array of strings (e.g. ["task 1", "task 2"]). Only output valid JSON with no preamble:\n\nTitle: ${title}\n\n${content}`;
+      prompt = `Extract all concrete, actionable tasks from this note as a JSON array of strings (e.g. ["task 1", "task 2"]). Only output valid JSON with no preamble:\n\nTitle: ${title}\n\n${latestContent}`;
     } else if (action === "polish") {
-      prompt = `Improve clarity, fix typos/grammar, and enhance the structure of this note while preserving all original ideas and technical terms. Return only the revised note in markdown:\n\n${content}`;
+      prompt = `Improve clarity, fix typos/grammar, and enhance the structure of this note while preserving all original ideas and technical terms. Return only the revised note in markdown:\n\n${latestContent}`;
     } else if (action === "expand") {
-      prompt = `Continue and expand this note with comprehensive, high-value technical context, real-world examples, and next steps:\n\nTitle: ${title}\n\n${content}`;
+      prompt = `Continue and expand this note with comprehensive, high-value technical context, real-world examples, and next steps:\n\nTitle: ${title}\n\n${latestContent}`;
     }
 
     try {
@@ -279,20 +295,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           } else {
             // Append as checklist to note
             const checklistStr = "\n\n## Actionable Tasks\n" + aiResponse;
-            handleContentChange(content + checklistStr);
+            handleContentChange(currentContent() + checklistStr);
             setAiNotice("Appended action tasks to note!");
           }
         } catch {
-          handleContentChange(content + "\n\n## Actionable Tasks\n" + aiResponse);
+          handleContentChange(currentContent() + "\n\n## Actionable Tasks\n" + aiResponse);
         }
       } else if (action === "summarize") {
-        handleContentChange(content + "\n\n## AI Summary & Takeaways\n" + aiResponse);
+        handleContentChange(currentContent() + "\n\n## AI Summary & Takeaways\n" + aiResponse);
         setAiNotice("Added summary to note!");
       } else if (action === "polish") {
         handleContentChange(aiResponse);
         setAiNotice("Polished note successfully!");
       } else if (action === "expand") {
-        handleContentChange(content + "\n\n" + aiResponse);
+        handleContentChange(currentContent() + "\n\n" + aiResponse);
         setAiNotice("Expanded note with AI insights!");
       }
     } catch (err: any) {
@@ -382,25 +398,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
         {/* Right Action Tools: Modes, Autosave Status, AI, Fullscreen */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Save Status Indicator */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-400 dark:text-slate-500">
-            {saveStatus === "saving" ? (
-              <>
-                <Loader2 className="w-3 h-3 animate-spin text-blue-500" />
-                <span>Saving...</span>
-              </>
-            ) : (
-              <>
-                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>{saveStatus === "unsaved" ? "Unsaved changes" : "Saved"}</span>
-              </>
-            )}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-400 dark:text-slate-500" title="Notes save automatically. Sync issues appear in Workspace & Sync.">
+            <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+            <span>Autosave on</span>
           </div>
 
           {/* View Mode Switcher */}
           <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl">
             <button
-              onClick={() => setMode("write")}
+              onClick={() => { currentContent(); setMode("write"); }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 mode === "write"
                   ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
@@ -412,7 +418,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <span className="hidden md:inline">Edit</span>
             </button>
             <button
-              onClick={() => setMode("source")}
+              onClick={() => { currentContent(); setMode("source"); }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 mode === "source"
                   ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
@@ -424,7 +430,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <span className="hidden md:inline">Markdown</span>
             </button>
             <button
-              onClick={() => setMode("preview")}
+              onClick={() => { currentContent(); setMode("preview"); }}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
                 mode === "preview"
                   ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
@@ -615,7 +621,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           onChange={e => handleContentChange(e.target.value)}
           placeholder="Write Markdown here…"
           className="note-source"
-        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText key={note.id} content={content} onChange={handleContentChange} readOnly={mode === "preview"} /></Suspense>}
+        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={note.id} content={content} onChange={handleContentChange} readOnly={mode === "preview"} /></Suspense>}
       </div>
       <div className="note-editor-footer"><span>{words} words · {content.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
     </div>

@@ -45,7 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     >
       {/* Top Branding Section */}
       <div className="space-y-6">
-        <div className="flex items-center justify-between px-1">
+        <div className={`sidebar-brand-row flex items-center px-1 ${collapsed ? "flex-col gap-3" : "justify-between"}`}>
           <div
             onClick={() => setActiveTab("home")}
             className="flex items-center gap-2.5 cursor-pointer group"
@@ -64,7 +64,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
           <button
             onClick={onToggleCollapse}
-            className="hidden md:block p-1.5 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
+            className="hidden md:flex items-center justify-center shrink-0 p-1.5 rounded-xl text-slate-400 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/60 transition-colors"
             title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
           >
             {collapsed ? (
