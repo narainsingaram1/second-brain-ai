@@ -195,6 +195,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
     return (
       <div className="w-full max-w-5xl mx-auto animate-fade-in">
         <NoteEditor
+          key={selectedNote.id}
           note={selectedNote}
           folders={folders}
           onSave={(updated) => {
@@ -519,7 +520,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
             {currentNotes.map((note) => {
               const noteTitle = note.title || note.subject || "Untitled Note";
-              const noteText = note.content || note.summary || "No content yet...";
+              const noteText = note.content ?? note.summary ?? "No content yet...";
               const noteFolderObj = folders.find((f) => f.id === note.folderId);
               const previewLines = noteText.replace(/^[#\-*>\s`]+/gm, "").slice(0, 140);
               const isPinned = Boolean(note.pinned);
@@ -646,7 +647,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
               {currentNotes.map((note) => {
                 const noteTitle = note.title || note.subject || "Untitled Note";
-                const noteText = note.content || note.summary || "";
+                const noteText = note.content ?? note.summary ?? "";
                 const noteFolderObj = folders.find((f) => f.id === note.folderId);
                 const words = noteText.trim().split(/\s+/).filter(Boolean).length;
 

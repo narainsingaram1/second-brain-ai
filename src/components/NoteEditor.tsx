@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect } from "react";
 import { KnowledgeItem, NoteFolder } from "../types";
-import { MarkdownView } from "./MarkdownView";
+import { createPortal } from "react-dom";
+const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
 import {
   ArrowLeft,
   Folder as FolderIcon,
@@ -14,21 +15,11 @@ import {
   Check,
   Maximize2,
   Minimize2,
-  Bold,
-  Italic,
-  Strikethrough,
-  Heading1,
-  Heading2,
-  Heading3,
   List,
-  ListOrdered,
   CheckSquare,
   Code,
-  Quote,
-  Minus,
   Eye,
   Edit3,
-  Columns,
   Loader2,
 } from "lucide-react";
 
@@ -43,7 +34,7 @@ interface NoteEditorProps {
   onGenerateTasks?: (tasks: { title: string; priority?: string }[]) => void;
 }
 
-type EditorMode = "write" | "split" | "preview";
+type EditorMode = "write" | "source" | "preview";
 
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
@@ -56,7 +47,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onGenerateTasks,
 }) => {
   const [title, setTitle] = useState(note.title || note.subject || "");
-  const [content, setContent] = useState(note.content || note.summary || "");
+  const [content, setContent] = useState(note.content ?? note.summary ?? "");
   const [folderId, setFolderId] = useState<string | null>(note.folderId || null);
   const [tags, setTags] = useState<string[]>(note.tags || []);
   const [newTagInput, setNewTagInput] = useState("");
@@ -73,13 +64,63 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const saveTimeoutRef = useRef<any>(null);
+  const [textSize, setTextSize] = useState(18);
+  const editorRootRef = useRef<HTMLDivElement>(null);
+  const inlineHostRef = useRef<HTMLDivElement>(null);
+  const [portalHost] = useState(() => typeof document === "undefined" ? null : document.createElement("div"));
+
+  // Move a stable portal container so focus mode preserves selection and undo history.
+  useLayoutEffect(() => {
+    if (!portalHost) return;
+    const parent = isFullscreen ? document.body : inlineHostRef.current;
+    parent?.appendChild(portalHost);
+    return () => { portalHost.remove(); };
+  }, [isFullscreen, portalHost]);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
+  const pendingSaveRef = useRef<(() => void) | null>(null);
+  const deletedRef = useRef(false);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flushSave = () => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    pendingSaveRef.current?.();
+    pendingSaveRef.current = null;
+  };
+  useEffect(() => () => {
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    if (!deletedRef.current) pendingSaveRef.current?.();
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.body.style.overflow = "hidden";
+    editorRootRef.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); setIsFullscreen(false); }
+      if (event.key === "Tab") {
+        const controls = Array.from(editorRootRef.current?.querySelectorAll<HTMLElement>(
+          'button:not(:disabled), input, select, textarea, [contenteditable="true"], [tabindex="0"]'
+        ) || []).filter(el => el.getClientRects().length > 0);
+        const first = controls[0]; const last = controls[controls.length - 1];
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === editorRootRef.current)) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === editorRootRef.current)) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", onKey);
+      if (previousFocus?.isConnected) previousFocus.focus();
+      else fullscreenButtonRef.current?.focus();
+    };
+  }, [isFullscreen]);
 
   // Update local state when note prop changes
   useEffect(() => {
     setTitle(note.title || note.subject || "");
-    setContent(note.content || note.summary || "");
+    setContent(note.content ?? note.summary ?? "");
     setFolderId(note.folderId || null);
     setTags(note.tags || []);
     setPinned(Boolean(note.pinned));
@@ -99,7 +140,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     setSaveStatus("unsaved");
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
-    saveTimeoutRef.current = setTimeout(() => {
+    pendingSaveRef.current = () => {
       setSaveStatus("saving");
       const summarySnippet =
         newContent.trim().length > 200
@@ -122,7 +163,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       onSave(updated);
       setSaveStatus("saved");
-    }, 400);
+    };
+    saveTimeoutRef.current = setTimeout(flushSave, 400);
   };
 
   const handleTitleChange = (val: string) => {
@@ -168,164 +210,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     triggerAutoSave(title, content, folderId, nextTags, pinned, favorite);
   };
 
-  // Formatting helpers
-  const insertFormatting = (prefix: string, suffix: string = "", defaultText: string = "") => {
-    const el = textareaRef.current;
-    if (!el) return;
-
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const selected = content.slice(start, end);
-    const textToInsert = selected || defaultText;
-
-    const newContent =
-      content.slice(0, start) + prefix + textToInsert + suffix + content.slice(end);
-
-    setContent(newContent);
-    triggerAutoSave(title, newContent, folderId, tags, pinned, favorite);
-
-    setTimeout(() => {
-      el.focus();
-      const cursorTarget = start + prefix.length + textToInsert.length;
-      el.setSelectionRange(cursorTarget, cursorTarget);
-    }, 10);
-  };
-
-  const insertLinePrefix = (prefix: string) => {
-    const el = textareaRef.current;
-    if (!el) return;
-
-    const start = el.selectionStart;
-    const lineStart = content.lastIndexOf("\n", start - 1) + 1;
-    const newContent = content.slice(0, lineStart) + prefix + content.slice(lineStart);
-
-    setContent(newContent);
-    triggerAutoSave(title, newContent, folderId, tags, pinned, favorite);
-
-    setTimeout(() => {
-      el.focus();
-      const newCursor = start + prefix.length;
-      el.setSelectionRange(newCursor, newCursor);
-    }, 10);
-  };
-
-  // Keyboard navigation & list completion in textarea
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // ⌘S or Ctrl+S to save immediately
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") {
-      e.preventDefault();
-      triggerAutoSave(title, content, folderId, tags, pinned, favorite);
-      setSaveStatus("saved");
-      return;
-    }
-
-    // ⌘B for Bold
-    if ((e.metaKey || e.ctrlKey) && e.key === "b") {
-      e.preventDefault();
-      insertFormatting("**", "**", "bold text");
-      return;
-    }
-
-    // ⌘I for Italic
-    if ((e.metaKey || e.ctrlKey) && e.key === "i") {
-      e.preventDefault();
-      insertFormatting("*", "*", "italic text");
-      return;
-    }
-
-    // Tab key inserts 2 spaces
-    if (e.key === "Tab") {
-      e.preventDefault();
-      insertFormatting("  ", "", "");
-      return;
-    }
-
-    // Enter key auto-continues lists
-    if (e.key === "Enter") {
-      const el = textareaRef.current;
-      if (!el) return;
-
-      const cursor = el.selectionStart;
-      const currentLineStart = content.lastIndexOf("\n", cursor - 1) + 1;
-      const currentLine = content.slice(currentLineStart, cursor);
-
-      // Task list continuation: - [ ] or - [x]
-      const taskMatch = currentLine.match(/^(\s*)[-*]\s+\[([ xX])\]\s+(.*)$/);
-      if (taskMatch) {
-        if (!taskMatch[3].trim()) {
-          // If empty task item, remove list marker on enter
-          e.preventDefault();
-          const newContent = content.slice(0, currentLineStart) + content.slice(cursor);
-          setContent(newContent);
-          triggerAutoSave(title, newContent, folderId, tags, pinned, favorite);
-          setTimeout(() => {
-            el.setSelectionRange(currentLineStart, currentLineStart);
-          }, 10);
-        } else {
-          e.preventDefault();
-          insertFormatting("\n- [ ] ", "", "");
-        }
-        return;
-      }
-
-      // Bullet list continuation: - or *
-      const bulletMatch = currentLine.match(/^(\s*)[-*]\s+(.*)$/);
-      if (bulletMatch) {
-        if (!bulletMatch[2].trim()) {
-          // Empty bullet, clear line
-          e.preventDefault();
-          const newContent = content.slice(0, currentLineStart) + content.slice(cursor);
-          setContent(newContent);
-          triggerAutoSave(title, newContent, folderId, tags, pinned, favorite);
-          setTimeout(() => {
-            el.setSelectionRange(currentLineStart, currentLineStart);
-          }, 10);
-        } else {
-          e.preventDefault();
-          insertFormatting("\n- ", "", "");
-        }
-        return;
-      }
-
-      // Numbered list continuation: 1. 2.
-      const numMatch = currentLine.match(/^(\s*)(\d+)\.\s+(.*)$/);
-      if (numMatch) {
-        if (!numMatch[3].trim()) {
-          // Empty number, clear line
-          e.preventDefault();
-          const newContent = content.slice(0, currentLineStart) + content.slice(cursor);
-          setContent(newContent);
-          triggerAutoSave(title, newContent, folderId, tags, pinned, favorite);
-          setTimeout(() => {
-            el.setSelectionRange(currentLineStart, currentLineStart);
-          }, 10);
-        } else {
-          e.preventDefault();
-          const nextNum = parseInt(numMatch[2], 10) + 1;
-          insertFormatting(`\n${nextNum}. `, "", "");
-        }
-        return;
-      }
-    }
-  };
-
-  // Toggle checkbox in preview mode
-  const handleToggleCheckbox = (lineIndex: number, newChecked: boolean) => {
-    const lines = content.split("\n");
-    if (lineIndex >= 0 && lineIndex < lines.length) {
-      const line = lines[lineIndex];
-      lines[lineIndex] = line.replace(/\[([ xX])\]/, newChecked ? "[x]" : "[ ]");
-      const updated = lines.join("\n");
-      setContent(updated);
-      triggerAutoSave(title, updated, folderId, tags, pinned, favorite);
-    }
-  };
-
   // Copy markdown
   const handleCopy = () => {
     navigator.clipboard.writeText(`# ${title}\n\n${content}`);
     setIsCopied(true);
-    setTimeout(() => setIsCopied(null as any), 2000);
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   // Export note as text
@@ -419,17 +308,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const words = content.trim().split(/\s+/).filter(Boolean).length;
   const readTime = Math.ceil(words / 200);
 
-  return (
+  const editorView = (
     <div
-      className={`w-full flex flex-col bg-white dark:bg-[#10131d] rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all ${
-        isFullscreen ? "fixed inset-0 z-50 rounded-none border-none p-6 overflow-y-auto" : "p-4 sm:p-6"
+      ref={editorRootRef}
+      tabIndex={-1}
+      role={isFullscreen ? "dialog" : undefined}
+      aria-modal={isFullscreen ? true : undefined}
+      aria-label={isFullscreen ? "Full-screen note editor" : undefined}
+      onKeyDownCapture={e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); flushSave(); } }}
+      style={{ "--note-font-size": `${textSize}px` } as React.CSSProperties}
+      className={`note-editor w-full flex flex-col bg-white dark:bg-[#10131d] rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm transition-all ${
+        isFullscreen ? "note-editor-fullscreen fixed inset-0 z-[100] rounded-none border-none p-4 sm:p-8 overflow-y-auto" : "p-4 sm:p-6"
       }`}
     >
       {/* Top Navigation & Action Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800/80">
         <div className="flex items-center gap-2 flex-wrap">
           <button
-            onClick={onBack}
+            onClick={() => { flushSave(); onBack(); }}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -440,6 +336,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800/80 px-2.5 py-1 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300">
             <FolderIcon className="w-3.5 h-3.5 text-blue-500" />
             <select
+              aria-label="Note folder"
               value={folderId || ""}
               onChange={(e) => handleFolderChange(e.target.value ? e.target.value : null)}
               className="bg-transparent focus:outline-none cursor-pointer max-w-[140px] truncate"
@@ -495,10 +392,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             ) : (
               <>
                 <div className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Saved</span>
+                <span>{saveStatus === "unsaved" ? "Unsaved changes" : "Saved"}</span>
               </>
             )}
-            <span className="hidden sm:inline">• {words} words ({readTime}m)</span>
           </div>
 
           {/* View Mode Switcher */}
@@ -510,22 +406,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
-              title="Edit Note"
+              title="Edit with live formatting"
             >
               <Edit3 className="w-3 h-3" />
-              <span className="hidden md:inline">Write</span>
+              <span className="hidden md:inline">Edit</span>
             </button>
             <button
-              onClick={() => setMode("split")}
+              onClick={() => setMode("source")}
               className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
-                mode === "split"
+                mode === "source"
                   ? "bg-white dark:bg-[#141721] text-slate-900 dark:text-white shadow-xs"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
-              title="Split View (Editor + Live Preview)"
+              title="Edit Markdown source"
             >
-              <Columns className="w-3 h-3" />
-              <span className="hidden md:inline">Split</span>
+              <Code className="w-3 h-3" />
+              <span className="hidden md:inline">Markdown</span>
             </button>
             <button
               onClick={() => setMode("preview")}
@@ -608,16 +504,24 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </button>
 
           <button
+            ref={fullscreenButtonRef}
+            aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
+            aria-pressed={isFullscreen}
             onClick={() => setIsFullscreen(!isFullscreen)}
             className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 transition-colors"
             title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Focus"}
+            style={{ display: "inline-flex", alignItems: "center", background: "var(--note-focus-bg, #eff6ff)", color: "#2563eb", padding: "7px 10px" }}
           >
             {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span className="hidden sm:inline text-xs font-semibold ml-1.5">{isFullscreen ? "Exit full screen" : "Full screen"}</span>
           </button>
 
           <button
             onClick={() => {
               if (confirm(`Delete note "${title || "Untitled"}"?`)) {
+                deletedRef.current = true;
+                pendingSaveRef.current = null;
+                if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
                 onDelete(note.id);
                 onBack();
               }
@@ -646,14 +550,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
+      <div className="note-document-header">
+      <div className="note-document-eyebrow">YOUR WORKSPACE / NOTE</div>
       {/* Note Title Input */}
       <div className="pt-4 pb-2">
         <input
           type="text"
+          aria-label="Note title"
           placeholder="Untitled Note..."
           value={title}
           onChange={(e) => handleTitleChange(e.target.value)}
-          className="w-full text-2xl sm:text-3xl font-black tracking-tight text-slate-900 dark:text-white bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
+          className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-slate-900 dark:text-white bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
         />
       </div>
 
@@ -667,6 +574,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           >
             <span>#{t}</span>
             <button
+              aria-label={`Remove tag ${t}`}
               onClick={() => handleRemoveTag(t)}
               className="opacity-50 hover:opacity-100 text-slate-400 hover:text-rose-500 ml-0.5"
             >
@@ -691,160 +599,26 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       </div>
 
-      {/* Formatting Toolbar (shown in Write and Split modes) */}
-      {mode !== "preview" && (
-        <div className="flex items-center gap-1 flex-wrap py-1.5 px-2 mb-3 bg-slate-50 dark:bg-slate-900/60 rounded-2xl border border-slate-100 dark:border-slate-800 text-slate-600 dark:text-slate-300">
-          <button
-            type="button"
-            onClick={() => insertFormatting("**", "**", "bold text")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Bold (⌘B)"
-          >
-            <Bold className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertFormatting("*", "*", "italic text")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Italic (⌘I)"
-          >
-            <Italic className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertFormatting("~~", "~~", "strikethrough")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Strikethrough"
-          >
-            <Strikethrough className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("# ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Heading 1"
-          >
-            <Heading1 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("## ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Heading 2"
-          >
-            <Heading2 className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("### ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Heading 3"
-          >
-            <Heading3 className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("- ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Bullet List"
-          >
-            <List className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("1. ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Numbered List"
-          >
-            <ListOrdered className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("- [ ] ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Checklist / Task List"
-          >
-            <CheckSquare className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="w-[1px] h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-
-          <button
-            type="button"
-            onClick={() => insertFormatting("```\n", "\n```", "code")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Code Block"
-          >
-            <Code className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertLinePrefix("> ")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Blockquote"
-          >
-            <Quote className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => insertFormatting("\n---\n", "", "")}
-            className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-            title="Horizontal Rule"
-          >
-            <Minus className="w-3.5 h-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* Main Content Workspace: Write, Split, or Preview */}
-      <div className="flex-1 min-h-[450px] flex">
-        {mode === "write" && (
-          <textarea
-            ref={textareaRef}
-            value={content}
-            onChange={(e) => handleContentChange(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Type your notes here... Markdown is supported (# Headings, - Lists, - [ ] Checkboxes, ```code, **bold**)"
-            className="w-full h-full min-h-[450px] p-2 bg-transparent text-slate-800 dark:text-slate-100 font-sans text-xs sm:text-[13px] leading-relaxed focus:outline-none resize-none"
-          />
-        )}
-
-        {mode === "split" && (
-          <div className="w-full grid grid-cols-1 md:grid-cols-2 gap-6 min-h-[450px]">
-            <div className="border-r border-slate-100 dark:border-slate-800/80 pr-4">
-              <textarea
-                ref={textareaRef}
-                value={content}
-                onChange={(e) => handleContentChange(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Type your markdown notes here..."
-                className="w-full h-full min-h-[450px] p-2 bg-transparent text-slate-800 dark:text-slate-100 font-sans text-xs sm:text-[13px] leading-relaxed focus:outline-none resize-none"
-              />
-            </div>
-            <div className="pl-2 overflow-y-auto max-h-[700px]">
-              <MarkdownView
-                content={content || "*No content typed yet...*"}
-                onToggleCheckbox={handleToggleCheckbox}
-              />
-            </div>
-          </div>
-        )}
-
-        {mode === "preview" && (
-          <div className="w-full min-h-[450px] p-2 overflow-y-auto">
-            <MarkdownView
-              content={content || "*Empty note. Switch to Write mode to type...*"}
-              onToggleCheckbox={handleToggleCheckbox}
-            />
-          </div>
-        )}
       </div>
+      <div className="note-reading-controls">
+        <span>{mode === "write" ? "Live editing" : mode === "source" ? "Markdown source" : "Reading view"}</span>
+        <label>Text size
+          <select aria-label="Note text size" value={textSize} onChange={e => setTextSize(Number(e.target.value))}>
+            <option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="22">22</option>
+          </select>
+        </label>
+      </div>
+      <div className="note-content-workspace flex-1 min-h-[450px]">
+        {mode === "source" ? <textarea
+          aria-label="Markdown source"
+          value={content}
+          onChange={e => handleContentChange(e.target.value)}
+          placeholder="Write Markdown here…"
+          className="note-source"
+        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText key={note.id} content={content} onChange={handleContentChange} readOnly={mode === "preview"} /></Suspense>}
+      </div>
+      <div className="note-editor-footer"><span>{words} words · {content.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
     </div>
   );
+  return <><div ref={inlineHostRef} />{portalHost ? createPortal(editorView, portalHost) : editorView}</>;
 };
