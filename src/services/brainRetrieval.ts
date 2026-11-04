@@ -1,6 +1,12 @@
-import { BrainState } from "../types";
+import { BrainState, TrackerItem } from "../types";
 
-export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge";
+export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker";
+
+function trackerDate(item: TrackerItem): string | undefined {
+  if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
+  if (typeof item.fields.lastPractice === "string") return item.fields.lastPractice;
+  return undefined;
+}
 export interface BrainRecord { id: string; type: RecordType; title: string; date?: string; text: string; data: Record<string, unknown> }
 export interface Source { id: string; type: string; title: string; snippet: string; offset?: number }
 export function records(state: BrainState, type?: RecordType): BrainRecord[] {
@@ -10,6 +16,12 @@ export function records(state: BrainState, type?: RecordType): BrainRecord[] {
     ...state.habits.map(data => ({ type: "habit" as const, title: data.name, date: undefined, data })),
     ...state.journalEntries.map(data => ({ type: "journal" as const, title: data.title, date: data.date, data })),
     ...state.knowledgeItems.map(data => ({ type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data })),
+    ...state.trackerItems.map(data => ({
+      type: "tracker" as const,
+      title: data.title,
+      date: trackerDate(data),
+      data: { ...data.fields, kind: data.kind, id: data.id },
+    })),
   ]).filter(r => !type || r.type === type).map(r => ({ ...r, id: r.data.id, data: { ...r.data }, text: JSON.stringify(r.data, null, 2) }));
 }
 export function chunks(record: BrainRecord): Source[] {

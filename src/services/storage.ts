@@ -690,6 +690,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     habits,
     journalEntries: storedState.journalEntries || INITIAL_JOURNAL,
     knowledgeItems,
+    trackerItems: storedState.trackerItems || [],
     noteFolders,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
     conversationId: storedState.conversationId,

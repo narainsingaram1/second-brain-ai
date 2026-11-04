@@ -3,6 +3,46 @@ export type LifeDomain = 'career' | 'health' | 'mindset' | 'learning' | 'ai';
 
 export type TaskStatus = 'not_started' | 'in_progress' | 'completed';
 
+export type TrackerStatus =
+  | 'not_started'
+  | 'in_progress'
+  | 'done'
+  | 'review'
+  | 'applied'
+  | 'screening'
+  | 'onsite'
+  | 'offer'
+  | 'rejected';
+
+export type TrackerKind = 'leetcode' | 'job_application';
+
+export interface TrackerItem {
+  id: string;
+  kind: TrackerKind;
+  title: string;
+  subject: string;
+  subjectUrl?: string;
+  status: TrackerStatus;
+  fields: Record<string, unknown>;
+  history: Record<string, unknown>;
+  streak: number;
+  bestStreak: number;
+  tags?: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type Tracker = TrackerItem;
+
+export type RecordType =
+  | 'task'
+  | 'goal'
+  | 'habit'
+  | 'journal'
+  | 'knowledge'
+  | 'tracker';
+
 export type GoalSector = 'career' | 'academics' | 'finance' | 'health' | 'mindset' | 'personal';
 export type GoalTimeframe = 'quarterly' | 'yearly' | 'long_term' | 'lifetime';
 export type GoalStatus = 'not_started' | 'in_progress' | 'achieved' | 'on_hold';
@@ -161,7 +201,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -188,6 +228,7 @@ export interface BrainState {
   habits: Habit[];
   journalEntries: JournalEntry[];
   knowledgeItems: KnowledgeItem[];
+  trackerItems: TrackerItem[];
   noteFolders?: NoteFolder[];
   chatHistory: AIMessage[];
   conversationId?: string;

@@ -211,7 +211,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
     ];
 
 
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem } from "../types";
+import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem } from "../types";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { records, RecordType, searchRecords, Source } from "./brainRetrieval";
@@ -297,9 +297,9 @@ export function validate(value: unknown, schema: any, path = "arguments"): void 
 function validDate(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
 }
-export interface Mutation { type: RecordType; record: Task | Goal | Habit | JournalEntry | KnowledgeItem; action: string; expected?: Task | Habit }
+export interface Mutation { type: RecordType; record: Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem; action: string; expected?: Task | Habit }
 export function applyMutation(state: BrainState, mutation: Mutation): BrainState {
-  const key = ({ task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems" } as const)[mutation.type];
+  const key = ({ task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems" } as const)[mutation.type];
   const list = state[key] as Array<{ id: string }>;
   const exists = list.some(r => r.id === mutation.record.id);
   return { ...state, [key]: exists ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record] };
