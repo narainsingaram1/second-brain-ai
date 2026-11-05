@@ -1,6 +1,7 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { boundConversations } from "../utils/conversationBudget";
+import { attachmentOf, rememberImage } from "../utils/imageInput";
 import { AIMessage, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
@@ -155,11 +156,14 @@ export function useBrainConversation(
       generation.current === runGeneration;
     const timestamp = () =>
       new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    const images = options.images || [];
+    images.forEach(rememberImage);
     const user: AIMessage = {
       id: crypto.randomUUID(),
       role: "user",
       content: prompt,
       timestamp: timestamp(),
+      ...(images.length ? { attachments: images.map(attachmentOf) } : {}),
     };
     const conversationId = workspace.conversationId || crypto.randomUUID();
     const initial = temporary
@@ -275,13 +279,17 @@ export function useBrainConversation(
           rememberedIds: result.rememberedIds,
           memoryNotice: result.memoryNotice,
         };
+        // Keep the vision model's reading of the images with the message so follow-ups work after reload.
+        const withDescription = (messages: AIMessage[]) => result.imageDescription
+          ? messages.map(m => m.id === user.id ? { ...m, imageDescription: result.imageDescription!.slice(0, 12000) } : m)
+          : messages;
         if (temporary) {
-          tempLatest.current = [...tempLatest.current, assistant];
+          tempLatest.current = [...withDescription(tempLatest.current), assistant];
           setTemporaryMessages(tempLatest.current);
         } else
           publish({
             ...latest.current!,
-            chatHistory: [...latest.current!.chatHistory, assistant],
+            chatHistory: [...withDescription(latest.current!.chatHistory), assistant],
           });
       }
       return result;

@@ -37,6 +37,10 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
                 items: { type: "string" },
                 description: "Optional 2-4 preparation milestones or actionable subtasks.",
               },
+              description: {
+                type: "string",
+                description: "Optional details: time, location, links, people, requirements, or source context (e.g. details read from a screenshot).",
+              },
             },
             required: ["title", "priority", "section"],
           },
@@ -67,6 +71,10 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
               newDueDate: {
                 type: "string",
                 description: "Optional new due date in YYYY-MM-DD format.",
+              },
+              newDescription: {
+                type: "string",
+                description: "Replacement details/description for the task (time, location, links, notes).",
               },
             },
             required: ["taskId"],
@@ -369,15 +377,17 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const subsection = args.subsection || state.subsections[section]?.[0];
       if (subsection && !state.subsections[section]?.includes(subsection)) throw new Error("Unknown subsection for this section.");
       return { type: "task", action: name, record: normalizeTask({ id, title: args.title, section, subsection, dueDate: args.dueDate || "", priority: args.priority, status: "not_started",
+        ...(args.description ? { description: args.description.trim() } : {}),
         subtasks: args.subtasks?.map((title: string) => ({ id: crypto.randomUUID(), title, completed: false })) }) };
     }
     case "update_task": {
       const task = state.tasks.find(t => t.id === args.taskId);
       if (!task) throw new Error("Task ID not found. Query live tasks; do not guess IDs.");
       if (args.newTitle !== undefined && (typeof args.newTitle !== "string" || !args.newTitle.trim())) throw new Error("New task title must be nonempty.");
-      if (!args.status && !args.newDueDate && args.newTitle === undefined) throw new Error("Supply newTitle, status or newDueDate to update.");
+      if (!args.status && !args.newDueDate && args.newTitle === undefined && args.newDescription === undefined) throw new Error("Supply newTitle, status, newDueDate or newDescription to update.");
       return { type: "task", action: name, expected: task, record: { ...(args.status ? setTaskStatus(task, args.status) : task), dueDate: args.newDueDate || task.dueDate,
-        ...(args.newTitle !== undefined ? { title: args.newTitle.trim() } : {}) } };
+        ...(args.newTitle !== undefined ? { title: args.newTitle.trim() } : {}),
+        ...(args.newDescription !== undefined ? { description: args.newDescription.trim() } : {}) } };
     }
     case "complete_habit": {
       const habit = state.habits.find(h => h.id === args.habitId);

@@ -18,11 +18,13 @@ import { getLocalDateString } from "../utils/habitStreaks";
 import { MountainHeroIllustration } from "./MountainHeroIllustration";
 import { FocusTimer } from "./workspace/FocusTimer";
 import { DashboardCalendar } from "./workspace/DashboardCalendar";
+import { AttachButton, AttachmentTray, useImageAttachments } from "./ImageAttachments";
+import type { PreparedImage } from "../utils/imageInput";
 interface HomeViewProps {
   conversation: BrainConversation;
   brainState: BrainState;
   displayName?: string;
-  onAsk: (prompt: string) => Promise<void>;
+  onAsk: (prompt: string, images?: PreparedImage[]) => Promise<void>;
   onNavigate: (tab: string) => void;
   onNewTask: () => void;
   onNewNote: () => void;
@@ -45,6 +47,7 @@ export function HomeView({
   const [prompt, setPrompt] = useState("");
   const [selectedDate, setSelectedDate] = useState(getLocalDateString);
   const [error, setError] = useState("");
+  const attachments = useImageAttachments(setError);
   const today = getLocalDateString();
   const now = new Date();
   const greeting =
@@ -73,12 +76,15 @@ export function HomeView({
     .filter((goal) => goal.status !== "achieved")
     .slice(0, 3);
   const ask = async (text: string) => {
-    if (!text.trim() || conversation.busy) return;
+    const images = attachments.images;
+    if ((!text.trim() && !images.length) || conversation.busy || attachments.processing) return;
     setError("");
     try {
-      await onAsk(text.trim());
+      attachments.clear();
+      await onAsk(text.trim(), images.length ? images : undefined);
       setPrompt("");
     } catch (err) {
+      attachments.restore(images);
       setError(
         err instanceof Error
           ? err.message
@@ -144,18 +150,22 @@ export function HomeView({
           </div>
         </section>
         <section className="dashboard-ask" aria-label="Chat with Iris">
-          <form className="dashboard-chat-bar" onSubmit={submit}>
+          <AttachmentTray images={attachments.images} processing={attachments.processing} onRemove={attachments.remove} />
+          <form className={`dashboard-chat-bar ${attachments.dragging ? "is-dragging" : ""}`} onSubmit={submit} {...attachments.dropProps}>
+            {attachments.picker}
             <Sparkles size={24} className="ask-sparkle" />
             <input
               aria-label="Ask Iris"
-              placeholder="Ask Iris anything. Think, plan, or connect ideas…"
+              placeholder={attachments.images.length ? "Ask about the image, or send to add it as tasks…" : "Ask Iris anything, or paste a screenshot…"}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
+              onPaste={attachments.onPaste}
             />
+            <AttachButton onClick={attachments.openPicker} disabled={conversation.busy} />
             <button
               type="submit"
               className="ask-send"
-              disabled={!prompt.trim() || conversation.busy}
+              disabled={(!prompt.trim() && !attachments.images.length) || conversation.busy || attachments.processing}
               aria-label="Send to Iris"
             >
               <ArrowUpRight size={23} />

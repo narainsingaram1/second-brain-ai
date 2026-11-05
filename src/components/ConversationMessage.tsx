@@ -5,6 +5,7 @@ import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "
 import { getLocalDateString } from "../utils/habitStreaks";
 import { MarkdownView } from "./MarkdownView";
 import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences";
+import { MessageImages } from "./ImageAttachments";
 
 export function ConversationMessage({ message, state, onSaveNote }: { message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void }) {
   const [selected, setSelected] = useState<ChatSource | null>(null);
@@ -22,7 +23,10 @@ export function ConversationMessage({ message, state, onSaveNote }: { message: A
     onSaveNote({ id: crypto.randomUUID(), subject: title, title, content, summary: content.slice(0, 180), status: "Synthesized", startDate: today, endDate: today, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     setSaved(true);
   };
-  if (message.role === "user") return <article data-message-id={message.id} className="chat-user-message"><div>{message.content}</div></article>;
+  if (message.role === "user") return <article data-message-id={message.id} className="chat-user-message">
+    {message.attachments?.length ? <MessageImages attachments={message.attachments} /> : null}
+    {message.content && <div>{message.content}</div>}
+  </article>;
   return <article data-message-id={message.id} className="chat-assistant-message">
     <div className="chat-assistant-avatar"><Sparkles size={16} aria-hidden="true" /></div>
     <div className="chat-answer min-w-0">

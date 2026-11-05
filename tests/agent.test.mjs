@@ -493,3 +493,79 @@ test('vault indexing coalesces rapid saves and embeds unchanged text once', asyn
   await vectorVault.removeItem('n1');
   assert.equal(await pending, null); assert.equal(calls, 1, 'deleted items are not indexed later');
 });
+
+const { rememberImage } = await server.ssrLoadModule('/src/utils/imageInput.ts');
+const pixel = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+const image = (name = 'Screenshot 1') => ({ id: crypto.randomUUID(), name, mimeType: 'image/png', width: 1, height: 1, thumbnail: pixel, dataUrl: pixel });
+function visionProvider(responses, requests, visionModels = ['test/vision']) {
+  globalThis.fetch = async (url, opts) => {
+    if (/\/models$/.test(url)) return Response.json({ data: [...visionModels, 'test/model'].map(id => ({ id, architecture: { input_modalities: visionModels.includes(id) ? ['text', 'image'] : ['text'] } })) });
+    assert.match(url, /chat\/completions$/);
+    requests.push(JSON.parse(opts.body));
+    const next = responses.shift();
+    assert.ok(next, 'Unexpected additional provider call');
+    return Response.json(next);
+  };
+}
+
+test('vision-capable chat models receive attached images directly, plus recent session images', async () => {
+  const s = state(), requests = [];
+  const earlier = image('Earlier chart');
+  rememberImage(earlier);
+  s.chatHistory = [
+    { id: 'u0', role: 'user', content: 'What does this show?', timestamp: '1', attachments: [{ id: earlier.id, name: earlier.name, mimeType: 'image/png', width: 1, height: 1 }] },
+    { id: 'a0', role: 'assistant', content: 'A rising trend.', timestamp: '2' },
+  ];
+  visionProvider([response('The new chart dips in March.')], requests);
+  const current = image('Revenue chart');
+  const result = await AutonomousBrainAgent.execute('Compare with this one', s, 'key', 'test/vision', { images: [current] });
+  assert.equal(result.status, 'complete'); assert.equal(result.imageDescription, undefined);
+  const last = requests[0].messages.at(-1);
+  assert.ok(Array.isArray(last.content));
+  assert.equal(last.content[0].text, 'Compare with this one');
+  assert.ok(last.content.some(p => p.type === 'image_url' && p.image_url.url === pixel));
+  const history = requests[0].messages.find(m => Array.isArray(m.content) && m.content[0].text === 'What does this show?');
+  assert.ok(history?.content.some(p => p.type === 'image_url'), 'earlier session image stays viewable');
+  assert.match(requests[0].messages[0].content, /## Images/);
+});
+
+test('text-only chat models get a vision-model description, kept for follow-ups', async () => {
+  const s = state(), requests = [], saved = [];
+  visionProvider([
+    response('CS 2110 Homework 5 due Friday Nov 14, 11:59 PM on Canvas.'),
+    response(null, [call('create_task', { title: 'CS 2110 Homework 5', section: 'Academic', priority: 'high', dueDate: '2026-11-14', description: 'Due 11:59 PM on Canvas' })]),
+    response('Added **CS 2110 Homework 5**, due Fri Nov 14.'),
+  ], requests);
+  const result = await AutonomousBrainAgent.execute('', s, 'key', 'test/model', { images: [image()], visionModel: 'test/vision', commit: async m => saved.push(m) });
+  assert.equal(result.status, 'complete');
+  assert.equal(requests[0].model, 'test/vision');
+  assert.ok(requests[0].messages[0].content.some(p => p.type === 'image_url'));
+  assert.equal(requests[1].model, 'test/model');
+  const sent = requests[1].messages.at(-1).content;
+  assert.equal(typeof sent, 'string'); assert.match(sent, /only the image/); assert.match(sent, /Homework 5 due Friday/);
+  assert.ok(!JSON.stringify(requests[1]).includes('base64'), 'text-only model never receives image data');
+  assert.match(result.imageDescription, /Homework 5/);
+  assert.equal(saved.length, 1); assert.equal(saved[0].record.description, 'Due 11:59 PM on Canvas'); assert.equal(saved[0].record.dueDate, '2026-11-14');
+  // After reload the description stands in for the image.
+  const later = state(), requests2 = [];
+  later.chatHistory = [{ id: 'u1', role: 'user', content: '', timestamp: '1', attachments: [{ id: 'gone', name: 'Screenshot 1', mimeType: 'image/png', width: 1, height: 1 }], imageDescription: result.imageDescription }];
+  mockProvider([response('It was due Nov 14.')], requests2);
+  await AutonomousBrainAgent.execute('When was that due?', later, 'key', 'test/model');
+  assert.ok(requests2[0].messages.some(m => m.role === 'user' && /described by a vision model[\s\S]*Homework 5/.test(m.content)));
+});
+
+test('a failed image read reports the error and saves nothing', async () => {
+  const requests = [];
+  globalThis.fetch = async (url) => /\/models$/.test(url) ? Response.json({ data: [] }) : new Response(JSON.stringify({ error: { message: 'model not found' } }), { status: 404 });
+  const result = await AutonomousBrainAgent.execute('add this', state(), 'key', 'test/model', { images: [image()], visionModel: 'bad/model', commit: async () => requests.push(1) });
+  assert.equal(result.status, 'error'); assert.match(result.queryAnswer, /couldn’t read the image with bad\/model[\s\S]*No changes were saved/);
+  assert.equal(requests.length, 0);
+});
+
+test('update_task can replace a task description', () => {
+  const s = state();
+  const mutation = prepareMutation('update_task', { taskId: 'task-001', newDescription: 'Room 204, bring laptop' }, s);
+  const original = s.tasks.find(t => t.id === 'task-001');
+  assert.equal(mutation.record.description, 'Room 204, bring laptop');
+  assert.equal(mutation.record.title, original.title); assert.equal(mutation.record.dueDate, original.dueDate);
+});

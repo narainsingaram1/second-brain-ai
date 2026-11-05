@@ -181,8 +181,22 @@ export interface KnowledgeItem {
 
 export type Note = KnowledgeItem;
 
+/** Image attached to a chat message. Only a small thumbnail is persisted; full images stay in memory. */
+export interface ImageAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  /** Small JPEG data URL (about 160 px) for display in the transcript. */
+  thumbnail?: string;
+}
+
 export interface AIMessage {
   sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
+  attachments?: ImageAttachment[];
+  /** Text description of the attachments from the vision model, kept so follow-ups work after reload. */
+  imageDescription?: string;
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;

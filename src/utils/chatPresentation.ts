@@ -22,7 +22,9 @@ export function readableMessage(message: Pick<AIMessage, "content" | "sources">,
   return message.content.replace(REFERENCE_PATTERN, (_, type: string, id: string) => referenceTitle(type, id, message.sources, state));
 }
 export function conversationTitle(messages: AIMessage[]): string {
-  return messages.find(m => m.role === "user")?.content.trim().replace(/\s+/g, " ").slice(0, 72) || "New conversation";
+  const first = messages.find(m => m.role === "user");
+  return first?.content.trim().replace(/\s+/g, " ").slice(0, 72)
+    || (first?.attachments?.length ? `Image: ${first.attachments[0].name}` : "New conversation");
 }
 export function isNearBottom(scrollHeight: number, scrollTop: number, clientHeight: number): boolean {
   return scrollHeight - scrollTop - clientHeight < 100;

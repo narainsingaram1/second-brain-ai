@@ -1,6 +1,6 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useEffect, useState } from "react";
-import { DEFAULT_MODEL, OPENROUTER_MODELS, testOpenRouterKey } from "../services/openrouter";
+import { DEFAULT_MODEL, DEFAULT_VISION_MODEL, getVisionModel, OPENROUTER_MODELS, setVisionModel, testOpenRouterKey, VISION_MODELS } from "../services/openrouter";
 import {
   Key,
   Brain,
@@ -51,6 +51,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
     !OPENROUTER_MODELS.some((model) => model.id === selectedModel),
   );
   const [customModelInput, setCustomModelInput] = useState(useCustomModel ? selectedModel : "");
+  const [visionInput, setVisionInput] = useState(getVisionModel);
 
   useEffect(() => {
     if (!isOpen) {
@@ -62,11 +63,13 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
     setModelInput(selectedModel);
     setUseCustomModel(isCustom);
     setCustomModelInput(isCustom ? selectedModel : "");
+    setVisionInput(getVisionModel());
     setTestResult(null);
   }, [isOpen, openRouterKey, selectedModel]);
 
   const modelToSave = useCustomModel ? customModelInput.trim() : modelInput;
   const isModelValid = /^[^\s/]+\/[^\s]+$/.test(modelToSave);
+  const isVisionValid = /^[^\s/]+\/[^\s]+$/.test(visionInput.trim());
 
   if (!isOpen) return null;
 
@@ -92,9 +95,10 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   };
 
   const handleSave = () => {
-    if (!isModelValid) return;
+    if (!isModelValid || !isVisionValid) return;
     onSaveKey(keyInput.trim());
     onSelectModel(modelToSave);
+    setVisionModel(visionInput.trim());
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
@@ -307,6 +311,38 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </div>
           </div>
 
+          <section className="p-3.5 rounded-2xl border border-line space-y-2" aria-labelledby="vision-model-heading">
+            <h4 id="vision-model-heading" className="text-xs font-bold text-ink">Vision model (images)</h4>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
+              Reads pasted screenshots and photos when your chat model can’t see images. Chat models that support images (for example Claude or Gemini) look at them directly. Saved on this device.
+            </p>
+            <label htmlFor="vision-model-id" className="sr-only">Vision model ID</label>
+            <input
+              id="vision-model-id"
+              list="vision-model-options"
+              value={visionInput}
+              placeholder={DEFAULT_VISION_MODEL}
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={!isVisionValid}
+              onChange={(event) => { setVisionInput(event.target.value); setSaveSuccess(false); }}
+              className="w-full bg-raised text-xs font-mono text-ink px-4 py-3 rounded-2xl border border-line focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <datalist id="vision-model-options">
+              {VISION_MODELS.map((m) => <option key={m.id} value={m.id}>{`${m.name} — ${m.desc}`}</option>)}
+            </datalist>
+            <div className="flex flex-wrap gap-1.5">
+              {VISION_MODELS.map((m) => (
+                <button key={m.id} type="button" title={m.desc}
+                  onClick={() => { setVisionInput(m.id); setSaveSuccess(false); }}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border ${visionInput.trim() === m.id ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 border-transparent" : "border-line text-slate-600 dark:text-slate-300 hover:border-slate-300"}`}>
+                  {m.name}
+                </button>
+              ))}
+            </div>
+            {!isVisionValid && <p role="alert" className="text-[11px] text-rose-600 dark:text-rose-400">Enter a model ID in provider/model-name format.</p>}
+          </section>
+
           {onOpenMemory && <button type="button" className="memory-settings-link" onClick={onOpenMemory}><Brain size={21}/><span><strong>Memory</strong><small>View, edit and manage what Synapse remembers about you</small></span><span className="ml-auto">→</span></button>}
           {workspaceControls && (
             <section className="space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
@@ -344,7 +380,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </button>
             <button
               onClick={handleSave}
-              disabled={!isModelValid}
+              disabled={!isModelValid || !isVisionValid}
               className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-3.5 h-3.5" />

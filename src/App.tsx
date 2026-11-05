@@ -906,10 +906,10 @@ export const App: React.FC = () => {
               onToggleTask={handleToggleTask}
               onEditTask={task => { setActiveEditTask(task); setIsTaskModalOpen(true); }}
               onOpenNote={note => { setActiveEditKnowledge(note); setActiveTab("knowledge"); }}
-              onAsk={async prompt => {
+              onAsk={async (prompt, images) => {
                 setChatLaunchError("");
                 setActiveTab("copilot");
-                try { await conversation.run(prompt); }
+                try { await conversation.run(prompt, images?.length ? { images } : undefined); }
                 catch (error) { setChatLaunchError(error instanceof Error ? error.message : "Could not send your message. Try again."); }
               }}
               onNavigate={setActiveTab}
