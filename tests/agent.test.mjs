@@ -569,3 +569,72 @@ test('update_task can replace a task description', () => {
   assert.equal(mutation.record.description, 'Room 204, bring laptop');
   assert.equal(mutation.record.title, original.title); assert.equal(mutation.record.dueDate, original.dueDate);
 });
+
+test('new mutation tools validate targets and apply goal, note, habit, tracker and delete changes', () => {
+  const s = state();
+  s.goals = [{ id: 'g1', title: 'Land internship', sector: 'career', timeframe: 'yearly', progress: 0, status: 'not_started', createdAt: '2026-01-01',
+    milestones: [{ id: 'm1', title: 'Polish resume', completed: false }, { id: 'm2', title: 'Apply to 20 roles', completed: false }] }];
+  s.knowledgeItems = [{ id: 'n1', subject: 'Graphs', title: 'Graphs', content: '# Graphs\n\nBFS uses a queue.', summary: '', startDate: '2026-10-01', endDate: '2026-10-01', status: 'Draft' }];
+  s.trackerItems = [];
+  const parse = (name, args) => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === name).function.parameters);
+
+  const goal = prepareMutation('update_goal', parse('update_goal', { goalId: 'g1', completeMilestones: ['polish resume'], addMilestones: ['Mock interviews'] }), s);
+  assert.deepEqual(goal.record.milestones.map(m => m.completed), [true, false, false]);
+  assert.equal(goal.record.progress, 33); assert.equal(goal.record.status, 'in_progress');
+  assert.throws(() => prepareMutation('update_goal', { goalId: 'g1', completeMilestones: ['Nonexistent'] }, s), /Milestone not found/);
+
+  const note = prepareMutation('update_note', parse('update_note', { noteId: 'n1', appendContent: 'DFS uses a stack.' }), s);
+  assert.equal(note.record.content, '# Graphs\n\nBFS uses a queue.\n\nDFS uses a stack.');
+  const html = prepareMutation('update_note', { noteId: 'n1', appendContent: 'a < b' }, { ...s, knowledgeItems: [{ ...s.knowledgeItems[0], content: '<p>Hi</p>' }] });
+  assert.equal(html.record.content, '<p>Hi</p><p>a &lt; b</p>');
+  assert.throws(() => prepareMutation('update_note', { noteId: 'n1', appendContent: 'x', replaceContent: 'y' }, s), /not both/);
+
+  const habit = prepareMutation('create_habit', parse('create_habit', { name: 'Read 20 pages', frequency: 'daily' }), s);
+  assert.equal(habit.record.streak, 0); assert.deepEqual(habit.record.history, {});
+
+  const app = prepareMutation('create_tracker_item', parse('create_tracker_item', { kind: 'job_application', title: 'SWE Intern', company: 'Acme', appliedDate: '2026-11-01' }), s);
+  assert.equal(app.record.status, 'applied'); assert.equal(app.record.subject, 'Acme'); assert.equal(app.record.fields.appliedDate, '2026-11-01');
+  assert.throws(() => prepareMutation('create_tracker_item', { kind: 'leetcode', title: 'Two Sum', status: 'offer' }, s), /not valid/);
+  assert.throws(() => prepareMutation('create_tracker_item', { kind: 'job_application', title: 'SWE', company: 'Acme', url: 'javascript:alert(1)' }, s), /http/);
+  const withApp = applyMutation(s, app);
+  const moved = prepareMutation('update_tracker_item', { trackerId: app.record.id, status: 'onsite', appendNotes: 'Onsite Nov 20' }, withApp);
+  assert.equal(applyMutation(withApp, moved).trackerItems[0].status, 'onsite');
+
+  const del = prepareMutation('delete_task', parse('delete_task', { taskId: 'task-003' }), s);
+  const after = applyMutation(s, del);
+  assert.equal(after.tasks.length, 104); assert.ok(!after.tasks.some(t => t.id === 'task-003'));
+  assert.throws(() => prepareMutation('delete_task', { taskId: 'missing' }, s), /not found/);
+});
+
+test('search indexes readable prose, ranks rare terms with BM25 and splits notes at headings', async () => {
+  const s = state();
+  s.knowledgeItems = [{ id: 'n1', subject: 'Algorithms', title: 'Algorithms', status: 'Draft', summary: '', startDate: '2026-10-01', endDate: '2026-10-01',
+    content: `# Sorting\n\n${'Merge sort splits the array. '.repeat(50)}\n\n# Graphs\n\n${'Dijkstra finds shortest paths with a priority queue. '.repeat(30)}` }];
+  const [task] = records(s, 'task');
+  assert.doesNotMatch(task.index, /"id"|task-000|"completed": false/, 'Index text has no JSON keys or IDs');
+  assert.match(task.index, /^Task: Assignment 0\nNot started, medium priority, Academic, due 2026-10-29/);
+  const passages = chunks(records(s, 'knowledge')[0]);
+  assert.ok(passages.length >= 3);
+  assert.ok(passages.some(p => p.snippet.startsWith('Algorithms > Graphs\n')), 'Passages carry their heading path');
+  globalThis.fetch = async () => new Response('', { status: 503 });
+  // "status" used to match every record through its JSON key; now nothing mentions it.
+  assert.equal((await searchRecords(s, 'status', undefined, 0, 'k')).total, 0);
+  const result = await searchRecords(s, 'shortest path dijkstra', 'knowledge', 0, 'k');
+  assert.match(result.results[0].snippet, /Graphs/); assert.equal(result.results[0].offset, undefined);
+});
+
+test('anthropic requests cache the system prefix and roll a breakpoint onto the newest message', async () => {
+  const { queryOpenRouterWithTools } = await server.ssrLoadModule('/src/services/openrouter.ts');
+  const bodies = [];
+  globalThis.fetch = async (_url, opts) => { bodies.push(JSON.parse(opts.body)); return Response.json(response('ok')); };
+  const system = { role: 'system', content: 'x'.repeat(5000) + '\n\n## Current context\nToday' };
+  const turn = [system, { role: 'user', content: 'Hi' }, { role: 'assistant', content: null, tool_calls: [call('query_records', { type: 'task' }, 'c1')] }, { role: 'tool', tool_call_id: 'c1', content: '{"total":1}' }];
+  await queryOpenRouterWithTools(turn, [], 'k', 'anthropic/claude-sonnet-5.5');
+  const sent = bodies[0].messages;
+  assert.equal(sent[0].content[0].cache_control.type, 'ephemeral'); assert.equal(sent[0].content[1].cache_control, undefined);
+  assert.deepEqual(sent.at(-1).content, [{ type: 'text', text: '{"total":1}', cache_control: { type: 'ephemeral' } }]);
+  assert.equal(sent[1].content, 'Hi', 'Only the newest message carries the rolling breakpoint');
+  assert.equal(turn.at(-1).content, '{"total":1}', 'Caller messages are not mutated');
+  await queryOpenRouterWithTools(turn, [], 'k', 'google/gemini-3.8-flash');
+  assert.equal(bodies[1].messages.at(-1).content, '{"total":1}', 'Other providers are untouched');
+});

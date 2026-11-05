@@ -16,7 +16,7 @@ const { executeRead } = await server.ssrLoadModule(
 );
 const { semanticMemorySearch, setMemoryAccount, invalidateMemoryEmbedding } =
   await server.ssrLoadModule("/src/services/memorySemantic.ts");
-const { previewHistoryMemories } = await server.ssrLoadModule(
+const { previewHistoryMemories, learnFromTurn } = await server.ssrLoadModule(
   "/src/services/memoryHistory.ts",
 );
 const now = "2026-11-01T12:00:00Z";
@@ -767,4 +767,44 @@ test("saved personal facts survive storage reload and are retrieved in a fresh c
   } finally {
     globalThis.localStorage = previousStorage;
   }
+});
+
+test("explicit remember/forget intent ignores questions, recall and idioms", () => {
+  const remember = [
+    ["Remember my writing preference", true], ["Remember that I'm vegetarian.", true], ["Please memorize my favorite color is teal", true],
+    ["Can you remember that I prefer dark mode?", true], ["Save this to memory for the future", true], ["Keep in mind I hate 8am classes", true],
+    ["Don't forget that I work Tuesdays", true],
+    ["Do you remember when my exam is?", false], ["I can't remember my therapist's name", false], ["Remember when we talked about CS 1332?", false],
+    ["What do you remember about me?", false], ["Remember I like tea, but don't save my address", false], ["Help me remember to study", false],
+  ];
+  const forget = [
+    ["Forget my old address", true], ["Please forget that I like tea", true], ["Delete that memory", true], ["Stop remembering my diet", true],
+    ["Can you forget my GPA?", true],
+    ["I always forget to drink water", false], ["Forget it.", false], ["Don't forget to buy milk", false], ["I don't remember that", false],
+  ];
+  for (const [prompt, expected] of remember) assert.equal(memory.explicitlyRemember(prompt), expected, prompt);
+  for (const [prompt, expected] of forget) assert.equal(memory.explicitlyForget(prompt), expected, prompt);
+});
+
+test("background learning saves only gated facts from the current message and skips plain questions", async () => {
+  const msg = { id: "turn-1", role: "user", content: "I'm a CS major at Georgia Tech and I prefer studying at night. Can you plan my week?", timestamp: now };
+  const s = { ...state(), chatHistory: [msg] };
+  const requests = [];
+  provider([completion(null, [call("propose_memories", { candidates: [
+    { topic: "major", category: "fact", content: "Studies CS at Georgia Tech.", excerpt: "I'm a CS major at Georgia Tech" },
+    { topic: "study time", category: "preference", content: "Prefers studying at night.", excerpt: "I prefer studying at night" },
+    { topic: "invented", category: "fact", content: "Lives in Paris.", excerpt: "I live in Paris" },
+    { topic: "health", category: "fact", content: "Has ADHD.", excerpt: "I'm a CS major at Georgia Tech" },
+  ] })])], requests);
+  const changes = await learnFromTurn(s, msg, "Here is your week…");
+  assert.deepEqual(changes.map(c => c.entry.topic).sort(), ["major", "study time"], "Unquoted and sensitive candidates are dropped");
+  assert.ok(changes.every(c => c.entry.sources[0].messageId === "turn-1" && !c.explicit));
+  assert.equal(requests[0].model, "anthropic/claude-haiku-5.5");
+  assert.equal(requests[0].tool_choice.function.name, "propose_memories");
+
+  globalThis.fetch = async () => assert.fail("A question with no personal statement must not call the provider");
+  const question = { id: "turn-2", role: "user", content: "What is due this week?", timestamp: now };
+  assert.deepEqual(await learnFromTurn({ ...s, chatHistory: [question] }, question, "…"), []);
+  const off = { ...s, agentMemory: { ...memory.emptyMemory(), automaticLearning: false } };
+  assert.deepEqual(await learnFromTurn(off, msg, "…"), [], "Disabled automatic learning never calls the provider");
 });

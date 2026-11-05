@@ -90,17 +90,46 @@ export const isSensitiveMemory = (s: string) =>
   /\b(?:diagnos\w*|medical|medication|prescription|allerg\w*|ssn|social security|passport|sexual\w*|religio\w*|political affiliation|bank account|credit card|salary|income|home address|phone number|suicid\w*|mental health|pregnan\w*|disabil\w*|trauma|therapy|therapist|ethnic\w*|racial identity|hiv|cancer|depress\w*|bipolar|adhd|autis\w*|diabet\w*)\b|\b\d{3}-\d{2}-\d{4}\b/i.test(
     s,
   );
+/** Sentence-level clauses, lowercased, so intent is judged per instruction rather than per word. */
+const clauses = (prompt: string) =>
+  prompt
+    .normalize("NFKC")
+    .replace(/[’‘]/g, "'")
+    .split(/(?<=[.!?;\n])\s+|,\s*(?:and|but|also)\s+/i)
+    .map((c) => c.trim().toLowerCase())
+    .filter(Boolean);
+const LEAD = String.raw`^(?:(?:please|pls|also|and|oh|ok(?:ay)?|hey|so|btw|fyi|actually|just)[,\s]+)*`;
+/**
+ * True only when the user asks for something to be remembered: an imperative
+ * ("Remember that…", "Please memorize…"), a polite request ("Can you remember that I…"),
+ * or "save/add this to memory". Questions and recall ("Do you remember…?",
+ * "I can't remember…") are not permission: explicit requests bypass the sensitive-data
+ * gate and restore forgotten memories, so a false positive is a privacy failure.
+ */
 export const explicitlyRemember = (prompt: string) =>
-  /\b(?:remember|memorize|save (?:this|that|it|my|the).{0,60}(?:memory|future)|keep .{0,40}in mind)\b/i.test(
-    prompt,
+  !/\b(?:don't|do not|never|stop|no need to)\s+(?:remember|memori[sz]|sav|learn|stor)/i.test(
+    prompt.replace(/[’‘]/g, "'"),
   ) &&
-  !/\b(?:don['’]?t|do not|never|stop)\s+(?:remember|memorize|sav\w*|learn\w*)/i.test(
-    prompt,
-  );
+  clauses(prompt).some((s) => {
+    if (/\bi (?:can't|cannot|couldn't|don't|do not|didn't|never|often|always|sometimes|barely|kind of)\s+remember\b/.test(s)) return false;
+    if (new RegExp(`${LEAD}(?:remember|memori[sz]e)\\s+(?:when|what|where|who|how|if|whether|why)\\b`).test(s)) return false;
+    if (new RegExp(`${LEAD}(?:remember|memori[sz]e|make a note|note (?:this|that) down|keep (?:this|that|it) in mind|keep in mind|don't forget that)\\b`).test(s))
+      return !s.endsWith("?") || /\b(?:that|this)\b/.test(s);
+    if (/\b(?:can|could|would|will) you (?:please )?(?:remember|memori[sz]e|keep in mind|make a note)\s+(?:that|this|my|i\b|i'm|i've|we\b|we're|our)/.test(s)) return true;
+    if (/\bsave (?:this|that|it|my|the)\b.{0,60}\b(?:memory|future|later)\b/.test(s)) return true;
+    if (/\b(?:add|put|store) (?:this|that|it)\b.{0,30}\b(?:to|in|into) (?:your )?memory\b/.test(s)) return true;
+    return /\bkeep\b.{0,40}\bin mind\b/.test(s) && !s.endsWith("?") && !/^i\b/.test(s);
+  });
+/** True only for a request to forget, not "I always forget…", "don't forget…" or "forget it" (never mind). */
 export const explicitlyForget = (prompt: string) =>
-  /\b(?:forget|remove .{0,50}memor|delete .{0,50}memor|don['’]?t remember|do not remember)\b/i.test(
-    prompt,
-  );
+  clauses(prompt).some((s) => {
+    if (new RegExp(`${LEAD}(?:forget|unlearn)\\b`).test(s))
+      return !new RegExp(`${LEAD}forget (?:it|about it)[.!]?$`).test(s) && !/^(?:\w+[,\s]+)*forget to\b/.test(s);
+    if (/\b(?:can|could|would|will) you (?:please )?forget\b/.test(s)) return true;
+    if (/\b(?:remove|delete|erase|clear|wipe|drop)\b.{0,50}\bmemor(?:y|ies)\b/.test(s)) return true;
+    return !/\bi (?:don't|do not)\b/.test(s) &&
+      /\b(?:don't|do not|stop) (?:remember(?:ing)?|storing|saving) (?:that|this|it|my)\b/.test(s);
+  });
 
 /** Reject malformed backups rather than silently discarding someone’s memories. */
 export function normalizeAgentMemory(value: unknown): AgentMemory {

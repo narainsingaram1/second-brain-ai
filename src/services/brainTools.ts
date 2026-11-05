@@ -1,6 +1,63 @@
 import { MEMORY_TOOLS, readMemories } from "./memoryTools";
 import { conversationThreads, searchConversations } from "./agentMemory";
 import { OpenRouterTool } from "./openrouter";
+const s_ = { type: "string" };
+const d_ = (description: string) => ({ type: "string", description });
+const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[]): OpenRouterTool =>
+  ({ type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false } } });
+const EDIT_TOOLS: OpenRouterTool[] = [
+  fn("delete_task", "Permanently remove a task. Use ONLY when the user explicitly asks to delete or remove that specific task (not when it is done: use update_task status completed). The user can undo it from the app.", {
+    taskId: d_("ID of the existing task."),
+  }, ["taskId"]),
+  fn("update_goal", "Update an existing goal: progress, status, title, target date, metric, motivation, or milestones (complete existing ones by ID or exact title, or add new ones). Progress is recalculated from milestones when they change and progress is not given.", {
+    goalId: d_("ID of the existing goal."),
+    newTitle: s_,
+    status: { type: "string", enum: ["not_started", "in_progress", "achieved", "on_hold"] },
+    progress: { type: "integer", minimum: 0, maximum: 100, description: "Overall percent complete." },
+    newTargetDate: d_("YYYY-MM-DD"),
+    metrics: s_,
+    why: s_,
+    completeMilestones: { type: "array", items: s_, description: "Milestone IDs or exact titles to mark completed." },
+    reopenMilestones: { type: "array", items: s_, description: "Milestone IDs or exact titles to mark not completed." },
+    addMilestones: { type: "array", items: s_, description: "Titles of new milestones to append." },
+  }, ["goalId"]),
+  fn("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, or set its tags. Prefer appendContent for additions so existing text is preserved.", {
+    noteId: d_("ID of the existing note (knowledge record)."),
+    newTitle: s_,
+    appendContent: d_("Markdown to add at the end of the note."),
+    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note."),
+    folderId: d_("Existing folder ID to move the note into."),
+    tags: { type: "array", items: s_ },
+  }, ["noteId"]),
+  fn("create_habit", "Create a new recurring habit to track. Use only when the user asks to start tracking a habit or routine.", {
+    name: s_,
+    frequency: { type: "string", enum: ["daily", "weekdays", "weekends"] },
+    timeOfDay: { type: "string", enum: ["morning", "afternoon", "evening"] },
+    description: s_,
+  }, ["name", "frequency"]),
+  fn("create_tracker_item", "Add a Career tracker entry: a job/internship application (kind job_application; title is the role, company required) or a coding practice problem (kind leetcode).", {
+    kind: { type: "string", enum: ["job_application", "leetcode"] },
+    title: d_("Role title for applications, problem name for practice."),
+    company: d_("Company, required for job_application."),
+    status: { type: "string", enum: ["not_started", "applied", "screening", "onsite", "offer", "rejected", "in_progress", "done", "review"], description: "Applications: not_started (wishlist), applied, screening, onsite (interview), offer, rejected. Problems: not_started, in_progress, done, review." },
+    url: d_("http(s) link to the posting or problem."),
+    appliedDate: d_("YYYY-MM-DD, applications only."),
+    followUpDate: d_("YYYY-MM-DD, applications only."),
+    location: s_,
+    difficulty: { type: "string", enum: ["Easy", "Medium", "Hard"] },
+    topic: d_("Problem topics, e.g. 'Arrays, Hash maps'."),
+    notes: s_,
+  }, ["kind", "title"]),
+  fn("update_tracker_item", "Update an existing Career tracker entry (application stage, dates, notes, title).", {
+    trackerId: d_("ID of the existing tracker record."),
+    newTitle: s_,
+    status: { type: "string", enum: ["not_started", "applied", "screening", "onsite", "offer", "rejected", "in_progress", "done", "review"] },
+    appliedDate: d_("YYYY-MM-DD"),
+    followUpDate: d_("YYYY-MM-DD"),
+    location: s_,
+    appendNotes: d_("Text appended to the existing notes."),
+  }, ["trackerId"]),
+];
 export const MUTATION_TOOLS: OpenRouterTool[] = [
       {
         type: "function",
@@ -216,15 +273,17 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
           },
         },
       },
+      ...EDIT_TOOLS,
     ];
 
 
 import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem } from "../types";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
+import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, PROBLEM_STAGES, safeTrackerUrl } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source } from "./brainRetrieval";
 
-const recordTypes = ["task", "goal", "habit", "journal", "knowledge"];
+const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -234,16 +293,16 @@ function tool(name: string, description: string, properties: Record<string, unkn
 }
 export const READ_TOOLS = [
   tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination.", {
-    type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold"] }, section: str, text: str,
+    type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold", "applied", "screening", "onsite", "offer", "rejected", "done", "review"] }, section: str, text: str,
     offset: cursorSchema, countOnly: { type: "boolean" },
   }, ["type"]),
-  tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Offsets match search excerpts.", {
+  tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Returns the full stored record (search excerpts are readable summaries, so do not reuse their positions as offsets).", {
     type: typeSchema, id: str, offset: cursorSchema,
   }, ["type", "id"]),
   tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or goal. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
     type: typeSchema, ids: { type: "array", items: str, minItems: 1, maxItems: 10 },
   }, ["type", "ids"]),
-  tool("search_records", "Hybrid keyword and neural search across current records, including ALL passages of long notes. Returns evidence excerpts with source IDs and offsets. Use read_record for surrounding context. Relevance search cannot establish exhaustive counts or lists.", {
+  tool("search_records", "Hybrid keyword and neural search across current records, including ALL passages of long notes. Returns readable evidence excerpts with source IDs, best match first. Use read_record (offset 0) for the full record. Relevance search cannot establish exhaustive counts or lists.", {
     query: str, type: typeSchema, offset: cursorSchema,
   }, ["query"]),
   ...MEMORY_TOOLS.filter(t => t.function.name === "search_memories"),
@@ -305,10 +364,20 @@ export function validate(value: unknown, schema: any, path = "arguments"): void 
 function validDate(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
 }
-export interface Mutation { type: RecordType; record: Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem; action: string; expected?: Task | Habit }
+export interface Mutation {
+  type: RecordType;
+  record: Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem;
+  action: string;
+  /** The record as it was read; the save is refused if it changed in the meantime. */
+  expected?: Task | Goal | Habit | KnowledgeItem | TrackerItem;
+  /** Removes the record instead of inserting or replacing it. */
+  remove?: boolean;
+}
+export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems" } as const;
 export function applyMutation(state: BrainState, mutation: Mutation): BrainState {
-  const key = ({ task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems" } as const)[mutation.type];
-  const list = state[key] as Array<{ id: string }>;
+  const key = MUTATION_COLLECTIONS[mutation.type];
+  const list = (state[key] || []) as Array<{ id: string }>;
+  if (mutation.remove) return { ...state, [key]: list.filter(r => r.id !== mutation.record.id) };
   const exists = list.some(r => r.id === mutation.record.id);
   return { ...state, [key]: exists ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record] };
 }
@@ -401,6 +470,84 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (args.folderId && !state.noteFolders?.some(f => f.id === args.folderId)) throw new Error("Unknown note folder ID.");
       return { type: "knowledge", action: name, record: { id, title: args.title, subject: args.title, content: args.content, summary: args.content.slice(0, 180), folderId: args.folderId || null,
         tags: args.tags || [], status: "Synthesized", startDate: today, endDate: today, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } };
+    }
+    case "delete_task": {
+      const task = state.tasks.find(t => t.id === args.taskId);
+      if (!task) throw new Error("Task ID not found. Query live tasks; do not guess IDs.");
+      return { type: "task", action: name, expected: task, record: task, remove: true };
+    }
+    case "update_goal": {
+      const goal = state.goals.find(g => g.id === args.goalId);
+      if (!goal) throw new Error("Goal ID not found. Query live goals; do not guess IDs.");
+      const changes = ["newTitle", "status", "progress", "newTargetDate", "metrics", "why", "completeMilestones", "reopenMilestones", "addMilestones"].filter(k => args[k] !== undefined);
+      if (!changes.length) throw new Error("Supply at least one field to update.");
+      const matches = (m: { id: string; title: string }, refs: string[] = []) => refs.some(ref => ref === m.id || ref.trim().toLocaleLowerCase() === m.title.trim().toLocaleLowerCase());
+      for (const ref of [...(args.completeMilestones || []), ...(args.reopenMilestones || [])])
+        if (!goal.milestones.some(m => matches(m, [ref]))) throw new Error(`Milestone not found: ${ref}. Read the goal to get exact milestone IDs.`);
+      const milestones = [
+        ...goal.milestones.map(m => matches(m, args.completeMilestones) ? { ...m, completed: true } : matches(m, args.reopenMilestones) ? { ...m, completed: false } : m),
+        ...(args.addMilestones || []).map((title: string) => ({ id: crypto.randomUUID(), title: title.trim(), completed: false })),
+      ];
+      const milestonesChanged = changes.some(k => k.endsWith("Milestones"));
+      const progress = args.progress ?? (milestonesChanged && milestones.length ? Math.round(milestones.filter(m => m.completed).length / milestones.length * 100) : goal.progress);
+      return { type: "goal", action: name, expected: goal, record: { ...goal, milestones, progress,
+        status: args.status || (progress >= 100 && goal.status !== "achieved" && milestonesChanged ? "achieved" : progress > 0 && goal.status === "not_started" ? "in_progress" : goal.status),
+        ...(args.newTitle ? { title: args.newTitle.trim() } : {}), ...(args.newTargetDate ? { targetDate: args.newTargetDate } : {}),
+        ...(args.metrics ? { metrics: args.metrics.trim() } : {}), ...(args.why ? { why: args.why.trim() } : {}) } };
+    }
+    case "update_note": {
+      const note = state.knowledgeItems.find(n => n.id === args.noteId);
+      if (!note) throw new Error("Note ID not found. Search notes; do not guess IDs.");
+      if (args.appendContent !== undefined && args.replaceContent !== undefined) throw new Error("Use appendContent or replaceContent, not both.");
+      if (![args.newTitle, args.appendContent, args.replaceContent, args.folderId, args.tags].some(v => v !== undefined)) throw new Error("Supply at least one field to update.");
+      if (args.folderId && !state.noteFolders?.some(f => f.id === args.folderId)) throw new Error("Unknown note folder ID.");
+      const current = note.content || "";
+      // Notes edited in the app may be stored as HTML; append in the same format.
+      const html = /^\s*<[a-z][^>]*>/i.test(current);
+      const escape = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const appended = args.appendContent === undefined ? current
+        : html ? `${current}${args.appendContent.trim().split(/\n{2,}/).map((p: string) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`).join("")}`
+        : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${args.appendContent.trim()}`;
+      const content = args.replaceContent !== undefined ? args.replaceContent : appended;
+      const title = args.newTitle?.trim();
+      return { type: "knowledge", action: name, expected: note, record: { ...note, content,
+        ...(content !== current ? { summary: content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {}),
+        ...(title ? { title, subject: title } : {}), ...(args.folderId ? { folderId: args.folderId } : {}), ...(args.tags ? { tags: args.tags } : {}),
+        updatedAt: new Date().toISOString() } };
+    }
+    case "create_habit": {
+      const name = args.name.trim();
+      if (state.habits.some(h => h.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) throw new Error("A habit with this name already exists.");
+      return { type: "habit", action: "create_habit", record: { id, name, frequency: args.frequency, streak: 0, bestStreak: 0, history: {},
+        ...(args.timeOfDay ? { timeOfDay: args.timeOfDay } : {}), ...(args.description ? { description: args.description.trim() } : {}) } };
+    }
+    case "create_tracker_item": {
+      const stages = args.kind === "leetcode" ? PROBLEM_STAGES : APPLICATION_STAGES;
+      const status = args.status || (args.kind === "job_application" && args.appliedDate ? "applied" : "not_started");
+      if (!stages.some(s => s.id === status)) throw new Error(`Status ${status} is not valid for ${args.kind}.`);
+      if (args.kind === "job_application" && !args.company?.trim()) throw new Error("Company is required for a job application.");
+      for (const field of ["appliedDate", "followUpDate"]) if (args[field]) validDate(args[field]);
+      const url = args.url ? safeTrackerUrl(args.url.trim()) : undefined;
+      if (args.url && !url) throw new Error("Links must be full http:// or https:// URLs.");
+      const now = new Date().toISOString();
+      const fields: Record<string, unknown> = Object.fromEntries(["appliedDate", "followUpDate", "location", "difficulty", "topic"].filter(k => args[k]).map(k => [k, String(args[k]).trim()]));
+      if (args.kind === "leetcode" && !fields.difficulty) fields.difficulty = "Medium";
+      const title = args.title.trim();
+      return { type: "tracker", action: name, record: { id, workspaceId: CAREER_WORKSPACE_ID, kind: args.kind, title, subject: args.kind === "leetcode" ? title : args.company.trim(),
+        ...(url ? { subjectUrl: url } : {}), status, fields, history: {}, streak: 0, bestStreak: 0, notes: args.notes?.trim() || "", createdAt: now, updatedAt: now } };
+    }
+    case "update_tracker_item": {
+      const item = (state.trackerItems || []).find(t => t.id === args.trackerId);
+      if (!item) throw new Error("Tracker ID not found. Query tracker records; do not guess IDs.");
+      if (![args.newTitle, args.status, args.appliedDate, args.followUpDate, args.location, args.appendNotes].some(v => v !== undefined)) throw new Error("Supply at least one field to update.");
+      const stages = item.kind === "leetcode" ? PROBLEM_STAGES : APPLICATION_STAGES;
+      if (args.status && !stages.some(s => s.id === args.status)) throw new Error(`Status ${args.status} is not valid for ${item.kind}.`);
+      for (const field of ["appliedDate", "followUpDate"]) if (args[field]) validDate(args[field]);
+      const fields = { ...item.fields, ...Object.fromEntries(["appliedDate", "followUpDate", "location"].filter(k => args[k]).map(k => [k, String(args[k]).trim()])) };
+      const title = args.newTitle?.trim();
+      return { type: "tracker", action: name, expected: item, record: { ...item, fields, ...(args.status ? { status: args.status } : {}),
+        ...(title ? { title, ...(item.kind === "leetcode" ? { subject: title } : {}) } : {}),
+        ...(args.appendNotes ? { notes: [item.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") } : {}), updatedAt: new Date().toISOString() } };
     }
     default: throw new Error(`Unknown mutation ${name}`);
   }

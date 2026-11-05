@@ -63,10 +63,30 @@ function headers(apiKey: string): Record<string, string> {
   };
 }
 
-/** Anthropic models need an explicit breakpoint to cache the long, stable system prompt and tool list. */
+/** Marks the final text part of a message as a cache breakpoint. */
+function withTailBreakpoint(m: any): any {
+  if (typeof m.content === "string" && m.content.length) {
+    return { ...m, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] };
+  }
+  if (Array.isArray(m.content)) {
+    const last = m.content.map((p: any) => p.type).lastIndexOf("text");
+    if (last < 0) return m;
+    return { ...m, content: m.content.map((p: any, i: number) => i === last ? { ...p, cache_control: { type: "ephemeral" } } : p) };
+  }
+  return m;
+}
+
+/**
+ * Anthropic models need explicit breakpoints. One caches the long, stable system prompt and
+ * tool list; a second, rolling breakpoint on the newest message caches the whole conversation
+ * so far, so each round of a multi-step tool loop re-reads earlier rounds at the cached rate
+ * instead of paying full price for an ever-growing prompt.
+ */
 function withPromptCache(model: string, messages: any[]): any[] {
   if (!model.startsWith("anthropic/")) return messages;
+  const tail = messages.length - 1;
   return messages.map((m, i) => {
+    if (i === tail && i > 0 && m.role !== "system") return withTailBreakpoint(m);
     if (i !== 0 || m.role !== "system" || typeof m.content !== "string" || m.content.length < 4000) return m;
     // Cache the fixed instructions separately so per-turn context does not invalidate them.
     const split = m.content.indexOf("\n\n## Current context");

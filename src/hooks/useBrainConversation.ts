@@ -7,11 +7,13 @@ import {
   AutonomousBrainAgent,
   RunConversation,
 } from "../services/agentDispatcher";
-import { applyMutation } from "../services/brainTools";
+import { applyMutation, MUTATION_COLLECTIONS } from "../services/brainTools";
 import { persistBrainState } from "../services/storage";
+import { learnFromTurn } from "../services/memoryHistory";
 import {
   applyMemoryChange,
   clearMemoryIndex,
+  topicKey,
   normalizeAgentMemory,
   type AgentMemory,
   type MemoryChange,
@@ -52,6 +54,7 @@ export function useBrainConversation(
   const latest = useRef(state);
   latest.current = state;
   const active = useRef<AbortController | null>(null);
+  const learning = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState("");
@@ -68,6 +71,8 @@ export function useBrainConversation(
     generation.current++;
     active.current?.abort();
     active.current = null;
+    learning.current?.abort();
+    learning.current = null;
     clearMemoryIndex();
     setMemoryAccount(state?.userId || "guest");
     setTemporaryState(false);
@@ -77,6 +82,7 @@ export function useBrainConversation(
     return () => {
       generation.current++;
       active.current?.abort();
+      learning.current?.abort();
       clearMemoryIndex();
       setMemoryAccount("");
     };
@@ -136,6 +142,45 @@ export function useBrainConversation(
       );
     }
     return saved!;
+  };
+  /**
+   * After a reply is shown, the fast model checks the user's message for durable facts and
+   * saves the ones that pass every memory gate, then marks the reply as "Remembered".
+   * Failures are silent: learning is best effort and never blocks or alters the answer.
+   */
+  const learnInBackground = async (user: AIMessage, assistantId: string, reply: string) => {
+    const account = latest.current?.userId, run = generation.current;
+    const isCurrent = () => latest.current?.userId === account && generation.current === run;
+    learning.current?.abort();
+    const controller = new AbortController();
+    learning.current = controller;
+    try {
+      if (!latest.current) return;
+      const changes = await learnFromTurn(latest.current, user, reply, controller.signal);
+      const ids: string[] = [];
+      for (const change of changes) {
+        if (controller.signal.aborted || !isCurrent()) return;
+        try {
+          const saved = await changeMemory(change, true);
+          const entry = saved.entries.find((e) => topicKey(e.topic) === topicKey(change.entry.topic));
+          if (entry) ids.push(entry.id);
+        } catch {
+          /* Forgotten topics, conflicts and limits reject the save; nothing else to do. */
+        }
+      }
+      if (ids.length && isCurrent() && latest.current) {
+        publish({
+          ...latest.current,
+          chatHistory: latest.current.chatHistory.map((m) =>
+            m.id === assistantId ? { ...m, rememberedIds: [...new Set([...(m.rememberedIds || []), ...ids])] } : m,
+          ),
+        });
+      }
+    } catch {
+      /* Provider errors and cancellation leave memory unchanged. */
+    } finally {
+      if (learning.current === controller) learning.current = null;
+    }
   };
   const run: RunConversation = async (prompt, options = {}) => {
     if (active.current)
@@ -231,10 +276,9 @@ export function useBrainConversation(
                 if (!current || !isCurrent())
                   throw new Error("Account changed; action stopped.");
                 if (mutation.expected) {
-                  const record =
-                    mutation.type === "task"
-                      ? current.tasks.find((r) => r.id === mutation.record.id)
-                      : current.habits.find((r) => r.id === mutation.record.id);
+                  const record = (
+                    (current[MUTATION_COLLECTIONS[mutation.type]] || []) as Array<{ id: string }>
+                  ).find((r) => r.id === mutation.record.id);
                   if (
                     JSON.stringify(record) !== JSON.stringify(mutation.expected)
                   )
@@ -291,6 +335,9 @@ export function useBrainConversation(
             ...latest.current!,
             chatHistory: [...withDescription(latest.current!.chatHistory), assistant],
           });
+        // The main model already handled memory when it saved something this turn.
+        if (!temporary && !result.rememberedIds?.length && (result.status === "complete" || result.status === "partial"))
+          void learnInBackground(user, assistant.id, result.queryAnswer);
       }
       return result;
     } finally {
