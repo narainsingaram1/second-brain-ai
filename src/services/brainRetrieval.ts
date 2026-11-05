@@ -44,11 +44,11 @@ function embeddingDB(): Promise<IDBDatabase> {
     req.onerror = () => reject(req.error);
   });
 }
-async function digest(text: string): Promise<string> {
+export async function digest(text: string): Promise<string> {
   const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
   return Array.from(new Uint8Array(hash), x => x.toString(16).padStart(2, "0")).join("");
 }
-async function cachedEmbedding(key: string): Promise<number[] | undefined> {
+export async function cachedEmbedding(key: string): Promise<number[] | undefined> {
   try {
     const db = await embeddingDB();
     return await new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ async function cachedEmbedding(key: string): Promise<number[] | undefined> {
     });
   } catch { return undefined; }
 }
-async function storeEmbedding(key: string, vector: number[]): Promise<void> {
+export async function storeEmbedding(key: string, vector: number[]): Promise<void> {
   try {
     const db = await embeddingDB();
     await new Promise<void>((resolve, reject) => {

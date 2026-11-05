@@ -241,7 +241,9 @@ test('canonical storage failures propagate and the save queue recovers', async (
     const saved = new Map();
     globalThis.localStorage = { setItem(key, value) { saved.set(key, value); } };
     await persistBrainState(state());
-    assert.equal(JSON.parse(saved.get('synapse_second_brain_envelope')).state.tasks.length, 105);
+    // Without IndexedDB, exactly one fallback copy is written for the account.
+    assert.equal(JSON.parse(saved.get('synapse_user_data_test')).tasks.length, 105);
+    assert.deepEqual([...saved.keys()].filter(k => k !== 'synapse_openrouter_key'), ['synapse_user_data_test']);
   } finally { globalThis.localStorage = previousStorage; console.warn = originalWarn; console.error = originalError; }
 });
 
@@ -460,4 +462,34 @@ test('provider normalization preserves required fields, unknown-field rejection 
   assert.throws(() => parseToolArguments(JSON.stringify({ taskId: 1, status: 'completed' }), update));
   assert.throws(() => parseToolArguments(JSON.stringify({ taskId: null, status: 'completed' }), update));
   assert.throws(() => parseToolArguments(JSON.stringify({ taskId: 'task-001', status: 'finished' }), update));
+});
+
+test('archived conversations stay within the cloud size budget, newest first', async () => {
+  const { boundConversations, MAX_ARCHIVED_CONVERSATIONS, ARCHIVE_CHAR_BUDGET } = await server.ssrLoadModule('/src/utils/conversationBudget.ts');
+  const thread = (i, size) => ({ id: `c${i}`, title: `Chat ${i}`, updatedAt: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(),
+    messages: [{ id: `m${i}`, role: 'user', content: 'x'.repeat(size), timestamp: '1', sources: Array.from({ length: 60 }, (_, j) => ({ id: `t${j}`, type: 'task', title: 'T' })) }] });
+  const many = Array.from({ length: 80 }, (_, i) => thread(i, 100));
+  const bounded = boundConversations(many);
+  assert.equal(bounded.length, MAX_ARCHIVED_CONVERSATIONS); assert.equal(bounded[0].id, 'c79');
+  assert.ok(bounded.every(t => t.messages.every(m => m.sources.length <= 40)));
+  const big = boundConversations(Array.from({ length: 10 }, (_, i) => thread(i, 200000)));
+  assert.ok(JSON.stringify(big).length <= ARCHIVE_CHAR_BUDGET); assert.equal(big[0].id, 'c9');
+  const small = [thread(1, 10)]; small[0].messages[0].sources = [];
+  assert.equal(boundConversations(small), small, 'unchanged input keeps identity');
+  const huge = boundConversations([{ ...thread(1, 0), messages: Array.from({ length: 20 }, (_, i) => ({ id: `h${i}`, role: 'user', content: 'y'.repeat(100000), timestamp: '1' })) }]);
+  assert.equal(huge.length, 1); assert.equal(huge[0].messages.at(-1).id, 'h19'); assert.ok(JSON.stringify(huge).length <= ARCHIVE_CHAR_BUDGET + 1000);
+});
+
+test('vault indexing coalesces rapid saves and embeds unchanged text once', async () => {
+  const { vectorVault } = await server.ssrLoadModule('/src/services/vectorVault.ts');
+  let calls = 0;
+  globalThis.fetch = async (url, opts) => { calls++; return Response.json({ data: [{ embedding: Array.from({ length: 1536 }, (_, i) => (i % 7) / 7 + JSON.parse(opts.body).input.length) }] }); };
+  const note = (content) => ({ id: 'n1', title: 'Draft', subject: 'Draft', content, summary: '', status: 'Synthesized', tags: [] });
+  const results = await Promise.all(['a', 'ab', 'abc'].map(c => vectorVault.indexItem(note(c), 'knowledge', 'key', 5)));
+  assert.equal(calls, 1); assert.equal(results.filter(Boolean).length, 1);
+  await vectorVault.indexItem(note('abc'), 'knowledge', 'key', 0);
+  assert.equal(calls, 1, 'unchanged content is not re-embedded');
+  const pending = vectorVault.indexItem(note('abcd'), 'knowledge', 'key', 20);
+  await vectorVault.removeItem('n1');
+  assert.equal(await pending, null); assert.equal(calls, 1, 'deleted items are not indexed later');
 });

@@ -1,5 +1,6 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
+import { boundConversations } from "../utils/conversationBudget";
 import { AIMessage, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
@@ -40,7 +41,7 @@ function archiveCurrent(state: BrainState): ConversationThread[] {
     messages: state.chatHistory,
     updatedAt: new Date().toISOString(),
   };
-  return [thread, ...archived.filter((t) => t.id !== thread.id)];
+  return boundConversations([thread, ...archived.filter((t) => t.id !== thread.id)]);
 }
 export function useBrainConversation(
   state: BrainState | null,

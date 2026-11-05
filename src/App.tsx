@@ -6,7 +6,7 @@ import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
-import { loadInitialState, persistBrainState } from "./services/storage";
+import { loadInitialState, persistBrainState, writeEmergencySnapshot } from "./services/storage";
 import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { normalizeTask, setTaskStatus, toggleTaskCompleted } from "./utils/taskState";
@@ -95,10 +95,12 @@ export const App: React.FC = () => {
   // Undo / Redo History Stack (30 rolling snapshots)
   const historyPast = useRef<BrainState[]>([]);
   const historyFuture = useRef<BrainState[]>([]);
+  const lastMutation = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => { historyPast.current = []; historyFuture.current = []; }, [state?.userId]);
 
   const conversation = useBrainConversation(state, setState, before => {
-    historyPast.current = [...historyPast.current.slice(-29), structuredClone(before)];
+    historyPast.current = [...historyPast.current.slice(-29), before];
+    lastMutation.current = null;
     historyFuture.current = [];
   });
 
@@ -110,7 +112,10 @@ export const App: React.FC = () => {
     updateSyncError();
     window.addEventListener("synapse-sync-status", updateSyncError);
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (cloudEnabled && cloudStatus() !== "Synced") {
+      const unsaved = !!pendingSave.current || savesInFlight.current > 0;
+      flushSave();
+      if (unsaved && latestSaveState.current) writeEmergencySnapshot(latestSaveState.current);
+      if (cloudEnabled && (unsaved || cloudStatus() !== "Synced")) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -184,16 +189,55 @@ export const App: React.FC = () => {
   const latestSaveState = useRef(state);
   latestSaveState.current = state;
 
-  // Sync state to storage & database whenever it changes
+  // Sync state to storage & database. The first change saves immediately; further changes within
+  // 400 ms (typing, dragging, rapid toggles) are coalesced into one trailing write. If the page is hidden
+  // or closed while a save is pending or in flight, a synchronous emergency copy is kept as well.
+  const pendingSave = useRef<{ timer: number; userId?: string } | null>(null);
+  const lastSaveAt = useRef(0);
+  const savesInFlight = useRef(0);
+  const saveNow = useCallback((userId?: string) => {
+    lastSaveAt.current = Date.now();
+    savesInFlight.current++;
+    persistBrainState(() => {
+      const latest = latestSaveState.current;
+      if (!latest || latest.userId !== userId) throw new Error("Account changed; save stopped.");
+      return latest;
+    }, userId)
+      .catch(error => console.error("State save failed:", error))
+      .finally(() => { savesInFlight.current--; });
+  }, []);
+  const flushSave = useCallback(() => {
+    const pending = pendingSave.current;
+    if (!pending) return;
+    window.clearTimeout(pending.timer);
+    pendingSave.current = null;
+    saveNow(pending.userId);
+  }, [saveNow]);
   useEffect(() => {
-    if (state) {
-      persistBrainState(() => {
-        const latest = latestSaveState.current;
-        if (!latest || latest.userId !== state.userId) throw new Error("Account changed; save stopped.");
-        return latest;
-      }, state.userId).catch(error => console.error("State save failed:", error));
+    if (!state) return;
+    if (pendingSave.current && pendingSave.current.userId !== state.userId) flushSave();
+    if (!pendingSave.current && Date.now() - lastSaveAt.current > 400) {
+      saveNow(state.userId);
+      return;
     }
-  }, [state, session]);
+    if (pendingSave.current) window.clearTimeout(pendingSave.current.timer);
+    pendingSave.current = { timer: window.setTimeout(flushSave, 400), userId: state.userId };
+  }, [state, session, flushSave, saveNow]);
+  useEffect(() => {
+    const onHide = () => {
+      const unsaved = !!pendingSave.current || savesInFlight.current > 0;
+      flushSave();
+      if (unsaved && latestSaveState.current) writeEmergencySnapshot(latestSaveState.current);
+    };
+    const onVisibility = () => { if (document.visibilityState === "hidden") onHide(); };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onHide);
+      flushSave();
+    };
+  }, [flushSave]);
 
   // Handle switching or logging into user accounts
   const handleSessionChange = async (newSession: AuthSession) => {
@@ -202,7 +246,9 @@ export const App: React.FC = () => {
     setState(loaded);
   };
 
-  // Record State Mutation in Audit Log & Undo Stack
+  // Record State Mutation in Audit Log & Undo Stack.
+  // State is updated immutably everywhere, so snapshots are kept by reference (structural sharing)
+  // instead of deep-copying the whole workspace on every change.
   const recordMutation = (
     action: string,
     entityType: "task" | "habit" | "journal" | "knowledge" | "section" | "goal",
@@ -210,14 +256,19 @@ export const App: React.FC = () => {
     details?: string
   ) => {
     if (!state) return;
-    // Push snapshot to past history
-    historyPast.current = [...historyPast.current.slice(-29), JSON.parse(JSON.stringify(state))];
+    // Repeated edits to the same record (e.g. note autosaves while typing) form one undo step and one audit entry.
+    const key = `${action}|${entityType}|${entityTitle}`;
+    const now = Date.now();
+    const coalesce = action.startsWith("Updated") && lastMutation.current?.key === key && now - lastMutation.current.at < 120000;
+    lastMutation.current = { key, at: now };
+    if (coalesce) return;
+    historyPast.current = [...historyPast.current.slice(-29), state];
     historyFuture.current = [];
 
     const entry: AuditLogEntry = {
-      id: `audit-${Date.now()}`,
-      timestamp: new Date().toISOString(),
-      timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      id: `audit-${now}`,
+      timestamp: new Date(now).toISOString(),
+      timeString: new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       action,
       entityType,
       entityTitle,
@@ -235,7 +286,8 @@ export const App: React.FC = () => {
   const handleUndo = () => {
     if (historyPast.current.length === 0 || !state) return;
     const previousState = historyPast.current.pop()!;
-    historyFuture.current.push(JSON.parse(JSON.stringify(state)));
+    historyFuture.current.push(state);
+    lastMutation.current = null;
     setState(current => current ? { ...previousState, agentMemory: current.agentMemory } : current);
   };
 
@@ -243,7 +295,8 @@ export const App: React.FC = () => {
   const handleRedo = () => {
     if (historyFuture.current.length === 0 || !state) return;
     const nextState = historyFuture.current.pop()!;
-    historyPast.current.push(JSON.parse(JSON.stringify(state)));
+    historyPast.current.push(state);
+    lastMutation.current = null;
     setState(current => current ? { ...nextState, agentMemory: current.agentMemory } : current);
   };
 

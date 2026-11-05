@@ -7,7 +7,10 @@ import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, 
 import { syncHabitStreaks, getLocalDateString } from "../utils/habitStreaks";
 import { normalizeTask } from "../utils/taskState";
 import { resolveModel } from "./openrouter";
-import { loadUserStateFromDB, saveUserStateToDB } from "./database";
+import { boundConversations } from "../utils/conversationBudget";
+import { clearLocalUserStateCopy, loadUserStateFromDB, saveUserStateToDB } from "./database";
+
+let lastSavedNativeKey: string | undefined;
 
 export const CURRENT_SCHEMA_VERSION = 1;
 const STORAGE_KEY = "synapse_second_brain_state";
@@ -517,8 +520,17 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 
   if (cloudEnabled) storedState = (await loadCloud()).state;
 
+  // 0. A snapshot written while the page was closing mid-save is newer than any durable copy.
+  if (!cloudEnabled && typeof localStorage !== "undefined") {
+    const pending = readEmergencySnapshot(targetUserId);
+    if (pending) {
+      storedState = pending;
+      loadedFrom = "pending_snapshot";
+    }
+  }
+
   // 1. CANONICAL STORE: If in Tauri desktop app, native file storage is primary
-  if (inTauri && !cloudEnabled) {
+  if (inTauri && !cloudEnabled && !storedState.tasks) {
     try {
       const { invoke } = await import("@tauri-apps/api/core");
       const nativeData = await invoke<string | null>("load_brain_data");
@@ -697,7 +709,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     noteFolders,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
     conversationId: storedState.conversationId,
-    conversations: storedState.conversations || [],
+    conversations: boundConversations(storedState.conversations),
     openRouterKey: finalKey,
     selectedModel: resolveModel(storedState.selectedModel),
     theme: storedState.theme || "light",
@@ -712,6 +724,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
  */
 async function persistNow(state: BrainState, targetUserId: string): Promise<void> {
   const cleanState = { ...state, tasks: state.tasks.map(t => normalizeTask(t)), userId: targetUserId,
+    conversations: boundConversations(state.conversations),
     agentMemory: normalizeAgentMemory(state.agentMemory) };
     if (cloudEnabled) {
       await saveCloud(cleanState);
@@ -724,47 +737,82 @@ async function persistNow(state: BrainState, targetUserId: string): Promise<void
         return;
       }
     }
-    const envelope = wrapStateEnvelope(cleanState, targetUserId);
-    const envelopeJson = JSON.stringify(envelope);
-
     const inTauri = await isTauriEnvironment();
+    // One durable write per save. localStorage is only a fallback when the primary store fails,
+    // because every copy re-serializes the whole workspace on the main thread.
+    const writeFallback = () => {
+      try {
+        localStorage.setItem(STORAGE_ENVELOPE_KEY, JSON.stringify(wrapStateEnvelope(cleanState, targetUserId)));
+      } catch { throw new Error(inTauri ? "Could not save changes to desktop storage." : "Could not save changes to browser storage."); }
+    };
+    const clearStaleCopies = () => {
+      try {
+        localStorage.removeItem(STORAGE_ENVELOPE_KEY);
+        localStorage.removeItem(STORAGE_KEY);
+      } catch { /* Nothing to free. */ }
+      clearLocalUserStateCopy(targetUserId);
+    };
 
     if (inTauri) {
       // 1. CANONICAL PRIMARY: Tauri Native Storage
       try {
         const { invoke } = await import("@tauri-apps/api/core");
-        await invoke("save_brain_data", { data: envelopeJson });
+        await invoke("save_brain_data", { data: JSON.stringify(wrapStateEnvelope(cleanState, targetUserId)) });
       } catch (e) {
         console.error("[Storage] Desktop save failed:", e);
         throw new Error("Could not save changes to desktop storage.");
       }
       // Credentials are a separate write; failure must not misreport an already saved action.
-      if (cleanState.openRouterKey) {
-        import("@tauri-apps/api/core").then(({ invoke }) => invoke("save_openrouter_api_key", { apiKey: cleanState.openRouterKey })).catch(() => {});
+      if (cleanState.openRouterKey && cleanState.openRouterKey !== lastSavedNativeKey) {
+        const key = cleanState.openRouterKey;
+        import("@tauri-apps/api/core").then(({ invoke }) => invoke("save_openrouter_api_key", { apiKey: key })).then(() => { lastSavedNativeKey = key; }).catch(() => {});
       }
-      // Non-blocking background sync to IndexedDB for multi-user database records
-      saveUserStateToDB(targetUserId, cleanState).catch(() => {});
+      // Per-account record lets other desktop accounts load their own workspace.
+      saveUserStateToDB(targetUserId, cleanState).then(store => { if (store === "indexed_db") clearStaleCopies(); }).catch(() => {});
     } else {
-      // 1. CANONICAL PRIMARY FOR WEB: IndexedDB
+      // 1. CANONICAL PRIMARY FOR WEB: IndexedDB (falls back to a per-user localStorage copy inside).
+      let store: Awaited<ReturnType<typeof saveUserStateToDB>> | undefined;
       try {
-        await saveUserStateToDB(targetUserId, cleanState);
+        store = await saveUserStateToDB(targetUserId, cleanState);
       } catch (e) {
         console.warn("[Storage] IndexedDB save failed, using LocalStorage fallback:", e);
-        try {
-          localStorage.setItem(STORAGE_ENVELOPE_KEY, envelopeJson);
-        } catch { throw new Error("Could not save changes to browser storage."); }
+        writeFallback();
       }
+      if (store === "indexed_db") clearStaleCopies();
     }
 
-    // Secondary offline fallback & fast cache
+    clearEmergencySnapshot(targetUserId);
+
+    // The API key is small and read at startup before state loads.
     try {
-      localStorage.setItem(STORAGE_ENVELOPE_KEY, envelopeJson);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cleanState));
-      if (cleanState.openRouterKey) {
-        localStorage.setItem("synapse_openrouter_key", cleanState.openRouterKey);
-      }
+      if (cleanState.openRouterKey) localStorage.setItem("synapse_openrouter_key", cleanState.openRouterKey);
     } catch {}
 
+}
+
+const PENDING_SNAPSHOT_PREFIX = "synapse_pending_save_";
+/**
+ * Synchronous last-chance copy for when the page is closing while a save is still pending or in flight
+ * (async IndexedDB writes may not finish during unload). Loading prefers it, and the next durable save removes it.
+ */
+export function writeEmergencySnapshot(state: BrainState, userId = state.userId || "guest"): void {
+  if (cloudEnabled) return; // Cloud saves are network writes; the unload prompt covers them instead.
+  try {
+    const clean = { ...state, userId, conversations: boundConversations(state.conversations) };
+    localStorage.setItem(PENDING_SNAPSHOT_PREFIX + userId, JSON.stringify(wrapStateEnvelope(clean, userId)));
+  } catch { /* Quota or storage unavailable: the regular save path is still running. */ }
+}
+function readEmergencySnapshot(userId: string): Partial<BrainState> | null {
+  try {
+    const raw = localStorage.getItem(PENDING_SNAPSHOT_PREFIX + userId);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const { state } = unwrapStateEnvelope(parsed);
+    return parsed.userId === userId && (state.tasks || state.habits || state.goals) ? state : null;
+  } catch { return null; }
+}
+function clearEmergencySnapshot(userId: string): void {
+  try { localStorage.removeItem(PENDING_SNAPSHOT_PREFIX + userId); } catch { /* Nothing to clear. */ }
 }
 
 export async function persistBrainState(input: BrainState | (() => BrainState), userId?: string, onPersisted?: (saved: BrainState) => void): Promise<void> {

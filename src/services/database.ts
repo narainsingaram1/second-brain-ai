@@ -223,16 +223,17 @@ interface StoredUserDataRecord {
 /**
  * Saves a user's entire BrainState into their personal database record.
  */
-export async function saveUserStateToDB(userId: string, state: BrainState): Promise<void> {
+export type UserStateStore = "indexed_db" | "local_storage" | "tauri";
+
+export async function saveUserStateToDB(userId: string, state: BrainState): Promise<UserStateStore> {
   const record: StoredUserDataRecord = {
     userId,
     state: { ...state, userId },
     updatedAt: new Date().toISOString(),
   };
 
-  let saved = false;
-
-  // 1. IndexedDB
+  // 1. IndexedDB (primary). Further copies are written only if it fails: each one is a full
+  // serialization of the workspace on the main thread and competes for the ~5 MB localStorage quota.
   try {
     const db = await getDatabase();
     await new Promise<void>((resolve, reject) => {
@@ -243,7 +244,7 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error || new Error("Storage transaction aborted"));
     });
-    saved = true;
+    return "indexed_db";
   } catch (err) {
     console.warn("IndexedDB saveUserState error:", err);
   }
@@ -251,9 +252,7 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
   // 2. LocalStorage per user
   try {
     localStorage.setItem(`${LOCAL_STORAGE_USER_DATA_PREFIX}${userId}`, JSON.stringify(record.state));
-    saved = true;
-    // Also keep active state mirror
-    localStorage.setItem("synapse_second_brain_state", JSON.stringify(record.state));
+    return "local_storage";
   } catch (e) {
     console.error("Failed to write user state to localStorage", e);
   }
@@ -265,11 +264,16 @@ export async function saveUserStateToDB(userId: string, state: BrainState): Prom
       userId,
       data: JSON.stringify(record.state),
     });
-    saved = true;
+    return "tauri";
   } catch {
     // Expected in browser
   }
-  if (!saved) throw new Error("No persistent storage accepted the write.");
+  throw new Error("No persistent storage accepted the write.");
+}
+
+/** Removes the per-user localStorage copy once a durable store holds the data. */
+export function clearLocalUserStateCopy(userId: string): void {
+  try { localStorage.removeItem(`${LOCAL_STORAGE_USER_DATA_PREFIX}${userId}`); } catch { /* Nothing to free. */ }
 }
 
 /**

@@ -551,7 +551,8 @@ test("queued persistence resolves the latest snapshot and failed saves never pub
     };
     const second = persistBrainState(() => latest, "alice");
     await Promise.all([first, second]);
-    const saved = JSON.parse(data.get("synapse_second_brain_state"));
+    // Without IndexedDB, the save falls back to a single per-account localStorage copy.
+    const saved = JSON.parse(data.get("synapse_user_data_alice"));
     assert.equal(saved.tasks[0].id, "concurrent");
     assert.equal(saved.agentMemory.entries[0].id, "m1");
     let confirmed = false;

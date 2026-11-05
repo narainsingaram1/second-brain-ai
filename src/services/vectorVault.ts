@@ -1,3 +1,4 @@
+import { cachedEmbedding, digest, storeEmbedding } from "./brainRetrieval";
 import { managedAuthEnabled } from "./managedAuth";
 import { Task, JournalEntry, KnowledgeItem, Habit, BrainState, Goal } from "../types";
 import {
@@ -187,14 +188,36 @@ export function generateLocalSemanticEmbedding(text: string): { embedding: numbe
  * Fetches neural vector embedding from OpenRouter (openai/text-embedding-3-small).
  * Falls back to the local deterministic semantic engine if offline or no key.
  */
+// Recently used vectors (mostly search queries) kept in memory; IndexedDB holds the durable cache.
+const recentEmbeddings = new Map<string, number[]>();
+function remember(key: string, vector: number[]) {
+  recentEmbeddings.set(key, vector);
+  if (recentEmbeddings.size > 200) recentEmbeddings.delete(recentEmbeddings.keys().next().value!);
+}
+function withNorm(embedding: number[]): { embedding: number[]; norm: number; provider: "openrouter" } {
+  let sumSq = 0;
+  for (const v of embedding) sumSq += v * v;
+  const norm = Math.sqrt(sumSq);
+  return { embedding, norm: norm > 0 ? norm : 1.0, provider: "openrouter" };
+}
+
 export async function getEmbedding(
   text: string,
   openRouterKey?: string
 ): Promise<{ embedding: number[]; norm: number; provider: "openrouter" | "local" }> {
   if (openRouterKey && openRouterKey.trim() !== "") {
     try {
+      // Content-addressed cache: unchanged text is never paid for twice, across reloads and reindexes.
+      const input = text.slice(0, 8000);
+      const cacheKey = `vault|openai/text-embedding-3-small|${await digest(input)}`;
+      const hit = recentEmbeddings.get(cacheKey) || await cachedEmbedding(cacheKey);
+      if (hit?.length) {
+        remember(cacheKey, hit);
+        return withNorm(hit);
+      }
       const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
         method: "POST",
+        signal: AbortSignal.timeout(20000),
         headers: {
           Authorization: `Bearer ${openRouterKey.trim()}`,
           "Content-Type": "application/json",
@@ -203,7 +226,7 @@ export async function getEmbedding(
         },
         body: JSON.stringify({
           model: "openai/text-embedding-3-small",
-          input: text.slice(0, 8000),
+          input,
         }),
       });
 
@@ -211,14 +234,9 @@ export async function getEmbedding(
         const data = await res.json();
         const emb = data?.data?.[0]?.embedding;
         if (Array.isArray(emb) && emb.length > 0) {
-          let sumSq = 0;
-          for (const v of emb) sumSq += v * v;
-          const norm = Math.sqrt(sumSq);
-          return {
-            embedding: emb,
-            norm: norm > 0 ? norm : 1.0,
-            provider: "openrouter",
-          };
+          remember(cacheKey, emb);
+          storeEmbedding(cacheKey, emb).catch(() => {});
+          return withNorm(emb);
         }
       }
     } catch {
@@ -395,6 +413,8 @@ class SemanticMemoryVaultService {
     if (managedAuthEnabled && this.account !== userId) {
       this.account = userId;
       this.generation++;
+      for (const pending of this.pendingIndex.values()) { clearTimeout(pending.timer); pending.resolve(null); }
+      this.pendingIndex.clear();
       this.memoryCache = [];
       this.isLoaded = true;
     }
@@ -431,7 +451,34 @@ class SemanticMemoryVaultService {
   /**
    * Indexes a single brain item into the vector vault.
    */
-  async indexItem(
+  private pendingIndex = new Map<string, { timer: ReturnType<typeof setTimeout>; resolve: (chunk: VectorChunk | null) => void }>();
+
+  /**
+   * Indexes a single brain item into the vector vault. Rapid repeated saves of the same item
+   * (e.g. note autosave while typing) are coalesced, and unchanged content is skipped.
+   */
+  indexItem(
+    item: Task | JournalEntry | KnowledgeItem | Habit | Goal,
+    type: "task" | "journal" | "knowledge" | "habit" | "goal",
+    openRouterKey?: string,
+    delayMs = 2500
+  ): Promise<VectorChunk | null> {
+    const id = `vec-${type}-${item.id}`;
+    const previous = this.pendingIndex.get(id);
+    if (previous) {
+      clearTimeout(previous.timer);
+      previous.resolve(null);
+    }
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingIndex.delete(id);
+        this.indexNow(item, type, openRouterKey).then(resolve, reject);
+      }, delayMs);
+      this.pendingIndex.set(id, { timer, resolve });
+    });
+  }
+
+  private async indexNow(
     item: Task | JournalEntry | KnowledgeItem | Habit | Goal,
     type: "task" | "journal" | "knowledge" | "habit" | "goal",
     openRouterKey?: string
@@ -445,6 +492,12 @@ class SemanticMemoryVaultService {
     else if (type === "knowledge") chunkData = chunkKnowledge(item as KnowledgeItem);
     else if (type === "goal") chunkData = chunkGoal(item as Goal);
     else chunkData = chunkHabit(item as Habit);
+
+    const existing = this.memoryCache.find((c) => c.id === `vec-${type}-${item.id}`);
+    const neural = !!openRouterKey?.trim();
+    // Unchanged text with a vector of the right kind needs no new embedding or write.
+    if (existing && existing.content === chunkData.content && existing.title === chunkData.title
+      && (existing.embedding.length !== DIMENSIONS) === neural) return existing;
 
     const { embedding, norm } = await getEmbedding(chunkData.content, openRouterKey);
 
@@ -490,6 +543,14 @@ class SemanticMemoryVaultService {
    * Removes chunks belonging to an item (e.g. when deleted).
    */
   async removeItem(itemId: string): Promise<number> {
+    // A deleted item must not be re-added by a still-pending autosave index.
+    for (const [id, pending] of this.pendingIndex) {
+      if (id.endsWith(`-${itemId}`)) {
+        clearTimeout(pending.timer);
+        pending.resolve(null);
+        this.pendingIndex.delete(id);
+      }
+    }
     await this.init();
 
     if (managedAuthEnabled) {

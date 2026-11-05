@@ -99,7 +99,9 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
 
       // 1. Semantic Vector Search
       let vectorMatches: SearchResult[] = [];
-      try {
+      // Very short queries are served by keyword matching alone; each neural query costs an embedding call
+      // (repeated queries are answered from the embedding cache).
+      if (q.length >= 3) try {
         vectorMatches = await vectorVault.search(q, 15, undefined, openRouterKey);
       } catch (err) {
         console.warn("Vector omnibar search fallback:", err);
@@ -248,7 +250,8 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
       setSelectedIndex(0);
     };
 
-    const timer = setTimeout(runSearch, 150);
+    // Wait for a pause in typing so intermediate prefixes are not each sent for embedding.
+    const timer = setTimeout(runSearch, 350);
     return () => {
       isCancelled = true;
       clearTimeout(timer);
