@@ -1,3 +1,4 @@
+import { queryOpenRouter } from "../services/openrouter";
 import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback } from "react";
 import { KnowledgeItem, NoteFolder } from "../types";
 import { createPortal } from "react-dom";
@@ -44,7 +45,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   onDelete,
   onBack,
   openRouterKey,
-  selectedModel = "anthropic/claude-3.5-sonnet",
+  selectedModel,
   onGenerateTasks,
 }) => {
   const [title, setTitle] = useState(note.title || note.subject || "");
@@ -267,23 +268,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     }
 
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${openRouterKey}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://second-brain-ai.local",
-          "X-Title": "Second Brain AI",
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      });
-
-      if (!res.ok) throw new Error(`OpenRouter Error: ${res.statusText}`);
-      const data = await res.json();
-      const aiResponse = data.choices?.[0]?.message?.content || "";
+      const aiResponse = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey, selectedModel, undefined, { maxTokens: 4000 });
 
       if (action === "tasks") {
         try {

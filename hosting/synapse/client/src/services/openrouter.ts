@@ -63,7 +63,7 @@ export async function queryOpenRouterWithTools(
   const bodyPayload: any = {
     model: model || "anthropic/claude-3.5-sonnet",
     messages: payloadMessages,
-    temperature: 0.3,
+    temperature: 0.7,
     max_tokens: 6000,
   };
 

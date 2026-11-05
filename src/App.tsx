@@ -968,6 +968,7 @@ export const App: React.FC = () => {
                   onSaveEntry={handleSaveJournalEntry}
                   onSynthesizeAI={handleSynthesizeAI}
                   openRouterKey={state.openRouterKey}
+                  selectedModel={state.selectedModel}
                   onOpenSettings={() => setIsSettingsOpen(true)}
                   onSaveKnowledge={handleSaveKnowledge}
                 />

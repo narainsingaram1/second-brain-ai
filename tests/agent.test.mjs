@@ -84,8 +84,37 @@ test('follow-ups receive prior conversation and exact source references', async 
   s.chatHistory = [{ id: 'u', role: 'user', content: 'What is due?', timestamp: '1' }, { id: 'a', role: 'assistant', content: 'Your assignment.', timestamp: '2', sources: [{ id: 'task-104', type: 'task', title: 'Assignment 104' }] }];
   mockProvider([response('Start with that assignment.')], requests);
   await AutonomousBrainAgent.execute('Which should I start?', s);
-  assert.ok(requests[0].messages.some(m => m.role === 'assistant' && m.content.includes('task-104')));
+  // Referenced records are listed once in the system context; the transcript itself stays free of IDs.
+  assert.match(requests[0].messages[0].content, /Records referenced recently[\s\S]*Assignment 104 \[task:task-104\]/);
+  assert.ok(requests[0].messages.some(m => m.role === 'assistant' && m.content === 'Your assignment.'));
   assert.equal(requests[0].messages.filter(m => m.content === 'Which should I start?').length, 1);
+});
+
+test('prompt carries a live snapshot and strips internal IDs from the transcript', async () => {
+  const s = state(), requests = [];
+  s.habits = [{ id: 'h1', name: 'Read', frequency: 'daily', streak: 3, bestStreak: 5, history: {} }];
+  s.chatHistory = [
+    { id: 'u-old', role: 'user', content: 'Hi', timestamp: '1' },
+    { id: 'a-old', role: 'assistant', content: 'Start with Assignment 3 [task:task-003] today.', timestamp: '2', sources: [{ id: 'task-003', type: 'task', title: 'Assignment 3' }] },
+  ];
+  mockProvider([response('Hey! Your week looks busy.')], requests);
+  const result = await AutonomousBrainAgent.execute('How is my week looking?', s);
+  assert.equal(result.queryAnswer, 'Hey! Your week looks busy.');
+  const system = requests[0].messages[0].content;
+  assert.match(system, /## Current context/);
+  assert.match(system, /Read — not yet today, 3-day streak \[habit:h1\]/);
+  assert.match(system, /Open tasks: \d+ total/);
+  const transcript = requests[0].messages.slice(1);
+  assert.ok(transcript.every(m => !/User message ID|Source references|\[task:/.test(m.content)));
+  assert.ok(transcript.some(m => m.content === 'Start with Assignment 3 today.'));
+  assert.equal(requests[0].temperature, 0.7);
+});
+
+test('a reply cut off at the length limit is returned instead of discarded', async () => {
+  const requests = [];
+  mockProvider([{ choices: [{ finish_reason: 'length', message: { content: 'Here is a long plan' } }] }], requests);
+  const result = await AutonomousBrainAgent.execute('Plan my semester', state());
+  assert.equal(result.status, 'complete'); assert.match(result.queryAnswer, /^Here is a long plan[\s\S]*cut off/);
 });
 
 test('duplicate successful tool calls do not duplicate writes', async () => {
@@ -116,7 +145,7 @@ test('follow-up task rename preserves the existing record and task count', async
   assert.equal(updated.tasks.length, s.tasks.length);
   assert.deepEqual(updated.tasks.find(t => t.id === original.id), { ...original, title: 'Dow Jones Interview' });
   assert.equal(s.tasks[0].title, original.title);
-  assert.ok(requests[0].messages.some(m => m.role === 'assistant' && m.content.includes(original.id)));
+  assert.ok(requests[0].messages[0].content.includes(`[task:${original.id}]`));
 });
 
 test('task renames validate titles and can combine with status and date edits', () => {

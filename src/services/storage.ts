@@ -6,6 +6,7 @@ import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
 import { syncHabitStreaks, getLocalDateString } from "../utils/habitStreaks";
 import { normalizeTask } from "../utils/taskState";
+import { resolveModel } from "./openrouter";
 import { loadUserStateFromDB, saveUserStateToDB } from "./database";
 
 export const CURRENT_SCHEMA_VERSION = 1;
@@ -698,7 +699,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     conversationId: storedState.conversationId,
     conversations: storedState.conversations || [],
     openRouterKey: finalKey,
-    selectedModel: storedState.selectedModel || "anthropic/claude-3.5-sonnet",
+    selectedModel: resolveModel(storedState.selectedModel),
     theme: storedState.theme || "light",
     taskAppearance: normalizeTaskAppearance(storedState.taskAppearance),
     dailyBrief: storedState.dailyBrief,

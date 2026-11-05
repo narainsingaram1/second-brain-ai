@@ -42,6 +42,7 @@ interface JournalViewProps {
   onSaveEntry: (entry: JournalEntry) => void;
   onSynthesizeAI: (entry: JournalEntry) => Promise<string>;
   openRouterKey: string;
+  selectedModel?: string;
   onOpenSettings: () => void;
   onAddTask?: (task: Task) => void;
   onSaveKnowledge?: (item: KnowledgeItem) => void;
@@ -85,6 +86,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
   onSaveEntry,
   onSynthesizeAI,
   openRouterKey,
+  selectedModel,
   onOpenSettings,
   onSaveKnowledge,
 }) => {
@@ -291,7 +293,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
         prompt = `Polish and improve the clarity, cadence, and elegance of this journal entry while preserving its authentic personal tone:\n\n"${currentEntry.content}"`;
       }
 
-      const result = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey);
+      const result = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey, selectedModel);
       setCurrentEntry((prev) => ({
         ...prev,
         content: prev.content ? `${prev.content}\n\n---\n*AI Writing Assistant*:\n${result}` : result,
@@ -317,14 +319,14 @@ export const JournalView: React.FC<JournalViewProps> = ({
         insight = await onSynthesizeAI(currentEntry);
       } else if (type === "actions") {
         const prompt = `Review this daily reflection and extract 2 to 3 concrete actionable GTD tasks or habit tweaks for tomorrow. Format in clean bullet points:\n\nTitle: "${currentEntry.title}"\nContent: "${currentEntry.content}"\nWins: ${currentEntry.wins.join(", ")}\nObstacles: ${currentEntry.challenges.join(", ")}`;
-        insight = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey);
+        insight = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey, selectedModel);
       } else if (type === "trends") {
         const recent = allMergedEntries
           .slice(0, 5)
           .map((e) => `[${e.date} (${e.mood})]: ${e.title} - ${e.content.slice(0, 80)}`)
           .join("\n");
         const prompt = `Analyze emotional and execution trends across the user's recent days:\n${recent}\n\nProvide 2-3 bulleted observations on consistency, energy, and cognitive friction.`;
-        insight = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey);
+        insight = await queryOpenRouter([{ role: "user", content: prompt }], openRouterKey, selectedModel);
       }
 
       setCurrentEntry((prev) => {

@@ -1,6 +1,6 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useEffect, useState } from "react";
-import { OPENROUTER_MODELS, testOpenRouterKey } from "../services/openrouter";
+import { DEFAULT_MODEL, OPENROUTER_MODELS, testOpenRouterKey } from "../services/openrouter";
 import {
   Key,
   Brain,
@@ -224,7 +224,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
                     <div>
                       <div className="flex items-center gap-2">
                         <h4 className="text-xs font-extrabold">{m.name}</h4>
-                        {m.id === "anthropic/claude-3.5-sonnet" && (
+                        {m.id === DEFAULT_MODEL && (
                           <span
                             className={`text-[11px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
                               isSelected
