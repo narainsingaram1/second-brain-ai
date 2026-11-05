@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { formatTime } from "../utils/events";
 import { Task, TaskStatus } from "../types";
 import { normalizeTask } from "../utils/taskState";
 import {
@@ -368,7 +369,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                                 }`}
                               >
                                 <Calendar className="w-2.5 h-2.5" />
-                                {task.dueDate}
+                                {task.dueDate}{task.dueTime ? ` · ${formatTime(task.dueTime)}` : ""}
                               </span>
                             )}
 

@@ -11,8 +11,10 @@ import {
   Plus,
   Sparkles,
   Target,
+  CalendarClock,
 } from "lucide-react";
-import { BrainState, KnowledgeItem, Task } from "../types";
+import { BrainState, CalendarEvent, KnowledgeItem, Task } from "../types";
+import { formatTime } from "../utils/events";
 import { BrainConversation } from "../hooks/useBrainConversation";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { MountainHeroIllustration } from "./MountainHeroIllustration";
@@ -30,6 +32,7 @@ interface HomeViewProps {
   onNewNote: () => void;
   onToggleTask: (id: string) => void;
   onEditTask: (task: Task) => void;
+  onEditEvent?: (event: CalendarEvent) => void;
   onOpenNote: (note: KnowledgeItem) => void;
 }
 export function HomeView({
@@ -42,6 +45,7 @@ export function HomeView({
   onNewNote,
   onToggleTask,
   onEditTask,
+  onEditEvent,
   onOpenNote,
 }: HomeViewProps) {
   const [prompt, setPrompt] = useState("");
@@ -58,10 +62,17 @@ export function HomeView({
         : "Good evening";
   const dayTasks = state.tasks.filter((task) => task.dueDate === selectedDate);
   const done = dayTasks.filter((task) => task.completed).length;
-  const upcoming = state.tasks
-    .filter((task) => !task.completed && task.dueDate > today)
-    .sort((a, b) => a.dueDate.localeCompare(b.dueDate))
-    .slice(0, 4);
+  // Deadlines and scheduled events share one chronological "Coming up" list.
+  const upcoming: Array<{ kind: "task"; key: string; date: string; time?: string; task: Task } | { kind: "event"; key: string; date: string; time?: string; event: CalendarEvent }> = [
+    ...state.tasks
+      .filter((task) => !task.completed && task.dueDate > today)
+      .map((task) => ({ kind: "task" as const, key: `task:${task.id}`, date: task.dueDate, time: task.dueTime, task })),
+    ...(state.events || [])
+      .filter((event) => event.date >= today)
+      .map((event) => ({ kind: "event" as const, key: `event:${event.id}`, date: event.date, time: event.startTime, event })),
+  ]
+    .sort((a, b) => `${a.date} ${a.time || "24:00"}`.localeCompare(`${b.date} ${b.time || "24:00"}`))
+    .slice(0, 5);
   const overdue = state.tasks.filter(
     (task) => !task.completed && task.dueDate && task.dueDate < today,
   ).length;
@@ -250,7 +261,7 @@ export function HomeView({
                   >
                     {task.title}
                   </button>
-                  <span className="subtle-tag">{task.section}</span>
+                  <span className="subtle-tag">{task.dueTime ? `${formatTime(task.dueTime)} · ` : ""}{task.section}</span>
                 </div>
               ))}
               {!dayTasks.length && (
@@ -396,6 +407,7 @@ export function HomeView({
       <aside className="dashboard-rail" aria-label="At a glance">
         <DashboardCalendar
           tasks={state.tasks}
+          events={state.events}
           selected={selectedDate}
           onSelect={setSelectedDate}
         />
@@ -414,19 +426,22 @@ export function HomeView({
             </button>
           </div>
           {upcoming.length ? (
-            upcoming.map((task) => (
+            upcoming.map((item) => (
               <button
-                className="upcoming-item"
-                key={task.id}
-                onClick={() => onEditTask(task)}
+                className={`upcoming-item ${item.kind === "event" ? "is-event" : ""}`}
+                key={item.key}
+                onClick={() => (item.kind === "task" ? onEditTask(item.task) : onEditEvent?.(item.event))}
               >
                 <span>
-                  {new Date(`${task.dueDate}T12:00:00`).toLocaleDateString(
-                    "en-US",
-                    { month: "short", day: "numeric" },
-                  )}
+                  {item.date === today
+                    ? "Today"
+                    : new Date(`${item.date}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  {item.time ? ` · ${formatTime(item.time)}` : ""}
                 </span>
-                <strong>{task.title}</strong>
+                <strong>
+                  {item.kind === "event" && <CalendarClock size={13} aria-label="Event" style={{ display: "inline", marginRight: 4, verticalAlign: "-2px" }} />}
+                  {item.kind === "task" ? item.task.title : item.event.title}
+                </strong>
               </button>
             ))
           ) : (

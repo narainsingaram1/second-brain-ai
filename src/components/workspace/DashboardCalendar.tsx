@@ -1,13 +1,14 @@
 import { useState } from "react";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { Task } from "../../types";
+import { CalendarEvent, Task } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
 interface Props {
   tasks: Task[];
+  events?: CalendarEvent[];
   selected: string;
   onSelect: (date: string) => void;
 }
-export function DashboardCalendar({ tasks, selected, onSelect }: Props) {
+export function DashboardCalendar({ tasks, events = [], selected, onSelect }: Props) {
   const [month, setMonth] = useState(
     () => new Date(new Date().getFullYear(), new Date().getMonth(), 1),
   );
@@ -65,7 +66,7 @@ export function DashboardCalendar({ tasks, selected, onSelect }: Props) {
           );
           const hasTasks = tasks.some(
             (task) => task.dueDate === date && !task.completed,
-          );
+          ) || events.some((event) => event.date === date);
           return (
             <button
               key={date}

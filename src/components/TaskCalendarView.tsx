@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Task, TaskStatus } from "../types";
+import { CalendarEvent, Task, TaskStatus } from "../types";
+import { eventTimeLabel, formatTime, sortEvents, taskSortKey, EVENT_KINDS } from "../utils/events";
 import {
   ChevronLeft,
   ChevronRight,
@@ -9,6 +10,9 @@ import {
   AlertCircle,
   Clock,
   Trash2,
+  MapPin,
+  Video,
+  CalendarPlus,
 } from "lucide-react";
 import confetti from "canvas-confetti";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -22,6 +26,9 @@ interface TaskCalendarViewProps {
   onAddTask: (section?: string, subsection?: string, defaultDueDate?: string) => void;
   onEditTask: (task: Task) => void;
   onDeleteTask: (taskId: string) => void;
+  events?: CalendarEvent[];
+  onAddEvent?: (date?: string) => void;
+  onEditEvent?: (event: CalendarEvent) => void;
 }
 
 const MONTH_NAMES = [
@@ -50,6 +57,9 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   onAddTask,
   onEditTask,
   onDeleteTask,
+  events = [],
+  onAddEvent,
+  onEditEvent,
 }) => {
   const today = new Date();
   const todayStr = getLocalDateString(today);
@@ -118,6 +128,12 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
     if (hideCompleted && t.status === "completed") return false;
     return true;
   });
+
+  const sortedEvents = sortEvents(events);
+  const eventsOn = (date: string) => sortedEvents.filter((e) => e.date === date);
+  const tasksOn = (date: string) =>
+    filteredTasks.filter((t) => t.dueDate === date).sort((a, b) => taskSortKey(a).localeCompare(taskSortKey(b)));
+  const kindLabel = (event: CalendarEvent) => EVENT_KINDS.find((k) => k.id === event.kind)?.label || "Event";
 
   // Calculate Overdue tasks (dueDate < todayStr and not completed)
   const overdueTasks = filteredTasks.filter(
@@ -204,12 +220,15 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   const displayedCells = calendarMode === "week" ? weekCells : calendarCells;
 
   // Selected Day tasks
-  const selectedDayTasks = filteredTasks.filter((t) => t.dueDate === selectedDate);
+  const selectedDayTasks = tasksOn(selectedDate);
+  const selectedDayEvents = eventsOn(selectedDate);
   const totalTasksThisMonth = filteredTasks.filter((t) => {
     if (!t.dueDate) return false;
     const [y, m] = t.dueDate.split("-").map(Number);
     return y === currentYear && m === currentMonth + 1;
   }).length;
+  const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, "0")}-`;
+  const totalEventsThisMonth = events.filter((e) => e.date.startsWith(monthPrefix)).length;
 
   return (
     <div className="w-full space-y-6 animate-fade-in">
@@ -248,6 +267,11 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
               <span className="text-xs font-bold px-2.5 py-0.5 rounded-full task-theme-bg task-theme-text task-theme-dark-bg task-theme-dark-text border task-theme-border task-theme-dark-border">
                 {totalTasksThisMonth} {totalTasksThisMonth === 1 ? "task" : "tasks"}
               </span>
+              {totalEventsThisMonth > 0 && (
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-900">
+                  {totalEventsThisMonth} {totalEventsThisMonth === 1 ? "event" : "events"}
+                </span>
+              )}
             </h2>
           </div>
         </div>
@@ -310,8 +334,17 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
             className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold shadow-xs hover:scale-102 active:scale-98 transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>Add on Date</span>
+            <span>Task on Date</span>
           </button>
+          {onAddEvent && (
+            <button
+              onClick={() => onAddEvent(selectedDate)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-violet-600 text-white text-xs font-bold shadow-xs hover:bg-violet-700 active:scale-98 transition-all"
+            >
+              <CalendarPlus className="w-3.5 h-3.5" />
+              <span>Event on Date</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -331,7 +364,11 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
           {/* 35 or 42 Calendar Cells */}
           <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
             {displayedCells.map((cell) => {
-              const dayTasks = filteredTasks.filter((t) => t.dueDate === cell.dateStr);
+              const dayTasks = tasksOn(cell.dateStr);
+              const dayEvents = eventsOn(cell.dateStr);
+              const visibleEvents = dayEvents.slice(0, 3);
+              const visibleTasks = dayTasks.slice(0, Math.max(0, 3 - visibleEvents.length));
+              const hiddenCount = dayEvents.length + dayTasks.length - visibleEvents.length - visibleTasks.length;
               const pendingDayTasks = dayTasks.filter((t) => t.status !== "completed");
               const isCellSelected = cell.dateStr === selectedDate;
 
@@ -374,9 +411,24 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                     </button>
                   </div>
 
-                  {/* Day Tasks List (Up to 3 chips visible) */}
+                  {/* Day events then tasks (up to 3 chips visible) */}
                   <div className="space-y-1 my-1 overflow-hidden">
-                    {dayTasks.slice(0, 3).map((task) => {
+                    {visibleEvents.map((event) => (
+                      <button
+                        type="button"
+                        key={event.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditEvent?.(event);
+                        }}
+                        title={`${kindLabel(event)}: ${event.title} · ${eventTimeLabel(event)}${event.location ? ` · ${event.location}` : ""}`}
+                        className="w-full text-left px-1.5 py-0.5 rounded-lg text-[11px] font-bold truncate flex items-center gap-1 bg-violet-100 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300 border-l-2 border-violet-500"
+                      >
+                        {event.startTime && <span className="shrink-0 opacity-75">{formatTime(event.startTime).replace(":00", "").replace(" ", "")}</span>}
+                        <span className="truncate">{event.title}</span>
+                      </button>
+                    ))}
+                    {visibleTasks.map((task) => {
                       const isCompleted = task.status === "completed";
                       const isInProgress = task.status === "in_progress";
 
@@ -412,14 +464,15 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                               <div className="w-2 h-2 rounded-full border border-slate-400" />
                             )}
                           </button>
+                          {task.dueTime && <span className="shrink-0 opacity-75">{formatTime(task.dueTime).replace(":00", "").replace(" ", "")}</span>}
                           <span className="truncate">{task.title}</span>
                         </div>
                       );
                     })}
 
-                    {dayTasks.length > 3 && (
+                    {hiddenCount > 0 && (
                       <div className="text-[11px] font-extrabold task-theme-text task-theme-dark-text pl-1">
-                        +{dayTasks.length - 3} more
+                        +{hiddenCount} more
                       </div>
                     )}
                   </div>
@@ -451,22 +504,76 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                   Agenda for {selectedDate}
                 </h3>
               </div>
-              <button
-                onClick={() => onAddTask(sections[0], subsections[sections[0]]?.[0], selectedDate)}
-                className="flex items-center gap-1 text-[11px] font-bold task-theme-text task-theme-dark-text hover:underline"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Add Task</span>
-              </button>
+              <div className="flex items-center gap-3">
+                {onAddEvent && (
+                  <button
+                    onClick={() => onAddEvent(selectedDate)}
+                    className="flex items-center gap-1 text-[11px] font-bold text-violet-600 dark:text-violet-400 hover:underline"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>Event</span>
+                  </button>
+                )}
+                <button
+                  onClick={() => onAddTask(sections[0], subsections[sections[0]]?.[0], selectedDate)}
+                  className="flex items-center gap-1 text-[11px] font-bold task-theme-text task-theme-dark-text hover:underline"
+                >
+                  <Plus className="w-3 h-3" />
+                  <span>Task</span>
+                </button>
+              </div>
             </div>
 
-            {selectedDayTasks.length === 0 ? (
+            {selectedDayEvents.length > 0 && (
+              <div className="space-y-2" aria-label="Events">
+                {selectedDayEvents.map((event) => (
+                  <button
+                    type="button"
+                    key={event.id}
+                    onClick={() => onEditEvent?.(event)}
+                    className="w-full text-left p-3 rounded-2xl border border-violet-200 dark:border-violet-900/70 bg-violet-50/70 dark:bg-violet-950/30 hover:border-violet-400 transition-all flex gap-3"
+                  >
+                    <div className="w-1 rounded-full bg-violet-500 shrink-0" />
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{event.title}</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300 shrink-0">{kindLabel(event)}</span>
+                      </div>
+                      <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 flex items-center gap-1">
+                        <Clock className="w-3 h-3" /> {eventTimeLabel(event)}
+                      </span>
+                      {event.location && (
+                        <span className="text-[11px] text-slate-500 flex items-center gap-1 truncate">
+                          <MapPin className="w-3 h-3 shrink-0" /> <span className="truncate">{event.location}</span>
+                        </span>
+                      )}
+                      {event.link && (
+                        <a
+                          href={event.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                        >
+                          <Video className="w-3 h-3" /> Join link
+                        </a>
+                      )}
+                      {event.attendees?.length ? (
+                        <span className="text-[11px] text-slate-400 block truncate">With {event.attendees.join(", ")}</span>
+                      ) : null}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedDayTasks.length === 0 && selectedDayEvents.length > 0 ? null : selectedDayTasks.length === 0 ? (
               <div className="py-8 text-center space-y-2">
                 <div className="w-10 h-10 rounded-2xl bg-raised text-slate-400 flex items-center justify-center mx-auto">
                   <Clock className="w-5 h-5" />
                 </div>
                 <p className="text-xs font-semibold text-slate-400">
-                  No tasks scheduled for this day
+                  Nothing scheduled for this day
                 </p>
                 <button
                   onClick={() => onAddTask(sections[0], subsections[sections[0]]?.[0], selectedDate)}
@@ -519,6 +626,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             {task.title}
                           </span>
                           <span className="text-[11px] text-slate-400">
+                            {task.dueTime ? `Due ${formatTime(task.dueTime)} • ` : ""}
                             {task.section} {task.subsection ? `• ${task.subsection}` : ""}
                           </span>
                         </div>
@@ -572,7 +680,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                         {t.title}
                       </span>
                       <span className="text-[11px] text-rose-500 font-semibold">
-                        Due {t.dueDate}
+                        Due {t.dueDate}{t.dueTime ? ` ${formatTime(t.dueTime)}` : ""}
                       </span>
                     </div>
                     <button

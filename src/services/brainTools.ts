@@ -6,6 +6,33 @@ const d_ = (description: string) => ({ type: "string", description });
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[]): OpenRouterTool =>
   ({ type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false } } });
 const EDIT_TOOLS: OpenRouterTool[] = [
+  fn("create_event", "Schedule a calendar event: a meeting, class, appointment or other happening at a time and place. Use for things the user attends (meetings, office hours, interviews, lectures, appointments, parties), not for work to be done by a deadline (use create_task with dueTime for those). Use only when the user asks to add/schedule it, or sends an image/text that is clearly an invitation or schedule to add.", {
+    title: s_,
+    kind: { type: "string", enum: ["meeting", "event", "class", "appointment"] },
+    date: d_("YYYY-MM-DD local date."),
+    startTime: d_("24-hour HH:MM local start time. Omit for an all-day event."),
+    endTime: d_("24-hour HH:MM local end time, after startTime. Omit if unknown; never invent one."),
+    location: d_("Room, address or place."),
+    link: d_("http(s) meeting or info link."),
+    attendees: { type: "array", items: s_, description: "People attending, by name." },
+    notes: d_("Agenda, prep, dial-in details or other context."),
+  }, ["title", "date"]),
+  fn("update_event", "Change an existing calendar event (reschedule, rename, change place/link/people/notes). Preserves unspecified fields.", {
+    eventId: d_("ID of the existing event."),
+    newTitle: s_,
+    kind: { type: "string", enum: ["meeting", "event", "class", "appointment"] },
+    newDate: d_("YYYY-MM-DD"),
+    newStartTime: d_("24-hour HH:MM"),
+    newEndTime: d_("24-hour HH:MM"),
+    allDay: { type: "boolean", description: "true removes start and end times." },
+    location: s_,
+    link: s_,
+    attendees: { type: "array", items: s_, description: "Replacement list of attendees." },
+    appendNotes: d_("Text added to the end of the notes."),
+  }, ["eventId"]),
+  fn("delete_event", "Remove a calendar event. Use ONLY when the user explicitly asks to delete or cancel that specific event. The user can undo it from the app.", {
+    eventId: d_("ID of the existing event."),
+  }, ["eventId"]),
   fn("delete_task", "Permanently remove a task. Use ONLY when the user explicitly asks to delete or remove that specific task (not when it is done: use update_task status completed). The user can undo it from the app.", {
     taskId: d_("ID of the existing task."),
   }, ["taskId"]),
@@ -84,6 +111,10 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
                 type: "string",
                 description: "Due date in YYYY-MM-DD format. Omit if the user has not specified a date; never invent one.",
               },
+              dueTime: {
+                type: "string",
+                description: "Optional due time, 24-hour HH:MM local time (e.g. '23:59' for 11:59 PM). Only with dueDate and only when the user or source states a time.",
+              },
               priority: {
                 type: "string",
                 enum: ["urgent", "high", "medium", "low"],
@@ -128,6 +159,14 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
               newDueDate: {
                 type: "string",
                 description: "Optional new due date in YYYY-MM-DD format.",
+              },
+              newDueTime: {
+                type: "string",
+                description: "Optional new due time, 24-hour HH:MM local time.",
+              },
+              clearDueTime: {
+                type: "boolean",
+                description: "true removes the due time (due any time that day).",
               },
               newDescription: {
                 type: "string",
@@ -277,13 +316,14 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
     ];
 
 
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem } from "../types";
+import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent } from "../types";
+import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, PROBLEM_STAGES, safeTrackerUrl } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source } from "./brainRetrieval";
 
-const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker"];
+const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -366,14 +406,14 @@ function validDate(value: string): void {
 }
 export interface Mutation {
   type: RecordType;
-  record: Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem;
+  record: Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent;
   action: string;
   /** The record as it was read; the save is refused if it changed in the meantime. */
-  expected?: Task | Goal | Habit | KnowledgeItem | TrackerItem;
+  expected?: Task | Goal | Habit | KnowledgeItem | TrackerItem | CalendarEvent;
   /** Removes the record instead of inserting or replacing it. */
   remove?: boolean;
 }
-export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems" } as const;
+export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events" } as const;
 export function applyMutation(state: BrainState, mutation: Mutation): BrainState {
   const key = MUTATION_COLLECTIONS[mutation.type];
   const list = (state[key] || []) as Array<{ id: string }>;
@@ -423,11 +463,15 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
     && (!args.section || r.data.section === args.section || r.data.sector === args.section || r.data.domain === args.section)
     && (!args.text || r.text.toLocaleLowerCase().includes(args.text.toLocaleLowerCase()))
     && (!args.status || (args.status === "pending" ? r.type === "task" ? r.data.status !== "completed" : r.data.status !== "achieved" : r.data.status === args.status)))
-    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || a.id.localeCompare(b.id));
+    .sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999")
+      || String(a.data.startTime || a.data.dueTime || "24:00").localeCompare(String(b.data.startTime || b.data.dueTime || "24:00")) || a.id.localeCompare(b.id));
   const page = args.countOnly ? [] : matches.slice(offset, offset + 40);
   return { output: { total: matches.length, offset, nextOffset: !args.countOnly && offset + page.length < matches.length ? offset + page.length : null,
     complete: !!args.countOnly || offset + page.length >= matches.length,
     records: page.map(r => ({ id: r.id, type: r.type, title: r.title, date: r.date, status: r.data.status, priority: r.data.priority, section: r.data.section, subsection: r.data.subsection,
+      ...(r.type === "task" && r.data.dueTime ? { dueTime: r.data.dueTime } : {}),
+      ...(r.type === "event" ? { kind: r.data.kind, startTime: r.data.startTime, endTime: r.data.endTime, location: r.data.location, attendees: r.data.attendees,
+        notes: typeof r.data.notes === "string" ? r.data.notes.slice(0, 500) : undefined } : {}),
       description: typeof r.data.description === "string" ? r.data.description.slice(0, 500) : undefined,
       ...(r.type === "goal" ? { progress: r.data.progress, metrics: r.data.metrics, why: typeof r.data.why === "string" ? r.data.why.slice(0, 500) : undefined, sector: r.data.sector, timeframe: r.data.timeframe,
         milestoneCount: Array.isArray(r.data.milestones) ? r.data.milestones.length : 0 } : {}),
@@ -445,7 +489,9 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (!section || !state.sections.includes(section)) throw new Error("Unknown section. Use a registered section.");
       const subsection = args.subsection || state.subsections[section]?.[0];
       if (subsection && !state.subsections[section]?.includes(subsection)) throw new Error("Unknown subsection for this section.");
-      return { type: "task", action: name, record: normalizeTask({ id, title: args.title, section, subsection, dueDate: args.dueDate || "", priority: args.priority, status: "not_started",
+      if (args.dueTime !== undefined && !isValidTime(args.dueTime)) throw new Error("dueTime must be 24-hour HH:MM.");
+      if (args.dueTime && !args.dueDate) throw new Error("A due time needs a dueDate.");
+      return { type: "task", action: name, record: normalizeTask({ id, title: args.title, section, subsection, dueDate: args.dueDate || "", dueTime: args.dueTime, priority: args.priority, status: "not_started",
         ...(args.description ? { description: args.description.trim() } : {}),
         subtasks: args.subtasks?.map((title: string) => ({ id: crypto.randomUUID(), title, completed: false })) }) };
     }
@@ -453,8 +499,12 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const task = state.tasks.find(t => t.id === args.taskId);
       if (!task) throw new Error("Task ID not found. Query live tasks; do not guess IDs.");
       if (args.newTitle !== undefined && (typeof args.newTitle !== "string" || !args.newTitle.trim())) throw new Error("New task title must be nonempty.");
-      if (!args.status && !args.newDueDate && args.newTitle === undefined && args.newDescription === undefined) throw new Error("Supply newTitle, status, newDueDate or newDescription to update.");
-      return { type: "task", action: name, expected: task, record: { ...(args.status ? setTaskStatus(task, args.status) : task), dueDate: args.newDueDate || task.dueDate,
+      if (!args.status && !args.newDueDate && args.newTitle === undefined && args.newDescription === undefined && args.newDueTime === undefined && !args.clearDueTime) throw new Error("Supply newTitle, status, newDueDate, newDueTime, clearDueTime or newDescription to update.");
+      if (args.newDueTime !== undefined && !isValidTime(args.newDueTime)) throw new Error("newDueTime must be 24-hour HH:MM.");
+      if (args.newDueTime && !(args.newDueDate || task.dueDate)) throw new Error("This task has no due date; set newDueDate too.");
+      const { dueTime: _oldTime, ...withoutTime } = args.status ? setTaskStatus(task, args.status) : task;
+      const dueTime = args.clearDueTime ? undefined : args.newDueTime || task.dueTime;
+      return { type: "task", action: name, expected: task, record: { ...withoutTime, ...(dueTime ? { dueTime } : {}), dueDate: args.newDueDate || task.dueDate,
         ...(args.newTitle !== undefined ? { title: args.newTitle.trim() } : {}),
         ...(args.newDescription !== undefined ? { description: args.newDescription.trim() } : {}) } };
     }
@@ -470,6 +520,57 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (args.folderId && !state.noteFolders?.some(f => f.id === args.folderId)) throw new Error("Unknown note folder ID.");
       return { type: "knowledge", action: name, record: { id, title: args.title, subject: args.title, content: args.content, summary: args.content.slice(0, 180), folderId: args.folderId || null,
         tags: args.tags || [], status: "Synthesized", startDate: today, endDate: today, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } };
+    }
+    case "create_event": {
+      const kind = args.kind || "event";
+      if (!EVENT_KINDS.some(k => k.id === kind)) throw new Error("Unknown event kind.");
+      validDate(args.date);
+      for (const field of ["startTime", "endTime"]) if (args[field] !== undefined && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
+      if (args.endTime && !args.startTime) throw new Error("An end time needs a startTime.");
+      if (args.endTime && args.endTime <= args.startTime) throw new Error("endTime must be after startTime.");
+      const link = args.link ? safeEventLink(args.link) : undefined;
+      if (args.link && !link) throw new Error("Links must be full http:// or https:// URLs.");
+      const now = new Date().toISOString();
+      const attendees = (args.attendees || []).map((a: string) => a.trim()).filter(Boolean);
+      return { type: "event", action: name, record: { id, title: args.title.trim(), kind, date: args.date,
+        ...(args.startTime ? { startTime: args.startTime } : {}), ...(args.endTime ? { endTime: args.endTime } : {}),
+        ...(args.location ? { location: args.location.trim() } : {}), ...(link ? { link } : {}), ...(attendees.length ? { attendees } : {}),
+        ...(args.notes ? { notes: args.notes.trim() } : {}), createdAt: now, updatedAt: now } };
+    }
+    case "update_event": {
+      const event = (state.events || []).find(e => e.id === args.eventId);
+      if (!event) throw new Error("Event ID not found. Query events; do not guess IDs.");
+      const fields = ["newTitle", "kind", "newDate", "newStartTime", "newEndTime", "allDay", "location", "link", "attendees", "appendNotes"];
+      if (!fields.some(k => args[k] !== undefined)) throw new Error("Supply at least one field to update.");
+      if (args.kind && !EVENT_KINDS.some(k => k.id === args.kind)) throw new Error("Unknown event kind.");
+      if (args.newDate) validDate(args.newDate);
+      for (const field of ["newStartTime", "newEndTime"]) if (args[field] !== undefined && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
+      const link = args.link ? safeEventLink(args.link) : undefined;
+      if (args.link && !link) throw new Error("Links must be full http:// or https:// URLs.");
+      const { startTime: _s, endTime: _e, ...base } = event;
+      let startTime = args.allDay ? undefined : args.newStartTime || event.startTime;
+      let endTime = args.allDay ? undefined : args.newEndTime || event.endTime;
+      // Moving the start keeps the original duration when no new end is given.
+      if (args.newStartTime && !args.newEndTime && event.startTime && event.endTime) {
+        const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+        const end = toMin(args.newStartTime) + toMin(event.endTime) - toMin(event.startTime);
+        endTime = end < 24 * 60 ? `${String(Math.floor(end / 60)).padStart(2, "0")}:${String(end % 60).padStart(2, "0")}` : "23:59";
+      }
+      if (endTime && !startTime) throw new Error("An end time needs a start time.");
+      if (startTime && endTime && endTime <= startTime) throw new Error("End time must be after start time.");
+      const attendees = args.attendees?.map((a: string) => a.trim()).filter(Boolean);
+      return { type: "event", action: name, expected: event, record: { ...base,
+        ...(startTime ? { startTime } : {}), ...(endTime ? { endTime } : {}),
+        ...(args.newTitle ? { title: args.newTitle.trim() } : {}), ...(args.kind ? { kind: args.kind } : {}), ...(args.newDate ? { date: args.newDate } : {}),
+        ...(args.location ? { location: args.location.trim() } : {}), ...(link ? { link } : {}),
+        ...(attendees ? { attendees } : {}),
+        ...(args.appendNotes ? { notes: [event.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") } : {}),
+        updatedAt: new Date().toISOString() } };
+    }
+    case "delete_event": {
+      const event = (state.events || []).find(e => e.id === args.eventId);
+      if (!event) throw new Error("Event ID not found. Query events; do not guess IDs.");
+      return { type: "event", action: name, expected: event, record: event, remove: true };
     }
     case "delete_task": {
       const task = state.tasks.find(t => t.id === args.taskId);

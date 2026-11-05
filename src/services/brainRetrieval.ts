@@ -1,6 +1,7 @@
 import { BrainState, TrackerItem } from "../types";
+import { eventTimeLabel, formatTime } from "../utils/events";
 
-export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker";
+export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event";
 
 function trackerDate(item: TrackerItem): string | undefined {
   if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
@@ -28,7 +29,7 @@ const lines = (...parts: Array<string | false | undefined>) => parts.filter(Bool
  */
 export function recordProse(type: RecordType, d: any): string {
   switch (type) {
-    case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}` : ", no due date"}`,
+    case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`,
       list(d.tags) && `Tags: ${list(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
     case "goal": return lines(`Goal: ${d.title}`, `${d.sector} goal, ${d.timeframe}, ${d.status}, ${d.progress ?? 0}% done${d.targetDate ? `, target ${d.targetDate}` : ""}`,
       d.metrics && `Metric: ${d.metrics}`, d.why && `Why: ${d.why}`, d.description && `Details: ${d.description}`, checklist(d.milestones) && `Milestones: ${checklist(d.milestones)}`);
@@ -36,6 +37,8 @@ export function recordProse(type: RecordType, d: any): string {
     case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list(d.wins) && `Wins: ${list(d.wins)}`, list(d.challenges) && `Challenges: ${list(d.challenges)}`,
       plain(d.content), list(d.tags) && `Tags: ${list(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
     case "knowledge": return lines(`Note: ${d.title || d.subject}`, list(d.tags) && `Tags: ${list(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
+    case "event": return lines(`${String(d.kind || "event").replace(/^./, (c: string) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`,
+      d.location && `Location: ${d.location}`, list(d.attendees) && `With: ${list(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
     case "tracker": {
       const fields = Object.entries(d.fields || {}).filter(([, v]) => (typeof v === "string" && v.trim() && !/^https?:/i.test(v)) || typeof v === "number")
         .map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
@@ -51,6 +54,7 @@ export function records(state: BrainState, type?: RecordType): BrainRecord[] {
     ...state.habits.map(data => ({ type: "habit" as const, title: data.name, date: undefined, data, source: data as unknown })),
     ...state.journalEntries.map(data => ({ type: "journal" as const, title: data.title, date: data.date, data, source: data as unknown })),
     ...state.knowledgeItems.map(data => ({ type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data, source: data as unknown })),
+    ...(state.events || []).map(data => ({ type: "event" as const, title: data.title, date: data.date, data, source: data as unknown })),
     ...(state.trackerItems || []).map(data => ({
       type: "tracker" as const,
       title: data.title,

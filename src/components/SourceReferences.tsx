@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUpRight, CalendarDays, CheckSquare, FileText, Target, X } from "lucide-react";
+import { ArrowUpRight, CalendarClock, CalendarDays, CheckSquare, Clock, FileText, MapPin, Target, Users, X } from "lucide-react";
+import { eventTimeLabel, formatTime } from "../utils/events";
 import { AIMessage, BrainState } from "../types";
 import { ChatSource, findRecord, formatRecordDate, referenceTitle } from "../utils/chatPresentation";
 import { MarkdownView } from "./MarkdownView";
 
 export function RecordIcon({ type, className = "h-3.5 w-3.5 shrink-0" }: { type: string; className?: string }) {
-  const Icon = type === "task" ? CheckSquare : type === "goal" ? Target : FileText;
+  const Icon = type === "task" ? CheckSquare : type === "goal" ? Target : type === "event" ? CalendarClock : FileText;
   return <Icon className={className} aria-hidden="true" />;
 }
 export function RecordPreview({ source, state, onClose }: { source: ChatSource; state?: BrainState | null; onClose: () => void }) {
@@ -33,13 +34,14 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
   }, []);
   const record = findRecord(state, source.type, source.id);
   const title = referenceTitle(source.type, source.id, [source], state);
-  const content = record && "content" in record ? record.content || ("summary" in record ? record.summary : "") : record && "description" in record ? record.description || "" : "";
+  const content = record && "content" in record ? record.content || ("summary" in record ? record.summary : "") : record && "description" in record ? record.description || "" : record && source.type === "event" && "notes" in record ? record.notes || "" : "";
   const status = record && "status" in record ? record.status.replace(/_/g, " ") : undefined;
+  const event = source.type === "event" ? state?.events?.find(e => e.id === source.id) : undefined;
   const date = record && "dueDate" in record ? record.dueDate : record && "targetDate" in record ? record.targetDate : record && "date" in record ? record.date : undefined;
   return createPortal(<div className="record-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="record-preview-title" className="record-dialog">
       <div className="record-dialog-header">
-        <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-medium text-indigo-500 capitalize mb-2"><RecordIcon type={source.type} />{source.type === "knowledge" ? "Note" : source.type}</div><h2 id="record-preview-title" className="text-lg font-semibold leading-snug break-words">{title}</h2></div>
+        <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-medium text-indigo-500 capitalize mb-2"><RecordIcon type={source.type} />{source.type === "knowledge" ? "Note" : event ? event.kind : source.type}</div><h2 id="record-preview-title" className="text-lg font-semibold leading-snug break-words">{title}</h2></div>
         <button ref={closeButton} type="button" onClick={onClose} className="chat-icon-button shrink-0" aria-label="Close source"><X size={18} /></button>
       </div>
       <div className="record-dialog-body">
@@ -47,6 +49,10 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
           <div className="flex flex-wrap gap-2 mb-5 text-xs">
             {status && <span className="record-meta capitalize">{status}</span>}
             {(date || source.type === "task") && <span className="record-meta"><CalendarDays size={13} />{formatRecordDate(date)}</span>}
+            {"dueTime" in record && record.dueTime && <span className="record-meta"><Clock size={13} />Due {formatTime(record.dueTime)}</span>}
+            {event && <span className="record-meta"><Clock size={13} />{eventTimeLabel(event)}</span>}
+            {event?.location && <span className="record-meta"><MapPin size={13} />{event.location}</span>}
+            {event?.attendees?.length ? <span className="record-meta"><Users size={13} />{event.attendees.join(", ")}</span> : null}
             {"priority" in record && <span className="record-meta capitalize">{record.priority} priority</span>}
             {"section" in record && <span className="record-meta">{record.section}{record.subsection ? ` / ${record.subsection}` : ""}</span>}
           </div>

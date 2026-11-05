@@ -1,7 +1,7 @@
 import { AIMessage, BrainState } from "../types";
 
 export type ChatSource = NonNullable<AIMessage["sources"]>[number];
-export const REFERENCE_PATTERN = /\[(task|goal|habit|journal|knowledge):([^\]\n]+)\]/g;
+export const REFERENCE_PATTERN = /\[(task|goal|habit|journal|knowledge|event|tracker):([^\]\n]+)\]/g;
 export function findRecord(state: BrainState | null | undefined, type: string, id: string) {
   if (!state) return undefined;
   switch (type) {
@@ -10,6 +10,8 @@ export function findRecord(state: BrainState | null | undefined, type: string, i
     case "habit": return state.habits.find(r => r.id === id);
     case "journal": return state.journalEntries.find(r => r.id === id);
     case "knowledge": return state.knowledgeItems.find(r => r.id === id);
+    case "event": return state.events?.find(r => r.id === id);
+    case "tracker": return state.trackerItems?.find(r => r.id === id);
     default: return undefined;
   }
 }

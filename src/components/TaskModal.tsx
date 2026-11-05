@@ -2,7 +2,8 @@ import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect } from "react";
 import { Task, TaskStatus } from "../types";
 import { normalizeTask } from "../utils/taskState";
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, Clock } from "lucide-react";
+import { formatTime } from "../utils/events";
 import { CustomDatePicker } from "./CustomDatePicker";
 
 interface TaskModalProps {
@@ -44,6 +45,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
   const [dueDate, setDueDate] = useState(task?.dueDate || defaultDueDate || todayStr);
+  const [dueTime, setDueTime] = useState(task?.dueTime || "");
   const [priority, setPriority] = useState<Task["priority"]>(task?.priority || "medium");
   const [status, setStatus] = useState<TaskStatus>(
     task?.status || (task?.completed ? "completed" : "not_started")
@@ -59,6 +61,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setTitle(task.title);
       setDescription(task.description || "");
       setDueDate(task.dueDate || todayStr);
+      setDueTime(task.dueTime || "");
       setPriority(task.priority || "medium");
       setStatus(task.status || (task.completed ? "completed" : "not_started"));
       setSection(task.section || defaultSection || sections[0] || "Academic");
@@ -69,6 +72,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       setTitle("");
       setDescription("");
       setDueDate(defaultDueDate || todayStr);
+      setDueTime("");
       setPriority("medium");
       setStatus("not_started");
       setSection(sec);
@@ -108,6 +112,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       title: title.trim(),
       description: description.trim() || undefined,
       dueDate,
+      dueTime: dueDate && dueTime ? dueTime : undefined,
       priority,
       section,
       subsection,
@@ -315,6 +320,51 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             </div>
           </div>
 
+          {/* Due Time */}
+          <div>
+            <label htmlFor="task-due-time" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Due Time <span className="font-semibold text-slate-400">(optional)</span>
+            </label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="relative">
+                <Clock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="task-due-time"
+                  type="time"
+                  value={dueTime}
+                  disabled={!dueDate}
+                  onChange={(e) => setDueTime(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-slate-800 dark:text-slate-200 pl-8 pr-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white disabled:opacity-50"
+                />
+              </div>
+              {["09:00", "12:00", "17:00", "23:59"].map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  disabled={!dueDate}
+                  aria-pressed={dueTime === preset}
+                  onClick={() => setDueTime(preset)}
+                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50 ${
+                    dueTime === preset
+                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
+                      : "bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
+                  }`}
+                >
+                  {formatTime(preset)}
+                </button>
+              ))}
+              {dueTime && (
+                <button
+                  type="button"
+                  onClick={() => setDueTime("")}
+                  className="text-[11px] font-semibold text-slate-400 hover:text-rose-500 transition-colors"
+                >
+                  No time
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Quick Date Presets */}
           <div className="flex items-center gap-1.5 pt-1">
             <span className="text-[11px] text-slate-400 font-semibold">Quick pick:</span>
@@ -342,7 +392,7 @@ export const TaskModal: React.FC<TaskModalProps> = ({
             {dueDate && (
               <button
                 type="button"
-                onClick={() => setDueDate("")}
+                onClick={() => { setDueDate(""); setDueTime(""); }}
                 className="text-[11px] font-semibold text-slate-400 hover:text-rose-500 ml-auto transition-colors"
               >
                 Clear date

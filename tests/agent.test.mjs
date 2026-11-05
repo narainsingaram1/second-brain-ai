@@ -638,3 +638,53 @@ test('anthropic requests cache the system prefix and roll a breakpoint onto the 
   await queryOpenRouterWithTools(turn, [], 'k', 'google/gemini-3.8-flash');
   assert.equal(bodies[1].messages.at(-1).content, '{"total":1}', 'Other providers are untouched');
 });
+
+test('calendar events and task due times: tools validate, snapshot and search expose them', async () => {
+  const { lifeSnapshot } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+  const { normalizeEvents, formatTime } = await server.ssrLoadModule('/src/utils/events.ts');
+  const { getLocalDateString } = await server.ssrLoadModule('/src/utils/habitStreaks.ts');
+  const today = getLocalDateString();
+  const s = { ...state(), events: [] };
+  const parse = (name, args) => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === name).function.parameters);
+
+  // Task due times
+  const task = prepareMutation('create_task', parse('create_task', { title: 'HW 5', section: 'Academic', priority: 'high', dueDate: today, dueTime: '23:59' }), s);
+  assert.equal(task.record.dueTime, '23:59');
+  assert.throws(() => prepareMutation('create_task', { title: 'X', section: 'Academic', priority: 'low', dueTime: '23:59' }, s), /needs a dueDate/);
+  assert.throws(() => prepareMutation('create_task', { title: 'X', section: 'Academic', priority: 'low', dueDate: today, dueTime: '11:59 PM' }, s), /HH:MM/);
+  const withTask = applyMutation(s, task);
+  const moved = prepareMutation('update_task', parse('update_task', { taskId: task.record.id, newDueTime: '17:00' }), withTask);
+  assert.equal(moved.record.dueTime, '17:00');
+  const cleared = prepareMutation('update_task', parse('update_task', { taskId: task.record.id, clearDueTime: true }), withTask);
+  assert.equal('dueTime' in cleared.record, false);
+  assert.equal(normalizeTask({ id: 'a', title: 'a', dueDate: '', dueTime: '10:00' }).dueTime, undefined, 'A time without a date is dropped');
+  assert.equal(formatTime('23:59'), '11:59 PM'); assert.equal(formatTime('00:05'), '12:05 AM'); assert.equal(formatTime('12:00'), '12:00 PM');
+
+  // Events
+  const event = prepareMutation('create_event', parse('create_event', { title: 'Office hours', kind: 'meeting', date: today, startTime: '14:00', endTime: '15:30', location: 'Klaus 1447', attendees: ['Prof. Smith'], link: 'https://meet.example.com/x' }), s);
+  assert.equal(event.type, 'event'); assert.equal(event.record.endTime, '15:30');
+  for (const bad of [{ date: today, startTime: '15:00', endTime: '14:00' }, { date: today, endTime: '14:00' }, { date: '2026-02-30' }, { date: today, link: 'javascript:alert(1)' }, { date: today, kind: 'party' }])
+    assert.throws(() => prepareMutation('create_event', { title: 'Bad', ...bad }, s));
+  const withEvent = applyMutation(withTask, event);
+  assert.equal(withEvent.events.length, 1);
+  const shifted = prepareMutation('update_event', parse('update_event', { eventId: event.record.id, newStartTime: '16:00' }), withEvent);
+  assert.equal(shifted.record.startTime, '16:00'); assert.equal(shifted.record.endTime, '17:30', 'Rescheduling keeps the duration');
+  const allDay = prepareMutation('update_event', { eventId: event.record.id, allDay: true }, withEvent);
+  assert.equal(allDay.record.startTime, undefined); assert.equal(allDay.record.endTime, undefined);
+  assert.equal(applyMutation(withEvent, prepareMutation('delete_event', { eventId: event.record.id }, withEvent)).events.length, 0);
+  assert.throws(() => prepareMutation('update_event', { eventId: 'missing', newTitle: 'x' }, withEvent), /not found/);
+
+  // What the model sees
+  const snapshot = lifeSnapshot(withEvent);
+  assert.match(snapshot, /Events today \(1\):\n- Office hours — today, 2:00 PM – 3:30 PM, at Klaus 1447, with Prof\. Smith \(meeting\) \[event:/);
+  assert.match(snapshot, /HW 5 — \d{4}-\d{2}-\d{2} 11:59 PM, high/);
+  const { output } = await executeRead('query_records', { type: 'event', dateFrom: today, dateTo: today }, withEvent, '');
+  assert.equal(output.total, 1); assert.equal(output.records[0].location, 'Klaus 1447'); assert.equal(output.records[0].startTime, '14:00');
+  const [indexed] = records(withEvent, 'event');
+  assert.match(indexed.index, /^Meeting: Office hours\n.*2:00 PM – 3:30 PM\nLocation: Klaus 1447\nWith: Prof\. Smith/);
+
+  // Stored data is normalized, never trusted
+  const normalized = normalizeEvents([{ id: 'e', title: ' Lunch ', date: today, startTime: '12:00', endTime: '11:00', link: 'ftp://x', kind: 'weird' }, { id: 'e', title: 'dupe', date: today }, { id: 'bad', title: 'x', date: 'soon' }]);
+  assert.equal(normalized.length, 1); assert.equal(normalized[0].title, 'Lunch'); assert.equal(normalized[0].kind, 'event');
+  assert.equal(normalized[0].endTime, undefined); assert.equal(normalized[0].link, undefined);
+});

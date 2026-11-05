@@ -1,4 +1,5 @@
 import { Task, TaskStatus } from "../types";
+import { isValidTime } from "./events";
 
 /**
  * Normalizes a Task to ensure a single, consistent source of truth.
@@ -32,6 +33,8 @@ export function normalizeTask(raw: Partial<Task> & { id: string; title: string }
     title: raw.title,
     description: raw.description,
     dueDate: raw.dueDate ?? new Date().toISOString().split("T")[0],
+    // A time only means something with a date.
+    ...(raw.dueDate !== "" && isValidTime(raw.dueTime) ? { dueTime: raw.dueTime } : {}),
     priority: raw.priority || "medium",
     section: raw.section || "Academic",
     subsection: raw.subsection || "General",

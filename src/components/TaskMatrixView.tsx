@@ -1,7 +1,8 @@
 import React, { useState, useCallback } from "react";
-import { Task, TaskStatus, TaskAppearance } from "../types";
+import { Task, TaskStatus, TaskAppearance, CalendarEvent } from "../types";
 import {
   Calendar,
+  CalendarPlus,
   Plus,
   Check,
   Trash2,
@@ -28,10 +29,14 @@ import {
 import "../taskMatrix.css";
 import confetti from "canvas-confetti";
 import { TaskCalendarView } from "./TaskCalendarView";
+import { formatTime } from "../utils/events";
 import { TaskSimpleView } from "./TaskSimpleView";
 
 interface TaskMatrixViewProps {
   tasks: Task[];
+  events?: CalendarEvent[];
+  onAddEvent?: (date?: string) => void;
+  onEditEvent?: (event: CalendarEvent) => void;
   appearance?: TaskAppearance;
   onAppearanceChange?: (appearance: TaskAppearance) => void;
   sections: string[];
@@ -65,6 +70,9 @@ interface TaskMatrixViewProps {
 
 export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
   tasks,
+  events = [],
+  onAddEvent,
+  onEditEvent,
   appearance: savedAppearance,
   onAppearanceChange,
   sections,
@@ -231,6 +239,16 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
             <FolderPlus size={16} />
             <span>New section</span>
           </button>
+          {onAddEvent && (
+            <button
+              type="button"
+              className="task-secondary"
+              onClick={() => onAddEvent()}
+            >
+              <CalendarPlus size={16} />
+              <span>New event</span>
+            </button>
+          )}
           <button
             type="button"
             className="task-primary"
@@ -280,6 +298,9 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
           onAddTask={onAddTask}
           onEditTask={onEditTask}
           onDeleteTask={onDeleteTask}
+          events={events}
+          onAddEvent={onAddEvent}
+          onEditEvent={onEditEvent}
         />
       ) : viewMode === "simple" ? (
         <TaskSimpleView
@@ -665,7 +686,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                         aria-label={`Edit due date for ${task.title}`}
                                       >
                                         <Calendar size={14} />
-                                        <span>{task.dueDate}</span>
+                                        <span>{task.dueDate}{task.dueTime ? ` · ${formatTime(task.dueTime)}` : ""}</span>
                                       </button>
                                     )}
                                     <span

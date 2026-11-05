@@ -24,7 +24,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
 
   const renderInline = (text: string): React.ReactNode[] => {
     // Regex matching bold, italic, strikethrough, inline code, and links
-    const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|\[(task|goal|habit|journal|knowledge):([^\]\n]+)\])/g;
+    const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|\[(task|goal|habit|journal|knowledge|event|tracker):([^\]\n]+)\])/g;
     const elements: React.ReactNode[] = [];
     let lastIdx = 0;
     let match: RegExpExecArray | null;

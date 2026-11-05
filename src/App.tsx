@@ -5,7 +5,7 @@ import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder } from "./types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder, CalendarEvent } from "./types";
 import { loadInitialState, persistBrainState, writeEmergencySnapshot } from "./services/storage";
 import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
@@ -24,6 +24,7 @@ import { NotesWorkspace } from "./components/NotesWorkspace";
 import { WorkspacesView } from "./components/WorkspacesView";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
+import { EventModal } from "./components/EventModal";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
 import { ManagedAccountModal } from "./components/ManagedAccountModal";
@@ -81,6 +82,9 @@ export const App: React.FC = () => {
   const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
   const [taskModalDefaultDueDate, setTaskModalDefaultDueDate] = useState<string>("");
   const [activeEditTask, setActiveEditTask] = useState<Task | null>(null);
+  const [isEventModalOpen, setIsEventModalOpen] = useState(false);
+  const [activeEditEvent, setActiveEditEvent] = useState<CalendarEvent | null>(null);
+  const [eventModalDefaultDate, setEventModalDefaultDate] = useState<string>("");
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [activeEditGoal, setActiveEditGoal] = useState<Goal | null>(null);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
@@ -251,7 +255,7 @@ export const App: React.FC = () => {
   // instead of deep-copying the whole workspace on every change.
   const recordMutation = (
     action: string,
-    entityType: "task" | "habit" | "journal" | "knowledge" | "section" | "goal",
+    entityType: "task" | "habit" | "journal" | "knowledge" | "section" | "goal" | "event",
     entityTitle: string,
     details?: string
   ) => {
@@ -423,6 +427,30 @@ export const App: React.FC = () => {
     });
     // Auto-update Semantic Memory Vault
     vectorVault.indexItem(normalized, "task", state?.openRouterKey).catch(() => {});
+  };
+
+  const openNewEvent = (date?: string) => {
+    setActiveEditEvent(null);
+    setEventModalDefaultDate(date || getLocalDateString());
+    setIsEventModalOpen(true);
+  };
+  const openEditEvent = (event: CalendarEvent) => {
+    setActiveEditEvent(event);
+    setIsEventModalOpen(true);
+  };
+  const handleSaveEvent = (event: CalendarEvent) => {
+    const exists = state?.events?.some((e) => e.id === event.id);
+    recordMutation(exists ? "Updated Event" : "Created Event", "event", event.title, `${event.date}${event.startTime ? ` ${event.startTime}` : ""}`);
+    setState((prev) => {
+      if (!prev) return null;
+      const list = prev.events || [];
+      return { ...prev, events: list.some((e) => e.id === event.id) ? list.map((e) => (e.id === event.id ? event : e)) : [...list, event] };
+    });
+  };
+  const handleDeleteEvent = (eventId: string) => {
+    const event = state?.events?.find((e) => e.id === eventId);
+    if (event) recordMutation("Deleted Event", "event", event.title, event.date);
+    setState((prev) => (prev ? { ...prev, events: (prev.events || []).filter((e) => e.id !== eventId) } : prev));
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -905,6 +933,7 @@ export const App: React.FC = () => {
               displayName={session.currentUser?.name}
               onToggleTask={handleToggleTask}
               onEditTask={task => { setActiveEditTask(task); setIsTaskModalOpen(true); }}
+              onEditEvent={openEditEvent}
               onOpenNote={note => { setActiveEditKnowledge(note); setActiveTab("knowledge"); }}
               onAsk={async (prompt, images) => {
                 setChatLaunchError("");
@@ -965,6 +994,9 @@ export const App: React.FC = () => {
               {activeTab === "tasks" && (
                 <TaskMatrixView
                   tasks={state.tasks}
+                  events={state.events || []}
+                  onAddEvent={openNewEvent}
+                  onEditEvent={openEditEvent}
                   sections={state.sections}
                   subsections={state.subsections}
                   appearance={state.taskAppearance}
@@ -1225,6 +1257,15 @@ export const App: React.FC = () => {
         openRouterKey={state.openRouterKey}
         selectedModel={state.selectedModel}
         onOpenSettings={() => setIsSettingsOpen(true)}
+      />
+
+      <EventModal
+        isOpen={isEventModalOpen}
+        onClose={() => setIsEventModalOpen(false)}
+        event={activeEditEvent}
+        defaultDate={eventModalDefaultDate}
+        onSave={handleSaveEvent}
+        onDelete={handleDeleteEvent}
       />
 
       <HabitModal

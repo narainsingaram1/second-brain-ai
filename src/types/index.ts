@@ -88,6 +88,8 @@ export interface Task {
   title: string;
   description?: string;
   dueDate: string; // YYYY-MM-DD
+  /** Optional local due time, 24-hour "HH:MM" (e.g. "23:59"). Absent means any time that day. */
+  dueTime?: string;
   priority: 'urgent' | 'high' | 'medium' | 'low';
   section: string; // Academic, Career, Finance, Health, or custom section
   subsection?: string; // Optional subsection e.g. CS 1332, Workouts, etc.
@@ -227,7 +229,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -244,6 +246,26 @@ export interface TaskAppearance {
   subsections?: Record<string, TaskSubsectionStyle>;
 }
 
+export type EventKind = 'meeting' | 'event' | 'class' | 'appointment';
+
+/** A scheduled happening with a time and place, distinct from a task that must be done. */
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  kind: EventKind;
+  date: string; // YYYY-MM-DD, local calendar
+  /** 24-hour "HH:MM". Both absent means an all-day event. */
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  /** http(s) link, e.g. a video call. */
+  link?: string;
+  attendees?: string[];
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BrainState {
   agentMemory?: AgentMemory;
   userId?: string;
@@ -255,6 +277,7 @@ export interface BrainState {
   journalEntries: JournalEntry[];
   knowledgeItems: KnowledgeItem[];
   trackerItems: TrackerItem[];
+  events?: CalendarEvent[];
   workspaces?: Workspace[];
   noteFolders?: NoteFolder[];
   chatHistory: AIMessage[];
