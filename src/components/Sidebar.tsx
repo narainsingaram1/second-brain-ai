@@ -11,7 +11,10 @@ import {
   Settings2,
   Sparkles,
   Target,
+  Briefcase,
+  FolderOpen,
 } from "lucide-react";
+import type { Workspace } from "../types";
 interface SidebarProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -20,6 +23,7 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onQuickCapture: () => void;
   counts: { tasks: number; notes: number; goals: number };
+  workspaces?: Workspace[];
 }
 const groups = [
   {
@@ -51,6 +55,7 @@ export function Sidebar({
   onOpenSettings,
   onQuickCapture,
   counts,
+  workspaces = [],
 }: SidebarProps) {
   return (
     <aside className={`synapse-sidebar ${collapsed ? "is-collapsed" : ""}`}>
@@ -123,6 +128,12 @@ export function Sidebar({
             })}
           </div>
         ))}
+        <div className="nav-group">
+          {!collapsed && <div className="sidebar-workspace-label"><p className="nav-label">WORKSPACES</p><button onClick={() => setActiveTab("workspace-new")} aria-label="Create workspace" title="Create workspace"><Plus size={14} /></button></div>}
+          <button onClick={() => setActiveTab("workspaces")} aria-current={activeTab === "workspaces" || activeTab === "workspace-new" ? "page" : undefined} title="All workspaces"><Layers size={18} />{!collapsed && <span>All workspaces</span>}</button>
+          {workspaces.map(workspace => <button key={workspace.id} onClick={() => setActiveTab(`workspace:${workspace.id}`)} aria-current={activeTab === `workspace:${workspace.id}` ? "page" : undefined} title={workspace.name}><span className={`workspace-nav-dot ws-color-${workspace.color}`}>{workspace.template === "career" ? <Briefcase size={17} /> : <FolderOpen size={17} />}</span>{!collapsed && <span className="workspace-nav-name">{workspace.name}</span>}</button>)}
+          {!collapsed && <button className="workspace-nav-add" onClick={() => setActiveTab("workspace-new")}><Plus size={16} /><span>New workspace</span></button>}
+        </div>
       </nav>
       <div className="sidebar-bottom">
         {!collapsed && (

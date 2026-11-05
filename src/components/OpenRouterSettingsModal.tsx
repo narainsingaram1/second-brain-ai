@@ -1,5 +1,5 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { OPENROUTER_MODELS, testOpenRouterKey } from "../services/openrouter";
 import {
   Key,
@@ -46,6 +46,27 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [modelInput, setModelInput] = useState(selectedModel);
+  const [useCustomModel, setUseCustomModel] = useState(
+    !OPENROUTER_MODELS.some((model) => model.id === selectedModel),
+  );
+  const [customModelInput, setCustomModelInput] = useState(useCustomModel ? selectedModel : "");
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSaveSuccess(false);
+      return;
+    }
+    const isCustom = !OPENROUTER_MODELS.some((model) => model.id === selectedModel);
+    setKeyInput(openRouterKey);
+    setModelInput(selectedModel);
+    setUseCustomModel(isCustom);
+    setCustomModelInput(isCustom ? selectedModel : "");
+    setTestResult(null);
+  }, [isOpen, openRouterKey, selectedModel]);
+
+  const modelToSave = useCustomModel ? customModelInput.trim() : modelInput;
+  const isModelValid = /^[^\s/]+\/[^\s]+$/.test(modelToSave);
 
   if (!isOpen) return null;
 
@@ -71,7 +92,9 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   };
 
   const handleSave = () => {
+    if (!isModelValid) return;
     onSaveKey(keyInput.trim());
+    onSelectModel(modelToSave);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
   };
@@ -181,12 +204,18 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
 
             <div className="space-y-2">
               {OPENROUTER_MODELS.map((m) => {
-                const isSelected = selectedModel === m.id;
+                const isSelected = !useCustomModel && modelInput === m.id;
                 return (
-                  <div
+                  <button
+                    type="button"
+                    aria-pressed={isSelected}
                     key={m.id}
-                    onClick={() => onSelectModel(m.id)}
-                    className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                    onClick={() => {
+                      setModelInput(m.id);
+                      setUseCustomModel(false);
+                      setSaveSuccess(false);
+                    }}
+                    className={`w-full text-left p-3.5 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
                       isSelected
                         ? "bg-slate-900 text-white dark:bg-white dark:text-slate-950 border-slate-900 dark:border-white shadow-sm"
                         : "bg-slate-50 dark:bg-slate-900/40 border-line text-slate-800 dark:text-slate-200 hover:border-slate-300"
@@ -227,9 +256,54 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
                         <div className="w-1.5 h-1.5 rounded-full bg-slate-900 dark:bg-white"></div>
                       )}
                     </div>
-                  </div>
+                  </button>
                 );
               })}
+            </div>
+
+            <div className="p-3.5 rounded-2xl border border-line space-y-3">
+              <label className="flex items-center gap-2 text-xs font-bold text-ink cursor-pointer">
+                <input
+                  type="radio"
+                  name="custom-openrouter-model"
+                  checked={useCustomModel}
+                  onChange={() => {
+                    setUseCustomModel(true);
+                    setSaveSuccess(false);
+                  }}
+                />
+                Custom OpenRouter model
+              </label>
+              <div className="space-y-2">
+                <label htmlFor="custom-openrouter-model-id" className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                  Model ID
+                </label>
+                <input
+                  id="custom-openrouter-model-id"
+                  type="text"
+                  value={customModelInput}
+                  placeholder="provider/model-name"
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-describedby="custom-openrouter-model-help"
+                  aria-invalid={useCustomModel && !isModelValid}
+                  onChange={(event) => {
+                    setCustomModelInput(event.target.value);
+                    setUseCustomModel(true);
+                    setSaveSuccess(false);
+                  }}
+                  className="w-full bg-raised text-xs font-mono text-ink px-4 py-3 rounded-2xl border border-line focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p id="custom-openrouter-model-help" className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
+                  Paste the exact model ID from the{" "}
+                  <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">OpenRouter model catalog</a>, including any suffix such as :free. Choose a model that supports tools to use AI actions.
+                </p>
+                {useCustomModel && !isModelValid && (
+                  <p role="alert" className="text-[11px] text-rose-600 dark:text-rose-400">
+                    Enter a model ID in provider/model-name format, without spaces.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
@@ -270,7 +344,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </button>
             <button
               onClick={handleSave}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
+              disabled={!isModelValid}
+              className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-3.5 h-3.5" />
               <span>Save Changes</span>

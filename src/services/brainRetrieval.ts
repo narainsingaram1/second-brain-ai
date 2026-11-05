@@ -20,7 +20,7 @@ export function records(state: BrainState, type?: RecordType): BrainRecord[] {
       type: "tracker" as const,
       title: data.title,
       date: trackerDate(data),
-      data: { ...data.fields, kind: data.kind, id: data.id },
+      data: { ...data.fields, ...data },
     })),
   ]).filter(r => !type || r.type === type).map(r => ({ ...r, id: r.data.id, data: { ...r.data }, text: JSON.stringify(r.data, null, 2) }));
 }

@@ -8,6 +8,7 @@ interface TopHeaderProps {
   onOpenAuth: () => void;
   onOpenNotifications: () => void;
   activeTab: string;
+  pageTitle?: string;
 }
 const titles: Record<string, string> = {
   home: "Home",
@@ -26,6 +27,7 @@ export function TopHeader({
   onOpenAuth,
   onOpenNotifications,
   activeTab,
+  pageTitle,
 }: TopHeaderProps) {
   const user = session?.currentUser;
   const name = user?.name || user?.email?.split("@")[0] || "Guest";
@@ -40,7 +42,7 @@ export function TopHeader({
       <div className="header-location">
         <span>My workspace</span>
         <span>/</span>
-        <strong>{titles[activeTab] || "Home"}</strong>
+        <strong>{pageTitle || titles[activeTab] || "Home"}</strong>
       </div>
       <button
         className="workspace-search"

@@ -21,6 +21,7 @@ import { TaskMatrixView } from "./components/TaskMatrixView";
 import { HabitsView } from "./components/HabitsView";
 import { JournalView } from "./components/JournalView";
 import { NotesWorkspace } from "./components/NotesWorkspace";
+import { WorkspacesView } from "./components/WorkspacesView";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { HabitModal } from "./components/HabitModal";
@@ -817,6 +818,7 @@ export const App: React.FC = () => {
       {/* Left Sidebar */}
       <Sidebar
         activeTab={activeTab}
+        workspaces={state.workspaces}
         counts={{ tasks: state.tasks.filter(task => !task.completed).length, notes: state.knowledgeItems.length, goals: state.goals.filter(goal => goal.status !== "achieved").length }}
         onQuickCapture={() => setIsQuickCaptureOpen(true)}
         setActiveTab={setActiveTab}
@@ -830,6 +832,7 @@ export const App: React.FC = () => {
         {/* Top Right Header matching screenshot */}
         <TopHeader
           activeTab={activeTab}
+          pageTitle={activeTab.startsWith("workspace:") ? state.workspaces?.find(workspace => workspace.id === activeTab.slice(10))?.name || "Workspaces" : activeTab.startsWith("workspace") ? "Workspaces" : undefined}
           onOpenGlobalSearch={() => setIsGlobalSearchOpen(true)}
           theme={state.theme}
           onToggleTheme={handleToggleTheme}
@@ -874,6 +877,14 @@ export const App: React.FC = () => {
             />
           ) : (
             <div className={`workspace-page page-${activeTab} w-full mx-auto space-y-6`}>
+              {activeTab.startsWith("workspace") && <WorkspacesView
+                key={`${state.userId}:${activeTab}`}
+                state={state}
+                workspaceId={activeTab.startsWith("workspace:") ? activeTab.slice(10) : undefined}
+                createInitially={activeTab === "workspace-new"}
+                onNavigate={setActiveTab}
+                onChange={update => setState(prev => prev ? update(prev) : prev)}
+              />}
               {/* ========================================================= */}
               {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
               {/* ========================================================= */}
@@ -1005,7 +1016,7 @@ export const App: React.FC = () => {
       {/* ========================================================= */}
       {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
       {/* ========================================================= */}
-      {!isChatTab && activeTab !== "home" && (
+      {!isChatTab && activeTab !== "home" && !activeTab.startsWith("workspace") && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
           {/* Quick Pop-up Menu */}
           {isQuickAddMenuOpen && (

@@ -1,5 +1,6 @@
 import { normalizeAgentMemory } from "./agentMemory";
 import { normalizeTaskAppearance } from "../utils/taskAppearance";
+import { normalizeWorkspaces, normalizeTrackerItems } from "../utils/workspaces";
 import { managedAuthEnabled } from "./managedAuth";
 import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
@@ -523,7 +524,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
       if (nativeData) {
         const parsed = JSON.parse(nativeData);
         const { state } = unwrapStateEnvelope(parsed);
-        if (state && (state.tasks || state.habits || state.goals)) {
+        if (state && (!state.userId || state.userId === targetUserId) && (!parsed.userId || parsed.userId === targetUserId) && (state.tasks || state.habits || state.goals)) {
           storedState = state;
           loadedFrom = "tauri_native";
         }
@@ -557,7 +558,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
       if (localEnv) {
         const parsed = JSON.parse(localEnv);
         const { state } = unwrapStateEnvelope(parsed);
-        if (state && (state.tasks || state.habits || state.goals)) {
+        if (state && (!state.userId || state.userId === targetUserId) && (!parsed.userId || parsed.userId === targetUserId) && (state.tasks || state.habits || state.goals)) {
           storedState = state;
           loadedFrom = "local_storage";
         }
@@ -690,7 +691,8 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     habits,
     journalEntries: storedState.journalEntries || INITIAL_JOURNAL,
     knowledgeItems,
-    trackerItems: storedState.trackerItems || [],
+    trackerItems: normalizeTrackerItems(storedState.trackerItems),
+    workspaces: normalizeWorkspaces(storedState.workspaces),
     noteFolders,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
     conversationId: storedState.conversationId,

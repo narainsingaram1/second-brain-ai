@@ -18,6 +18,7 @@ export type TrackerKind = 'leetcode' | 'job_application';
 
 export interface TrackerItem {
   id: string;
+  workspaceId?: string;
   kind: TrackerKind;
   title: string;
   subject: string;
@@ -34,6 +35,17 @@ export interface TrackerItem {
 }
 
 export type Tracker = TrackerItem;
+
+export type WorkspaceColor = 'purple' | 'blue' | 'green' | 'amber' | 'rose';
+export interface Workspace {
+  id: string;
+  name: string;
+  description: string;
+  template: 'career' | 'blank';
+  color: WorkspaceColor;
+  notes: string;
+  createdAt: string;
+}
 
 export type RecordType =
   | 'task'
@@ -229,6 +241,7 @@ export interface BrainState {
   journalEntries: JournalEntry[];
   knowledgeItems: KnowledgeItem[];
   trackerItems: TrackerItem[];
+  workspaces?: Workspace[];
   noteFolders?: NoteFolder[];
   chatHistory: AIMessage[];
   conversationId?: string;
