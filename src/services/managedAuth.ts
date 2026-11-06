@@ -8,7 +8,15 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
 export const managedAuthConfigured = Boolean(url && key);
 type Database = {
   public: {
-    Tables: { brains: { Row: { user_id: string; state: Record<string, unknown>; revision: number; updated_at: string }; Insert: never; Update: never; Relationships: [] } };
+    Tables: {
+      brains: { Row: { user_id: string; state: Record<string, unknown>; revision: number; updated_at: string }; Insert: never; Update: never; Relationships: [] };
+      study_documents: {
+        Row: { user_id: string; id: string; hash: string; content: string; updated_at: string };
+        Insert: { user_id: string; id: string; hash: string; content: string; updated_at?: string };
+        Update: { hash?: string; content?: string; updated_at?: string };
+        Relationships: [];
+      };
+    };
     Views: Record<string, never>;
     Functions: { save_brain: { Args: { p_state: unknown; p_revision: number; p_owner_id: string }; Returns: number } };
     Enums: Record<string, never>;

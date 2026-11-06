@@ -1116,7 +1116,7 @@
 }
 .ws-template-options {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
 }
 .ws-template-options button {
@@ -1494,5 +1494,10 @@
   .ws-root *,
   .ws-dialog * {
     transition: none !important;
+  }
+}
+@media (max-width: 560px) {
+  .ws-template-options {
+    grid-template-columns: 1fr;
   }
 }

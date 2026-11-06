@@ -2,6 +2,7 @@ import { normalizeAgentMemory } from "./agentMemory";
 import { normalizeTaskAppearance } from "../utils/taskAppearance";
 import { normalizeWorkspaces, normalizeTrackerItems } from "../utils/workspaces";
 import { normalizeEvents } from "../utils/events";
+import { normalizeStudy } from "../utils/study";
 import { managedAuthEnabled } from "./managedAuth";
 import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
@@ -708,6 +709,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     trackerItems: normalizeTrackerItems(storedState.trackerItems),
     events: normalizeEvents(storedState.events),
     workspaces: normalizeWorkspaces(storedState.workspaces),
+    study: normalizeStudy(storedState.study),
     noteFolders,
     chatHistory: storedState.chatHistory || INITIAL_CHAT,
     conversationId: storedState.conversationId,

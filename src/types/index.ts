@@ -41,10 +41,111 @@ export interface Workspace {
   id: string;
   name: string;
   description: string;
-  template: 'career' | 'blank';
+  template: 'career' | 'academic' | 'blank';
   color: WorkspaceColor;
   notes: string;
   createdAt: string;
+}
+
+/** A class the user is taking. Lives inside an academic workspace. */
+export interface Course {
+  id: string;
+  workspaceId: string;
+  code: string; // e.g. "CS 1332"
+  name: string; // e.g. "Data Structures & Algorithms"
+  term?: string;
+  instructor?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StudyFolder {
+  id: string;
+  courseId: string;
+  parentId: string | null;
+  name: string;
+  createdAt: string;
+}
+
+export type StudyDocumentKind = 'pdf' | 'docx' | 'pptx' | 'text' | 'image';
+
+/**
+ * Metadata for an uploaded file. The extracted text is stored separately (IndexedDB plus an
+ * optional cloud table) so large course materials never bloat the synced snapshot.
+ */
+export interface StudyDocument {
+  id: string;
+  courseId: string;
+  folderId: string | null;
+  name: string;
+  kind: StudyDocumentKind;
+  size: number; // bytes of the original file
+  pages?: number;
+  chars: number; // length of the extracted text
+  hash: string; // SHA-256 of the extracted text
+  summary?: string;
+  createdAt: string;
+}
+
+export interface Flashcard {
+  id: string;
+  front: string;
+  back: string;
+  sourceDocId?: string;
+  /** Spaced repetition (SM-2 style). due is a local YYYY-MM-DD date. */
+  due: string;
+  interval: number; // days
+  ease: number;
+  reps: number;
+  lapses: number;
+}
+
+export interface FlashcardDeck {
+  id: string;
+  courseId: string;
+  title: string;
+  sourceDocIds: string[];
+  cards: Flashcard[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuizQuestion {
+  id: string;
+  type: 'mcq' | 'short';
+  prompt: string;
+  choices?: string[]; // mcq only
+  answerIndex?: number; // mcq only
+  answer: string; // correct choice text, or the model answer for short questions
+  explanation?: string;
+  sourceDocId?: string;
+}
+
+export interface QuizAttempt {
+  id: string;
+  at: string;
+  score: number;
+  total: number;
+  /** Question IDs answered incorrectly, for targeted review. */
+  missed: string[];
+}
+
+export interface Quiz {
+  id: string;
+  courseId: string;
+  title: string;
+  sourceDocIds: string[];
+  questions: QuizQuestion[];
+  attempts: QuizAttempt[];
+  createdAt: string;
+}
+
+export interface StudyState {
+  courses: Course[];
+  folders: StudyFolder[];
+  documents: StudyDocument[];
+  decks: FlashcardDeck[];
+  quizzes: Quiz[];
 }
 
 export type RecordType =
@@ -229,7 +330,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -279,6 +380,7 @@ export interface BrainState {
   trackerItems: TrackerItem[];
   events?: CalendarEvent[];
   workspaces?: Workspace[];
+  study?: StudyState;
   noteFolders?: NoteFolder[];
   chatHistory: AIMessage[];
   conversationId?: string;

@@ -85,6 +85,35 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     appendNotes: d_("Text appended to the existing notes."),
   }, ["trackerId"]),
 ];
+const cardSchema = { type: "object", properties: { front: s_, back: s_, sourceDocumentId: d_("ID of the course document this card is based on.") }, required: ["front", "back"], additionalProperties: false };
+const questionSchema = { type: "object", properties: {
+  type: { type: "string", enum: ["mcq", "short"] },
+  prompt: s_,
+  choices: { type: "array", items: s_, minItems: 2, maxItems: 6, description: "Multiple choice only: 4 options." },
+  answerIndex: { type: "integer", minimum: 0, description: "Multiple choice only: zero-based index of the correct choice." },
+  answer: d_("Short answer: the model answer. Multiple choice: optional, the correct choice text."),
+  explanation: d_("Why the answer is right."),
+  sourceDocumentId: d_("ID of the course document this question is based on."),
+}, required: ["type", "prompt"], additionalProperties: false };
+const STUDY_TOOLS: OpenRouterTool[] = [
+  fn("create_course", "Add a course (class) to the user's academic workspace. Its code also becomes a task subsection under Academic. Use only when the user asks to add/track a class.", {
+    name: d_("Course title, e.g. 'Data Structures & Algorithms'."),
+    code: d_("Course code, e.g. 'CS 1332'."),
+    term: d_("e.g. 'Fall 2026'."),
+    instructor: s_,
+  }, ["name"]),
+  fn("create_flashcard_deck", "Create a flashcard deck for a course, or add cards to an existing deck (deckId). Read the relevant course documents first and ground every card in them; link sourceDocumentId. Use when the user asks for flashcards.", {
+    courseId: d_("ID of the course. Required when creating a new deck."),
+    deckId: d_("Existing deck ID to append cards to instead of creating a deck."),
+    title: d_("Deck title, required for a new deck."),
+    cards: { type: "array", items: cardSchema, minItems: 1, maxItems: 60 },
+  }, ["cards"]),
+  fn("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Use when the user asks for a quiz, practice test or exam prep questions.", {
+    courseId: d_("ID of the course."),
+    title: s_,
+    questions: { type: "array", items: questionSchema, minItems: 1, maxItems: 40 },
+  }, ["courseId", "title", "questions"]),
+];
 export const MUTATION_TOOLS: OpenRouterTool[] = [
       {
         type: "function",
@@ -313,17 +342,19 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
         },
       },
       ...EDIT_TOOLS,
+      ...STUDY_TOOLS,
     ];
 
 
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent } from "../types";
+import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace } from "../types";
+import { linkCourseToTasks, newCard, normalizeQuestion, studyOf } from "../utils/study";
 import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, PROBLEM_STAGES, safeTrackerUrl } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source } from "./brainRetrieval";
 
-const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event"];
+const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -332,8 +363,9 @@ function tool(name: string, description: string, properties: Record<string, unkn
   return { type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false } } };
 }
 export const READ_TOOLS = [
-  tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination.", {
-    type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold", "applied", "screening", "onsite", "offer", "rejected", "done", "review"] }, section: str, text: str,
+  tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt).", {
+    type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold", "applied", "screening", "onsite", "offer", "rejected", "done", "review"] },
+    section: { type: "string", description: "Task section, goal sector, or course code/name for course, document, deck and quiz records." }, text: str,
     offset: cursorSchema, countOnly: { type: "boolean" },
   }, ["type"]),
   tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Returns the full stored record (search excerpts are readable summaries, so do not reuse their positions as offsets).", {
@@ -404,18 +436,45 @@ export function validate(value: unknown, schema: any, path = "arguments"): void 
 function validDate(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
 }
+type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | Course | FlashcardDeck | Quiz;
 export interface Mutation {
   type: RecordType;
-  record: Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent;
+  record: MutableRecord;
   action: string;
   /** The record as it was read; the save is refused if it changed in the meantime. */
-  expected?: Task | Goal | Habit | KnowledgeItem | TrackerItem | CalendarEvent;
+  expected?: MutableRecord;
   /** Removes the record instead of inserting or replacing it. */
   remove?: boolean;
 }
 export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events" } as const;
+const STUDY_COLLECTIONS = { course: "courses", document: "documents", deck: "decks", quiz: "quizzes" } as const;
+export const ACADEMIC_WORKSPACE_ID = "workspace-academic";
+/** The live records a mutation of this type targets, wherever they are stored. */
+export function mutationRecords(state: BrainState, type: RecordType): Array<{ id: string }> {
+  if (type in STUDY_COLLECTIONS) return studyOf(state)[STUDY_COLLECTIONS[type as keyof typeof STUDY_COLLECTIONS]];
+  return (state[MUTATION_COLLECTIONS[type as keyof typeof MUTATION_COLLECTIONS]] || []) as Array<{ id: string }>;
+}
 export function applyMutation(state: BrainState, mutation: Mutation): BrainState {
-  const key = MUTATION_COLLECTIONS[mutation.type];
+  if (mutation.type in STUDY_COLLECTIONS) {
+    const key = STUDY_COLLECTIONS[mutation.type as keyof typeof STUDY_COLLECTIONS];
+    const study = studyOf(state);
+    const list = study[key] as Array<{ id: string }>;
+    const items = mutation.remove ? list.filter(r => r.id !== mutation.record.id)
+      : list.some(r => r.id === mutation.record.id) ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record];
+    let next: BrainState = { ...state, study: { ...study, [key]: items } };
+    if (mutation.type === "course" && !mutation.remove) {
+      const course = mutation.record as Course;
+      // A course created from chat before any academic workspace exists gets a default one.
+      if (!(next.workspaces || []).some(w => w.id === course.workspaceId)) {
+        const workspace: Workspace = { id: course.workspaceId, name: "School", description: "Courses, materials, flashcards and practice quizzes.",
+          template: "academic", color: "blue", notes: "", createdAt: new Date().toISOString() };
+        next = { ...next, workspaces: [...(next.workspaces || []), workspace] };
+      }
+      next = linkCourseToTasks(next, course);
+    }
+    return next;
+  }
+  const key = MUTATION_COLLECTIONS[mutation.type as keyof typeof MUTATION_COLLECTIONS];
   const list = (state[key] || []) as Array<{ id: string }>;
   if (mutation.remove) return { ...state, [key]: list.filter(r => r.id !== mutation.record.id) };
   const exists = list.some(r => r.id === mutation.record.id);
@@ -473,6 +532,10 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
       ...(r.type === "event" ? { kind: r.data.kind, startTime: r.data.startTime, endTime: r.data.endTime, location: r.data.location, attendees: r.data.attendees,
         notes: typeof r.data.notes === "string" ? r.data.notes.slice(0, 500) : undefined } : {}),
       description: typeof r.data.description === "string" ? r.data.description.slice(0, 500) : undefined,
+      ...(r.type === "course" ? { code: r.data.code, term: r.data.term, documents: r.data.documentCount, decks: r.data.deckCount, cardsDue: r.data.cardsDue, quizzes: r.data.quizCount, openTasks: r.data.openTasks } : {}),
+      ...(r.type === "document" ? { course: r.data.course, folder: r.data.folder, kind: r.data.kind, pages: r.data.pages, characters: r.data.chars, summary: r.data.summary } : {}),
+      ...(r.type === "deck" ? { course: r.data.course, cards: r.data.cardCount, cardsDue: r.data.cardsDue, nextReview: r.data.nextReview } : {}),
+      ...(r.type === "quiz" ? { course: r.data.course, questions: r.data.questionCount, attempts: r.data.attemptCount, bestScore: r.data.bestScore, lastScore: r.data.lastScore } : {}),
       ...(r.type === "goal" ? { progress: r.data.progress, metrics: r.data.metrics, why: typeof r.data.why === "string" ? r.data.why.slice(0, 500) : undefined, sector: r.data.sector, timeframe: r.data.timeframe,
         milestoneCount: Array.isArray(r.data.milestones) ? r.data.milestones.length : 0 } : {}),
       detailsAvailable: true,
@@ -649,6 +712,47 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       return { type: "tracker", action: name, expected: item, record: { ...item, fields, ...(args.status ? { status: args.status } : {}),
         ...(title ? { title, ...(item.kind === "leetcode" ? { subject: title } : {}) } : {}),
         ...(args.appendNotes ? { notes: [item.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") } : {}), updatedAt: new Date().toISOString() } };
+    }
+    case "create_course": {
+      const study = studyOf(state);
+      const code = args.code?.trim() || "";
+      const name = args.name.trim();
+      if (study.courses.some(c => (code && c.code.toLocaleLowerCase() === code.toLocaleLowerCase()) || c.name.toLocaleLowerCase() === name.toLocaleLowerCase()))
+        throw new Error("This course already exists. Query courses and use its ID.");
+      const workspaceId = (state.workspaces || []).find(w => w.template === "academic")?.id || ACADEMIC_WORKSPACE_ID;
+      const now = new Date().toISOString();
+      return { type: "course", action: "create_course", record: { id, workspaceId, code, name,
+        ...(args.term ? { term: args.term.trim() } : {}), ...(args.instructor ? { instructor: args.instructor.trim() } : {}), createdAt: now, updatedAt: now } };
+    }
+    case "create_flashcard_deck": {
+      const study = studyOf(state);
+      const docIds = new Set(study.documents.map(d => d.id));
+      for (const card of args.cards) if (card.sourceDocumentId && !docIds.has(card.sourceDocumentId)) throw new Error(`Unknown document ID ${card.sourceDocumentId}. Use IDs from course document records.`);
+      const cards = args.cards.map((c: { front: string; back: string; sourceDocumentId?: string }) => newCard(c.front.slice(0, 2000), c.back.slice(0, 2000), c.sourceDocumentId, today));
+      const sources = (cards as Array<{ sourceDocId?: string }>).map(c => c.sourceDocId).filter((x): x is string => !!x);
+      if (args.deckId) {
+        const deck = study.decks.find(d => d.id === args.deckId);
+        if (!deck) throw new Error("Deck ID not found. Query deck records; do not guess IDs.");
+        return { type: "deck", action: "add_flashcards", expected: deck, record: { ...deck, cards: [...deck.cards, ...cards],
+          sourceDocIds: [...new Set([...deck.sourceDocIds, ...sources])], updatedAt: new Date().toISOString() } };
+      }
+      if (!args.courseId || !study.courses.some(c => c.id === args.courseId)) throw new Error("Course ID not found. Query course records, or create the course first.");
+      if (!args.title?.trim()) throw new Error("A new deck needs a title.");
+      const now = new Date().toISOString();
+      return { type: "deck", action: name, record: { id, courseId: args.courseId, title: args.title.trim().slice(0, 120), sourceDocIds: [...new Set(sources)], cards, createdAt: now, updatedAt: now } };
+    }
+    case "create_quiz": {
+      const study = studyOf(state);
+      if (!study.courses.some(c => c.id === args.courseId)) throw new Error("Course ID not found. Query course records, or create the course first.");
+      const docIds = new Set(study.documents.map(d => d.id));
+      const questions = args.questions.map((q: Record<string, unknown>, i: number) => {
+        if (q.sourceDocumentId && !docIds.has(String(q.sourceDocumentId))) throw new Error(`Unknown document ID ${q.sourceDocumentId}.`);
+        const question = normalizeQuestion({ ...q, sourceDocId: q.sourceDocumentId, id: crypto.randomUUID() });
+        if (!question || question.type !== q.type) throw new Error(`Question ${i + 1} is invalid: multiple choice needs 2-6 choices and a valid answerIndex; short answer needs an answer.`);
+        return question;
+      }) as QuizQuestion[];
+      return { type: "quiz", action: name, record: { id, courseId: args.courseId, title: args.title.trim().slice(0, 120),
+        sourceDocIds: [...new Set(questions.map(q => q.sourceDocId).filter((x): x is string => !!x))], questions, attempts: [], createdAt: new Date().toISOString() } };
     }
     default: throw new Error(`Unknown mutation ${name}`);
   }

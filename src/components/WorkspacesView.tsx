@@ -12,6 +12,7 @@ import {
   FileText,
   Flame,
   FolderOpen,
+  GraduationCap,
   LayoutGrid,
   List,
   MoreHorizontal,
@@ -44,6 +45,9 @@ import {
 } from "../utils/workspaces";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
+import { AcademicWorkspace } from "./academic/AcademicWorkspace";
+import { studyOf } from "../utils/study";
+import { deleteDocumentTexts } from "../services/studyDocuments";
 import "../workspaces.css";
 
 type Update = (update: (state: BrainState) => BrainState) => void;
@@ -53,6 +57,7 @@ interface Props {
   createInitially?: boolean;
   onChange: Update;
   onNavigate: (tab: string) => void;
+  onAsk: (prompt: string) => void;
 }
 type Panel = "overview" | "leetcode" | "job_application" | "notes";
 const stagesFor = (kind: TrackerKind) =>
@@ -67,11 +72,19 @@ const dateLabel = (date: string) =>
       })
     : "—";
 const initial = (value: string) => value.trim().slice(0, 1).toUpperCase();
+const templateLabel = (template: Workspace["template"]) =>
+  template === "career"
+    ? "Career workspace"
+    : template === "academic"
+      ? "Academic workspace"
+      : "Personal workspace";
 function WorkspaceIcon({ workspace }: { workspace: Workspace }) {
   return (
     <span className={`ws-icon ws-color-${workspace.color}`}>
       {workspace.template === "career" ? (
         <Briefcase size={22} />
+      ) : workspace.template === "academic" ? (
+        <GraduationCap size={22} />
       ) : (
         <FolderOpen size={22} />
       )}
@@ -122,6 +135,7 @@ export function WorkspacesView({
   createInitially,
   onChange,
   onNavigate,
+  onAsk,
 }: Props) {
   const workspaces = state.workspaces || [];
   const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -268,13 +282,12 @@ export function WorkspacesView({
                   </p>
                   <div className="ws-card-bottom">
                     <span>
-                      {space.template === "career"
-                        ? "Career workspace"
-                        : "Personal workspace"}
+                      {templateLabel(space.template)}
                     </span>
                     <span>
-                      {entries.length}{" "}
-                      {entries.length === 1 ? "entry" : "entries"}
+                      {space.template === "academic"
+                        ? `${studyOf(state).courses.filter((c) => c.workspaceId === space.id).length} courses`
+                        : `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`}
                     </span>
                   </div>
                 </button>
@@ -288,7 +301,7 @@ export function WorkspacesView({
                 <Plus size={22} />
               </span>
               <strong>Create a workspace</strong>
-              <p>Start fresh, or use the Career template.</p>
+              <p>Start fresh, or use the Career or Academic template.</p>
             </button>
           </div>
         </>
@@ -303,9 +316,7 @@ export function WorkspacesView({
               <WorkspaceIcon workspace={workspace} />
               <div>
                 <div className="ws-hero-eyebrow">
-                  {workspace.template === "career"
-                    ? "CAREER WORKSPACE"
-                    : "PERSONAL WORKSPACE"}
+                  {templateLabel(workspace.template).toUpperCase()}
                 </div>
                 <h1>{workspace.name}</h1>
                 <p>{workspace.description || "Make room for what matters."}</p>
@@ -346,7 +357,9 @@ export function WorkspacesView({
           >
             {(
               [
-                { id: "overview", label: "Overview", icon: LayoutGrid },
+                workspace.template === "academic"
+                  ? { id: "overview", label: "Courses", icon: GraduationCap }
+                  : { id: "overview", label: "Overview", icon: LayoutGrid },
                 ...(workspace.template === "career"
                   ? [
                       { id: "leetcode", label: "LeetCode", icon: Code2 },
@@ -383,7 +396,16 @@ export function WorkspacesView({
             role="tabpanel"
             aria-labelledby={`ws-tab-${panel}`}
           >
+            {panel === "overview" && workspace.template === "academic" && (
+              <AcademicWorkspace
+                state={state}
+                workspace={workspace}
+                onChange={onChange}
+                onAsk={onAsk}
+              />
+            )}
             {panel === "overview" &&
+              workspace.template !== "academic" &&
               (workspace.template === "career" ? (
                 <>
                   <div className="ws-stats">
@@ -1118,7 +1140,7 @@ export function WorkspacesView({
             </h2>
             <p>
               {"template" in deleteTarget
-                ? "This removes this workspace, its notes, and its tracker entries. Your other workspaces stay intact."
+                ? "This removes this workspace, its notes, tracker entries, and any courses with their materials, flashcards and quizzes. Your other workspaces stay intact."
                 : "This entry and its practice history will be permanently removed."}
             </p>
             <div className="ws-dialog-actions">
@@ -1132,7 +1154,15 @@ export function WorkspacesView({
                 className="ws-button ws-danger"
                 onClick={() => {
                   if ("template" in deleteTarget) {
+                    const documentIds = studyOf(state)
+                      .documents.filter((d) =>
+                        studyOf(state).courses.some(
+                          (c) => c.id === d.courseId && c.workspaceId === deleteTarget.id,
+                        ),
+                      )
+                      .map((d) => d.id);
                     onChange((prev) => removeWorkspace(prev, deleteTarget.id));
+                    deleteDocumentTexts(state.userId || "guest", documentIds).catch(() => {});
                     onNavigate("workspaces");
                   } else {
                     onChange((prev) => ({
@@ -1252,6 +1282,16 @@ function WorkspaceEditor({
                   <strong>Career</strong>
                   <span>LeetCode, applications & notes</span>
                   {template === "career" && <Check size={15} />}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={template === "academic"}
+                  onClick={() => setTemplate("academic")}
+                >
+                  <GraduationCap size={20} />
+                  <strong>Academic</strong>
+                  <span>Courses, materials, flashcards & quizzes</span>
+                  {template === "academic" && <Check size={15} />}
                 </button>
                 <button
                   type="button"

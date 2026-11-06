@@ -7,7 +7,7 @@ import {
   AutonomousBrainAgent,
   RunConversation,
 } from "../services/agentDispatcher";
-import { applyMutation, MUTATION_COLLECTIONS } from "../services/brainTools";
+import { applyMutation, mutationRecords } from "../services/brainTools";
 import { persistBrainState } from "../services/storage";
 import { learnFromTurn } from "../services/memoryHistory";
 import {
@@ -276,9 +276,9 @@ export function useBrainConversation(
                 if (!current || !isCurrent())
                   throw new Error("Account changed; action stopped.");
                 if (mutation.expected) {
-                  const record = (
-                    (current[MUTATION_COLLECTIONS[mutation.type]] || []) as Array<{ id: string }>
-                  ).find((r) => r.id === mutation.record.id);
+                  const record = mutationRecords(current, mutation.type).find(
+                    (r) => r.id === mutation.record.id,
+                  );
                   if (
                     JSON.stringify(record) !== JSON.stringify(mutation.expected)
                   )

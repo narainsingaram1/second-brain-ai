@@ -264,7 +264,7 @@ export async function queryOpenRouter(
   apiKey: string,
   model: string = DEFAULT_MODEL,
   systemPrompt?: string,
-  options: { temperature?: number; maxTokens?: number; json?: boolean; signal?: AbortSignal } = {}
+  options: { temperature?: number; maxTokens?: number; json?: boolean; signal?: AbortSignal; timeoutMs?: number } = {}
 ): Promise<string> {
   if (!apiKey) {
     throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
@@ -278,7 +278,7 @@ export async function queryOpenRouter(
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
-    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(60000)]) : AbortSignal.timeout(60000),
+    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 60000)]) : AbortSignal.timeout(options.timeoutMs ?? 60000),
     headers: headers(apiKey),
     body: JSON.stringify({
       model: resolveModel(model),

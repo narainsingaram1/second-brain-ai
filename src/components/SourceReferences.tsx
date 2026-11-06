@@ -34,14 +34,14 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
   }, []);
   const record = findRecord(state, source.type, source.id);
   const title = referenceTitle(source.type, source.id, [source], state);
-  const content = record && "content" in record ? record.content || ("summary" in record ? record.summary : "") : record && "description" in record ? record.description || "" : record && source.type === "event" && "notes" in record ? record.notes || "" : "";
+  const content = record && "content" in record ? record.content || ("summary" in record ? record.summary : "") : record && "description" in record ? record.description || "" : record && source.type === "event" && "notes" in record ? record.notes || "" : record && "summary" in record ? record.summary || "" : "";
   const status = record && "status" in record ? record.status.replace(/_/g, " ") : undefined;
   const event = source.type === "event" ? state?.events?.find(e => e.id === source.id) : undefined;
   const date = record && "dueDate" in record ? record.dueDate : record && "targetDate" in record ? record.targetDate : record && "date" in record ? record.date : undefined;
   return createPortal(<div className="record-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="record-preview-title" className="record-dialog">
       <div className="record-dialog-header">
-        <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-medium text-indigo-500 capitalize mb-2"><RecordIcon type={source.type} />{source.type === "knowledge" ? "Note" : event ? event.kind : source.type}</div><h2 id="record-preview-title" className="text-lg font-semibold leading-snug break-words">{title}</h2></div>
+        <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-medium text-indigo-500 capitalize mb-2"><RecordIcon type={source.type} />{source.type === "knowledge" ? "Note" : source.type === "deck" ? "Flashcards" : event ? event.kind : source.type}</div><h2 id="record-preview-title" className="text-lg font-semibold leading-snug break-words">{title}</h2></div>
         <button ref={closeButton} type="button" onClick={onClose} className="chat-icon-button shrink-0" aria-label="Close source"><X size={18} /></button>
       </div>
       <div className="record-dialog-body">

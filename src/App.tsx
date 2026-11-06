@@ -22,6 +22,8 @@ import { HabitsView } from "./components/HabitsView";
 import { JournalView } from "./components/JournalView";
 import { NotesWorkspace } from "./components/NotesWorkspace";
 import { WorkspacesView } from "./components/WorkspacesView";
+import { hydrateDocumentTexts } from "./services/studyDocuments";
+import type { PreparedImage } from "./utils/imageInput";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { EventModal } from "./components/EventModal";
@@ -107,6 +109,21 @@ export const App: React.FC = () => {
     lastMutation.current = null;
     historyFuture.current = [];
   });
+
+  /** Opens the assistant with a message, from Home or any workspace. */
+  const askAssistant = async (prompt: string, images?: PreparedImage[]) => {
+    setChatLaunchError("");
+    setActiveTab("copilot");
+    try { await conversation.run(prompt, images?.length ? { images } : undefined); }
+    catch (error) { setChatLaunchError(error instanceof Error ? error.message : "Could not send your message. Try again."); }
+  };
+
+  // Course document text lives outside the snapshot; load it so the assistant can search and read it.
+  const studyDocumentKey = state?.study?.documents.map(d => d.id).join(",") || "";
+  useEffect(() => {
+    if (!state?.userId || !studyDocumentKey) return;
+    hydrateDocumentTexts(state.userId, studyDocumentKey.split(",")).catch(() => {});
+  }, [state?.userId, studyDocumentKey]);
 
   useEffect(() => {
     const updateSyncError = () => {
@@ -935,12 +952,7 @@ export const App: React.FC = () => {
               onEditTask={task => { setActiveEditTask(task); setIsTaskModalOpen(true); }}
               onEditEvent={openEditEvent}
               onOpenNote={note => { setActiveEditKnowledge(note); setActiveTab("knowledge"); }}
-              onAsk={async (prompt, images) => {
-                setChatLaunchError("");
-                setActiveTab("copilot");
-                try { await conversation.run(prompt, images?.length ? { images } : undefined); }
-                catch (error) { setChatLaunchError(error instanceof Error ? error.message : "Could not send your message. Try again."); }
-              }}
+              onAsk={askAssistant}
               onNavigate={setActiveTab}
               onNewTask={() => {
                 const section = state.sections[0] || "Academic";
@@ -965,6 +977,7 @@ export const App: React.FC = () => {
                 workspaceId={activeTab.startsWith("workspace:") ? activeTab.slice(10) : undefined}
                 createInitially={activeTab === "workspace-new"}
                 onNavigate={setActiveTab}
+                onAsk={prompt => { void askAssistant(prompt); }}
                 onChange={update => setState(prev => prev ? update(prev) : prev)}
               />}
               {/* ========================================================= */}

@@ -1,7 +1,10 @@
 import { BrainState, TrackerItem } from "../types";
 import { eventTimeLabel, formatTime } from "../utils/events";
+import { getLocalDateString } from "../utils/habitStreaks";
+import { bestScore, courseLabel, courseTasks, dueCards, studyOf } from "../utils/study";
+import { cachedDocumentText } from "./studyDocuments";
 
-export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event";
+export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz";
 
 function trackerDate(item: TrackerItem): string | undefined {
   if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
@@ -39,6 +42,16 @@ export function recordProse(type: RecordType, d: any): string {
     case "knowledge": return lines(`Note: ${d.title || d.subject}`, list(d.tags) && `Tags: ${list(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
     case "event": return lines(`${String(d.kind || "event").replace(/^./, (c: string) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`,
       d.location && `Location: ${d.location}`, list(d.attendees) && `With: ${list(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
+    case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`,
+      `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`,
+      list(d.documentNames) && `Materials: ${list(d.documentNames)}`, list(d.folderNames) && `Folders: ${list(d.folderNames)}`);
+    case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`,
+      d.content || "[The extracted text of this document is not loaded on this device.]");
+    case "deck": return lines(`Flashcard deck: ${d.title} (${d.course})`, `${d.cardCount} cards, ${d.cardsDue} due for review today`,
+      ...(Array.isArray(d.cards) ? d.cards.map((c: any) => `Q: ${c.front}\nA: ${c.back}`) : []));
+    case "quiz": return lines(`Practice quiz: ${d.title} (${d.course})`,
+      `${d.questionCount} questions; ${d.attemptCount ? `taken ${d.attemptCount} times, best ${d.bestScore}%, last ${d.lastScore}` : "not taken yet"}`,
+      ...(Array.isArray(d.questions) ? d.questions.map((q: any, i: number) => `${i + 1}. ${q.prompt}${q.choices ? ` [${q.choices.join(" | ")}]` : ""} Answer: ${q.answer}`) : []));
     case "tracker": {
       const fields = Object.entries(d.fields || {}).filter(([, v]) => (typeof v === "string" && v.trim() && !/^https?:/i.test(v)) || typeof v === "number")
         .map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
@@ -46,6 +59,42 @@ export function recordProse(type: RecordType, d: any): string {
         ...fields, list(d.tags) && `Tags: ${list(d.tags)}`, d.notes && `Notes: ${d.notes}`);
     }
   }
+}
+/** Course material flattened into readable records. Document text comes from the loaded text cache. */
+function studyRecords(state: BrainState) {
+  const study = studyOf(state);
+  const today = getLocalDateString();
+  const courses = new Map(study.courses.map(c => [c.id, c]));
+  const folderName = (id: string | null) => (id ? study.folders.find(f => f.id === id)?.name : undefined);
+  const label = (courseId: string) => { const c = courses.get(courseId); return c ? courseLabel(c) : "Unknown course"; };
+  const section = (courseId: string) => { const c = courses.get(courseId); return c ? c.code || c.name : undefined; };
+  return [
+    ...study.courses.map(c => {
+      const decks = study.decks.filter(d => d.courseId === c.id);
+      const docs = study.documents.filter(d => d.courseId === c.id);
+      const data = { ...c, label: courseLabel(c), section: c.code || c.name, documentCount: docs.length, documentNames: docs.map(d => d.name),
+        folderNames: study.folders.filter(f => f.courseId === c.id).map(f => f.name), deckCount: decks.length,
+        cardsDue: decks.reduce((n, d) => n + dueCards(d, today).length, 0), quizCount: study.quizzes.filter(q => q.courseId === c.id).length,
+        openTasks: courseTasks(state, c).filter(t => t.status !== "completed").length };
+      return { type: "course" as const, title: courseLabel(c), date: undefined, data, source: data as unknown };
+    }),
+    ...study.documents.map(d => {
+      const data = { ...d, course: label(d.courseId), section: section(d.courseId), folder: folderName(d.folderId), content: cachedDocumentText(d.id) };
+      return { type: "document" as const, title: d.name, date: d.createdAt.slice(0, 10), data, source: data as unknown };
+    }),
+    ...study.decks.map(d => {
+      const due = dueCards(d, today);
+      const next = d.cards.reduce<string | undefined>((min, c) => (!min || c.due < min ? c.due : min), undefined);
+      const data = { ...d, course: label(d.courseId), section: section(d.courseId), cardCount: d.cards.length, cardsDue: due.length, nextReview: next };
+      return { type: "deck" as const, title: d.title, date: next, data, source: data as unknown };
+    }),
+    ...study.quizzes.map(q => {
+      const last = q.attempts[q.attempts.length - 1];
+      const data = { ...q, course: label(q.courseId), section: section(q.courseId), questionCount: q.questions.length, attemptCount: q.attempts.length,
+        bestScore: bestScore(q), lastScore: last ? `${last.score}/${last.total}` : undefined };
+      return { type: "quiz" as const, title: q.title, date: (last?.at || q.createdAt).slice(0, 10), data, source: data as unknown };
+    }),
+  ];
 }
 export function records(state: BrainState, type?: RecordType): BrainRecord[] {
   return ([
@@ -62,7 +111,10 @@ export function records(state: BrainState, type?: RecordType): BrainRecord[] {
       data: { ...data.fields, ...data },
       source: data as unknown,
     })),
-  ]).filter(r => !type || r.type === type).map(({ source, ...r }) => ({ ...r, id: r.data.id, data: { ...r.data }, text: JSON.stringify(r.data, null, 2),
+    ...(!type || ["course", "document", "deck", "quiz"].includes(type) ? studyRecords(state) : []),
+  ]).filter(r => !type || r.type === type).map(({ source, ...r }) => ({ ...r, id: r.data.id, data: { ...r.data },
+    // Document text is read as prose after its metadata, not as one escaped JSON string.
+    text: r.type === "document" ? `${JSON.stringify({ ...r.data, content: undefined }, null, 2)}\n\n${(r.data as { content?: string }).content ?? "[Text not loaded on this device.]"}` : JSON.stringify(r.data, null, 2),
     get index() { return recordProse(r.type, source); } }));
 }
 

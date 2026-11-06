@@ -7,6 +7,7 @@ import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, REA
 import { Source } from "./brainRetrieval";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { eventTimeLabel, formatTime, sortEvents, taskSortKey } from "../utils/events";
+import { bestScore, courseLabel, dueCards, studyOf } from "../utils/study";
 
 export interface AgentExecutionResult {
   actionType: "query_brain" | "compound";
@@ -42,7 +43,7 @@ function errorMessage(err: unknown): string { return err instanceof Error ? err.
 
 // Stable instructions come first and never change between turns, so providers can cache this prefix.
 // Everything that varies per turn (date, snapshot, memory, IDs) is appended after it.
-export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and personal assistant, built into their second brain (tasks, goals, habits, journal, notes, calendar events and career trackers).
+export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and personal assistant, built into their second brain (tasks, goals, habits, journal, notes, calendar events, career trackers, and courses with their study materials, flashcards and quizzes).
 
 ## How to talk
 - Be a warm, sharp, genuinely useful conversation partner. Talk like a thoughtful friend who happens to know the user's schedule, not like a database report.
@@ -67,6 +68,13 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 - Never invent dates, folders or statuses. A tool result with saved:true confirms the change; errors do not. After saving, confirm briefly in plain language what changed.
 - Do not repeat writes that already succeeded. Report partial completion honestly.
 
+## Studying
+- Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
+- For questions about class material, search_records (type document narrows it) and ground your explanation in the user's own materials, citing [document:ID]. Use their notation and terminology. If their materials don't cover something, say so and then answer from general knowledge.
+- "Make flashcards/a quiz on X": find the course and relevant documents, read them, then call create_flashcard_deck or create_quiz with items grounded in that text and sourceDocumentId set. Default to about 15 cards or 8 questions unless asked. Tell the user it is ready in their course's Flashcards or Quizzes tab.
+- When quizzing the user in chat, ask one question at a time and wait for their answer. Weak spots show up in quiz attempts (missed questions) and cards due; use them to suggest what to review.
+- A course's code is also its task subsection under Academic, so assignments for a course are tasks with that subsection.
+
 ## Memory
 - Saved memories about the user are context: use them naturally to personalize, without reciting unrelated ones. Current instructions override saved preferences.
 - Durable facts the user mentions in passing are learned automatically in the background after you reply, so do not spend a tool call on them. Call remember_memory/update_memory only when the user explicitly asks you to remember, save or correct something, quoting the user's exact words. For the current message omit messageId. For older messages, find the message ID with search_conversations or recall_conversation. Never save assistant guesses, third-party claims, credentials, temporary requests, or sensitive details unless the user explicitly asks. Forget only when asked. Never claim a memory was saved without saved:true. Memory permission never authorizes changing tasks or notes.
@@ -82,7 +90,7 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 - You cannot browse the web; only the user's second-brain tools are available.
 - If a tool fails, adapt or retry sensibly; mention only unresolved failures, briefly and in plain language.`;
 
-const CITATION = /\s?\[(?:task|goal|habit|journal|knowledge|tracker|event):[^\]\n]+\]/g;
+const CITATION = /\s?\[(?:task|goal|habit|journal|knowledge|tracker|event|course|document|deck|quiz):[^\]\n]+\]/g;
 const clip = (text: string, n: number) => (text.length > n ? text.slice(0, n - 1) + "…" : text);
 function addDays(date: string, days: number): string {
   const d = new Date(`${date}T12:00:00`);
@@ -143,6 +151,16 @@ export function lifeSnapshot(state: BrainState): string {
   if (trackers.length) {
     const counts = trackers.reduce<Record<string, number>>((acc, t) => ({ ...acc, [t.kind]: (acc[t.kind] || 0) + 1 }), {});
     lines.push(`Career trackers: ${Object.entries(counts).map(([k, n]) => `${n} ${k.replace(/_/g, " ")}`).join(", ")}.`);
+  }
+  const study = studyOf(state);
+  if (study.courses.length) {
+    lines.push(`Courses (${study.courses.length}):`, ...study.courses.slice(0, 10).map(c => {
+      const decks = study.decks.filter(d => d.courseId === c.id);
+      const due = decks.reduce((n, d) => n + dueCards(d, today).length, 0);
+      const quizzes = study.quizzes.filter(q => q.courseId === c.id);
+      const scores = quizzes.map(bestScore).filter((x): x is number => x !== null);
+      return `- ${clip(courseLabel(c), 90)} — ${study.documents.filter(d => d.courseId === c.id).length} documents, ${decks.length} decks${due ? ` (${due} cards due today)` : ""}, ${quizzes.length} quizzes${scores.length ? ` (best ${Math.max(...scores)}%)` : ""} [course:${c.id}]`;
+    }));
   }
   lines.push(`Notes: ${state.knowledgeItems.length}. Journal entries: ${state.journalEntries.length}. Calendar events: ${events.length} (${events.filter(e => e.date >= today).length} upcoming).`);
   return lines.join("\n");

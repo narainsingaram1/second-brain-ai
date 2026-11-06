@@ -6,6 +6,7 @@ import type {
   WorkspaceColor,
 } from "../types";
 import { getLocalDateString } from "./habitStreaks";
+import { removeWorkspaceCourses } from "./study";
 
 export const CAREER_WORKSPACE_ID = "workspace-career";
 export const WORKSPACE_COLORS: WorkspaceColor[] = [
@@ -64,7 +65,9 @@ export function normalizeWorkspaces(value: unknown): Workspace[] {
         description:
           typeof item.description === "string" ? item.description : "",
         template:
-          item.template === "career" ? ("career" as const) : ("blank" as const),
+          item.template === "career" || item.template === "academic"
+            ? (item.template as "career" | "academic")
+            : ("blank" as const),
         color: WORKSPACE_COLORS.includes(item.color)
           ? (item.color as WorkspaceColor)
           : ("purple" as const),
@@ -134,6 +137,9 @@ export function workspaceItems(items: TrackerItem[], workspaceId: string) {
 export function removeWorkspace(state: BrainState, id: string): BrainState {
   return {
     ...state,
+    ...(state.study
+      ? { study: removeWorkspaceCourses(state.study, id).study }
+      : {}),
     workspaces: (state.workspaces || []).filter(
       (workspace) => workspace.id !== id,
     ),
