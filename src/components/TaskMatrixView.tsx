@@ -27,7 +27,6 @@ import {
   subsectionStyle,
 } from "../utils/taskAppearance";
 import "../taskMatrix.css";
-import confetti from "canvas-confetti";
 import { TaskCalendarView } from "./TaskCalendarView";
 import { formatTime } from "../utils/events";
 import { TaskSimpleView } from "./TaskSimpleView";
@@ -173,12 +172,6 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
       next = "in_progress";
     } else if (current === "in_progress") {
       next = "completed";
-      confetti({
-        particleCount: 30,
-        spread: 50,
-        origin: { y: 0.6 },
-        colors: ["#10b981", "#3b82f6", "#f59e0b"],
-      });
     } else {
       next = "not_started";
     }
@@ -211,8 +204,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
     >
       <div className="task-page-header">
         <div>
-          <span className="task-eyebrow">YOUR WORKSPACE</span>
-          <h1>Tasks</h1>
+          <h1 className="page-title">Tasks</h1>
           <p>
             {pendingCount} active · {inProgressCount} in progress ·{" "}
             {sections.length} {sections.length === 1 ? "area" : "areas"}
@@ -279,13 +271,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
             </button>
           ))}
         </div>
-        <span className="task-toolbar-hint">
-          {viewMode === "main"
-            ? "A place for everything you’re working on"
-            : viewMode === "calendar"
-              ? "Plan your days, at a glance"
-              : "One task at a time"}
-        </span>
+
       </div>
 
       {viewMode === "calendar" ? (
@@ -685,14 +671,16 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                         onClick={() => onEditTask(task)}
                                         aria-label={`Edit due date for ${task.title}`}
                                       >
-                                        <Calendar size={14} />
-                                        <span>{task.dueDate}{task.dueTime ? ` · ${formatTime(task.dueTime)}` : ""}</span>
+                                        <span className="date-stamp">
+                                          {new Date(`${task.dueDate}T12:00:00`).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}
+                                          {task.dueTime ? ` · ${formatTime(task.dueTime)}` : ""}
+                                        </span>
                                       </button>
                                     )}
                                     <span
                                       className={`task-priority task-priority-${task.priority}`}
                                     >
-                                      {task.priority}
+                                      {task.priority.replace(/^./, (c) => c.toUpperCase())}
                                     </span>
                                     <button
                                       className="task-icon-action task-danger task-delete"

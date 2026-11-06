@@ -73,7 +73,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             href={/^(https?:|mailto:|\/(?!\/)|#)/i.test(match[7].trim()) ? match[7].trim() : undefined}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 dark:text-blue-400 underline underline-offset-2 hover:opacity-80 transition-opacity"
+            className="text-muted dark:text-slate-400 underline underline-offset-2 hover:opacity-80 transition-opacity"
           >
             {match[6]}
           </a>
@@ -242,7 +242,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
       renderedElements.push(
         <blockquote
           key={`quote-${i}`}
-          className="border-l-4 border-blue-500 pl-4 py-2 my-3 text-slate-700 dark:text-slate-300 italic bg-blue-50/50 dark:bg-blue-950/20 rounded-r-2xl font-medium"
+          className="border-l-4 border-line pl-4 py-2 my-3 text-slate-700 dark:text-slate-300 italic bg-raised rounded-r-2xl font-medium"
         >
           {renderInline(line.slice(2))}
         </blockquote>
@@ -271,7 +271,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
             className={`mt-0.5 w-4 h-4 rounded-md border flex items-center justify-center transition-colors shrink-0 ${
               isChecked
                 ? "bg-blue-600 border-blue-600 text-white"
-                : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 group-hover:border-blue-500"
+                : "border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-800 group-hover:border-line"
             }`}
           >
             {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
@@ -295,7 +295,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
       const listMatch = line.match(/^(\s*)[-*]\s+(.*)$/)!;
       renderedElements.push(
         <div key={`bullet-${i}`} className="flex items-start gap-2 my-1 text-xs">
-          <span className="text-blue-500 font-bold select-none">•</span>
+          <span className="text-muted font-bold select-none">•</span>
           <span className="text-slate-800 dark:text-slate-200 leading-relaxed">
             {renderInline(listMatch[2])}
           </span>

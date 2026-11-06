@@ -43,9 +43,9 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
       <div className="workspace-dialog bg-panel rounded-4xl border border-line shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
-            <Flame className="w-5 h-5 text-amber-500 fill-amber-500" />
+            <Flame className="w-5 h-5 text-muted " />
             <h3 className="font-extrabold text-base tracking-tight text-ink">
-              New Daily Habit
+              New daily habit
             </h3>
           </div>
           <button aria-label="Close dialog" onClick={onClose}
@@ -72,7 +72,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
 
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Cue / Intention / Rule
+              Cue / intention / rule
             </label>
             <textarea
               rows={2}
@@ -86,7 +86,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Life Domain
+                Life domain
               </label>
               <select
                 value={domain}
@@ -117,7 +117,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Time of Day
+                Time of day
               </label>
               <select
                 value={timeOfDay}
@@ -141,7 +141,7 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
             </button>
             <button
               type="submit"
-              className="px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all"
+              className="px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md active:scale-[0.98] transition-all"
             >
               Start Habit
             </button>

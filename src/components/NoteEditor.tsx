@@ -13,7 +13,7 @@ import {
   Trash2,
   Copy,
   Download,
-  Sparkles,
+  PenLine,
   Check,
   Maximize2,
   Minimize2,
@@ -276,25 +276,25 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           const tasksArr = match ? JSON.parse(match[0]) : [];
           if (Array.isArray(tasksArr) && tasksArr.length > 0 && onGenerateTasks) {
             onGenerateTasks(tasksArr.map((t: string) => ({ title: t, priority: "medium" })));
-            setAiNotice(`Created ${tasksArr.length} actionable tasks in Tasks tab!`);
+            setAiNotice(`Created ${tasksArr.length} tasks`);
           } else {
             // Append as checklist to note
             const checklistStr = "\n\n## Actionable Tasks\n" + aiResponse;
             handleContentChange(currentContent() + checklistStr);
-            setAiNotice("Appended action tasks to note!");
+            setAiNotice("Action items added to the note");
           }
         } catch {
           handleContentChange(currentContent() + "\n\n## Actionable Tasks\n" + aiResponse);
         }
       } else if (action === "summarize") {
         handleContentChange(currentContent() + "\n\n## AI Summary & Takeaways\n" + aiResponse);
-        setAiNotice("Added summary to note!");
+        setAiNotice("Summary added");
       } else if (action === "polish") {
         handleContentChange(aiResponse);
-        setAiNotice("Polished note successfully!");
+        setAiNotice("Note tidied");
       } else if (action === "expand") {
         handleContentChange(currentContent() + "\n\n" + aiResponse);
-        setAiNotice("Expanded note with AI insights!");
+        setAiNotice("Note expanded");
       }
     } catch (err: any) {
       console.error("AI Error:", err);
@@ -335,7 +335,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
           {/* Folder Selector Dropdown */}
           <div className="flex items-center gap-1.5 bg-raised px-2.5 py-1 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300">
-            <FolderIcon className="w-3.5 h-3.5 text-blue-500" />
+            <FolderIcon className="w-3.5 h-3.5 text-muted" />
             <select
               aria-label="Note folder"
               value={folderId || ""}
@@ -360,7 +360,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             onClick={handleTogglePin}
             className={`p-1.5 rounded-xl text-xs transition-colors ${
               pinned
-                ? "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 font-bold"
+                ? "bg-raised text-muted dark:text-slate-400 font-bold"
                 : "text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-700"
             }`}
             title={pinned ? "Unpin note" : "Pin note to top"}
@@ -433,12 +433,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             <button
               onClick={() => setAiMenuOpen(!aiMenuOpen)}
               disabled={isAILoading}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/40 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 text-xs font-bold transition-colors shadow-xs"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-raised hover:bg-slate-100 dark:bg-raised dark:hover:bg-slate-800 text-muted dark:text-slate-400 text-xs font-bold transition-colors shadow-xs"
             >
               {isAILoading ? (
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
               ) : (
-                <Sparkles className="w-3.5 h-3.5 text-purple-500" />
+                <PenLine className="w-3.5 h-3.5 text-muted" />
               )}
               <span>AI</span>
             </button>
@@ -449,29 +449,29 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   onClick={() => runAIAssistant("summarize")}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-left transition-colors"
                 >
-                  <Sparkles className="w-3.5 h-3.5 text-purple-500" />
-                  <span>Summarize Takeaways</span>
+                  <PenLine className="w-3.5 h-3.5 text-muted" />
+                  <span>Summarize takeaways</span>
                 </button>
                 <button
                   onClick={() => runAIAssistant("tasks")}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-left transition-colors"
                 >
-                  <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
-                  <span>Extract Action Tasks</span>
+                  <CheckSquare className="w-3.5 h-3.5 text-muted" />
+                  <span>Extract action tasks</span>
                 </button>
                 <button
                   onClick={() => runAIAssistant("polish")}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-left transition-colors"
                 >
-                  <Edit3 className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Polish & Clean Grammar</span>
+                  <Edit3 className="w-3.5 h-3.5 text-[var(--workspace-success)]" />
+                  <span>Polish & clean grammar</span>
                 </button>
                 <button
                   onClick={() => runAIAssistant("expand")}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-left transition-colors"
                 >
-                  <List className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Continue / Expand Note</span>
+                  <List className="w-3.5 h-3.5 text-muted" />
+                  <span>Continue / expand note</span>
                 </button>
               </div>
             )}
@@ -483,7 +483,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 transition-colors"
             title="Copy Markdown"
           >
-            {isCopied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+            {isCopied ? <Check className="w-3.5 h-3.5 text-[var(--workspace-success)]" /> : <Copy className="w-3.5 h-3.5" />}
           </button>
 
           <button
@@ -518,7 +518,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               }
             }}
             className="p-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-400 hover:text-rose-600 transition-colors"
-            title="Delete Note"
+            title="Delete note"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </button>
@@ -527,14 +527,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
       {/* AI Notice Banner */}
       {aiNotice && (
-        <div className="mt-3 px-4 py-2.5 rounded-2xl bg-purple-50 dark:bg-purple-950/50 border border-purple-200 dark:border-purple-800 text-xs font-semibold text-purple-900 dark:text-purple-200 flex items-center justify-between animate-fade-in">
+        <div className="mt-3 px-4 py-2.5 rounded-2xl bg-raised border border-line text-xs font-semibold text-purple-900 dark:text-purple-200 flex items-center justify-between animate-fade-in">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-purple-500 shrink-0" />
+            <PenLine className="w-4 h-4 text-muted shrink-0" />
             <span>{aiNotice}</span>
           </div>
           <button
             onClick={() => setAiNotice(null)}
-            className="text-purple-400 hover:text-purple-600"
+            className="text-muted hover:text-ink"
           >
             ✕
           </button>
@@ -542,7 +542,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       )}
 
       <div className="note-document-header">
-      <div className="note-document-eyebrow">YOUR WORKSPACE / NOTE</div>
+      <div className="note-document-eyebrow">Note</div>
       {/* Note Title Input */}
       <div className="pt-4 pb-2">
         <input

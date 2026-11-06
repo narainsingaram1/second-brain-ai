@@ -10,7 +10,6 @@ import {
   Calendar,
   Trash2,
 } from "lucide-react";
-import confetti from "canvas-confetti";
 import { getLocalDateString } from "../utils/habitStreaks";
 
 interface TaskSimpleViewProps {
@@ -61,12 +60,6 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
       next = "in_progress";
     } else if (current === "in_progress") {
       next = "completed";
-      confetti({
-        particleCount: 25,
-        spread: 45,
-        origin: { y: 0.6 },
-        colors: ["#10b981", "#3b82f6", "#f59e0b"],
-      });
     } else {
       next = "not_started";
     }
@@ -122,8 +115,8 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
     const done = tasks.filter((t) => (t.status || (t.completed ? "completed" : "not_started")) === "completed");
 
     groups = [
-      { id: "in_progress", title: "In Progress", tasks: inProgress, badge: `${inProgress.length}` },
-      { id: "not_started", title: "Not Started", tasks: notStarted, badge: `${notStarted.length}` },
+      { id: "in_progress", title: "In progress", tasks: inProgress, badge: `${inProgress.length}` },
+      { id: "not_started", title: "Not started", tasks: notStarted, badge: `${notStarted.length}` },
     ];
     if (showCompleted) {
       groups.push({ id: "completed", title: "Completed", tasks: done, badge: `${done.length}` });
@@ -149,8 +142,8 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
       <div className="bg-panel backdrop-blur-xl rounded-4xl p-5 border border-line shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-extrabold text-ink tracking-tight flex items-center gap-2">
-            <span>Simple List View</span>
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300 border border-emerald-200/60 dark:border-emerald-800">
+            <span>Simple list view</span>
+            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-raised text-[var(--workspace-success)] dark:bg-raised dark:text-[var(--workspace-success)] border border-line">
               {activeTasks.length} active ({inProgressCount} in progress)
             </span>
           </h2>
@@ -227,7 +220,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
 
         <button
           type="submit"
-          className="px-4 py-1.5 rounded-xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold hover:opacity-90 active:scale-95 transition-all shrink-0"
+          className="px-4 py-1.5 rounded-xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold hover:opacity-90 active:scale-[0.98] transition-all shrink-0"
         >
           Add
         </button>
@@ -300,7 +293,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                               <button
                                 onClick={(e) => handleCycleStatus(e, task)}
                                 title="Complete — click to reset"
-                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-emerald-500 text-white shadow-2xs hover:scale-105"
+                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 bg-raised0 text-white shadow-2xs"
                               >
                                 <Check className="w-3 h-3 stroke-[3]" />
                               </button>
@@ -308,15 +301,15 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                               <button
                                 onClick={(e) => handleCycleStatus(e, task)}
                                 title="In Progress — click to mark complete"
-                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 task-theme-border task-theme-bg task-theme-dark-bg task-theme-text hover:scale-105"
+                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 task-theme-border task-theme-bg task-theme-dark-bg task-theme-text"
                               >
-                                <div className="w-2 h-2 rounded-full task-theme-bg-solid animate-pulse" />
+                                <div className="w-2 h-2 rounded-full task-theme-bg-solid" />
                               </button>
                             ) : (
                               <button
                                 onClick={(e) => handleCycleStatus(e, task)}
                                 title="Not Started — click to set In Progress"
-                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 border-slate-300 dark:border-slate-600 task-theme-hover-border hover:scale-105 transition-all"
+                                className="w-5 h-5 rounded-full flex items-center justify-center shrink-0 border-2 border-slate-300 dark:border-slate-600 task-theme-hover-border transition-all"
                               />
                             )}
 
@@ -344,7 +337,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                             <span
                               className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
                                 taskStatus === "completed"
-                                  ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  ? "bg-raised text-[var(--workspace-success)] dark:bg-raised dark:text-[var(--workspace-success)]"
                                   : taskStatus === "in_progress"
                                   ? "task-theme-bg task-theme-text task-theme-dark-bg task-theme-dark-text ring-1 task-theme-ring"
                                   : "text-slate-400 bg-raised"
@@ -353,8 +346,8 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                               {taskStatus === "completed"
                                 ? "Complete"
                                 : taskStatus === "in_progress"
-                                ? "In Progress"
-                                : "Not Started"}
+                                ? "In progress"
+                                : "Not started"}
                             </span>
 
                             {/* Due Date */}
@@ -380,7 +373,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                                 task.priority === "urgent"
                                   ? "bg-rose-500"
                                   : task.priority === "high"
-                                  ? "bg-amber-500"
+                                  ? "bg-raised0"
                                   : task.priority === "medium"
                                   ? "bg-blue-400"
                                   : "bg-slate-300 dark:bg-slate-600"

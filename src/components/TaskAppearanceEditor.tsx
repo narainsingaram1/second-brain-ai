@@ -85,7 +85,7 @@ import {
   Mic,
   PenTool,
   Scissors,
-  Sparkles,
+  PenLine,
   Star,
   Gem,
   Wallet,
@@ -236,7 +236,7 @@ const groups = {
     Mic,
     PenTool,
     Scissors,
-    Sparkles,
+    PenLine,
     Gem,
     Gamepad2,
     Trophy,
@@ -330,7 +330,7 @@ export function TaskAppearanceEditor({
       if (event.key === "Tab") {
         const items = [
           ...(dialog.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), input",
+ "button:not([disabled]), input",
           ) || []),
         ];
         const first = items[0],

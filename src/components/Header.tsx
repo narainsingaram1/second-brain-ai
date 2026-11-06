@@ -1,7 +1,7 @@
 import React from "react";
 import {
   Search,
-  Sparkles,
+  PenLine,
   Settings,
   Key,
   Moon,
@@ -88,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
               className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
                 isActive
                   ? "bg-slate-950 text-white dark:bg-white dark:text-slate-950 shadow-xs"
-                  : "text-slate-500 hover:text-slate-900 dark:hover:text-white"
+                  : "text-slate-500 hover:text-ink dark:hover:text-white"
               }`}
             >
               {item.label}
@@ -120,10 +120,10 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenQuickCapture}
             title="Universal Quick Capture (⌘⌥N / ⌥⇧N)"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-xs font-bold shadow-xs hover:scale-102 active:scale-98 transition-all"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl  bg-blue-600 hover:bg-blue-600 hover:to-orange-600 text-white text-xs font-bold shadow-xs active:scale-98 transition-all"
           >
             <Zap className="w-3.5 h-3.5 fill-white" />
-            <span className="hidden lg:inline">Quick Capture</span>
+            <span className="hidden lg:inline">Quick capture</span>
             <span className="text-[11px] opacity-80 font-mono hidden sm:inline">⌘⌥N</span>
           </button>
         )}
@@ -133,7 +133,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenVault}
             title="Semantic Memory Vault (RAG Vector Store)"
-            className="w-9 h-9 rounded-2xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center transition-all hover:scale-102"
+            className="w-9 h-9 rounded-2xl bg-raised hover:bg-slate-100 dark:bg-raised dark:hover:bg-slate-800 text-muted dark:text-slate-400 flex items-center justify-center transition-all"
           >
             <Database className="w-4 h-4" />
           </button>
@@ -144,7 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onOpenAuditLog}
             title="Audit Log & State Rollback (⌘Z)"
-            className="w-9 h-9 rounded-2xl bg-cyan-50 hover:bg-cyan-100 dark:bg-cyan-950/40 dark:hover:bg-cyan-900/60 text-cyan-600 dark:text-cyan-400 flex items-center justify-center transition-all hover:scale-102"
+            className="w-9 h-9 rounded-2xl bg-raised hover:bg-slate-100 dark:bg-raised dark:hover:bg-slate-800 text-muted dark:text-slate-400 flex items-center justify-center transition-all"
           >
             <History className="w-4 h-4" />
           </button>
@@ -153,10 +153,10 @@ export const Header: React.FC<HeaderProps> = ({
         {/* AI Copilot shortcut button */}
         <button
           onClick={onOpenAIChat}
-          title="Ask AI Second Brain"
+          title="Ask Iris"
           className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors"
         >
-          <Sparkles className="w-4 h-4 text-purple-500" />
+          <PenLine className="w-4 h-4 text-muted" />
         </button>
 
         {/* OpenRouter Key status */}
@@ -165,8 +165,8 @@ export const Header: React.FC<HeaderProps> = ({
           title={openRouterKey ? "OpenRouter Connected" : "Add OpenRouter API Key"}
           className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-colors ${
             openRouterKey
-              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400"
-              : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 animate-pulse"
+              ? "bg-raised text-[var(--workspace-success)]"
+              : "bg-raised text-muted dark:text-slate-400 animate-pulse"
           }`}
         >
           <Key className="w-4 h-4" />
@@ -178,7 +178,7 @@ export const Header: React.FC<HeaderProps> = ({
           title={theme === "dark" ? "Light Mode" : "Dark Mode"}
           className="w-9 h-9 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-700 dark:text-slate-200 transition-colors"
         >
-          {theme === "dark" ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+          {theme === "dark" ? <Sun className="w-4 h-4 text-muted" /> : <Moon className="w-4 h-4" />}
         </button>
 
         {/* Settings button */}
@@ -197,7 +197,7 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onOpenAuth}
                 title={`Signed in as ${session.currentUser.name} (${session.currentUser.email})`}
-                className="flex items-center gap-2 p-1 pr-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700 transition-all hover:scale-102 active:scale-98"
+                className="flex items-center gap-2 p-1 pr-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200/60 dark:border-slate-700 transition-all active:scale-98"
               >
                 <img
                   src={session.currentUser.avatar}
@@ -212,10 +212,10 @@ export const Header: React.FC<HeaderProps> = ({
               <button
                 onClick={onOpenAuth}
                 title="Sign in with Google or create an account"
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs hover:scale-102 active:scale-98"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-all shadow-xs active:scale-98"
               >
                 <User className="w-3.5 h-3.5" />
-                <span>Sign In</span>
+                <span>Sign in</span>
               </button>
             )}
           </div>

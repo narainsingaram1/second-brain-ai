@@ -79,7 +79,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
       startDate: item?.startDate || new Date().toISOString().split("T")[0],
       endDate: item?.endDate || new Date().toISOString().split("T")[0],
       domain: item?.domain || "General",
-      coverGradient: item?.coverGradient || "from-lime-300 via-amber-200 to-rose-300",
+      coverGradient: item?.coverGradient || "bg-blue-600",
       itemCount: item?.itemCount || 1,
       tags,
       pinned: item?.pinned || false,
@@ -98,12 +98,12 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+            <div className="w-8 h-8 rounded-xl bg-raised flex items-center justify-center text-muted dark:text-slate-400">
               <FileText className="w-4 h-4" />
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-ink">
-                {item ? "Edit Note" : "Create New Note"}
+                {item ? "Edit note" : "New note"}
               </h3>
               <p className="text-[11px] text-slate-400">
                 Write ideas, technical notes, or study guides
@@ -137,8 +137,8 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1">
-                <FolderIcon className="w-3.5 h-3.5 text-blue-500" />
-                <span>Folder Location</span>
+                <FolderIcon className="w-3.5 h-3.5 text-muted" />
+                <span>Folder location</span>
               </label>
               <select
                 value={folderId || ""}
@@ -236,7 +236,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
                 className="flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 px-3 py-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Note</span>
+                <span>Delete note</span>
               </button>
             ) : (
               <div />
@@ -252,9 +252,9 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20 transition-all hover:scale-105"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-slate-1000 text-white shadow-md transition-all"
               >
-                {item ? "Save Note" : "Create Note"}
+                {item ? "Save note" : "Create note"}
               </button>
             </div>
           </div>

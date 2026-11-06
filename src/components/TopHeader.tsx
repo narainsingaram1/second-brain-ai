@@ -17,7 +17,7 @@ const titles: Record<string, string> = {
   goals: "Goals",
   habits: "Habits",
   journal: "Journal",
-  copilot: "Iris Copilot",
+  copilot: "Ask Iris",
 };
 export function TopHeader({
   onOpenGlobalSearch,
@@ -40,8 +40,6 @@ export function TopHeader({
   return (
     <header className="synapse-header">
       <div className="header-location">
-        <span>My workspace</span>
-        <span>/</span>
         <strong>{pageTitle || titles[activeTab] || "Home"}</strong>
       </div>
       <button
@@ -49,9 +47,9 @@ export function TopHeader({
         onClick={onOpenGlobalSearch}
         aria-label="Search workspace"
       >
-        <Search size={17} />
-        <span>Search your second brain…</span>
-        <kbd>⌘ K</kbd>
+        <Search size={16} strokeWidth={1.5} />
+        <span>Search</span>
+        <kbd>⌘K</kbd>
       </button>
       <div className="header-actions">
         <button
@@ -64,7 +62,7 @@ export function TopHeader({
             theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
           }
         >
-          {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
+          {theme === "dark" ? <Sun size={16} strokeWidth={1.5} /> : <Moon size={16} strokeWidth={1.5} />}
         </button>
         <button
           className="icon-control"
@@ -72,7 +70,7 @@ export function TopHeader({
           aria-label="Activity history"
           title="Activity history"
         >
-          <Bell size={19} />
+          <Bell size={16} strokeWidth={1.5} />
         </button>
         <span className="header-divider" />
         <button
@@ -81,7 +79,7 @@ export function TopHeader({
           aria-label="Account settings"
         >
           <span>{initials}</span>
-          <ChevronDown size={13} />
+          <ChevronDown size={14} strokeWidth={1.5} />
         </button>
       </div>
     </header>

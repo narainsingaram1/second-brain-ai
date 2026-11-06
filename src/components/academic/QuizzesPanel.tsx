@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check, ListChecks, Loader2, MessageCircle, Play, Sparkles, Trash2, X } from "lucide-react";
+import { Check, ListChecks, Loader2, MessageCircle, Play, PenLine, Trash2, X } from "lucide-react";
 import type { BrainState, Course, Quiz, QuizQuestion } from "../../types";
 import { bestScore, courseLabel, newCard, studyOf, withStudy } from "../../utils/study";
 import { gradeShortAnswer } from "../../services/studyAI";
@@ -23,7 +23,7 @@ export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQ
           <h2>Practice quizzes</h2>
           <p>Test yourself, see why each answer is right, then turn what you missed into flashcards.</p>
         </div>
-        <button className="ws-button ws-primary" onClick={onGenerate}><Sparkles size={15} />Generate quiz</button>
+        <button className="ws-button ws-primary" onClick={onGenerate}><PenLine size={15} />Generate quiz</button>
       </div>
       {quizzes.length ? (
         <ul className="ac-deck-list">

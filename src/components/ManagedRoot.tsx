@@ -1,7 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import App from "../App";
-import { RibbonBackdrop } from "./RibbonBackdrop";
 import { vectorVault } from "../services/vectorVault";
 import {
   getSupabase,
@@ -11,7 +10,6 @@ import {
   signInManagedGoogle,
 } from "../services/managedAuth";
 import {
-  Sparkles,
   Mail,
   Lock,
   User as UserIcon,
@@ -117,7 +115,7 @@ export function ManagedRoot() {
 
         if (data.user && !data.session) {
           setNotice(
-            `A confirmation link has been sent to ${trimmedEmail}. Please check your inbox (and spam folder) and open the link to start using your second brain!`
+            `A confirmation link has been sent to ${trimmedEmail}. Open it to finish signing up. Check spam if it is not in your inbox.`
           );
         } else if (data.session) {
           setUser(data.user);
@@ -174,7 +172,7 @@ export function ManagedRoot() {
   if (loading) {
     return (
       <div role="status" className="managed-auth-surface min-h-screen flex flex-col items-center justify-center text-slate-700 dark:text-slate-300 gap-3">
-        <RefreshCw className="w-5 h-5 animate-spin text-indigo-600" />
+        <RefreshCw className="w-5 h-5 animate-spin text-muted" />
         <span className="text-xs font-medium">Checking your workspace session…</span>
       </div>
     );
@@ -186,7 +184,6 @@ export function ManagedRoot() {
 
   return (
     <main className="managed-auth-surface min-h-screen text-ink flex items-center justify-center p-4 sm:p-6 relative overflow-hidden select-none">
-      <RibbonBackdrop />
 
       <section
         aria-label="Account access"
@@ -194,15 +191,10 @@ export function ManagedRoot() {
       >
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center mb-6">
-          <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 mb-3">
-            <Sparkles className="w-5 h-5 text-white fill-white/30" />
-          </div>
-          <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-ink flex items-center">
-            <span>iris</span>
-            <span className="text-indigo-600 dark:text-indigo-400">.</span>
-          </h1>
+          <span className="iris-mark mb-4" style={{ width: 28, height: 28 }} aria-hidden="true" />
+          <h1 className="page-title">Iris</h1>
           <p className="text-xs text-muted mt-1">
-            Your autonomous second brain. On every device.
+            Tasks, notes, goals and courses, synced across your devices
           </p>
         </div>
 
@@ -218,8 +210,8 @@ export function ManagedRoot() {
               }}
               className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
                 mode === "signin"
-                  ? "bg-panel text-indigo-600 dark:text-[#a5b4fc] shadow-xs"
-                  : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                  ? "bg-panel text-muted dark:text-[#a5b4fc] shadow-xs"
+                  : "text-slate-500 hover:text-ink dark:text-slate-400 dark:hover:text-white"
               }`}
             >
               Sign In
@@ -233,8 +225,8 @@ export function ManagedRoot() {
               }}
               className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all ${
                 mode === "signup"
-                  ? "bg-panel text-indigo-600 dark:text-[#a5b4fc] shadow-xs"
-                  : "text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+                  ? "bg-panel text-muted dark:text-[#a5b4fc] shadow-xs"
+                  : "text-slate-500 hover:text-ink dark:text-slate-400 dark:hover:text-white"
               }`}
             >
               Create Account
@@ -256,7 +248,7 @@ export function ManagedRoot() {
         {notice && (
           <div
             role="status"
-            className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200/80 dark:border-emerald-800/60 text-xs text-emerald-700 dark:text-emerald-300 font-medium flex items-start gap-2.5 mb-4 animate-fade-in"
+            className="p-3.5 rounded-2xl bg-raised border border-line text-xs text-[var(--workspace-success)] font-medium flex items-start gap-2.5 mb-4 animate-fade-in"
           >
             <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
             <div className="flex-1 leading-relaxed">{notice}</div>
@@ -270,7 +262,7 @@ export function ManagedRoot() {
               type="button"
               disabled={busy || !managedAuthConfigured || !googleAvailable}
               onClick={handleGoogleClick}
-              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 bg-panel hover:bg-slate-50 dark:hover:bg-[#1a1e35] text-slate-700 dark:text-slate-200 text-xs font-bold shadow-xs hover:shadow-sm hover:scale-[1.01] active:scale-[0.99] transition-all disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-2xl border border-slate-200 dark:border-slate-700/80 bg-panel hover:bg-slate-50 dark:hover:bg-[#1a1e35] text-slate-700 dark:text-slate-200 text-xs font-bold shadow-xs hover:shadow-sm active:scale-[0.99] transition-all disabled:opacity-50"
             >
               <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -330,7 +322,7 @@ export function ManagedRoot() {
             {mode === "signup" && (
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1">
-                  Full Name
+                  Full name
                 </label>
                 <div className="relative flex items-center">
                   <UserIcon className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
@@ -342,7 +334,7 @@ export function ManagedRoot() {
                     placeholder="Narain Singaram"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    className="w-full bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 transition-all"
                   />
                 </div>
               </div>
@@ -352,7 +344,7 @@ export function ManagedRoot() {
             {mode !== "recovery" && (
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-muted mb-1">
-                  Email Address
+                  Email address
                 </label>
                 <div className="relative flex items-center">
                   <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 pointer-events-none" />
@@ -364,7 +356,7 @@ export function ManagedRoot() {
                     placeholder="you@domain.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    className="w-full bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl pl-10 pr-4 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 transition-all"
                   />
                 </div>
               </div>
@@ -375,7 +367,7 @@ export function ManagedRoot() {
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="block text-[11px] font-bold uppercase tracking-wider text-muted">
-                    {mode === "recovery" ? "New Password" : "Password"}
+                    {mode === "recovery" ? "New password" : "Password"}
                   </label>
                   {mode === "signin" && (
                     <button
@@ -386,7 +378,7 @@ export function ManagedRoot() {
                         setError("");
                         setNotice("");
                       }}
-                      className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+                      className="text-[11px] font-semibold text-muted dark:text-slate-400 hover:underline"
                     >
                       Forgot password?
                     </button>
@@ -403,7 +395,7 @@ export function ManagedRoot() {
                     placeholder="••••••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl pl-10 pr-10 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                    className="w-full bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-700/80 rounded-2xl pl-10 pr-10 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-slate-300 transition-all"
                   />
                   <button
                     type="button"
@@ -437,12 +429,12 @@ export function ManagedRoot() {
                 <>
                   <span>
                     {mode === "signup"
-                      ? "Create Account"
+                      ? "Create account"
                       : mode === "reset"
                       ? "Send Reset Link"
                       : mode === "recovery"
                       ? "Update Password"
-                      : "Sign In"}
+                      : "Sign in"}
                   </span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
@@ -461,7 +453,7 @@ export function ManagedRoot() {
                 setError("");
                 setNotice("");
               }}
-              className="font-semibold text-indigo-600 dark:text-indigo-400 hover:underline"
+              className="font-semibold text-muted dark:text-slate-400 hover:underline"
             >
               ← Back to Sign In
             </button>

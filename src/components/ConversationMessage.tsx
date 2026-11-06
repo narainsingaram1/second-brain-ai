@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Brain, ArrowUpRight, BookmarkPlus, Check, Copy, Sparkles } from "lucide-react";
+import { Brain, ArrowUpRight, BookmarkPlus, Check, Copy, PenLine } from "lucide-react";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "../utils/chatPresentation";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -28,7 +28,7 @@ export function ConversationMessage({ message, state, onSaveNote }: { message: A
     {message.content && <div>{message.content}</div>}
   </article>;
   return <article data-message-id={message.id} className="chat-assistant-message">
-    <div className="chat-assistant-avatar"><Sparkles size={16} aria-hidden="true" /></div>
+    <div className="chat-assistant-avatar"><PenLine size={16} aria-hidden="true" /></div>
     <div className="chat-answer min-w-0">
       <span className="chat-assistant-name">Iris</span>
       <MarkdownView className="chat-prose" content={message.content} renderReference={(type, id, before) => {

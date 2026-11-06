@@ -9,18 +9,18 @@ interface CustomDatePickerProps {
 }
 
 const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+ "January",
+ "February",
+ "March",
+ "April",
+ "May",
+ "June",
+ "July",
+ "August",
+ "September",
+ "October",
+ "November",
+ "December",
 ];
 
 const DAYS_OF_WEEK = ["S", "M", "T", "W", "T", "F", "S"];
@@ -253,7 +253,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                       ? "bg-blue-600 text-white font-bold rounded-lg shadow-sm"
                       : item.isCurrentMonth
                       ? isToday
-                        ? "text-blue-600 dark:text-blue-400 font-bold hover:bg-blue-50 dark:hover:bg-blue-950/40"
+                        ? "text-muted dark:text-slate-400 font-bold hover:bg-slate-100 dark:hover:bg-slate-800"
                         : "text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
                       : "text-slate-300 dark:text-slate-600 hover:bg-slate-50 dark:hover:bg-slate-800/40 font-normal"
                   }`}
@@ -273,7 +273,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                 onChange("");
                 setIsOpen(false);
               }}
-              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 transition-colors"
+              className="text-xs font-semibold text-muted dark:text-slate-400 hover:text-ink transition-colors"
             >
               Clear
             </button>
@@ -286,7 +286,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                 setViewMonth(today.getMonth());
                 setIsOpen(false);
               }}
-              className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 transition-colors"
+              className="text-xs font-semibold text-muted dark:text-slate-400 hover:text-ink transition-colors"
             >
               Today
             </button>

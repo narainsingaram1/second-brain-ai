@@ -78,7 +78,7 @@ export function MemoryModal({
       if (event.key === "Tab") {
         const nodes = [
           ...(dialog.current?.querySelectorAll<HTMLElement>(
-            "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary",
+ "button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), summary",
           ) || []),
         ];
         const first = nodes[0],
@@ -349,7 +349,7 @@ export function MemoryModal({
               onClick={() => {
                 if (
                   window.confirm(
-                    "Forget all saved memories? Original conversations stay intact. Automatic learning will not restore the same sources.",
+ "Forget all saved memories? Original conversations stay intact. Automatic learning will not restore the same sources.",
                   )
                 )
                   void change({ kind: "forgetAll" });

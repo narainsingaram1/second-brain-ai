@@ -14,7 +14,6 @@ import {
   Video,
   CalendarPlus,
 } from "lucide-react";
-import confetti from "canvas-confetti";
 import { getLocalDateString } from "../utils/habitStreaks";
 
 interface TaskCalendarViewProps {
@@ -32,18 +31,18 @@ interface TaskCalendarViewProps {
 }
 
 const MONTH_NAMES = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+ "January",
+ "February",
+ "March",
+ "April",
+ "May",
+ "June",
+ "July",
+ "August",
+ "September",
+ "October",
+ "November",
+ "December",
 ];
 
 const WEEKDAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -96,7 +95,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
     setSelectedDate(todayStr);
   };
 
-  // Cycle status handler with confetti
+  // Cycle status handler
   const handleCycleStatus = (e: React.MouseEvent, task: Task) => {
     e.stopPropagation();
     const current = task.status;
@@ -105,12 +104,6 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
       next = "in_progress";
     } else if (current === "in_progress") {
       next = "completed";
-      confetti({
-        particleCount: 25,
-        spread: 45,
-        origin: { y: 0.6 },
-        colors: ["#10b981", "#3b82f6", "#f59e0b"],
-      });
     } else {
       next = "not_started";
     }
@@ -268,7 +261,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                 {totalTasksThisMonth} {totalTasksThisMonth === 1 ? "task" : "tasks"}
               </span>
               {totalEventsThisMonth > 0 && (
-                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border border-violet-200 dark:border-violet-900">
+                <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-raised text-muted dark:bg-raised dark:text-slate-400 border border-line">
                   {totalEventsThisMonth} {totalEventsThisMonth === 1 ? "event" : "events"}
                 </span>
               )}
@@ -308,7 +301,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
             onChange={(e) => setFilterSection(e.target.value)}
             className="text-xs font-bold bg-raised text-slate-700 dark:text-slate-200 px-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
           >
-            <option value="all">All Sections</option>
+            <option value="all">All sections</option>
             {sections.map((s) => (
               <option key={s} value={s}>
                 {s}
@@ -331,18 +324,18 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
           {/* Add task button with selected day */}
           <button
             onClick={() => onAddTask(sections[0], subsections[sections[0]]?.[0], selectedDate)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold shadow-xs hover:scale-102 active:scale-98 transition-all"
+            className="task-primary"
           >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Task on Date</span>
+            <Plus size={16} strokeWidth={1.5} />
+            <span>Add task</span>
           </button>
           {onAddEvent && (
             <button
               onClick={() => onAddEvent(selectedDate)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-2xl bg-violet-600 text-white text-xs font-bold shadow-xs hover:bg-violet-700 active:scale-98 transition-all"
+              className="task-secondary"
             >
-              <CalendarPlus className="w-3.5 h-3.5" />
-              <span>Event on Date</span>
+              <CalendarPlus size={16} strokeWidth={1.5} />
+              <span>Add event</span>
             </button>
           )}
         </div>
@@ -422,7 +415,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                           onEditEvent?.(event);
                         }}
                         title={`${kindLabel(event)}: ${event.title} · ${eventTimeLabel(event)}${event.location ? ` · ${event.location}` : ""}`}
-                        className="w-full text-left px-1.5 py-0.5 rounded-lg text-[11px] font-bold truncate flex items-center gap-1 bg-violet-100 dark:bg-violet-950/70 text-violet-700 dark:text-violet-300 border-l-2 border-violet-500"
+                        className="w-full text-left px-1.5 py-0.5 rounded-lg text-[11px] font-bold truncate flex items-center gap-1 bg-raised text-muted dark:text-slate-400 border-l-2 border-line"
                       >
                         {event.startTime && <span className="shrink-0 opacity-75">{formatTime(event.startTime).replace(":00", "").replace(" ", "")}</span>}
                         <span className="truncate">{event.title}</span>
@@ -447,7 +440,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                               : task.priority === "urgent"
                               ? "bg-rose-100 dark:bg-rose-950/70 text-rose-700 dark:text-rose-300"
                               : task.priority === "high"
-                              ? "bg-amber-100 dark:bg-amber-950/70 text-amber-700 dark:text-amber-300"
+                              ? "bg-raised text-muted dark:text-slate-400"
                               : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
                           }`}
                         >
@@ -457,9 +450,9 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             title="Cycle status"
                           >
                             {isCompleted ? (
-                              <Check className="w-2.5 h-2.5 stroke-[3] text-emerald-600" />
+                              <Check className="w-2.5 h-2.5 stroke-[3] text-[var(--workspace-success)]" />
                             ) : isInProgress ? (
-                              <div className="w-2 h-2 rounded-full task-theme-bg-solid animate-pulse" />
+                              <div className="w-2 h-2 rounded-full task-theme-bg-solid" />
                             ) : (
                               <div className="w-2 h-2 rounded-full border border-slate-400" />
                             )}
@@ -501,14 +494,14 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
               <div className="flex items-center gap-2">
                 <CalendarIcon className="w-4 h-4 task-theme-text" />
                 <h3 className="font-extrabold text-sm text-ink">
-                  Agenda for {selectedDate}
+                  {new Date(`${selectedDate}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
                 </h3>
               </div>
               <div className="flex items-center gap-3">
                 {onAddEvent && (
                   <button
                     onClick={() => onAddEvent(selectedDate)}
-                    className="flex items-center gap-1 text-[11px] font-bold text-violet-600 dark:text-violet-400 hover:underline"
+                    className="flex items-center gap-1 text-[11px] font-bold text-muted dark:text-slate-400 hover:underline"
                   >
                     <Plus className="w-3 h-3" />
                     <span>Event</span>
@@ -531,15 +524,15 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                     type="button"
                     key={event.id}
                     onClick={() => onEditEvent?.(event)}
-                    className="w-full text-left p-3 rounded-2xl border border-violet-200 dark:border-violet-900/70 bg-violet-50/70 dark:bg-violet-950/30 hover:border-violet-400 transition-all flex gap-3"
+                    className="w-full text-left p-3 rounded-2xl border border-line bg-raised hover:border-slate-300 transition-all flex gap-3"
                   >
-                    <div className="w-1 rounded-full bg-violet-500 shrink-0" />
+                    <div className="w-1 rounded-full bg-raised0 shrink-0" />
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">{event.title}</span>
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-violet-600 dark:text-violet-300 shrink-0">{kindLabel(event)}</span>
+                        <span className="text-[11px] font-bold uppercase tracking-wider text-muted dark:text-slate-400 shrink-0">{kindLabel(event)}</span>
                       </div>
-                      <span className="text-[11px] font-semibold text-violet-700 dark:text-violet-300 flex items-center gap-1">
+                      <span className="text-[11px] font-semibold text-muted dark:text-slate-400 flex items-center gap-1">
                         <Clock className="w-3 h-3" /> {eventTimeLabel(event)}
                       </span>
                       {event.location && (
@@ -553,7 +546,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                          className="text-[11px] font-semibold text-muted dark:text-slate-400 hover:underline flex items-center gap-1"
                         >
                           <Video className="w-3 h-3" /> Join link
                         </a>
@@ -604,7 +597,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                           onClick={(e) => handleCycleStatus(e, task)}
                           className={`w-4 h-4 rounded-full flex items-center justify-center shrink-0 ${
                             taskStatus === "completed"
-                              ? "bg-emerald-500 text-white"
+                              ? "bg-raised0 text-white"
                               : taskStatus === "in_progress"
                               ? "border-2 task-theme-border task-theme-bg task-theme-dark-bg task-theme-text"
                               : "border-2 border-slate-300 dark:border-slate-600 task-theme-hover-border"
@@ -612,7 +605,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                         >
                           {taskStatus === "completed" && <Check className="w-2.5 h-2.5 stroke-[3]" />}
                           {taskStatus === "in_progress" && (
-                            <div className="w-1.5 h-1.5 rounded-full task-theme-bg-solid animate-pulse" />
+                            <div className="w-1.5 h-1.5 rounded-full task-theme-bg-solid" />
                           )}
                         </button>
                         <div className="min-w-0">
@@ -638,7 +631,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             task.priority === "urgent"
                               ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
                               : task.priority === "high"
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                              ? "bg-raised text-muted dark:bg-raised dark:text-slate-400"
                               : "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                           }`}
                         >

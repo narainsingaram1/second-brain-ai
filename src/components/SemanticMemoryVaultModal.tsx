@@ -6,7 +6,7 @@ import {
   Database,
   Search,
   RefreshCw,
-  Sparkles,
+  PenLine,
   X,
   Layers,
   Cpu,
@@ -108,22 +108,22 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
   if (!isOpen) return null;
 
   const sampleQueries = [
-    "Algorithms and CS 1332 decisions",
-    "Workout routine & fitness consistency",
-    "Overcoming burnout & stress reflection",
-    "Completed high-leverage milestones",
+ "Algorithms and CS 1332 decisions",
+ "Workout routine & fitness consistency",
+ "Overcoming burnout & stress reflection",
+ "Completed high-leverage milestones",
   ];
 
   const getTypeIcon = (type: string) => {
     switch (type) {
       case "task":
-        return <CheckCircle2 className="w-3.5 h-3.5 text-blue-500" />;
+        return <CheckCircle2 className="w-3.5 h-3.5 text-muted" />;
       case "journal":
-        return <BookOpen className="w-3.5 h-3.5 text-purple-500" />;
+        return <BookOpen className="w-3.5 h-3.5 text-muted" />;
       case "knowledge":
-        return <FileText className="w-3.5 h-3.5 text-emerald-500" />;
+        return <FileText className="w-3.5 h-3.5 text-[var(--workspace-success)]" />;
       case "habit":
-        return <Flame className="w-3.5 h-3.5 text-amber-500" />;
+        return <Flame className="w-3.5 h-3.5 text-muted" />;
       default:
         return <Database className="w-3.5 h-3.5 text-slate-500" />;
     }
@@ -135,15 +135,15 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
+            <div className="w-10 h-10 rounded-2xl bg-raised border border-line text-muted flex items-center justify-center">
               <Database className="w-5 h-5" />
             </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-extrabold text-base tracking-tight text-ink">
-                  Semantic Memory Vault
+                  Semantic memory vault
                 </h3>
-                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 flex items-center gap-1">
+                <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-raised text-muted dark:bg-raised dark:text-slate-400 border border-line flex items-center gap-1">
                   <ShieldCheck className="w-3 h-3" />
                   RAG Vector Store
                 </span>
@@ -161,7 +161,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
                 isReindexing
                   ? "bg-slate-100 text-slate-400 dark:bg-slate-800"
-                  : "bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 shadow-xs hover:scale-102"
+                  : "bg-slate-900 hover:bg-slate-800 text-white dark:bg-white dark:text-slate-950 shadow-xs"
               }`}
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isReindexing ? "animate-spin" : ""}`} />
@@ -177,14 +177,14 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
 
         {/* Re-indexing progress bar */}
         {reindexProgress && (
-          <div className="bg-indigo-50 dark:bg-indigo-950/40 px-6 py-2.5 border-b border-indigo-100 dark:border-indigo-900/50 flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300 font-semibold">
+          <div className="bg-raised px-6 py-2.5 border-b border-line flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2 text-muted dark:text-slate-400 font-semibold">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span>
                 Embedding brain entities: {reindexProgress.current} of {reindexProgress.total} items...
               </span>
             </div>
-            <div className="w-32 bg-indigo-200 dark:bg-indigo-900 rounded-full h-1.5 overflow-hidden">
+            <div className="w-32 bg-indigo-200 dark:bg-raised rounded-full h-1.5 overflow-hidden">
               <div
                 className="bg-indigo-600 dark:bg-indigo-400 h-full transition-all duration-300"
                 style={{
@@ -196,7 +196,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
         )}
 
         {reindexSuccess && (
-          <div className="bg-emerald-50 dark:bg-emerald-950/40 px-6 py-2 border-b border-emerald-100 dark:border-emerald-900/50 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300 font-bold">
+          <div className="bg-raised px-6 py-2 border-b border-line flex items-center gap-2 text-xs text-[var(--workspace-success)] font-bold">
             <CheckCircle2 className="w-4 h-4" />
             <span>Vault successfully re-indexed! All tasks, notes, habits, and journals are synced into vector storage.</span>
           </div>
@@ -207,8 +207,8 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
-                <Layers className="w-3.5 h-3.5 text-blue-500" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Vector Chunks</span>
+                <Layers className="w-3.5 h-3.5 text-muted" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Vector chunks</span>
               </div>
               <div className="text-xl font-extrabold text-ink">
                 {stats?.total_chunks || 0}
@@ -217,8 +217,8 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
 
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Indexed Items</span>
+                <CheckCircle2 className="w-3.5 h-3.5 text-[var(--workspace-success)]" />
+                <span className="text-[11px] font-bold uppercase tracking-wider">Indexed items</span>
               </div>
               <div className="text-xl font-extrabold text-ink">
                 {stats?.total_items || 0}
@@ -227,7 +227,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
 
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
-                <Cpu className="w-3.5 h-3.5 text-purple-500" />
+                <Cpu className="w-3.5 h-3.5 text-muted" />
                 <span className="text-[11px] font-bold uppercase tracking-wider">Dimensions</span>
               </div>
               <div className="text-xl font-extrabold text-ink">
@@ -237,7 +237,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
 
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
-                <HardDrive className="w-3.5 h-3.5 text-pink-500" />
+                <HardDrive className="w-3.5 h-3.5 text-muted" />
                 <span className="text-[11px] font-bold uppercase tracking-wider">Engine</span>
               </div>
               <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate mt-1">
@@ -250,7 +250,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <label className="text-xs font-extrabold text-ink flex items-center gap-1.5">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+                <PenLine className="w-3.5 h-3.5 text-muted" />
                 <span>Live Semantic Search Test (Cosine Similarity)</span>
               </label>
 
@@ -282,7 +282,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                 className="w-full bg-slate-50 dark:bg-slate-900/70 border border-line rounded-2xl pl-10 pr-4 py-2.5 text-xs text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-medium"
               />
               {isSearching && (
-                <div className="absolute right-3.5 w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                <div className="absolute right-3.5 w-3.5 h-3.5 border-2 border-line border-t-transparent rounded-full animate-spin" />
               )}
             </div>
 
@@ -294,9 +294,9 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                   <button
                     key={idx}
                     onClick={() => setSearchQuery(q)}
-                    className="px-2.5 py-1 rounded-xl bg-raised hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 dark:hover:text-indigo-300 transition-colors border border-slate-200/40 dark:border-slate-700/40"
+                    className="px-2.5 py-1 rounded-xl bg-raised hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-medium text-slate-600 dark:text-slate-300 hover:text-ink dark:hover:text-slate-100 transition-colors border border-slate-200/40 dark:border-slate-700/40"
                   >
-                    "{q}"
+ "{q}"
                   </button>
                 ))}
               </div>
@@ -307,7 +307,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
           {searchResults.length > 0 && (
             <div className="space-y-2.5 pt-2">
               <div className="text-xs font-bold text-slate-500 flex items-center justify-between">
-                <span>Top Ranked Semantic Matches</span>
+                <span>Top ranked semantic matches</span>
                 <span>{searchResults.length} vectors retrieved</span>
               </div>
 
@@ -319,7 +319,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                   return (
                     <div
                       key={res.chunk.id || idx}
-                      className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line space-y-2 hover:border-indigo-400/50 transition-all"
+                      className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line space-y-2 hover:border-slate-300 transition-all"
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
@@ -337,8 +337,8 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                           <span
                             className={`text-xs font-extrabold px-2 py-0.5 rounded-full ${
                               isHighMatch
-                                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300"
-                                : "bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300"
+                                ? "bg-raised text-emerald-800 dark:bg-raised dark:text-[var(--workspace-success)]"
+                                : "bg-raised text-muted dark:bg-raised dark:text-slate-400"
                             }`}
                           >
                             {scorePct}% match

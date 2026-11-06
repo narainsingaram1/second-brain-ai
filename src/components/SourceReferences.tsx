@@ -41,7 +41,7 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
   return createPortal(<div className="record-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="record-preview-title" className="record-dialog">
       <div className="record-dialog-header">
-        <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-medium text-indigo-500 capitalize mb-2"><RecordIcon type={source.type} />{source.type === "knowledge" ? "Note" : source.type === "deck" ? "Flashcards" : event ? event.kind : source.type}</div><h2 id="record-preview-title" className="text-lg font-semibold leading-snug break-words">{title}</h2></div>
+        <div className="min-w-0"><div className="flex items-center gap-2 text-xs font-medium text-muted capitalize mb-2"><RecordIcon type={source.type} />{source.type === "knowledge" ? "Note" : source.type === "deck" ? "Flashcards" : event ? event.kind : source.type}</div><h2 id="record-preview-title" className="text-lg font-semibold leading-snug break-words">{title}</h2></div>
         <button ref={closeButton} type="button" onClick={onClose} className="chat-icon-button shrink-0" aria-label="Close source"><X size={18} /></button>
       </div>
       <div className="record-dialog-body">
@@ -60,8 +60,8 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
           {"why" in record && record.why && <p className="text-sm text-slate-600 dark:text-slate-300 mb-4">{record.why}</p>}
           {"metrics" in record && record.metrics && <p className="text-sm mb-4"><strong>Target:</strong> {record.metrics}</p>}
           {content && <MarkdownView className="chat-prose" content={expanded ? content : content.slice(0, 16000)} />}
-          {content.length > 16000 && !expanded && <button type="button" className="text-sm text-indigo-500 mt-3" onClick={() => setExpanded(true)}>Read full note</button>}
-          {"milestones" in record && record.milestones.length > 0 && <div className="mt-5"><h3 className="text-sm font-semibold mb-3">Milestones</h3><ul className="space-y-3">{record.milestones.map(m => <li key={m.id} className="text-sm flex gap-2"><span className={m.completed ? "text-emerald-500" : "text-slate-400"}>{m.completed ? "✓" : "○"}</span><span>{m.title}</span></li>)}</ul></div>}
+          {content.length > 16000 && !expanded && <button type="button" className="text-sm text-muted mt-3" onClick={() => setExpanded(true)}>Read full note</button>}
+          {"milestones" in record && record.milestones.length > 0 && <div className="mt-5"><h3 className="text-sm font-semibold mb-3">Milestones</h3><ul className="space-y-3">{record.milestones.map(m => <li key={m.id} className="text-sm flex gap-2"><span className={m.completed ? "text-[var(--workspace-success)]" : "text-slate-400"}>{m.completed ? "✓" : "○"}</span><span>{m.title}</span></li>)}</ul></div>}
           {"subtasks" in record && !!record.subtasks?.length && <ul className="mt-5 space-y-3">{record.subtasks.map(s => <li key={s.id} className="text-sm flex gap-2"><span>{s.completed ? "✓" : "○"}</span>{s.title}</li>)}</ul>}
         </>}
       </div>
