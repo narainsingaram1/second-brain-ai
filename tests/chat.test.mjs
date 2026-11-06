@@ -36,7 +36,7 @@ test('chat uses one scroll viewport and a single composer without the duplicate 
 });
 test('initial assistant greeting does not turn welcome into an active chat', () => {
   const html = renderToStaticMarkup(React.createElement(ChatWorkspace, { conversation, state, messages: [{ id: 'greeting', role: 'assistant', content: 'Welcome', timestamp: '' }] }));
-  assert.match(html, /What’s on/); assert.match(html, /chat-suggestions/); assert.doesNotMatch(html, /chat-toolbar/);
+  assert.match(html, /<h1>Ask Iris<\/h1>/); assert.match(html, /chat-suggestions/); assert.doesNotMatch(html, /chat-toolbar/);
 });
 test('scroll pinning respects reading older answers', () => {
   assert.equal(isNearBottom(2000, 0, 600), false);

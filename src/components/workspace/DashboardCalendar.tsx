@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { CalendarEvent, Task } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
 interface Props {
@@ -28,7 +28,6 @@ export function DashboardCalendar({ tasks, events = [], selected, onSelect }: Pr
     <section className="workspace-card dashboard-calendar">
       <div className="card-heading">
         <h2>
-          <CalendarDays size={18} />
           {month.toLocaleDateString("en-US", {
             month: "long",
             year: "numeric",
@@ -40,14 +39,14 @@ export function DashboardCalendar({ tasks, events = [], selected, onSelect }: Pr
             aria-label="Previous month"
             onClick={() => move(-1)}
           >
-            <ChevronLeft size={16} />
+            <ChevronLeft size={16} strokeWidth={1.5} />
           </button>
           <button
             className="icon-control"
             aria-label="Next month"
             onClick={() => move(1)}
           >
-            <ChevronRight size={16} />
+            <ChevronRight size={16} strokeWidth={1.5} />
           </button>
         </div>
       </div>
@@ -90,7 +89,7 @@ export function DashboardCalendar({ tasks, events = [], selected, onSelect }: Pr
           onSelect(today);
         }}
       >
-        Back to today
+        Today
       </button>
     </section>
   );

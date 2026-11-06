@@ -1,16 +1,16 @@
 import { ReactNode } from "react";
 interface Props {
-  eyebrow: string;
+  /** Kept for callers; page titles no longer carry an eyebrow label. */
+  eyebrow?: string;
   title: string;
   description: string;
   children?: ReactNode;
 }
-export function PageHeading({ eyebrow, title, description, children }: Props) {
+export function PageHeading({ title, description, children }: Props) {
   return (
     <div className="page-heading">
       <div>
-        <p className="workspace-eyebrow">{eyebrow}</p>
-        <h1>{title}</h1>
+        <h1 className="page-title">{title}</h1>
         <p>{description}</p>
       </div>
       {children}

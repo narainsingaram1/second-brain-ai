@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { KnowledgeItem } from "../types";
-import { Plus, ArrowLeft, Search, MoreHorizontal, Play, Sparkles } from "lucide-react";
+import { Plus, ArrowLeft, Search, MoreHorizontal, Play, PenLine } from "lucide-react";
 
 interface KnowledgeTableProps {
   items: KnowledgeItem[];
@@ -17,10 +17,10 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
   const [selectedNote, setSelectedNote] = useState<KnowledgeItem | null>(null);
 
   const gradients = [
-    "from-lime-300 via-yellow-200 to-rose-300",
-    "from-sky-300 via-indigo-200 to-purple-300",
-    "from-emerald-300 via-teal-200 to-blue-300",
-    "from-rose-300 via-pink-200 to-amber-200",
+ "bg-blue-600",
+ "bg-blue-600",
+ "bg-blue-600",
+ "bg-blue-600",
   ];
 
   const filtered = items.filter(
@@ -55,11 +55,11 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-8 pt-4">
           {/* Rounded square artwork */}
           <div
-            className={`w-48 h-48 sm:w-56 sm:h-56 rounded-3xl bg-gradient-to-tr ${
-              selectedNote.coverGradient || "from-lime-300 via-amber-200 to-rose-300"
+            className={`w-48 h-48 sm:w-56 sm:h-56 rounded-3xl ${
+              selectedNote.coverGradient || "bg-blue-600"
             } shadow-md shrink-0 flex items-center justify-center`}
           >
-            <Sparkles className="w-10 h-10 text-white/50" />
+            <PenLine className="w-10 h-10 text-white/50" />
           </div>
 
           <div className="flex-1 space-y-3">
@@ -75,7 +75,7 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
 
               <button
                 onClick={() => onSelectItem(selectedNote)}
-                className="w-10 h-10 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 flex items-center justify-center shadow-md hover:scale-105 transition-all"
+                className="w-10 h-10 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 flex items-center justify-center shadow-md transition-all"
               >
                 <Play className="w-4 h-4 fill-current ml-0.5" />
               </button>
@@ -132,7 +132,7 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
             className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary hover:opacity-90 text-white text-xs font-semibold shadow-sm transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Note</span>
+            <span>New note</span>
           </button>
         </div>
       </div>
@@ -149,7 +149,7 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({
             >
               {/* Rounded Square Artwork */}
               <div
-                className={`w-full aspect-square rounded-3xl bg-gradient-to-tr ${grad} shadow-xs group-hover:shadow-md group-hover:scale-[1.02] transition-all relative overflow-hidden`}
+                className={`w-full aspect-square rounded-3xl ${grad} shadow-xs group-hover:shadow-md transition-all relative overflow-hidden`}
               >
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/5 transition-colors"></div>
               </div>

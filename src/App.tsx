@@ -904,7 +904,7 @@ export const App: React.FC = () => {
   return (
     <div className="synapse-app h-[var(--app-viewport-height,100dvh)] overflow-hidden flex font-sans transition-colors duration-300 relative">
       {syncError && !isSettingsOpen && (
-        <div role="alert" className="fixed bottom-4 left-4 right-4 sm:left-auto sm:max-w-md z-50 rounded-2xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-slate-900 p-4 text-xs text-amber-900 dark:text-amber-200 shadow-lg">
+        <div role="alert" className="fixed bottom-4 left-4 right-4 sm:left-auto sm:max-w-md z-50 rounded-2xl border border-line bg-raised dark:bg-slate-900 p-4 text-xs text-amber-900 dark:text-amber-200 shadow-lg">
           <p>{syncError}</p>
           <button type="button" onClick={() => setIsSettingsOpen(true)} className="mt-2 font-semibold underline">
             Open sync settings
@@ -1116,22 +1116,20 @@ export const App: React.FC = () => {
       {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
       {/* ========================================================= */}
       {!isChatTab && activeTab !== "home" && !activeTab.startsWith("workspace") && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center">
+        <div className="fixed bottom-6 right-6 z-30 flex flex-col items-end">
           {/* Quick Pop-up Menu */}
           {isQuickAddMenuOpen && (
-            <div className="mb-3 bg-white dark:bg-[#141721] rounded-3xl p-2 border border-slate-200 dark:border-slate-800 shadow-xl flex flex-col gap-1 w-52 animate-fade-in text-xs font-semibold">
+            <div className="quick-add-menu">
               <button
                 onClick={() => {
                   setIsQuickAddMenuOpen(false);
                   setIsQuickCaptureOpen(true);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/50 text-amber-900 dark:text-amber-200 transition-colors text-left font-bold"
+                className="quick-add-item"
               >
-                <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-                <div className="flex items-center justify-between w-full">
-                  <span>Quick Capture</span>
-                  <span className="text-[10px] font-mono opacity-60">⌘⌥N</span>
-                </div>
+                <Zap size={16} strokeWidth={1.5} />
+                <span>Quick capture</span>
+                <kbd>⌘⌥N</kbd>
               </button>
 
               <button
@@ -1144,10 +1142,10 @@ export const App: React.FC = () => {
                   setTaskModalDefaultSubsection(sub);
                   setIsTaskModalOpen(true);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+                className="quick-add-item"
               >
-                <CheckSquare className="w-3.5 h-3.5 text-blue-500" />
-                <span>Add Task</span>
+                <CheckSquare size={16} strokeWidth={1.5} />
+                <span>Task</span>
               </button>
 
               <button
@@ -1156,10 +1154,10 @@ export const App: React.FC = () => {
                   setActiveEditGoal(null);
                   setIsGoalModalOpen(true);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+                className="quick-add-item"
               >
-                <Target className="w-3.5 h-3.5 text-indigo-500" />
-                <span>New Life Goal</span>
+                <Target size={16} strokeWidth={1.5} />
+                <span>Goal</span>
               </button>
 
               <button
@@ -1168,10 +1166,10 @@ export const App: React.FC = () => {
                   const name = prompt("Enter new section name (e.g. Projects, Research, Personal):");
                   if (name) handleAddSection(name);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+                className="quick-add-item"
               >
-                <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
-                <span>New Section</span>
+                <FolderPlus size={16} strokeWidth={1.5} />
+                <span>Task section</span>
               </button>
 
               <button
@@ -1179,10 +1177,10 @@ export const App: React.FC = () => {
                   setIsQuickAddMenuOpen(false);
                   setIsHabitModalOpen(true);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+                className="quick-add-item"
               >
-                <Flame className="w-3.5 h-3.5 text-amber-500" />
-                <span>Add Habit</span>
+                <Flame size={16} strokeWidth={1.5} />
+                <span>Habit</span>
               </button>
 
               <button
@@ -1190,10 +1188,10 @@ export const App: React.FC = () => {
                   setIsQuickAddMenuOpen(false);
                   setActiveTab("journal");
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+                className="quick-add-item"
               >
-                <BookOpen className="w-3.5 h-3.5 text-purple-500" />
-                <span>Reflection</span>
+                <BookOpen size={16} strokeWidth={1.5} />
+                <span>Journal entry</span>
               </button>
 
               <button
@@ -1203,10 +1201,10 @@ export const App: React.FC = () => {
                   setActiveEditKnowledge(null);
                   setIsKnowledgeModalOpen(true);
                 }}
-                className="flex items-center gap-2 px-3 py-2 rounded-2xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 transition-colors text-left"
+                className="quick-add-item"
               >
-                <FileText className="w-3.5 h-3.5 text-blue-500" />
-                <span>New Note</span>
+                <FileText size={16} strokeWidth={1.5} />
+                <span>Note</span>
               </button>
             </div>
           )}
@@ -1214,10 +1212,10 @@ export const App: React.FC = () => {
           {/* The Black Pill Button */}
           <button
             onClick={() => setIsQuickAddMenuOpen(!isQuickAddMenuOpen)}
-            className="flex items-center gap-1.5 px-6 py-2.5 rounded-full bg-slate-950 text-white dark:bg-white dark:text-slate-950 text-xs font-bold shadow-lg hover:scale-105 active:scale-95 transition-all"
+            className="quick-add-button"
           >
-            {isQuickAddMenuOpen ? <X className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
-            <span>{isQuickAddMenuOpen ? "Close" : "Add"}</span>
+            {isQuickAddMenuOpen ? <X size={16} strokeWidth={1.5} /> : <Plus size={16} strokeWidth={1.5} />}
+            <span>{isQuickAddMenuOpen ? "Close" : "New"}</span>
           </button>
         </div>
       )}

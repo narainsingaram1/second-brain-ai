@@ -75,21 +75,21 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
   const getFolderColorClass = (color?: NoteFolderColor) => {
     switch (color) {
       case "amber":
-        return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
       case "emerald":
-        return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
+        return "bg-raised0/10 text-[var(--workspace-success)] border-line";
       case "purple":
-        return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
+        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
       case "rose":
         return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
       case "cyan":
-        return "bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20";
+        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
       case "indigo":
-        return "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20";
+        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
       case "slate":
         return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
       default:
-        return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
     }
   };
 
@@ -153,7 +153,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
       startDate: today,
       endDate: today,
       domain: currentFolder ? currentFolder.name : "General",
-      coverGradient: "from-lime-300 via-amber-200 to-rose-300",
+      coverGradient: "bg-blue-600",
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       tags: [],
@@ -225,7 +225,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
       <div className="page-heading">
         <div>
           {/* Breadcrumb Navigation */}
-          <div className="flex items-center gap-1.5 flex-wrap text-xs font-semibold text-slate-400 mb-1">
+          {breadcrumbs.length > 1 && <div className="flex items-center gap-1.5 flex-wrap text-[13px] text-slate-400 mb-2">
             {breadcrumbs.map((crumb, idx) => {
               const isLast = idx === breadcrumbs.length - 1;
               return (
@@ -235,26 +235,26 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                       setCurrentFolderId(crumb.id);
                       setSearchQuery("");
                     }}
-                    className={`hover:text-slate-900 dark:hover:text-white transition-colors flex items-center gap-1 ${
+                    className={`hover:text-ink dark:hover:text-white transition-colors flex items-center gap-1 ${
                       isLast
                         ? "text-ink font-extrabold"
                         : "text-slate-400 dark:text-slate-500"
                     }`}
                   >
-                    {idx === 0 && <FolderOpen className="w-3.5 h-3.5 text-blue-500 inline mr-0.5" />}
+                    {idx === 0 && <FolderOpen className="w-3.5 h-3.5 text-muted inline mr-0.5" />}
                     <span>{crumb.name}</span>
                   </button>
                   {!isLast && <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />}
                 </React.Fragment>
               );
             })}
-          </div>
+          </div>}
 
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-ink flex items-center gap-2">
+          <h1 className="page-title flex items-center gap-2">
             <span>{currentFolder ? currentFolder.name : "Notes"}</span>
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
-            {currentNotes.length} notes {currentSubfolders.length > 0 ? `• ${currentSubfolders.length} subfolders` : ""}
+          <p className="text-sm text-secondary mt-2">
+            {currentNotes.length} notes {currentSubfolders.length > 0 ? `· ${currentSubfolders.length} folders` : ""}
           </p>
         </div>
 
@@ -265,7 +265,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             <Search className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Search all notes..."
+              placeholder="Search notes"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="bg-transparent focus:outline-none text-ink w-28 sm:w-36 text-xs"
@@ -314,19 +314,19 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
               setIsFolderModalOpen(true);
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all border border-slate-200 dark:border-slate-700"
-            title="Create New Subfolder"
+            title="New folder"
           >
-            <FolderPlus className="w-3.5 h-3.5 text-blue-500" />
-            <span className="hidden sm:inline">New Folder</span>
+            <FolderPlus className="w-3.5 h-3.5 text-muted" />
+            <span className="hidden sm:inline">New folder</span>
           </button>
 
           {/* New Note Button */}
           <button
             onClick={handleCreateNewNote}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary hover:opacity-90 text-white text-xs font-bold shadow-sm transition-all hover:scale-105"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary hover:opacity-90 text-white text-xs font-bold shadow-sm transition-all"
           >
             <Plus className="w-3.5 h-3.5" />
-            <span>New Note</span>
+            <span>New note</span>
           </button>
         </div>
       </div>
@@ -336,7 +336,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
         <div className="flex items-center justify-between pb-1">
           <button
             onClick={() => setCurrentFolderId(currentFolder.parentId)}
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-slate-900 dark:hover:text-white transition-colors"
+            className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-ink dark:hover:text-white transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>Up one level</span>
@@ -353,7 +353,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
               className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2.5 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
             >
               <Edit2 className="w-3 h-3" />
-              <span>Rename Folder</span>
+              <span>Rename folder</span>
             </button>
           </div>
         </div>
@@ -387,7 +387,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <div
-                      className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 transition-transform group-hover:scale-105 ${colorCls}`}
+                      className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 transition-transform ${colorCls}`}
                     >
                       <Folder className="w-4 h-4 fill-current/20" />
                     </div>
@@ -397,7 +397,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                       </h4>
                       <p className="text-[11px] text-slate-400 truncate mt-0.5">
                         {notesCount} {notesCount === 1 ? "note" : "notes"}
-                        {subCount > 0 ? ` • ${subCount} subfolders` : ""}
+                        {subCount > 0 ? ` · ${subCount} folders` : ""}
                       </p>
                     </div>
                   </div>
@@ -429,7 +429,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                           className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
                         >
                           <Edit2 className="w-3 h-3 text-slate-400" />
-                          <span>Rename / Color</span>
+                          <span>Rename / color</span>
                         </button>
 
                         <button
@@ -441,8 +441,8 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                           }}
                           className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
                         >
-                          <FolderPlus className="w-3 h-3 text-blue-500" />
-                          <span>New Subfolder</span>
+                          <FolderPlus className="w-3 h-3 text-muted" />
+                          <span>New subfolder</span>
                         </button>
 
                         <button
@@ -455,7 +455,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                           className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 text-left"
                         >
                           <Trash2 className="w-3 h-3" />
-                          <span>Delete Folder</span>
+                          <span>Delete folder</span>
                         </button>
                       </div>
                     )}
@@ -483,7 +483,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
         {/* Empty State */}
         {currentNotes.length === 0 && currentSubfolders.length === 0 && (
           <div className="p-12 text-center rounded-3xl border border-dashed border-line bg-slate-50/50 dark:bg-slate-900/20 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/40 text-blue-500 mx-auto flex items-center justify-center">
+            <div className="w-12 h-12 rounded-2xl bg-raised text-muted mx-auto flex items-center justify-center">
               <FileText className="w-6 h-6" />
             </div>
             <h4 className="text-sm font-bold text-ink">
@@ -497,7 +497,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             <div className="pt-2 flex items-center justify-center gap-2">
               <button
                 onClick={handleCreateNewNote}
-                className="px-4 py-2 rounded-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold shadow-md transition-all hover:scale-105"
+                className="px-4 py-2 rounded-full bg-blue-600 hover:bg-slate-1000 text-white text-xs font-bold shadow-md transition-all"
               >
                 + Create Note
               </button>
@@ -507,7 +507,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                   setFolderModalParentId(currentFolderId);
                   setIsFolderModalOpen(true);
                 }}
-                className="px-4 py-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all hover:scale-105"
+                className="px-4 py-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all"
               >
                 + Create Subfolder
               </button>
@@ -535,14 +535,14 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                     {/* Top Row: Folder Badge & Pin / Menu */}
                     <div className="flex items-center justify-between">
                       <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500 bg-raised px-2.5 py-0.5 rounded-full">
-                        <Folder className="w-2.5 h-2.5 text-blue-500" />
+                        <Folder className="w-2.5 h-2.5 text-muted" />
                         <span>{noteFolderObj ? noteFolderObj.name : "Root"}</span>
                       </span>
 
                       <div className="flex items-center gap-1">
                         {isPinned && (
-                          <span className="p-1 text-amber-500" title="Pinned Note">
-                            <Pin className="w-3 h-3 fill-amber-500" />
+                          <span className="p-1 text-muted" title="Pinned Note">
+                            <Pin className="w-3 h-3 " />
                           </span>
                         )}
 
@@ -569,7 +569,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                                 }}
                                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
                               >
-                                <Pin className="w-3 h-3 text-amber-500" />
+                                <Pin className="w-3 h-3 text-muted" />
                                 <span>{isPinned ? "Unpin Note" : "Pin Note"}</span>
                               </button>
 
@@ -577,7 +577,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                                 onClick={() => handleDuplicateNote(note)}
                                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
                               >
-                                <Copy className="w-3 h-3 text-blue-500" />
+                                <Copy className="w-3 h-3 text-muted" />
                                 <span>Duplicate</span>
                               </button>
 
@@ -591,7 +591,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 text-left"
                               >
                                 <Trash2 className="w-3 h-3" />
-                                <span>Delete Note</span>
+                                <span>Delete note</span>
                               </button>
                             </div>
                           )}
@@ -600,7 +600,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                     </div>
 
                     {/* Title */}
-                    <h4 className="text-sm font-extrabold text-ink line-clamp-1 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
+                    <h4 className="text-sm font-extrabold text-ink line-clamp-1 group-hover:text-ink dark:group-hover:text-slate-900 transition-colors">
                       {noteTitle}
                     </h4>
 
@@ -658,14 +658,14 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                     className="group flex items-center justify-between p-3.5 sm:px-5 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <FileText className="w-4 h-4 text-slate-400 group-hover:text-blue-500 shrink-0 transition-colors" />
+                      <FileText className="w-4 h-4 text-slate-400 group-hover:text-ink shrink-0 transition-colors" />
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <h4 className="text-xs font-bold text-ink truncate">
                             {noteTitle}
                           </h4>
                           {note.pinned && (
-                            <Pin className="w-2.5 h-2.5 text-amber-500 fill-amber-500 shrink-0" />
+                            <Pin className="w-2.5 h-2.5 text-muted  shrink-0" />
                           )}
                         </div>
                         <p className="text-[11px] text-slate-400 truncate max-w-md">
@@ -698,7 +698,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
                           }
                         }}
                         className="p-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Delete Note"
+                        title="Delete note"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

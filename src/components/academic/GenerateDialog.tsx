@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Check, Layers, ListChecks, Loader2, Sparkles, X } from "lucide-react";
+import { Check, Layers, ListChecks, Loader2, PenLine, X } from "lucide-react";
 import type { BrainState, Course, FlashcardDeck, Quiz } from "../../types";
 import { studyOf, withStudy } from "../../utils/study";
 import { loadDocumentText } from "../../services/studyDocuments";
@@ -112,7 +112,7 @@ export function GenerateDialog({ state, course, request, onChange, onClose, onCr
         <div className="ws-dialog-actions">
           <button type="button" className="ws-button ws-secondary" onClick={close}>Cancel</button>
           <button type="submit" className="ws-button ws-primary" disabled={busy || !picked.size}>
-            {busy ? <><Loader2 size={15} className="ac-spin" />Generating…</> : <><Sparkles size={15} />Generate</>}
+            {busy ? <><Loader2 size={15} className="ac-spin" />Generating…</> : <><PenLine size={15} />Generate</>}
           </button>
         </div>
       </form>

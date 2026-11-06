@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronRight, Layers, MessageCircle, Play, Plus, RotateCcw, Sparkles, Trash2, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Layers, MessageCircle, Play, Plus, RotateCcw, PenLine, Trash2, X } from "lucide-react";
 import type { Course, FlashcardDeck } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
 import { courseLabel, dueCards, newCard, reviewCard, studyOf, withStudy, type Grade } from "../../utils/study";
@@ -29,7 +29,7 @@ export function DecksPanel({ state, course, onChange, onAsk, onGenerate, openDec
           <h2>Flashcard decks</h2>
           <p>Cards come back on a spaced-repetition schedule: the better you know one, the longer until you see it again.</p>
         </div>
-        <button className="ws-button ws-primary" onClick={onGenerate}><Sparkles size={15} />Generate deck</button>
+        <button className="ws-button ws-primary" onClick={onGenerate}><PenLine size={15} />Generate deck</button>
       </div>
       {decks.length ? (
         <ul className="ac-deck-list">
@@ -151,7 +151,7 @@ function StudySession({ deck, all, onChange, docName, onClose }: { deck: Flashca
             </div>
           </>
         ) : (
-          <div className="ac-empty"><Sparkles size={24} /><strong>Session complete</strong><p>{done} cards reviewed. They’ll come back when they’re due.</p>
+          <div className="ac-empty"><PenLine size={24} /><strong>Session complete</strong><p>{done} cards reviewed. They’ll come back when they’re due.</p>
             <button className="ws-button ws-primary" onClick={onClose}>Done</button></div>
         )}
       </div>

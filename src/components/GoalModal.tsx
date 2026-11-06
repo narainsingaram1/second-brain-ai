@@ -5,7 +5,7 @@ import { breakdownGoalWithAI } from "../services/openrouter";
 import {
   X,
   Target,
-  Sparkles,
+  PenLine,
   Briefcase,
   GraduationCap,
   DollarSign,
@@ -28,12 +28,12 @@ interface GoalModalProps {
 }
 
 const SECTORS: { id: GoalSector; label: string; icon: any; color: string; bg: string }[] = [
-  { id: "career", label: "Career & Work", icon: Briefcase, color: "text-indigo-600 dark:text-indigo-400", bg: "bg-indigo-50 dark:bg-indigo-950/40" },
-  { id: "academics", label: "Academics", icon: GraduationCap, color: "text-purple-600 dark:text-purple-400", bg: "bg-purple-50 dark:bg-purple-950/40" },
-  { id: "finance", label: "Finance & Wealth", icon: DollarSign, color: "text-emerald-600 dark:text-emerald-400", bg: "bg-emerald-50 dark:bg-emerald-950/40" },
+  { id: "career", label: "Career & Work", icon: Briefcase, color: "text-muted dark:text-slate-400", bg: "bg-raised" },
+  { id: "academics", label: "Academics", icon: GraduationCap, color: "text-muted dark:text-slate-400", bg: "bg-raised" },
+  { id: "finance", label: "Finance & Wealth", icon: DollarSign, color: "text-[var(--workspace-success)]", bg: "bg-raised" },
   { id: "health", label: "Health & Fitness", icon: HeartPulse, color: "text-rose-600 dark:text-rose-400", bg: "bg-rose-50 dark:bg-rose-950/40" },
-  { id: "mindset", label: "Mindset & Wisdom", icon: Brain, color: "text-amber-600 dark:text-amber-400", bg: "bg-amber-50 dark:bg-amber-950/40" },
-  { id: "personal", label: "Personal & Life", icon: Compass, color: "text-cyan-600 dark:text-cyan-400", bg: "bg-cyan-50 dark:bg-cyan-950/40" },
+  { id: "mindset", label: "Mindset & Wisdom", icon: Brain, color: "text-muted dark:text-slate-400", bg: "bg-raised" },
+  { id: "personal", label: "Personal & Life", icon: Compass, color: "text-muted dark:text-slate-400", bg: "bg-raised" },
 ];
 
 const TIMEFRAMES: { id: GoalTimeframe; label: string; desc: string }[] = [
@@ -183,12 +183,12 @@ export const GoalModal: React.FC<GoalModalProps> = ({
         {/* Modal Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-2xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-2xs">
+            <div className="w-9 h-9 rounded-2xl bg-raised text-muted dark:text-slate-400 flex items-center justify-center shadow-2xs">
               <Target className="w-5 h-5" />
             </div>
             <div>
               <h2 className="text-base font-bold text-ink">
-                {editingGoal ? "Edit Life Goal" : "New Life Goal"}
+                {editingGoal ? "Edit goal" : "New goal"}
               </h2>
               <p className="text-xs text-slate-400">
                 Define your long-term aspiration, milestones & conviction
@@ -207,7 +207,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
           {/* Goal Title */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-              Goal Title <span className="text-rose-500">*</span>
+              Goal title <span className="text-rose-500">*</span>
             </label>
             <div className="relative">
               <input
@@ -216,16 +216,16 @@ export const GoalModal: React.FC<GoalModalProps> = ({
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Master Distributed Systems & Land Staff SWE Role"
-                className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 text-sm font-semibold text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500"
+                className="w-full px-4 py-2.5 rounded-2xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 text-sm font-semibold text-ink placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-slate-300"
               />
               <button
                 type="button"
                 onClick={handleAIBreakdown}
                 disabled={!title.trim() || isBreakingDown}
                 title="Use AI to generate milestones, metrics & coaching advice"
-                className="absolute right-2 top-2 px-3 py-1 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs hover:scale-102 active:scale-98 disabled:opacity-40 transition-all cursor-pointer"
+                className="absolute right-2 top-2 px-3 py-1 rounded-xl  bg-blue-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-2xs active:scale-98 disabled:opacity-40 transition-all cursor-pointer"
               >
-                <Sparkles className={`w-3.5 h-3.5 ${isBreakingDown ? "animate-spin" : ""}`} />
+                <PenLine className={`w-3.5 h-3.5 ${isBreakingDown ? "animate-spin" : ""}`} />
                 <span>{isBreakingDown ? "Generating..." : "AI Breakdown"}</span>
               </button>
             </div>
@@ -234,7 +234,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
           {/* Sector Selector */}
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2 uppercase tracking-wider">
-              Life Sector
+              Life sector
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
               {SECTORS.map((s) => {
@@ -247,7 +247,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
                     onClick={() => setSector(s.id)}
                     className={`flex items-center gap-2.5 px-3 py-2.5 rounded-2xl text-xs font-bold transition-all border ${
                       isSelected
-                        ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 ring-2 ring-indigo-500/20"
+                        ? "border-line bg-raised0/10 text-muted dark:text-slate-400 ring-2 ring-indigo-500/20"
                         : "border-line bg-slate-50 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700"
                     }`}
                   >
@@ -265,7 +265,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Time Horizon
+                Time horizon
               </label>
               <div className="grid grid-cols-2 gap-1.5 bg-raised p-1 rounded-2xl">
                 {TIMEFRAMES.map((tf) => (
@@ -288,7 +288,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
 
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Target Date
+                Target date
               </label>
               <div className="relative">
                 <input
@@ -308,10 +308,10 @@ export const GoalModal: React.FC<GoalModalProps> = ({
                   onChange={(e) => setStatus(e.target.value as GoalStatus)}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-slate-200 focus:outline-none"
                 >
-                  <option value="not_started">Not Started</option>
-                  <option value="in_progress">In Progress</option>
+                  <option value="not_started">Not started</option>
+                  <option value="in_progress">In progress</option>
                   <option value="achieved">Achieved / Completed</option>
-                  <option value="on_hold">On Hold</option>
+                  <option value="on_hold">On hold</option>
                 </select>
               </div>
             </div>
@@ -336,7 +336,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider flex items-center justify-between">
               <span>Why This Matters (Core Conviction)</span>
-              <span className="text-[11px] text-indigo-500 font-semibold">Self-Improvement Anchor</span>
+              <span className="text-[11px] text-muted font-semibold">Self-Improvement Anchor</span>
             </label>
             <textarea
               rows={2}
@@ -349,8 +349,8 @@ export const GoalModal: React.FC<GoalModalProps> = ({
 
           {/* AI Advice Banner (if generated) */}
           {aiAdvice && (
-            <div className="p-3.5 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 flex items-start gap-2.5">
-              <Sparkles className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+            <div className="p-3.5 rounded-2xl bg-raised0/10 border border-line flex items-start gap-2.5">
+              <PenLine className="w-4 h-4 text-muted shrink-0 mt-0.5" />
               <div className="text-xs text-indigo-900 dark:text-indigo-200 leading-relaxed">
                 <span className="font-bold">Strategic Insight: </span>
                 {aiAdvice}
@@ -365,7 +365,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
                 Milestones & Stepping Stones ({milestones.filter((m) => m.completed).length}/{milestones.length})
               </label>
               {milestones.length > 0 && (
-                <span className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                <span className="text-xs font-mono font-bold text-muted dark:text-slate-400">
                   {Math.round((milestones.filter((m) => m.completed).length / milestones.length) * 100)}% Complete
                 </span>
               )}
@@ -384,7 +384,7 @@ export const GoalModal: React.FC<GoalModalProps> = ({
                     className="flex items-center gap-2.5 flex-1 text-left"
                   >
                     {milestone.completed ? (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                      <CheckCircle2 className="w-4 h-4 text-[var(--workspace-success)] shrink-0" />
                     ) : (
                       <Circle className="w-4 h-4 text-slate-300 dark:text-slate-600 shrink-0" />
                     )}
@@ -446,9 +446,9 @@ export const GoalModal: React.FC<GoalModalProps> = ({
             </button>
             <button
               type="submit"
-              className="px-6 py-2 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-md hover:scale-102 active:scale-98 transition-all"
+              className="px-6 py-2 rounded-2xl bg-indigo-600 hover:bg-slate-1000 text-white text-xs font-bold shadow-md active:scale-98 transition-all"
             >
-              {editingGoal ? "Save Changes" : "Create Goal"}
+              {editingGoal ? "Save changes" : "Create goal"}
             </button>
           </div>
         </form>

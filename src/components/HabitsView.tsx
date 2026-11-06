@@ -1,8 +1,7 @@
 import { PageHeading } from "./workspace/PageHeading";
 import React from "react";
 import { Habit } from "../types";
-import { Flame, Plus, Check, Trophy, Trash2 } from "lucide-react";
-import confetti from "canvas-confetti";
+import { Plus, Check, Trash2 } from "lucide-react";
 import { getLocalDateString } from "../utils/habitStreaks";
 
 interface HabitsViewProps {
@@ -25,152 +24,74 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
     const d = new Date(now.getTime() - i * 86400000);
     const dateStr = getLocalDateString(d);
     const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
-    last7Days.push({ dateStr, dayLabel, isToday: i === 0 });
+    last7Days.push({ dateStr, dayLabel: `${dayLabel} ${String(d.getDate()).padStart(2, "0")}`, isToday: i === 0 });
   }
 
   const todayStr = last7Days[6].dateStr;
   const completedToday = habits.filter((h) => h.history[todayStr]).length;
   const bestOverallStreak = Math.max(...habits.map((h) => h.bestStreak), 0);
 
-  const handleToggle = (e: React.MouseEvent, habitId: string, dateStr: string, isDone: boolean) => {
+  const handleToggle = (e: React.MouseEvent, habitId: string, dateStr: string) => {
     e.stopPropagation();
-    if (!isDone) {
-      confetti({
-        particleCount: 25,
-        spread: 45,
-        origin: { y: 0.6 },
-        colors: ["#10b981", "#3b82f6", "#f59e0b"],
-      });
-    }
     onToggleHabit(habitId, dateStr);
   };
+  const weekDone = habits.reduce((n, h) => n + last7Days.filter((d) => h.history[d.dateStr]).length, 0);
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   return (
-    <div className="w-full max-w-6xl mx-auto space-y-6">
-      {/* Top Header Card */}
-      <PageHeading eyebrow="PERSONAL GROWTH / CONSISTENCY" title="Habits" description="Small actions, repeated. Build a rhythm that works for you."><button className="workspace-primary" onClick={onAddHabit}><Plus size={16}/>New habit</button></PageHeading>
+    <div className="habits-page">
+      <PageHeading title="Habits" description="A week at a glance. Tap a day to mark it done">
+        <button className="workspace-primary" onClick={onAddHabit}><Plus size={16} strokeWidth={1.5} />New habit</button>
+      </PageHeading>
 
-      {/* Metric Cards Row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-panel rounded-3xl p-5 border border-line shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-            <Check className="w-6 h-6 stroke-[3]" />
-          </div>
-          <div>
-            <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Completed Today</span>
-            <div className="text-2xl font-extrabold text-ink mt-0.5">
-              {completedToday} <span className="text-sm font-semibold text-slate-400">/ {habits.length}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-panel rounded-3xl p-5 border border-line shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/40 text-amber-500 flex items-center justify-center">
-            <Flame className="w-6 h-6 fill-amber-500" />
-          </div>
-          <div>
-            <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">Top Current Streak</span>
-            <div className="text-2xl font-extrabold text-ink mt-0.5">
-              {Math.max(...habits.map((h) => h.streak), 0)} <span className="text-sm font-semibold text-slate-400">Days</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-panel rounded-3xl p-5 border border-line shadow-sm flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center">
-            <Trophy className="w-6 h-6" />
-          </div>
-          <div>
-            <span className="text-[11px] font-bold uppercase text-slate-400 tracking-wider">All-Time Best Record</span>
-            <div className="text-2xl font-extrabold text-ink mt-0.5">
-              {bestOverallStreak} <span className="text-sm font-semibold text-slate-400">Days</span>
-            </div>
-          </div>
-        </div>
+      <div className="stat-strip is-three">
+        <div><small>Done today</small><span className="figure">{completedToday} <small>of {habits.length}</small></span></div>
+        <div><small>Longest current streak</small><span className="figure">{plural(Math.max(...habits.map((h) => h.streak), 0), "day")}</span></div>
+        <div><small>Best streak ever</small><span className="figure">{plural(bestOverallStreak, "day")}</span></div>
       </div>
 
-      {/* 7-Day Habit Matrix */}
-      <div className="bg-panel rounded-4xl border border-line shadow-sm p-6 overflow-x-auto">
-        <div className="min-w-[700px]">
-          {/* Header Row with Days */}
-          <div className="grid grid-cols-12 gap-3 pb-4 border-b border-slate-100 dark:border-slate-800 text-xs font-bold text-slate-400 uppercase tracking-wider">
-            <div className="col-span-5">Habit & Frequency</div>
-            <div className="col-span-2 text-center">Streaks</div>
-            <div className="col-span-5 grid grid-cols-7 gap-1 text-center">
-              {last7Days.map((day) => (
-                <div key={day.dateStr} className={`text-[11px] ${day.isToday ? "text-blue-600 dark:text-blue-400 font-extrabold" : ""}`}>
-                  {day.dayLabel}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Habit Rows */}
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/60 mt-2">
-            {habits.map((habit) => (
-              <div key={habit.id} className="grid grid-cols-12 gap-3 py-4 items-center hover:bg-slate-50/60 dark:hover:bg-slate-800/30 rounded-2xl transition-colors px-2">
-                {/* Name & Domain */}
-                <div className="col-span-5 pr-2 flex items-center justify-between group/habit">
-                  <div>
-                    <h4 className="text-sm font-bold text-ink">{habit.name}</h4>
-                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-slate-400">
-                      <span className="capitalize">{habit.domain}</span>
-                      <span>•</span>
-                      <span className="capitalize">{habit.timeOfDay || "Anytime"}</span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onDeleteHabit(habit.id)}
-                    title="Delete habit"
-                    className="opacity-0 group-hover/habit:opacity-100 p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                {/* Streak Badge with Current & Best Streak */}
-                <div className="col-span-2 flex flex-col items-center justify-center">
-                  {habit.streak > 0 ? (
-                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-extrabold text-xs border border-amber-200 dark:border-amber-800/60 shadow-2xs">
-                      <Flame className="w-3.5 h-3.5 fill-amber-500 text-amber-500 animate-pulse" />
-                      <span>{habit.streak}d</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-raised text-slate-400 font-bold text-xs border border-slate-200 dark:border-slate-700">
-                      <Flame className="w-3.5 h-3.5 text-slate-400" />
-                      <span>0d</span>
-                    </div>
-                  )}
-                  <span className="text-[11px] text-slate-400 font-medium mt-0.5">
-                    best: {habit.bestStreak}d
-                  </span>
-                </div>
-
-                {/* 7-Day Punch Circles */}
-                <div className="col-span-5 grid grid-cols-7 gap-1 place-items-center">
-                  {last7Days.map((day) => {
-                    const isDone = !!habit.history[day.dateStr];
-                    return (
-                      <button
-                        key={day.dateStr}
-                        onClick={(e) => handleToggle(e, habit.id, day.dateStr, isDone)}
-                        title={`${day.dateStr}: ${isDone ? "Completed" : "Not completed"}`}
-                        className={`w-7 h-7 rounded-xl flex items-center justify-center transition-all ${
-                          isDone
-                            ? "bg-emerald-500 text-white shadow-sm scale-105"
-                            : "bg-raised text-transparent hover:border hover:border-emerald-400"
-                        } ${day.isToday ? "ring-2 ring-blue-400 ring-offset-2 dark:ring-offset-slate-900" : ""}`}
-                      >
-                        <Check className="w-3.5 h-3.5 stroke-[3]" />
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
+      {/* The week as a tally sheet: one ruled row per habit, one dated column per day. */}
+      <section className="tally-sheet" aria-label="Last seven days">
+        <div className="tally-row tally-head">
+          <span>Habit</span>
+          <span>Streak</span>
+          {last7Days.map((day) => (
+            <span key={day.dateStr} className={`date-stamp ${day.isToday ? "is-today" : ""}`}>{day.isToday ? "Today" : day.dayLabel}</span>
+          ))}
         </div>
-      </div>
+        {habits.map((habit) => (
+          <div key={habit.id} className="tally-row">
+            <div className="tally-name">
+              <strong>{habit.name}</strong>
+              <small>{[habit.domain, habit.timeOfDay || "Any time"].filter(Boolean).map((x) => String(x).replace(/^./, (c) => c.toUpperCase())).join(" · ")}</small>
+              <button className="icon-control tally-delete" onClick={() => onDeleteHabit(habit.id)} aria-label={`Delete ${habit.name}`}>
+                <Trash2 size={16} strokeWidth={1.5} />
+              </button>
+            </div>
+            <span className="tally-streak">
+              <span className="figure">{habit.streak}</span>
+              <small>best {habit.bestStreak}</small>
+            </span>
+            {last7Days.map((day) => {
+              const isDone = !!habit.history[day.dateStr];
+              return (
+                <button
+                  key={day.dateStr}
+                  className={`tally-cell ${isDone ? "is-done" : ""} ${day.isToday ? "is-today" : ""}`}
+                  onClick={(e) => handleToggle(e, habit.id, day.dateStr)}
+                  aria-pressed={isDone}
+                  aria-label={`${habit.name}, ${day.dateStr}: ${isDone ? "done" : "not done"}`}
+                >
+                  {isDone && <Check size={14} strokeWidth={2} />}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+        <div className="tally-row tally-foot">
+          <span>{plural(weekDone, "check-in")} this week</span>
+        </div>
+      </section>
     </div>
   );
 };

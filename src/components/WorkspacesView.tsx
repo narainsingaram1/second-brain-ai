@@ -247,9 +247,8 @@ export function WorkspacesView({
         <>
           <div className="ws-page-heading">
             <div>
-              <p className="workspace-eyebrow">YOUR SPACES</p>
-              <h1>Workspaces</h1>
-              <p>A little structure for the things you’re working toward.</p>
+              <h1 className="page-title">Workspaces</h1>
+              <p>Career prep, courses and projects, each with its own space</p>
             </div>
             <button
               className="ws-button ws-primary"
@@ -316,7 +315,7 @@ export function WorkspacesView({
               <WorkspaceIcon workspace={workspace} />
               <div>
                 <div className="ws-hero-eyebrow">
-                  {templateLabel(workspace.template).toUpperCase()}
+                  {templateLabel(workspace.template)}
                 </div>
                 <h1>{workspace.name}</h1>
                 <p>{workspace.description || "Make room for what matters."}</p>

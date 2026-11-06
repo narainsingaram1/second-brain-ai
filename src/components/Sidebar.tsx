@@ -9,10 +9,11 @@ import {
   Layers,
   Plus,
   Settings2,
-  Sparkles,
+  MessageSquare,
   Target,
   Briefcase,
   FolderOpen,
+  GraduationCap,
 } from "lucide-react";
 import type { Workspace } from "../types";
 interface SidebarProps {
@@ -27,7 +28,7 @@ interface SidebarProps {
 }
 const groups = [
   {
-    label: "WORKSPACE",
+    label: "Plan",
     items: [
       { id: "home", label: "Home", icon: Home },
       { id: "tasks", label: "Tasks", icon: CheckSquare },
@@ -35,7 +36,7 @@ const groups = [
     ],
   },
   {
-    label: "PERSONAL GROWTH",
+    label: "Grow",
     items: [
       { id: "goals", label: "Goals", icon: Target },
       { id: "habits", label: "Habits", icon: Flame },
@@ -43,8 +44,8 @@ const groups = [
     ],
   },
   {
-    label: "THINK TOGETHER",
-    items: [{ id: "copilot", label: "Iris Copilot", icon: Sparkles }],
+    label: "Think",
+    items: [{ id: "copilot", label: "Ask Iris", icon: MessageSquare }],
   },
 ];
 export function Sidebar({
@@ -65,12 +66,8 @@ export function Sidebar({
           aria-label="Iris home"
           onClick={() => setActiveTab("home")}
         >
-          <span className="iris-mark" />
-          {!collapsed && (
-            <span>
-              Iris<span className="brand-period">.</span>
-            </span>
-          )}
+          <span className="iris-mark" aria-hidden="true" />
+          {!collapsed && <span>Iris</span>}
         </button>
         <button
           className="sidebar-collapse icon-control"
@@ -86,10 +83,10 @@ export function Sidebar({
         onClick={onQuickCapture}
         title="Create a note or task"
       >
-        <Plus size={17} />
+        <Plus size={16} />
         {!collapsed && (
           <>
-            <span>Quick create</span>
+            <span>New</span>
             <kbd>⌘⌥N</kbd>
           </>
         )}
@@ -114,7 +111,7 @@ export function Sidebar({
                   onClick={() => setActiveTab(item.id)}
                   title={item.label}
                 >
-                  <item.icon size={18} />
+                  <item.icon size={16} strokeWidth={1.5} />
                   {!collapsed && (
                     <>
                       <span>{item.label}</span>
@@ -129,31 +126,20 @@ export function Sidebar({
           </div>
         ))}
         <div className="nav-group">
-          {!collapsed && <div className="sidebar-workspace-label"><p className="nav-label">WORKSPACES</p><button onClick={() => setActiveTab("workspace-new")} aria-label="Create workspace" title="Create workspace"><Plus size={14} /></button></div>}
-          <button onClick={() => setActiveTab("workspaces")} aria-current={activeTab === "workspaces" || activeTab === "workspace-new" ? "page" : undefined} title="All workspaces"><Layers size={18} />{!collapsed && <span>All workspaces</span>}</button>
-          {workspaces.map(workspace => <button key={workspace.id} onClick={() => setActiveTab(`workspace:${workspace.id}`)} aria-current={activeTab === `workspace:${workspace.id}` ? "page" : undefined} title={workspace.name}><span className={`workspace-nav-dot ws-color-${workspace.color}`}>{workspace.template === "career" ? <Briefcase size={17} /> : <FolderOpen size={17} />}</span>{!collapsed && <span className="workspace-nav-name">{workspace.name}</span>}</button>)}
-          {!collapsed && <button className="workspace-nav-add" onClick={() => setActiveTab("workspace-new")}><Plus size={16} /><span>New workspace</span></button>}
+          {!collapsed && <div className="sidebar-workspace-label"><p className="nav-label">Workspaces</p><button onClick={() => setActiveTab("workspace-new")} aria-label="Create workspace" title="Create workspace"><Plus size={14} /></button></div>}
+          <button onClick={() => setActiveTab("workspaces")} aria-current={activeTab === "workspaces" || activeTab === "workspace-new" ? "page" : undefined} title="All workspaces"><Layers size={16} strokeWidth={1.5} />{!collapsed && <span>All workspaces</span>}</button>
+          {workspaces.map(workspace => <button key={workspace.id} onClick={() => setActiveTab(`workspace:${workspace.id}`)} aria-current={activeTab === `workspace:${workspace.id}` ? "page" : undefined} title={workspace.name}><span className={`workspace-nav-dot ws-color-${workspace.color}`}>{workspace.template === "career" ? <Briefcase size={16} strokeWidth={1.5} /> : workspace.template === "academic" ? <GraduationCap size={16} strokeWidth={1.5} /> : <FolderOpen size={16} strokeWidth={1.5} />}</span>{!collapsed && <span className="workspace-nav-name">{workspace.name}</span>}</button>)}
+          {!collapsed && <button className="workspace-nav-add" onClick={() => setActiveTab("workspace-new")}><Plus size={16} strokeWidth={1.5} /><span>New workspace</span></button>}
         </div>
       </nav>
       <div className="sidebar-bottom">
-        {!collapsed && (
-          <div className="sidebar-note">
-            <Layers size={20} />
-            <strong>
-              Less scattered.
-              <br />
-              More connected.
-            </strong>
-            <p>Your thoughts have a home here.</p>
-          </div>
-        )}
         <button
           className="sidebar-settings"
           onClick={onOpenSettings}
           title="Settings"
         >
-          <Settings2 size={18} />
-          {!collapsed && <span>Settings & preferences</span>}
+          <Settings2 size={16} strokeWidth={1.5} />
+          {!collapsed && <span>Settings</span>}
         </button>
       </div>
     </aside>

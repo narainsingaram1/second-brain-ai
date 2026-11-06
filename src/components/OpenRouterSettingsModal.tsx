@@ -16,7 +16,6 @@ import {
   RefreshCw,
   Cpu,
 } from "lucide-react";
-import confetti from "canvas-confetti";
 
 interface OpenRouterSettingsModalProps {
   isOpen: boolean;
@@ -80,12 +79,6 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
       const res = await testOpenRouterKey(keyInput);
       setTestResult(res);
       if (res.success) {
-        confetti({
-          particleCount: 30,
-          spread: 60,
-          origin: { y: 0.6 },
-          colors: ["#10b981", "#3b82f6"],
-        });
       }
     } catch (err: any) {
       setTestResult({ success: false, message: err.message || "Test failed" });
@@ -109,12 +102,12 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
         {/* Header */}
         <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 text-white dark:text-slate-900 flex items-center justify-center shadow-md">
+            <div className="w-10 h-10 rounded-2xl bg-raised border border-line text-muted flex items-center justify-center">
               <Key className="w-5 h-5" />
             </div>
             <div>
               <h3 className="font-extrabold text-base tracking-tight text-ink">
-                OpenRouter AI & Second Brain Settings
+                Settings
               </h3>
               <p className="text-xs text-slate-400">Configure your personal OpenRouter API key & AI model</p>
             </div>
@@ -132,14 +125,14 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                <ShieldCheck className="w-4 h-4 text-[var(--workspace-success)]" />
                 OpenRouter API Key
               </label>
               <a
                 href="https://openrouter.ai/keys"
                 target="_blank"
                 rel="noreferrer"
-                className="text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                className="text-[11px] font-bold text-muted dark:text-slate-400 hover:underline flex items-center gap-1"
               >
                 <span>Get API Key</span>
                 <ExternalLink className="w-3 h-3" />
@@ -169,7 +162,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
                   type="button"
                   onClick={handleTestKey}
                   disabled={testing || !keyInput}
-                  className="px-2.5 py-1 text-[11px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 rounded-lg transition-colors disabled:opacity-40"
+                  className="px-2.5 py-1 text-[11px] font-bold bg-raised text-muted dark:text-slate-400 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-40"
                 >
                   {testing ? <RefreshCw className="w-3 h-3 animate-spin" /> : "Test"}
                 </button>
@@ -181,12 +174,12 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
               <div
                 className={`p-3 rounded-2xl text-xs flex items-center gap-2 ${
                   testResult.success
-                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50"
+                    ? "bg-raised text-[var(--workspace-success)] border border-line"
                     : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/50"
                 }`}
               >
                 {testResult.success ? (
-                  <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500" />
+                  <CheckCircle2 className="w-4 h-4 shrink-0 text-[var(--workspace-success)]" />
                 ) : (
                   <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
                 )}
@@ -202,7 +195,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
           {/* Model Selector */}
           <div className="space-y-3">
             <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <Cpu className="w-4 h-4 text-purple-500" />
+              <Cpu className="w-4 h-4 text-muted" />
               Default Intelligence Model
             </label>
 
@@ -233,7 +226,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
                             className={`text-[11px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
                               isSelected
                                 ? "bg-white/20 text-white dark:bg-black/10 dark:text-black"
-                                : "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300"
+                                : "bg-raised text-muted dark:bg-raised dark:text-slate-400"
                             }`}
                           >
                             Recommended
@@ -300,7 +293,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
                 />
                 <p id="custom-openrouter-model-help" className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
                   Paste the exact model ID from the{" "}
-                  <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">OpenRouter model catalog</a>, including any suffix such as :free. Choose a model that supports tools to use AI actions.
+                  <a href="https://openrouter.ai/models" target="_blank" rel="noreferrer" className="text-muted dark:text-slate-400 hover:underline">OpenRouter model catalog</a>, including any suffix such as :free. Choose a model that supports tools to use AI actions.
                 </p>
                 {useCustomModel && !isModelValid && (
                   <p role="alert" className="text-[11px] text-rose-600 dark:text-rose-400">
@@ -346,7 +339,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
           {onOpenMemory && <button type="button" className="memory-settings-link" onClick={onOpenMemory}><Brain size={21}/><span><strong>Memory</strong><small>View, edit and manage what Synapse remembers about you</small></span><span className="ml-auto">→</span></button>}
           {workspaceControls && (
             <section className="space-y-2 pt-4 border-t border-slate-100 dark:border-slate-800">
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Workspace & Sync</h4>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Workspace & sync</h4>
               {workspaceControls}
             </section>
           )}
@@ -354,7 +347,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
           {/* Backup & Export */}
           {!workspaceControls && <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
             <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Local Data Backup</h4>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200">Local data backup</h4>
               <p className="text-[11px] text-slate-400">Export your tasks, habits, and journals to JSON</p>
             </div>
             <button
@@ -369,8 +362,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
 
         {/* Modal Footer */}
         <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
-          <span className="text-xs text-emerald-600 font-bold">
-            {saveSuccess ? "✓ Settings updated & saved to disk!" : ""}
+          <span className="text-xs text-[var(--workspace-success)] font-bold">
+            {saveSuccess ? "Settings saved" : ""}
           </span>
           <div className="flex items-center gap-2">
             <button aria-label="Close dialog" onClick={onClose}
@@ -381,10 +374,10 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             <button
               onClick={handleSave}
               disabled={!isModelValid || !isVisionValid}
-              className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-3.5 h-3.5" />
-              <span>Save Changes</span>
+              <span>Save changes</span>
             </button>
           </div>
         </div>

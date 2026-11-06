@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import type { AuthSession } from "../types";
 import { signOutManaged } from "../services/managedAuth";
 import { cloudStatus } from "../services/cloudSync";
-import { X, Sparkles, LogOut, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
+import { X, PenLine, LogOut, CheckCircle2, ShieldCheck, AlertCircle } from "lucide-react";
 
 interface ManagedAccountModalProps {
   isOpen: boolean;
@@ -61,14 +61,14 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-              <Sparkles className="w-4 h-4 fill-white/30" />
+            <div className="w-8 h-8 rounded-xl bg-raised border border-line flex items-center justify-center text-muted">
+              <PenLine className="w-4 h-4 " />
             </div>
             <div>
               <h2 id="account-title" className="font-extrabold text-sm tracking-tight text-ink">
-                Your Account
+                Your account
               </h2>
-              <p className="text-[11px] text-slate-400">Synapse Cloud Workspace</p>
+              <p className="text-[11px] text-slate-400">Synapse cloud workspace</p>
             </div>
           </div>
           <button
@@ -98,7 +98,7 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
                 className="w-12 h-12 rounded-2xl border border-slate-200 dark:border-slate-700 object-cover shrink-0"
               />
             ) : (
-              <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 text-white font-bold text-sm flex items-center justify-center shrink-0 shadow-xs">
+              <div className="w-12 h-12 rounded-2xl bg-raised border border-line text-muted font-bold text-sm flex items-center justify-center shrink-0">
                 {initials}
               </div>
             )}
@@ -110,8 +110,8 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
                 <span
                   className={`px-2 py-0.5 rounded-full text-[11px] font-bold border ${
                     user?.provider === "google"
-                      ? "bg-blue-50 text-blue-600 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200/60"
-                      : "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300 border-indigo-200/60"
+                      ? "bg-raised text-muted dark:bg-raised dark:text-slate-400 border-line"
+                      : "bg-raised text-muted dark:bg-raised dark:text-slate-400 border-line"
                   }`}
                 >
                   {user?.provider === "google" ? "Google" : "Email"}
@@ -124,7 +124,7 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
           {/* Cloud Sync & Security Badges */}
           <div className="grid grid-cols-2 gap-2.5">
             <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-line flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-xl bg-raised0/10 text-[var(--workspace-success)] flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-4 h-4" />
               </div>
               <div className="min-w-0">
@@ -136,14 +136,14 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
             </div>
 
             <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-line flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+              <div className="w-7 h-7 rounded-xl bg-raised0/10 text-muted dark:text-slate-400 flex items-center justify-center shrink-0">
                 <ShieldCheck className="w-4 h-4" />
               </div>
               <div className="min-w-0">
                 <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate">
-                  Row Isolation
+                  Row isolation
                 </p>
-                <p className="text-[11px] text-slate-400 truncate">Private to Account</p>
+                <p className="text-[11px] text-slate-400 truncate">Private to account</p>
               </div>
             </div>
           </div>

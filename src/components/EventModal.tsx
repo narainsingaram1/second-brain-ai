@@ -16,7 +16,7 @@ interface EventModalProps {
 }
 
 const field =
-  "w-full bg-slate-50 dark:bg-slate-800/80 text-xs text-ink px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white transition-all";
+ "w-full bg-slate-50 dark:bg-slate-800/80 text-xs text-ink px-3.5 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white transition-all";
 const label = "block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1";
 
 /** Adds an hour to "HH:MM", capped at 23:59, as a sensible default end time. */
@@ -90,7 +90,7 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
       <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-lg overflow-visible flex flex-col max-h-[92vh]">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
-            <h3 className="font-extrabold text-base tracking-tight text-ink">{event ? "Edit Event" : "New Event"}</h3>
+            <h3 className="font-extrabold text-base tracking-tight text-ink">{event ? "Edit event" : "New event"}</h3>
             <p className="text-[11px] text-slate-400 mt-0.5">Meetings, classes and appointments with a time and place</p>
           </div>
           <button aria-label="Close dialog" onClick={onClose} className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors">
@@ -176,7 +176,7 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
             ) : <div />}
             <div className="flex items-center gap-2">
               <button type="button" onClick={onClose} className="px-4 py-2 rounded-full text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">Cancel</button>
-              <button type="submit" className="px-5 py-2 rounded-full bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold shadow-sm hover:opacity-90 active:scale-95 transition-all">Save Event</button>
+              <button type="submit" className="px-5 py-2 rounded-full bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold shadow-sm hover:opacity-90 active:scale-[0.98] transition-all">Save event</button>
             </div>
           </div>
         </form>

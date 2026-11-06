@@ -14,13 +14,13 @@ interface FolderModalProps {
 }
 
 const COLOR_OPTIONS: { id: NoteFolderColor; label: string; bg: string; border: string }[] = [
-  { id: "blue", label: "Blue", bg: "bg-blue-500", border: "border-blue-500" },
-  { id: "amber", label: "Amber", bg: "bg-amber-500", border: "border-amber-500" },
-  { id: "emerald", label: "Emerald", bg: "bg-emerald-500", border: "border-emerald-500" },
-  { id: "purple", label: "Purple", bg: "bg-purple-500", border: "border-purple-500" },
+  { id: "blue", label: "Blue", bg: "bg-raised0", border: "border-line" },
+  { id: "amber", label: "Amber", bg: "bg-raised0", border: "border-line" },
+  { id: "emerald", label: "Emerald", bg: "bg-raised0", border: "border-line" },
+  { id: "purple", label: "Purple", bg: "bg-raised0", border: "border-line" },
   { id: "rose", label: "Rose", bg: "bg-rose-500", border: "border-rose-500" },
-  { id: "cyan", label: "Cyan", bg: "bg-cyan-500", border: "border-cyan-500" },
-  { id: "indigo", label: "Indigo", bg: "bg-indigo-500", border: "border-indigo-500" },
+  { id: "cyan", label: "Cyan", bg: "bg-raised0", border: "border-line" },
+  { id: "indigo", label: "Indigo", bg: "bg-raised0", border: "border-line" },
   { id: "slate", label: "Slate", bg: "bg-slate-500", border: "border-slate-500" },
 ];
 
@@ -91,12 +91,12 @@ export const FolderModal: React.FC<FolderModalProps> = ({
         {/* Header */}
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center text-blue-600 dark:text-blue-400">
+            <div className="w-8 h-8 rounded-xl bg-raised flex items-center justify-center text-muted dark:text-slate-400">
               {folder ? <Folder className="w-4 h-4" /> : <FolderPlus className="w-4 h-4" />}
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-ink">
-                {folder ? "Edit Folder" : "New Folder"}
+                {folder ? "Edit folder" : "New folder"}
               </h3>
               <p className="text-[11px] text-slate-400">
                 Organize your notes into nested hierarchies
@@ -129,7 +129,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
 
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              Parent Folder Location
+              Parent folder location
             </label>
             <select
               value={parentId || ""}
@@ -155,7 +155,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
               <Palette className="w-3.5 h-3.5 text-slate-400" />
-              <span>Folder Color</span>
+              <span>Folder color</span>
             </label>
             <div className="flex items-center gap-2 flex-wrap">
               {COLOR_OPTIONS.map((c) => (
@@ -166,7 +166,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                   className={`w-7 h-7 rounded-full ${c.bg} transition-all flex items-center justify-center ${
                     color === c.id
                       ? "ring-2 ring-offset-2 ring-blue-600 dark:ring-offset-[#141721] scale-110"
-                      : "opacity-80 hover:opacity-100 hover:scale-105"
+                      : "opacity-80 hover:opacity-100"
                   }`}
                   title={c.label}
                 />
@@ -188,7 +188,7 @@ export const FolderModal: React.FC<FolderModalProps> = ({
                 className="flex items-center gap-1.5 text-xs font-bold text-rose-500 hover:text-rose-600 px-3 py-2 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Folder</span>
+                <span>Delete folder</span>
               </button>
             ) : (
               <div />
@@ -204,9 +204,9 @@ export const FolderModal: React.FC<FolderModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow-md shadow-blue-500/20 transition-all hover:scale-105"
+                className="px-5 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-slate-1000 text-white shadow-md transition-all"
               >
-                {folder ? "Save Changes" : "Create Folder"}
+                {folder ? "Save changes" : "Create folder"}
               </button>
             </div>
           </div>
