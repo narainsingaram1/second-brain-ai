@@ -364,7 +364,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'workspace' | 'folder';
   entityTitle: string;
   details?: string;
   canUndo: boolean;

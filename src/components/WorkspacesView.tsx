@@ -48,6 +48,7 @@ import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import { AcademicWorkspace } from "./academic/AcademicWorkspace";
 import { studyOf } from "../utils/study";
 import { deleteDocumentTexts } from "../services/studyDocuments";
+import { DIFFICULTIES, JOB_TYPES } from "../utils/trackerFields";
 import "../workspaces.css";
 
 type Update = (update: (state: BrainState) => BrainState) => void;
@@ -483,7 +484,7 @@ export function WorkspacesView({
                           </span>
                         </div>
                         <div className="ws-difficulty-bars">
-                          {["Easy", "Medium", "Hard"].map((level) => {
+                          {DIFFICULTIES.map((level) => {
                             const all = problems.filter(
                               (item) => field(item, "difficulty") === level,
                             );
@@ -738,7 +739,7 @@ export function WorkspacesView({
                       onChange={(event) => setDifficulty(event.target.value)}
                     >
                       <option value="all">All difficulties</option>
-                      {["Easy", "Medium", "Hard"].map((level) => (
+                      {DIFFICULTIES.map((level) => (
                         <option key={level}>{level}</option>
                       ))}
                     </select>
@@ -1483,7 +1484,7 @@ function TrackerEditor({
                       setField("difficulty", event.target.value)
                     }
                   >
-                    {["Easy", "Medium", "Hard"].map((level) => (
+                    {DIFFICULTIES.map((level) => (
                       <option key={level}>{level}</option>
                     ))}
                   </select>
@@ -1510,7 +1511,7 @@ function TrackerEditor({
                     }
                   >
                     <option value="">Select type</option>
-                    {["Internship", "Full-time", "Part-time", "Contract"].map(
+                    {JOB_TYPES.map(
                       (type) => (
                         <option key={type}>{type}</option>
                       ),

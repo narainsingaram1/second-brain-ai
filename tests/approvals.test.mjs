@@ -128,3 +128,39 @@ test('server approvals: proposed by the agent, approved once by the user, refuse
     assert.deepEqual(trail, ['assistant:proposed', 'assistant:proposed', 'user:approved', 'system:executed', 'assistant:delete_task', 'user:approved', 'system:failed', 'assistant:proposed', 'user:rejected']);
   } finally { await db.close(); }
 });
+
+test('server: new workspace tools save through record storage, and deleting a workspace waits for approval', async () => {
+  const { db, asUser } = await supabaseLikeDatabase();
+  try {
+    await asUser(owner);
+    const career = { id: 'workspace-career', name: 'Career', description: '', template: 'career', color: 'purple', notes: '', createdAt: '2026-01-01T00:00:00Z' };
+    const recruiting = { ...career, id: 'ws-recruit', name: 'Recruiting' };
+    const problem = { id: 'two-sum', workspaceId: 'workspace-career', kind: 'leetcode', title: 'Two Sum', subject: 'Two Sum', status: 'not_started', fields: { difficulty: 'Easy' },
+      history: {}, streak: 0, bestStreak: 0, notes: '', createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' };
+    const app = { ...problem, id: 'stripe', workspaceId: 'ws-recruit', kind: 'job_application', title: 'SWE Intern', subject: 'Stripe', status: 'applied', fields: {} };
+    const blob = { tasks, goals: [], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [], sections: ['Academic'], subsections: { Academic: ['General'] },
+      workspaces: [career, recruiting], trackerItems: [problem, app] };
+    await db.query('select public.save_brain($1::jsonb, 0, $2::uuid)', [JSON.stringify(blob), owner]);
+    const store = pgStore(db, owner, PreferencesConflict, HttpError);
+    await store.putSecret('openrouter', { ...(await sealSecret(secretsKey, owner, 'openrouter', 'sk-or-v1-approval-test-key-0002')), hint: '0002' });
+    const deps = { caller: async () => ({ userId: owner, store }), secretsKey: () => secretsKey };
+    let n = 0;
+    globalThis.fetch = async () => n++ === 0
+      ? sse({ choices: [{ delta: { tool_calls: [call('log_practice', { trackerId: 'two-sum', date: '2026-11-08' }), call('rename_section', { section: 'Academic', newName: 'School' }),
+          call('delete_workspace', { workspaceId: 'ws-recruit' })].map((c, index) => ({ index, ...c })) }, finish_reason: 'tool_calls' }] })
+      : sse({ choices: [{ delta: { content: 'Done; deleting the workspace is waiting for you.' }, finish_reason: 'stop' }] });
+    const response = await agentHandlers(deps).POST(new Request('http://app/api/agent', { method: 'POST', body: JSON.stringify({ message: { id: crypto.randomUUID(), role: 'user', content: 'Solved two sum, rename Academic to School, delete Recruiting' }, chatHistory: [] }) }));
+    const events = []; for await (const e of readEvents(response.body)) events.push(e);
+    const result = events.at(-1).result;
+    assert.deepEqual(result.actions.map(a => a.action), ['log_practice', 'rename_section']);
+    assert.equal(result.approvals.length, 1); assert.match(result.approvals[0].summary, /Delete workspace "Recruiting"/);
+    const row = async (collection, id) => (await db.query('select data, deleted from public.brain_records where collection = $1 and id = $2', [collection, id])).rows[0];
+    assert.equal((await row('trackerItems', 'two-sum')).data.history['2026-11-08'], 1);
+    assert.equal((await row('tasks', tasks[0].id)).data.section, 'School');
+    const decided = await (await actionsHandlers(deps).POST(new Request('http://app/api/actions', { method: 'POST', body: JSON.stringify({ id: result.approvals[0].id, decision: 'approve', payloadHash: result.approvals[0].payloadHash }) }))).json();
+    assert.equal(decided.status, 'executed');
+    assert.equal((await row('workspaces', 'ws-recruit')).deleted, true);
+    assert.equal((await row('trackerItems', 'stripe')).deleted, true, 'its entries go with it');
+    assert.equal((await row('trackerItems', 'two-sum')).deleted, false);
+  } finally { await db.close(); }
+});

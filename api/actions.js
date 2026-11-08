@@ -280,6 +280,33 @@ function newCard(front, back, sourceDocId, today = getLocalDateString()) {
 		lapses: 0
 	};
 }
+/** Removes a course with everything inside it. Returns the document IDs whose stored text should be deleted. */
+function removeCourse(study, courseId) {
+	return {
+		documentIds: study.documents.filter((d) => d.courseId === courseId).map((d) => d.id),
+		study: {
+			courses: study.courses.filter((c) => c.id !== courseId),
+			folders: study.folders.filter((f) => f.courseId !== courseId),
+			documents: study.documents.filter((d) => d.courseId !== courseId),
+			decks: study.decks.filter((d) => d.courseId !== courseId),
+			quizzes: study.quizzes.filter((q) => q.courseId !== courseId)
+		}
+	};
+}
+/** Courses belong to a workspace; deleting the workspace removes them too. */
+function removeWorkspaceCourses(study, workspaceId) {
+	let next = study;
+	const documentIds = [];
+	for (const course of study.courses.filter((c) => c.workspaceId === workspaceId)) {
+		const result = removeCourse(next, course.id);
+		next = result.study;
+		documentIds.push(...result.documentIds);
+	}
+	return {
+		study: next,
+		documentIds
+	};
+}
 /** Courses double as task subsections under Academic, so assignments and materials line up. */
 function linkCourseToTasks(state, course) {
 	const label = course.code || course.name;
@@ -364,6 +391,117 @@ const MEMORY_TOOLS = [
 	]),
 	tool$1("forget_memory", "Forget an exact memory only when the user asks. It will no longer personalize replies or be learned from the same source. Original conversation remains intact.", { id: string }, ["id"])
 ];
+const TRACKER_FIELDS = [
+	{
+		key: "number",
+		kinds: ["leetcode"],
+		type: "number",
+		description: "Problem number, e.g. 1 for Two Sum."
+	},
+	{
+		key: "difficulty",
+		kinds: ["leetcode"],
+		type: "choice",
+		options: [
+			"Easy",
+			"Medium",
+			"Hard"
+		],
+		description: "Problem difficulty."
+	},
+	{
+		key: "topic",
+		kinds: ["leetcode"],
+		type: "text",
+		description: "Problem topics, e.g. 'Arrays, Hash maps'."
+	},
+	{
+		key: "lastPractice",
+		kinds: ["leetcode"],
+		type: "date",
+		description: "YYYY-MM-DD the problem was last practiced."
+	},
+	{
+		key: "nextReview",
+		kinds: ["leetcode"],
+		type: "date",
+		description: "YYYY-MM-DD to revisit the problem."
+	},
+	{
+		key: "location",
+		kinds: ["job_application"],
+		type: "text",
+		description: "Job location, e.g. 'Atlanta, GA' or 'Remote'."
+	},
+	{
+		key: "jobType",
+		kinds: ["job_application"],
+		type: "choice",
+		options: [
+			"Internship",
+			"Full-time",
+			"Part-time",
+			"Contract"
+		],
+		description: "Kind of position."
+	},
+	{
+		key: "appliedDate",
+		kinds: ["job_application"],
+		type: "date",
+		description: "YYYY-MM-DD the application was sent."
+	},
+	{
+		key: "followUpDate",
+		kinds: ["job_application"],
+		type: "date",
+		description: "YYYY-MM-DD to follow up."
+	},
+	{
+		key: "contact",
+		kinds: ["job_application"],
+		type: "text",
+		description: "Recruiter or contact: name, email or LinkedIn."
+	}
+];
+const TRACKER_FIELD_KEYS = TRACKER_FIELDS.map((f) => f.key);
+/** JSON schema properties for every tracker field, for the assistant's tools. */
+function trackerFieldProperties() {
+	return Object.fromEntries(TRACKER_FIELDS.map((f) => {
+		const scope = f.kinds.length === 1 ? f.kinds[0] === "leetcode" ? " Problems only." : " Applications only." : "";
+		const schema = f.type === "number" ? {
+			type: "integer",
+			minimum: 1
+		} : f.type === "choice" ? {
+			type: "string",
+			enum: [...f.options]
+		} : { type: "string" };
+		return [f.key, {
+			...schema,
+			description: f.description + scope
+		}];
+	}));
+}
+const isDate = (v) => /^\d{4}-\d{2}-\d{2}$/.test(v) && (/* @__PURE__ */ new Date(`${v}T12:00:00Z`)).toISOString().slice(0, 10) === v;
+/** Checks the tracker fields present in `args` for an entry of this kind and returns them as stored values. */
+function readTrackerFields(kind, args) {
+	const out = {};
+	for (const f of TRACKER_FIELDS) {
+		const raw = args[f.key];
+		if (raw === void 0) continue;
+		if (!f.kinds.includes(kind)) throw new Error(`${f.key} doesn't apply to ${kind === "leetcode" ? "practice problems" : "job applications"}.`);
+		if (f.type === "number") {
+			if (!Number.isInteger(raw) || raw < 1) throw new Error(`${f.key} must be a whole number.`);
+			out[f.key] = raw;
+			continue;
+		}
+		const value = String(raw).trim();
+		if (f.type === "date" && !isDate(value)) throw new Error(`Invalid calendar date for ${f.key}: ${value}`);
+		if (f.type === "choice" && !f.options.includes(value)) throw new Error(`${f.key} must be one of ${f.options.join(", ")}.`);
+		out[f.key] = value.slice(0, 500);
+	}
+	return out;
+}
 // src/utils/taskState.ts
 /**
 * Normalizes a Task to ensure a single, consistent source of truth.
@@ -411,8 +549,13 @@ function setTaskStatus(task, nextStatus) {
 		completed: nextStatus === "completed"
 	};
 }
-// src/utils/workspaces.ts
-const CAREER_WORKSPACE_ID = "workspace-career";
+const WORKSPACE_COLORS = [
+	"purple",
+	"blue",
+	"green",
+	"amber",
+	"rose"
+];
 const PROBLEM_STAGES = [
 	{
 		id: "not_started",
@@ -457,6 +600,14 @@ const APPLICATION_STAGES = [
 		label: "Closed"
 	}
 ];
+function removeWorkspace(state, id) {
+	return {
+		...state,
+		...state.study ? { study: removeWorkspaceCourses(state.study, id).study } : {},
+		workspaces: (state.workspaces || []).filter((workspace) => workspace.id !== id),
+		trackerItems: (state.trackerItems || []).filter((item) => (item.workspaceId || "workspace-career") !== id)
+	};
+}
 function safeTrackerUrl(value) {
 	if (!value) return void 0;
 	try {
@@ -465,6 +616,25 @@ function safeTrackerUrl(value) {
 	} catch {
 		return;
 	}
+}
+function logSolve(item, date = /* @__PURE__ */ new Date()) {
+	const today = getLocalDateString(date);
+	const review = new Date(date);
+	review.setDate(review.getDate() + 7);
+	return {
+		...item,
+		status: "done",
+		updatedAt: date.toISOString(),
+		history: {
+			...item.history,
+			[today]: Number(item.history[today] || 0) + 1
+		},
+		fields: {
+			...item.fields,
+			lastPractice: today,
+			nextReview: getLocalDateString(review)
+		}
+	};
 }
 // src/services/brainTools.ts
 const s_ = { type: "string" };
@@ -607,7 +777,7 @@ const EDIT_TOOLS = [
 		},
 		description: s_
 	}, ["name", "frequency"]),
-	fn$2("create_tracker_item", "Add a Career tracker entry: a job/internship application (kind job_application; title is the role, company required) or a coding practice problem (kind leetcode).", {
+	fn$2("create_tracker_item", "Add a Career tracker entry: a job/internship application (kind job_application; title is the role, company required) or a coding practice problem (kind leetcode, e.g. a LeetCode problem). Set every detail the user gave.", {
 		kind: {
 			type: "string",
 			enum: ["job_application", "leetcode"]
@@ -627,26 +797,18 @@ const EDIT_TOOLS = [
 				"done",
 				"review"
 			],
-			description: "Applications: not_started (wishlist), applied, screening, onsite (interview), offer, rejected. Problems: not_started, in_progress, done, review."
+			description: "Applications: not_started (wishlist), applied, screening, onsite (interview), offer, rejected. Problems: not_started (to do), in_progress (attempting), done (solved), review (revisit)."
 		},
 		url: d_("http(s) link to the posting or problem."),
-		appliedDate: d_("YYYY-MM-DD, applications only."),
-		followUpDate: d_("YYYY-MM-DD, applications only."),
-		location: s_,
-		difficulty: {
-			type: "string",
-			enum: [
-				"Easy",
-				"Medium",
-				"Hard"
-			]
-		},
-		topic: d_("Problem topics, e.g. 'Arrays, Hash maps'."),
-		notes: s_
+		notes: d_("Approach and notes for problems; next steps for applications."),
+		workspaceId: d_("Career workspace to add it to. Omit for the main Career workspace."),
+		...trackerFieldProperties()
 	}, ["kind", "title"]),
-	fn$2("update_tracker_item", "Update an existing Career tracker entry (application stage, dates, notes, title).", {
+	fn$2("update_tracker_item", "Change any detail of an existing Career tracker entry: stage/status, title, company, link, notes, or any field (dates, difficulty, number, topic, job type, contact, location). To record solving or practicing a problem, use log_practice instead.", {
 		trackerId: d_("ID of the existing tracker record."),
 		newTitle: s_,
+		newCompany: d_("Applications only."),
+		newUrl: d_("http(s) link to the posting or problem."),
 		status: {
 			type: "string",
 			enum: [
@@ -661,11 +823,24 @@ const EDIT_TOOLS = [
 				"review"
 			]
 		},
-		appliedDate: d_("YYYY-MM-DD"),
-		followUpDate: d_("YYYY-MM-DD"),
-		location: s_,
-		appendNotes: d_("Text appended to the existing notes.")
-	}, ["trackerId"])
+		appendNotes: d_("Text appended to the existing notes."),
+		replaceNotes: d_("New full notes, only when the user asks to rewrite them."),
+		clearFields: {
+			type: "array",
+			items: {
+				type: "string",
+				enum: TRACKER_FIELD_KEYS
+			},
+			description: "Fields to empty."
+		},
+		moveToWorkspaceId: d_("Another Career workspace to move the entry to."),
+		...trackerFieldProperties()
+	}, ["trackerId"]),
+	fn$2("log_practice", "Record that the user solved or practiced a coding problem on a day (default today): marks it solved, counts toward their practice streak, sets last practiced and schedules a review in 7 days. Use when the user says they did/solved/practiced a problem that is already tracked; create it first with create_tracker_item if it isn't.", {
+		trackerId: d_("ID of the problem's tracker record."),
+		date: d_("YYYY-MM-DD, defaults to today.")
+	}, ["trackerId"]),
+	fn$2("delete_tracker_item", "Remove a Career tracker entry (an application or a problem with its practice history). Only when the user explicitly asks to delete it.", { trackerId: d_("ID of the tracker record.") }, ["trackerId"])
 ];
 const cardSchema = {
 	type: "object",
@@ -798,6 +973,183 @@ const STUDY_TOOLS = [
 		"title",
 		"questions"
 	])
+];
+const COLORS = [
+	"purple",
+	"blue",
+	"green",
+	"amber",
+	"rose"
+];
+const MANAGE_TOOLS = [
+	fn$2("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes) or blank (a page of notes).", {
+		name: s_,
+		template: {
+			type: "string",
+			enum: [
+				"career",
+				"academic",
+				"blank"
+			]
+		},
+		description: s_,
+		color: {
+			type: "string",
+			enum: COLORS
+		}
+	}, ["name", "template"]),
+	fn$2("update_workspace", "Rename a workspace or change its description, color or notes.", {
+		workspaceId: s_,
+		newName: s_,
+		description: s_,
+		color: {
+			type: "string",
+			enum: COLORS
+		},
+		appendNotes: d_("Text added to the end of the workspace notes."),
+		replaceNotes: d_("New full notes, only when the user asks to rewrite them.")
+	}, ["workspaceId"]),
+	fn$2("delete_workspace", "Delete a workspace and everything in it (its tracker entries, or its courses with their decks and quizzes). Only when the user explicitly asks.", { workspaceId: s_ }, ["workspaceId"]),
+	fn$2("create_section", "Add a task section (e.g. 'Projects'), optionally with a first subsection. Use when the user asks for a new section without adding a task.", {
+		section: s_,
+		subsection: s_
+	}, ["section"]),
+	fn$2("rename_section", "Rename a task section; its tasks move with it.", {
+		section: d_("Current section name."),
+		newName: s_
+	}, ["section", "newName"]),
+	fn$2("delete_section", "Delete a task section. Its tasks move to the first remaining section. Only when the user explicitly asks.", { section: s_ }, ["section"]),
+	fn$2("rename_subsection", "Rename a subsection within a task section; its tasks move with it.", {
+		section: s_,
+		subsection: d_("Current subsection name."),
+		newName: s_
+	}, [
+		"section",
+		"subsection",
+		"newName"
+	]),
+	fn$2("delete_subsection", "Delete a subsection. Its tasks move to the section's first remaining subsection. Only when the user explicitly asks.", {
+		section: s_,
+		subsection: s_
+	}, ["section", "subsection"]),
+	fn$2("delete_goal", "Delete a goal. Only when the user explicitly asks (not when it is achieved: use update_goal).", { goalId: s_ }, ["goalId"]),
+	fn$2("update_habit", "Change a habit (name, frequency, time of day, description) or un-check a day that was marked done by mistake.", {
+		habitId: s_,
+		newName: s_,
+		frequency: {
+			type: "string",
+			enum: [
+				"daily",
+				"weekdays",
+				"weekends"
+			]
+		},
+		timeOfDay: {
+			type: "string",
+			enum: [
+				"morning",
+				"afternoon",
+				"evening"
+			]
+		},
+		description: s_,
+		unmarkDate: d_("YYYY-MM-DD to mark as not done.")
+	}, ["habitId"]),
+	fn$2("delete_habit", "Stop tracking a habit and delete its history. Only when the user explicitly asks.", { habitId: s_ }, ["habitId"]),
+	fn$2("update_journal_entry", "Edit a journal entry: title, mood, add to or rewrite its text, add wins or challenges.", {
+		entryId: s_,
+		newTitle: s_,
+		mood: {
+			type: "string",
+			enum: [
+				"ecstatic",
+				"great",
+				"neutral",
+				"tired",
+				"stressed"
+			]
+		},
+		appendContent: s_,
+		replaceContent: d_("New full text, only when the user asks to rewrite it."),
+		addWins: {
+			type: "array",
+			items: s_
+		},
+		addChallenges: {
+			type: "array",
+			items: s_
+		}
+	}, ["entryId"]),
+	fn$2("delete_journal_entry", "Delete a journal entry. Only when the user explicitly asks.", { entryId: s_ }, ["entryId"]),
+	fn$2("delete_note", "Delete a note. Only when the user explicitly asks.", { noteId: s_ }, ["noteId"]),
+	fn$2("create_note_folder", "Create a folder for notes, optionally inside another folder.", {
+		name: s_,
+		parentId: d_("Existing folder ID to nest it in.")
+	}, ["name"]),
+	fn$2("update_note_folder", "Rename a note folder or move it inside another folder.", {
+		folderId: s_,
+		newName: s_,
+		parentId: d_("Folder ID to move it into, or 'root' for the top level.")
+	}, ["folderId"]),
+	fn$2("delete_note_folder", "Delete a note folder. Its notes and subfolders move up to the parent folder; no notes are deleted.", { folderId: s_ }, ["folderId"]),
+	fn$2("update_course", "Change a course's name, code, term or instructor. A new code also renames its task subsection under Academic.", {
+		courseId: s_,
+		newName: s_,
+		newCode: s_,
+		term: s_,
+		instructor: s_
+	}, ["courseId"]),
+	fn$2("delete_course", "Delete a course with its flashcard decks, quizzes and grades. Only when the user explicitly asks.", { courseId: s_ }, ["courseId"]),
+	fn$2("update_flashcard_deck", "Rename a deck, edit cards, or remove cards. Cards are numbered as in the deck record (read it first).", {
+		deckId: s_,
+		newTitle: s_,
+		editCards: {
+			type: "array",
+			maxItems: 60,
+			items: {
+				type: "object",
+				properties: {
+					number: {
+						type: "integer",
+						minimum: 1
+					},
+					front: s_,
+					back: s_
+				},
+				required: ["number"],
+				additionalProperties: false
+			}
+		},
+		removeCards: {
+			type: "array",
+			maxItems: 200,
+			items: {
+				type: "integer",
+				minimum: 1
+			},
+			description: "Card numbers to remove."
+		}
+	}, ["deckId"]),
+	fn$2("delete_flashcard_deck", "Delete a flashcard deck. Only when the user explicitly asks.", { deckId: s_ }, ["deckId"]),
+	fn$2("update_quiz", "Rename a quiz, add questions, or remove questions by number (as in the quiz record).", {
+		quizId: s_,
+		newTitle: s_,
+		addQuestions: {
+			type: "array",
+			items: questionSchema,
+			maxItems: 40
+		},
+		removeQuestions: {
+			type: "array",
+			maxItems: 40,
+			items: {
+				type: "integer",
+				minimum: 1
+			},
+			description: "Question numbers to remove."
+		}
+	}, ["quizId"]),
+	fn$2("delete_quiz", "Delete a practice quiz and its attempts. Only when the user explicitly asks.", { quizId: s_ }, ["quizId"])
 ];
 const MUTATION_TOOLS = [
 	{
@@ -1064,7 +1416,8 @@ const MUTATION_TOOLS = [
 		}
 	},
 	...EDIT_TOOLS,
-	...STUDY_TOOLS
+	...STUDY_TOOLS,
+	...MANAGE_TOOLS
 ];
 const recordTypes = [
 	"task",
@@ -1193,6 +1546,84 @@ const STUDY_COLLECTIONS = {
 	deck: "decks",
 	quiz: "quizzes"
 };
+const sectionRecords = (state) => state.sections.map((name) => ({
+	id: name,
+	name,
+	subsections: [...state.subsections[name] || []]
+}));
+const upsert = (list, item) => list.some((r) => r.id === item.id) ? list.map((r) => r.id === item.id ? item : r) : [...list, item];
+/** Applies a section change, moving tasks along with renamed or deleted groups. */
+function applySectionChange(state, m) {
+	const rec = m.record, exp = m.expected;
+	const subs = { ...state.subsections };
+	switch (m.action) {
+		case "create_section": return {
+			...state,
+			sections: state.sections.includes(rec.id) ? state.sections : [...state.sections, rec.id],
+			subsections: {
+				...subs,
+				[rec.id]: rec.subsections
+			}
+		};
+		case "rename_section":
+			subs[rec.name] = subs[rec.id] || rec.subsections;
+			delete subs[rec.id];
+			return {
+				...state,
+				sections: state.sections.map((s) => s === rec.id ? rec.name : s),
+				subsections: subs,
+				tasks: state.tasks.map((t) => t.section === rec.id ? {
+					...t,
+					section: rec.name
+				} : t)
+			};
+		case "delete_section": {
+			const sections = state.sections.filter((s) => s !== rec.id);
+			const fallback = sections[0], sub = subs[fallback]?.[0] || "General";
+			delete subs[rec.id];
+			return {
+				...state,
+				sections,
+				subsections: subs,
+				tasks: state.tasks.map((t) => t.section === rec.id ? {
+					...t,
+					section: fallback,
+					subsection: sub
+				} : t)
+			};
+		}
+		case "rename_subsection": {
+			const i = (exp?.subsections || []).findIndex((s, k) => s !== rec.subsections[k]);
+			const from = exp.subsections[i], to = rec.subsections[i];
+			return {
+				...state,
+				subsections: {
+					...subs,
+					[rec.id]: rec.subsections
+				},
+				tasks: state.tasks.map((t) => t.section === rec.id && (t.subsection || "General") === from ? {
+					...t,
+					subsection: to
+				} : t)
+			};
+		}
+		case "delete_subsection": {
+			const removed = (exp?.subsections || []).find((s) => !rec.subsections.includes(s));
+			return {
+				...state,
+				subsections: {
+					...subs,
+					[rec.id]: rec.subsections
+				},
+				tasks: state.tasks.map((t) => t.section === rec.id && (t.subsection || "General") === removed ? {
+					...t,
+					subsection: rec.subsections[0]
+				} : t)
+			};
+		}
+		default: throw new Error(`Unknown section change ${m.action}`);
+	}
+}
 const sameName = (a, b) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
 function groupName(value, label) {
 	if (typeof value !== "string" || !value.trim()) throw new Error(`${label} name must be nonempty.`);
@@ -1235,6 +1666,43 @@ function registerTaskGroup(state, section, subsection) {
 	};
 }
 function applyMutation(state, mutation) {
+	if (mutation.type === "section") return applySectionChange(state, mutation);
+	if (mutation.type === "workspace") {
+		const workspace = mutation.record;
+		return mutation.remove ? removeWorkspace(state, workspace.id) : {
+			...state,
+			workspaces: upsert(state.workspaces || [], workspace)
+		};
+	}
+	if (mutation.type === "folder") {
+		const folder = mutation.record;
+		if (!mutation.remove) return {
+			...state,
+			noteFolders: upsert(state.noteFolders || [], folder)
+		};
+		const parent = folder.parentId || null;
+		return {
+			...state,
+			knowledgeItems: state.knowledgeItems.map((n) => n.folderId === folder.id ? {
+				...n,
+				folderId: parent
+			} : n),
+			noteFolders: (state.noteFolders || []).filter((f) => f.id !== folder.id).map((f) => f.parentId === folder.id ? {
+				...f,
+				parentId: parent
+			} : f)
+		};
+	}
+	if (mutation.type === "course" && mutation.remove) {
+		const study = studyOf(state);
+		return {
+			...state,
+			study: {
+				...study,
+				...removeCourse(study, mutation.record.id).study
+			}
+		};
+	}
 	if (mutation.type in STUDY_COLLECTIONS) {
 		const key = STUDY_COLLECTIONS[mutation.type];
 		const study = studyOf(state);
@@ -1264,6 +1732,19 @@ function applyMutation(state, mutation) {
 					workspaces: [...next.workspaces || [], workspace]
 				};
 			}
+			const before = mutation.expected;
+			const oldLabel = before && (before.code || before.name), newLabel = course.code || course.name;
+			if (oldLabel && oldLabel !== newLabel && (next.subsections["Academic"] || []).includes(oldLabel)) next = {
+				...next,
+				subsections: {
+					...next.subsections,
+					[ACADEMIC_SECTION]: next.subsections[ACADEMIC_SECTION].map((s) => s === oldLabel ? newLabel : s)
+				},
+				tasks: next.tasks.map((t) => t.section === "Academic" && t.subsection === oldLabel ? {
+					...t,
+					subsection: newLabel
+				} : t)
+			};
 			next = linkCourseToTasks(next, course);
 		}
 		return next;
@@ -1283,6 +1764,23 @@ function applyMutation(state, mutation) {
 		...state,
 		[key]: exists ? list.map((r) => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record]
 	};
+}
+function findIn(list, id, label) {
+	const found = (list || []).find((r) => r.id === id);
+	if (!found) throw new Error(`${label} ID not found. Look it up first; do not guess IDs.`);
+	return found;
+}
+const findTracker = (state, id) => findIn(state.trackerItems, id, "Tracker");
+/** A Career workspace by ID, or the main one. Tracker entries only show up in Career workspaces. */
+function careerWorkspace(state, id) {
+	if (!id) return (state.workspaces || []).find((w) => w.id === "workspace-career" || w.template === "career")?.id || "workspace-career";
+	const w = findIn(state.workspaces, id, "Workspace");
+	if (w.template !== "career") throw new Error("Tracker entries can only go in a Career workspace.");
+	return w.id;
+}
+/** Uploaded files are stored apart from records, so deleting them is left to the app, which removes both. */
+function noUploadedDocuments(count, what) {
+	if (count) throw new Error(`This ${what} has ${count} uploaded document${count === 1 ? "" : "s"}. Delete it from the app so the files are removed too, or delete the documents there first.`);
 }
 function prepareMutation(name, args, state) {
 	const today = getLocalDateString();
@@ -1617,20 +2115,14 @@ function prepareMutation(name, args, state) {
 		}
 		case "create_tracker_item": {
 			const stages = args.kind === "leetcode" ? PROBLEM_STAGES : APPLICATION_STAGES;
-			const status = args.status || (args.kind === "job_application" && args.appliedDate ? "applied" : "not_started");
+			const status = args.status || (args.kind === "job_application" && args.appliedDate ? "applied" : args.kind === "leetcode" && args.lastPractice ? "done" : "not_started");
 			if (!stages.some((s) => s.id === status)) throw new Error(`Status ${status} is not valid for ${args.kind}.`);
 			if (args.kind === "job_application" && !args.company?.trim()) throw new Error("Company is required for a job application.");
-			for (const field of ["appliedDate", "followUpDate"]) if (args[field]) validDate(args[field]);
 			const url = args.url ? safeTrackerUrl(args.url.trim()) : void 0;
 			if (args.url && !url) throw new Error("Links must be full http:// or https:// URLs.");
+			const workspaceId = careerWorkspace(state, args.workspaceId);
 			const now = (/* @__PURE__ */ new Date()).toISOString();
-			const fields = Object.fromEntries([
-				"appliedDate",
-				"followUpDate",
-				"location",
-				"difficulty",
-				"topic"
-			].filter((k) => args[k]).map((k) => [k, String(args[k]).trim()]));
+			const fields = readTrackerFields(args.kind, args);
 			if (args.kind === "leetcode" && !fields.difficulty) fields.difficulty = "Medium";
 			const title = args.title.trim();
 			return {
@@ -1638,7 +2130,7 @@ function prepareMutation(name, args, state) {
 				action: name,
 				record: {
 					id,
-					workspaceId: CAREER_WORKSPACE_ID,
+					workspaceId,
 					kind: args.kind,
 					title,
 					subject: args.kind === "leetcode" ? title : args.company.trim(),
@@ -1655,28 +2147,22 @@ function prepareMutation(name, args, state) {
 			};
 		}
 		case "update_tracker_item": {
-			const item = (state.trackerItems || []).find((t) => t.id === args.trackerId);
-			if (!item) throw new Error("Tracker ID not found. Query tracker records; do not guess IDs.");
-			if (![
-				args.newTitle,
-				args.status,
-				args.appliedDate,
-				args.followUpDate,
-				args.location,
-				args.appendNotes
-			].some((v) => v !== void 0)) throw new Error("Supply at least one field to update.");
+			const item = findTracker(state, args.trackerId);
+			const { trackerId: _id, ...changes } = args;
+			if (!Object.keys(changes).length) throw new Error("Supply at least one field to update.");
 			const stages = item.kind === "leetcode" ? PROBLEM_STAGES : APPLICATION_STAGES;
 			if (args.status && !stages.some((s) => s.id === args.status)) throw new Error(`Status ${args.status} is not valid for ${item.kind}.`);
-			for (const field of ["appliedDate", "followUpDate"]) if (args[field]) validDate(args[field]);
+			if (args.newCompany && item.kind !== "job_application") throw new Error("Only applications have a company.");
+			if (args.appendNotes !== void 0 && args.replaceNotes !== void 0) throw new Error("Use appendNotes or replaceNotes, not both.");
+			const url = args.newUrl ? safeTrackerUrl(args.newUrl.trim()) : void 0;
+			if (args.newUrl && !url) throw new Error("Links must be full http:// or https:// URLs.");
 			const fields = {
 				...item.fields,
-				...Object.fromEntries([
-					"appliedDate",
-					"followUpDate",
-					"location"
-				].filter((k) => args[k]).map((k) => [k, String(args[k]).trim()]))
+				...readTrackerFields(item.kind, args)
 			};
+			for (const key of args.clearFields || []) delete fields[key];
 			const title = args.newTitle?.trim();
+			const notes = args.replaceNotes !== void 0 ? args.replaceNotes.trim() : args.appendNotes ? [item.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") : item.notes;
 			return {
 				type: "tracker",
 				action: name,
@@ -1684,14 +2170,38 @@ function prepareMutation(name, args, state) {
 				record: {
 					...item,
 					fields,
+					notes,
 					...args.status ? { status: args.status } : {},
 					...title ? {
 						title,
 						...item.kind === "leetcode" ? { subject: title } : {}
 					} : {},
-					...args.appendNotes ? { notes: [item.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") } : {},
+					...args.newCompany ? { subject: args.newCompany.trim() } : {},
+					...url ? { subjectUrl: url } : {},
+					...args.moveToWorkspaceId ? { workspaceId: careerWorkspace(state, args.moveToWorkspaceId) } : {},
 					updatedAt: (/* @__PURE__ */ new Date()).toISOString()
 				}
+			};
+		}
+		case "log_practice": {
+			const item = findTracker(state, args.trackerId);
+			if (item.kind !== "leetcode") throw new Error("Only practice problems can be logged; update the application's stage instead.");
+			if (args.date) validDate(args.date);
+			return {
+				type: "tracker",
+				action: name,
+				expected: item,
+				record: logSolve(item, args.date ? /* @__PURE__ */ new Date(`${args.date}T12:00:00`) : /* @__PURE__ */ new Date())
+			};
+		}
+		case "delete_tracker_item": {
+			const item = findTracker(state, args.trackerId);
+			return {
+				type: "tracker",
+				action: name,
+				expected: item,
+				record: item,
+				remove: true
 			};
 		}
 		case "create_course": {
@@ -1870,6 +2380,373 @@ function prepareMutation(name, args, state) {
 				}
 			};
 		}
+		case "create_workspace": {
+			const workspaceName = groupName(args.name, "Workspace").slice(0, 80);
+			if ((state.workspaces || []).some((w) => sameName(w.name, workspaceName))) throw new Error("A workspace with this name already exists.");
+			return {
+				type: "workspace",
+				action: name,
+				record: {
+					id,
+					name: workspaceName,
+					description: args.description?.trim() || "",
+					template: args.template,
+					color: args.color || (args.template === "academic" ? "blue" : "purple"),
+					notes: "",
+					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+				}
+			};
+		}
+		case "update_workspace": {
+			const w = findIn(state.workspaces, args.workspaceId, "Workspace");
+			if (args.appendNotes !== void 0 && args.replaceNotes !== void 0) throw new Error("Use appendNotes or replaceNotes, not both.");
+			if (args.color && !WORKSPACE_COLORS.includes(args.color)) throw new Error("Unknown color.");
+			const notes = args.replaceNotes !== void 0 ? args.replaceNotes : args.appendNotes ? [w.notes.trimEnd(), args.appendNotes.trim()].filter(Boolean).join("\n\n") : w.notes;
+			return {
+				type: "workspace",
+				action: name,
+				expected: w,
+				record: {
+					...w,
+					notes,
+					...args.newName ? { name: groupName(args.newName, "Workspace").slice(0, 80) } : {},
+					...args.description !== void 0 ? { description: args.description.trim() } : {},
+					...args.color ? { color: args.color } : {}
+				}
+			};
+		}
+		case "delete_workspace": {
+			const w = findIn(state.workspaces, args.workspaceId, "Workspace");
+			const study = studyOf(state);
+			const courseIds = new Set(study.courses.filter((c) => c.workspaceId === w.id).map((c) => c.id));
+			noUploadedDocuments(study.documents.filter((d) => courseIds.has(d.courseId)).length, "workspace");
+			return {
+				type: "workspace",
+				action: name,
+				expected: w,
+				record: w,
+				remove: true
+			};
+		}
+		case "create_section": {
+			const section = groupName(args.section, "Section");
+			if (state.sections.some((x) => sameName(x, section)) && args.subsection === void 0) throw new Error("This section already exists.");
+			const existing = state.sections.find((x) => sameName(x, section)) || section;
+			const sub = args.subsection === void 0 ? "General" : groupName(args.subsection, "Subsection");
+			const subs = state.subsections[existing] || [];
+			if (subs.some((x) => sameName(x, sub))) throw new Error("This subsection already exists.");
+			return {
+				type: "section",
+				action: name,
+				record: {
+					id: existing,
+					name: existing,
+					subsections: [...subs, sub]
+				}
+			};
+		}
+		case "rename_section":
+		case "delete_section":
+		case "rename_subsection":
+		case "delete_subsection": {
+			const current = sectionRecords(state).find((x) => sameName(x.id, String(args.section)));
+			if (!current) throw new Error(`Section not found. The sections are: ${state.sections.join(", ")}.`);
+			if (name === "rename_section") {
+				const newName = groupName(args.newName, "Section");
+				if (state.sections.some((x) => x !== current.id && sameName(x, newName))) throw new Error("Another section already has that name.");
+				return {
+					type: "section",
+					action: name,
+					expected: current,
+					record: {
+						...current,
+						name: newName
+					}
+				};
+			}
+			if (name === "delete_section") {
+				if (state.sections.length < 2) throw new Error("The last section can't be deleted.");
+				return {
+					type: "section",
+					action: name,
+					expected: current,
+					record: current
+				};
+			}
+			const sub = current.subsections.find((x) => sameName(x, String(args.subsection)));
+			if (!sub) throw new Error(`Subsection not found in ${current.id}. Its subsections are: ${current.subsections.join(", ") || "none"}.`);
+			if (name === "rename_subsection") {
+				const newName = groupName(args.newName, "Subsection");
+				if (current.subsections.some((x) => x !== sub && sameName(x, newName))) throw new Error("Another subsection already has that name.");
+				return {
+					type: "section",
+					action: name,
+					expected: current,
+					record: {
+						...current,
+						subsections: current.subsections.map((x) => x === sub ? newName : x)
+					}
+				};
+			}
+			if (current.subsections.length < 2) throw new Error("A section needs at least one subsection; delete or rename the section instead.");
+			return {
+				type: "section",
+				action: name,
+				expected: current,
+				record: {
+					...current,
+					subsections: current.subsections.filter((x) => x !== sub)
+				}
+			};
+		}
+		case "delete_goal": {
+			const g = findIn(state.goals, args.goalId, "Goal");
+			return {
+				type: "goal",
+				action: name,
+				expected: g,
+				record: g,
+				remove: true
+			};
+		}
+		case "update_habit": {
+			const h = findIn(state.habits, args.habitId, "Habit");
+			const { habitId: _h, ...changes } = args;
+			if (!Object.keys(changes).length) throw new Error("Supply at least one field to update.");
+			if (args.unmarkDate) validDate(args.unmarkDate);
+			const newName = args.newName?.trim();
+			if (newName && state.habits.some((x) => x.id !== h.id && sameName(x.name, newName))) throw new Error("A habit with this name already exists.");
+			const history = { ...h.history };
+			if (args.unmarkDate) delete history[args.unmarkDate];
+			return {
+				type: "habit",
+				action: name,
+				expected: h,
+				record: syncHabitStreaks({
+					...h,
+					history,
+					...newName ? { name: newName } : {},
+					...args.frequency ? { frequency: args.frequency } : {},
+					...args.timeOfDay ? { timeOfDay: args.timeOfDay } : {},
+					...args.description !== void 0 ? { description: args.description.trim() } : {}
+				})
+			};
+		}
+		case "delete_habit": {
+			const h = findIn(state.habits, args.habitId, "Habit");
+			return {
+				type: "habit",
+				action: name,
+				expected: h,
+				record: h,
+				remove: true
+			};
+		}
+		case "update_journal_entry": {
+			const j = findIn(state.journalEntries, args.entryId, "Journal entry");
+			const { entryId: _j, ...changes } = args;
+			if (!Object.keys(changes).length) throw new Error("Supply at least one field to update.");
+			if (args.appendContent !== void 0 && args.replaceContent !== void 0) throw new Error("Use appendContent or replaceContent, not both.");
+			const content = args.replaceContent !== void 0 ? args.replaceContent : args.appendContent ? [j.content.trimEnd(), args.appendContent.trim()].filter(Boolean).join("\n\n") : j.content;
+			return {
+				type: "journal",
+				action: name,
+				expected: j,
+				record: {
+					...j,
+					content,
+					...args.newTitle ? { title: args.newTitle.trim() } : {},
+					...args.mood ? { mood: args.mood } : {},
+					wins: [...j.wins, ...args.addWins || []],
+					challenges: [...j.challenges, ...args.addChallenges || []]
+				}
+			};
+		}
+		case "delete_journal_entry": {
+			const j = findIn(state.journalEntries, args.entryId, "Journal entry");
+			return {
+				type: "journal",
+				action: name,
+				expected: j,
+				record: j,
+				remove: true
+			};
+		}
+		case "delete_note": {
+			const n = findIn(state.knowledgeItems, args.noteId, "Note");
+			return {
+				type: "knowledge",
+				action: name,
+				expected: n,
+				record: n,
+				remove: true
+			};
+		}
+		case "create_note_folder": {
+			if (args.parentId) findIn(state.noteFolders, args.parentId, "Folder");
+			const folderName = groupName(args.name, "Folder");
+			if ((state.noteFolders || []).some((f) => (f.parentId || null) === (args.parentId || null) && sameName(f.name, folderName))) throw new Error("A folder with this name already exists here.");
+			const now = (/* @__PURE__ */ new Date()).toISOString();
+			return {
+				type: "folder",
+				action: name,
+				record: {
+					id,
+					name: folderName,
+					parentId: args.parentId || null,
+					createdAt: now,
+					updatedAt: now
+				}
+			};
+		}
+		case "update_note_folder": {
+			const f = findIn(state.noteFolders, args.folderId, "Folder");
+			if (args.newName === void 0 && args.parentId === void 0) throw new Error("Supply newName or parentId.");
+			const parentId = args.parentId === void 0 ? f.parentId : args.parentId === "root" ? null : findIn(state.noteFolders, args.parentId, "Folder").id;
+			for (let p = parentId; p; p = (state.noteFolders || []).find((x) => x.id === p)?.parentId || null) if (p === f.id) throw new Error("A folder can't be moved inside itself.");
+			return {
+				type: "folder",
+				action: name,
+				expected: f,
+				record: {
+					...f,
+					parentId,
+					...args.newName ? { name: groupName(args.newName, "Folder") } : {},
+					updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+				}
+			};
+		}
+		case "delete_note_folder": {
+			const f = findIn(state.noteFolders, args.folderId, "Folder");
+			return {
+				type: "folder",
+				action: name,
+				expected: f,
+				record: f,
+				remove: true
+			};
+		}
+		case "update_course": {
+			const study = studyOf(state);
+			const c = findIn(study.courses, args.courseId, "Course");
+			if (![
+				args.newName,
+				args.newCode,
+				args.term,
+				args.instructor
+			].some((v) => v !== void 0)) throw new Error("Supply at least one field to update.");
+			const code = args.newCode?.trim();
+			if (code && study.courses.some((x) => x.id !== c.id && x.code.toLocaleLowerCase() === code.toLocaleLowerCase())) throw new Error("Another course already has that code.");
+			return {
+				type: "course",
+				action: name,
+				expected: c,
+				record: {
+					...c,
+					...args.newName ? { name: args.newName.trim() } : {},
+					...code ? { code } : {},
+					...args.term !== void 0 ? { term: args.term.trim() } : {},
+					...args.instructor !== void 0 ? { instructor: args.instructor.trim() } : {},
+					updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+				}
+			};
+		}
+		case "delete_course": {
+			const study = studyOf(state);
+			const c = findIn(study.courses, args.courseId, "Course");
+			noUploadedDocuments(study.documents.filter((d) => d.courseId === c.id).length, "course");
+			return {
+				type: "course",
+				action: name,
+				expected: c,
+				record: c,
+				remove: true
+			};
+		}
+		case "update_flashcard_deck": {
+			const deck = findIn(studyOf(state).decks, args.deckId, "Deck");
+			if (args.newTitle === void 0 && !args.editCards?.length && !args.removeCards?.length) throw new Error("Supply newTitle, editCards or removeCards.");
+			const check = (n) => {
+				if (n > deck.cards.length) throw new Error(`Card ${n} doesn't exist; the deck has ${deck.cards.length} cards.`);
+			};
+			for (const e of args.editCards || []) {
+				check(e.number);
+				if (e.front === void 0 && e.back === void 0) throw new Error("Each edited card needs a new front or back.");
+			}
+			(args.removeCards || []).forEach(check);
+			const removed = new Set(args.removeCards || []);
+			const cards = deck.cards.map((card, i) => {
+				const edit = (args.editCards || []).find((e) => e.number === i + 1);
+				return edit ? {
+					...card,
+					...edit.front ? { front: edit.front.slice(0, 2e3) } : {},
+					...edit.back ? { back: edit.back.slice(0, 2e3) } : {}
+				} : card;
+			}).filter((_, i) => !removed.has(i + 1));
+			if (!cards.length) throw new Error("That would remove every card; delete the deck instead.");
+			return {
+				type: "deck",
+				action: name,
+				expected: deck,
+				record: {
+					...deck,
+					cards,
+					...args.newTitle ? { title: args.newTitle.trim().slice(0, 120) } : {},
+					updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+				}
+			};
+		}
+		case "delete_flashcard_deck": {
+			const d = findIn(studyOf(state).decks, args.deckId, "Deck");
+			return {
+				type: "deck",
+				action: name,
+				expected: d,
+				record: d,
+				remove: true
+			};
+		}
+		case "update_quiz": {
+			const study = studyOf(state);
+			const quiz = findIn(study.quizzes, args.quizId, "Quiz");
+			if (args.newTitle === void 0 && !args.addQuestions?.length && !args.removeQuestions?.length) throw new Error("Supply newTitle, addQuestions or removeQuestions.");
+			for (const n of args.removeQuestions || []) if (n > quiz.questions.length) throw new Error(`Question ${n} doesn't exist; the quiz has ${quiz.questions.length} questions.`);
+			const docIds = new Set(study.documents.map((d) => d.id));
+			const added = (args.addQuestions || []).map((q, i) => {
+				if (q.sourceDocumentId && !docIds.has(String(q.sourceDocumentId))) throw new Error(`Unknown document ID ${q.sourceDocumentId}.`);
+				const question = normalizeQuestion({
+					...q,
+					sourceDocId: q.sourceDocumentId,
+					id: crypto.randomUUID()
+				});
+				if (!question || question.type !== q.type) throw new Error(`New question ${i + 1} is invalid: multiple choice needs 2-6 choices and a valid answerIndex; short answer needs an answer.`);
+				return question;
+			});
+			const removed = new Set(args.removeQuestions || []);
+			const questions = [...quiz.questions.filter((_, i) => !removed.has(i + 1)), ...added];
+			if (!questions.length) throw new Error("That would remove every question; delete the quiz instead.");
+			return {
+				type: "quiz",
+				action: name,
+				expected: quiz,
+				record: {
+					...quiz,
+					questions,
+					...args.newTitle ? { title: args.newTitle.trim().slice(0, 120) } : {},
+					sourceDocIds: [.../* @__PURE__ */ new Set([...quiz.sourceDocIds, ...added.map((q) => q.sourceDocId).filter((x) => !!x)])]
+				}
+			};
+		}
+		case "delete_quiz": {
+			const q = findIn(studyOf(state).quizzes, args.quizId, "Quiz");
+			return {
+				type: "quiz",
+				action: name,
+				expected: q,
+				record: q,
+				remove: true
+			};
+		}
 		default: throw new Error(`Unknown mutation ${name}`);
 	}
 }
@@ -1915,7 +2792,32 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"set_course_grading",
 	"record_grade",
 	"create_flashcard_deck",
-	"create_quiz"
+	"create_quiz",
+	"delete_tracker_item",
+	"log_practice",
+	"create_workspace",
+	"update_workspace",
+	"delete_workspace",
+	"create_section",
+	"rename_section",
+	"delete_section",
+	"rename_subsection",
+	"delete_subsection",
+	"delete_goal",
+	"update_habit",
+	"delete_habit",
+	"update_journal_entry",
+	"delete_journal_entry",
+	"delete_note",
+	"create_note_folder",
+	"update_note_folder",
+	"delete_note_folder",
+	"update_course",
+	"delete_course",
+	"update_flashcard_deck",
+	"delete_flashcard_deck",
+	"update_quiz",
+	"delete_quiz"
 ]);
 /**
 * Unknown tools are treated as the riskiest tier, so a new integration is gated until it is classified.

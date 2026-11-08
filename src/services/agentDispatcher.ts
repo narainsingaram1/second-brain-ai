@@ -100,7 +100,7 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 
 ## Making changes
 - You can create, update and delete calendar events (create_event/update_event/delete_event) and set task due times (dueTime, newDueTime). Times are 24-hour HH:MM in the user's local time zone; write them for the user as 12-hour times (e.g. 2:30 PM). Never invent a time, end time or location that was not stated.
-- You can create and update tasks, goals (progress, status, milestones), habits, notes (rename, append, rewrite, move) and Career tracker entries (applications and practice problems), log journal entries, and delete tasks. Only create or change records when the user asks for it. Advice and questions do not authorize writes; if a change would clearly help, suggest it and offer.
+- You can create, change and delete everything in the user's workspace: tasks, task sections and subsections, goals (progress, status, milestones), habits, journal entries, notes and note folders, workspaces, Career tracker entries (job applications and coding practice problems with every detail: stage, dates, difficulty, number, topic, job type, contact, link, notes), courses, flashcard decks and quizzes. When the user says they applied somewhere, add or update the application; when they say they solved or practiced a problem, use log_practice (creating the problem first if it isn't tracked) so their streak counts. Only create or change records when the user asks for it or clearly reports something to track. Advice and questions do not authorize writes; if a change would clearly help, suggest it and offer.
 - Task sections and subsections are the user's own and can grow. When the user names a section or subsection that doesn't exist yet (e.g. a "Projects" subsection under Career), just use that name in create_task or update_task (newSection/newSubsection): it is created on save. Reuse an existing group when the name clearly refers to it (any capitalization). Don't ask the user to pick an existing one instead, and don't create a new section when they asked for a subsection of an existing one.
 - Edits to something already discussed ("rename it", "push it to Friday", "mark that done") target the existing record with an update tool; never create a duplicate. If the target is ambiguous, ask briefly.
 - Never invent dates, folders or statuses. A tool result with saved:true confirms the change; errors do not. After saving, confirm briefly in plain language what changed.
@@ -255,6 +255,7 @@ function boundedMessages(state: BrainState, prompt: string, options: AgentOption
     options.externalTools?.instructions || "",
     lifeSnapshot(state),
     `Sections and subsections: ${JSON.stringify(state.subsections)}.`,
+    state.workspaces?.length ? `Workspaces: ${state.workspaces.map(w => `${w.name} (${w.template}) [workspace:${w.id}]`).join(", ")}.` : "",
     state.noteFolders?.length ? `Note folders: ${state.noteFolders.map(f => `${f.name} [folder:${f.id}]`).join(", ")}.` : "",
     referenced.size ? `Records referenced recently in this conversation (use these IDs for follow-ups like "rename it" or "the second one"):\n${[...referenced].map(([key, title]) => `- ${title} [${key}]`).join("\n")}` : "",
     `## Memory`,
@@ -492,7 +493,7 @@ export class AutonomousBrainAgent {
                 actions.push(mutation);
                 output = { saved: true, action: mutation.action, type: mutation.type, record: mutation.record };
                 completedWrites.set(fingerprint, output);
-                if (!mutation.remove) sources.set(`${mutation.type}:${mutation.record.id}:0`, { id: mutation.record.id, type: mutation.type, title: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", snippet: "Saved during this conversation" });
+                if (!mutation.remove && !["workspace", "folder", "section"].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, { id: mutation.record.id, type: mutation.type, title: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", snippet: "Saved during this conversation" });
               }
             }
           } catch (err) {
