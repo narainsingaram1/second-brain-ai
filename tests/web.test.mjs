@@ -8,6 +8,7 @@ const web = await server.ssrLoadModule('/src/services/webTools.ts');
 const { serverWebAccess } = await server.ssrLoadModule('/server/lib/webAccess.ts');
 const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
 const { toolTier, readsUntrustedContent } = await server.ssrLoadModule('/src/services/actionPolicy.ts');
+const { readHandlers } = await server.ssrLoadModule('/server/routes/read.ts');
 
 const signal = () => new AbortController().signal;
 const html = (body, headers = {}) => new Response(body, { headers: { 'content-type': 'text/html; charset=utf-8', ...headers } });
@@ -133,4 +134,39 @@ test('combined toolsets route each call to the set that owns it', async () => {
   assert.match(both.instructions, /## Web[\s\S]*## Google/);
   assert.equal((await both.execute('search_email', {}, signal())).output, 'mail');
   assert.equal(web.combineToolsets(undefined, google), google);
+});
+
+test('the app server reads links for the browser, which cannot read most sites itself', async () => {
+  let signedIn = 0;
+  const deps = { caller: async request => { if (!request.headers.get('authorization')) { const e = new (await server.ssrLoadModule('/server/lib/http.ts')).HttpError(401, 'Sign in to continue.'); throw e; } signedIn++; return {}; },
+    web: () => access({ 'https://jobs.example.com/1': () => html('<title>Engineer at Acme</title><p>Build things.</p>') }) };
+  const { POST } = readHandlers(deps);
+  const call = (host, body, headers = {}) => POST(new Request(`http://${host}/api/read`, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }));
+
+  // The local dev server answers without a sign-in.
+  const local = await call('localhost:1420', { url: 'https://jobs.example.com/1' });
+  assert.equal(local.status, 200);
+  const page = await local.json();
+  assert.equal(page.title, 'Engineer at Acme');
+  assert.equal(page.untrusted, true);
+  // A deployed server requires one, so it can't be used as an open proxy.
+  assert.equal((await call('synapse.example.com', { url: 'https://jobs.example.com/1' })).status, 401);
+  assert.equal((await call('synapse.example.com', { url: 'https://jobs.example.com/1' }, { authorization: 'Bearer t' })).status, 200);
+  assert.equal(signedIn, 1);
+  // Other websites can't make it fetch for them, and private addresses stay refused.
+  assert.equal((await call('localhost:1420', { url: 'https://jobs.example.com/1' }, { origin: 'https://evil.example' })).status, 403);
+  assert.equal((await POST(new Request('http://localhost:1420/api/read', { method: 'POST', headers: { 'content-type': 'text/plain' }, body: '{}' }))).status, 415);
+  const blocked = await call('localhost:1420', { url: 'http://169.254.169.254/latest' });
+  assert.equal(blocked.status, 422);
+  assert.match((await blocked.json()).error, /private|this computer/i);
+});
+
+test('the browser reads links through its relay first and fetches directly only without one', async () => {
+  const direct = access({ 'https://example.com/a': () => html('<title>Direct</title><p>Hi</p>') });
+  const relayed = await web.readUrl('https://example.com/a', 0, { ...direct, relay: async () => ({ title: 'Relayed', text: 'Hi' }) }, signal());
+  assert.equal(relayed.title, 'Relayed');
+  assert.equal(direct.seen.length, 0);
+  const fallback = await web.readUrl('https://example.com/a', 0, { ...direct, relay: async () => null }, signal());
+  assert.equal(fallback.title, 'Direct');
+  await assert.rejects(web.readUrl('http://10.0.0.1/', 0, { ...direct, relay: async () => { throw new Error('should not be asked'); } }, signal()), /private|this computer/i);
 });
