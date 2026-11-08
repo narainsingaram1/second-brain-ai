@@ -7,7 +7,7 @@ import type { Mutation } from "./brainTools";
 export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible";
 
 const READ = new Set(["query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
-  "list_calendar_events", "search_email", "read_email"]);
+  "list_calendar_events", "search_email", "read_email", "read_url", "web_search"]);
 /** Actions outside Synapse that can be undone there (a draft is not sent; an event without guests notifies no one). */
 const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_event"]);
 const MEMORY = new Set(["remember_memory", "update_memory", "forget_memory"]);
@@ -29,7 +29,7 @@ export function toolTier(name: string, args: Record<string, unknown> = {}): Tool
 
 /** Reads whose content came from somewhere other than the user's own words in this conversation. */
 export function readsUntrustedContent(tool: string, sourceTypes: string[]): boolean {
-  return tool === "recall_conversation" || tool === "search_conversations" || tool === "search_email" || tool === "read_email" || sourceTypes.includes("document");
+  return tool === "recall_conversation" || tool === "search_conversations" || tool === "search_email" || tool === "read_email" || tool === "read_url" || tool === "web_search" || sourceTypes.includes("document");
 }
 
 export interface TurnContext {
@@ -52,7 +52,7 @@ export function approvalReason(tool: string, ctx: TurnContext, args: Record<stri
   if (tool.startsWith("delete_")) return "Deleting needs your approval.";
   if (ctx.askBeforeChanges) return "You asked to approve every change.";
   // After reading content the user did not write, the model may only add records, not change or remove them.
-  if (ctx.untrustedRead && !tool.startsWith("create_") && tool !== "log_journal") return "This change came after reading an email, an uploaded document or a past conversation, which could contain instructions that are not yours.";
+  if (ctx.untrustedRead && !tool.startsWith("create_") && tool !== "log_journal") return "This change came after reading an email, a web page, an uploaded document or a past conversation, which could contain instructions that are not yours.";
   if (ctx.changes >= BULK_CHANGE_LIMIT) return `This would be more than ${BULK_CHANGE_LIMIT} changes in one request.`;
   return null;
 }

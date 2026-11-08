@@ -54,7 +54,7 @@ export function agentHandlers(deps: Deps = productionDeps) {
             // Google tools are offered only when connected and only for the access granted.
             const google = await googleSession(deps, store).catch(() => null);
             const tools = google ? googleToolset(google, store, input.timeZone || "UTC") : undefined;
-            await runServerAgent(store, key, input, send, request.signal, tools);
+            await runServerAgent(store, key, input, send, request.signal, tools, deps.web?.());
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500;
             if (!(error instanceof HttpError)) console.error("[api/agent] turn failed", error);

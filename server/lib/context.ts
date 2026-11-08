@@ -3,6 +3,8 @@ import { keyring, openSecret } from "./crypto";
 import { serverEnv } from "./env";
 import { HttpError } from "./http";
 import { supabaseStore, type ServerStore } from "./store";
+import { serverWebAccess } from "./webAccess";
+import type { WebAccess } from "../../src/services/webTools";
 
 /** What a route needs from the outside world; tests swap in an in-memory store and a fixed key. */
 export interface GoogleConfig { clientId: string; clientSecret: string; redirectUri: string }
@@ -13,6 +15,8 @@ export interface Deps {
   google?(): Omit<GoogleConfig, "redirectUri"> & { redirectUri?: string } | null;
   /** Network access to Google's APIs (mocked in tests). */
   googleFetch?: typeof fetch;
+  /** Network access for opening links the user shares; without it the assistant has no web tools. */
+  web?: () => WebAccess;
 }
 
 export const productionDeps: Deps = {
@@ -26,6 +30,7 @@ export const productionDeps: Deps = {
     return env.googleClientId && env.googleClientSecret ? { clientId: env.googleClientId, clientSecret: env.googleClientSecret, redirectUri: env.googleRedirectUri || undefined } : null;
   },
   googleFetch: (...args) => fetch(...args),
+  web: () => serverWebAccess(),
 };
 
 export async function secretsAvailable(deps: Deps): Promise<boolean> {

@@ -7,6 +7,7 @@ import { RecordSync, type SavedRecord } from "../../src/services/recordSync";
 import type { PreparedImage } from "../../src/utils/imageInput";
 import { HttpError } from "./http";
 import type { ServerStore } from "./store";
+import { combineToolsets, webToolset, type WebAccess } from "../../src/services/webTools";
 
 /** The saved workspace, loaded as the user, with defaults for collections that have no records yet. */
 export async function loadWorkspace(store: ServerStore): Promise<{ engine: RecordSync; workspace: BrainState }> {
@@ -50,7 +51,7 @@ const recordTitle = (m: Mutation) => ("name" in m.record ? m.record.name : (m.re
  * revision checks as the browser; a record edited elsewhere during the turn is not overwritten. Each saved
  * change is audited and streamed back so the browser can show it at once.
  */
-export async function runServerAgent(store: ServerStore, key: string, input: AgentRequest, emit: (event: AgentEvent) => void, signal: AbortSignal, externalTools?: ExternalToolset): Promise<void> {
+export async function runServerAgent(store: ServerStore, key: string, input: AgentRequest, emit: (event: AgentEvent) => void, signal: AbortSignal, externalTools?: ExternalToolset, web?: WebAccess): Promise<void> {
   const { engine, workspace } = await loadWorkspace(store);
   // `stored` is the workspace as saved; the agent's own working copy also carries this conversation.
   let stored = workspace;
@@ -80,7 +81,7 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     images: input.images,
     visionModel: input.visionModel,
     timeZone: input.timeZone,
-    externalTools,
+    externalTools: combineToolsets(web ? webToolset(web, key, state.selectedModel) : undefined, externalTools),
     retrieval: {
       documentText: id => texts.get(id),
       embeddingCache: { get: k => store.getEmbedding(k), put: (k, v) => store.putEmbedding(k, v) },

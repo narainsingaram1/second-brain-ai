@@ -16,6 +16,7 @@ import { apiJson, serverFeatures } from "../services/serverApi";
 import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
 import { getVisionModel } from "../services/openrouter";
+import { webToolset } from "../services/webTools";
 import { learnFromTurn } from "../services/memoryHistory";
 import {
   applyMemoryChange,
@@ -301,6 +302,9 @@ export function useBrainConversation(
           signal,
           temporary,
           currentMessage: user,
+          // Search goes through the AI provider; links are fetched by this browser, so sites that block
+          // cross-origin reads can only be opened when the turn runs on the server.
+          externalTools: options.externalTools ?? webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false }, initial.openRouterKey, initial.selectedModel),
           getMemory: () =>
             isCurrent()
               ? latest.current?.agentMemory
