@@ -12,7 +12,7 @@ import { applyMutation, mutationRecords, type Mutation } from "../services/brain
 import { persistBrainState } from "../services/storage";
 import { adoptServerChanges, usesRecordStorage } from "../services/cloudSync";
 import { isServerHeldKey } from "../services/providerTransport";
-import { apiJson, serverFeatures } from "../services/serverApi";
+import { apiJson, readUrlOnServer, serverFeatures } from "../services/serverApi";
 import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
 import { getVisionModel } from "../services/openrouter";
@@ -318,9 +318,9 @@ export function useBrainConversation(
           signal,
           temporary,
           currentMessage: user,
-          // Search goes through the AI provider; links are fetched by this browser, so sites that block
-          // cross-origin reads can only be opened when the turn runs on the server.
-          externalTools: options.externalTools ?? webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false }, initial.openRouterKey, initial.selectedModel),
+          // Search goes through the AI provider. Links are read by the app's server, since browsers can't
+          // read most other sites; without a server (desktop builds) this browser tries them directly.
+          externalTools: options.externalTools ?? webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
           getMemory: () =>
             isCurrent()
               ? latest.current?.agentMemory

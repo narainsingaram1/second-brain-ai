@@ -19,6 +19,35 @@ export async function apiJson<T>(path: string, init: RequestInit = {}): Promise<
   return body as T;
 }
 
+let canRelay: boolean | undefined;
+/**
+ * Asks the app's server to read a link, because browsers can't read most other sites. Returns null when
+ * there is no server to ask (desktop builds, static hosts), so the caller fetches the page itself.
+ */
+export async function readUrlOnServer(url: string, offset: number, signal: AbortSignal): Promise<Record<string, unknown> | null> {
+  if (canRelay === false) return null;
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (managedAuthEnabled) {
+    try { headers.Authorization = `Bearer ${await accessToken()}`; } catch { return null; }
+  }
+  let response: Response;
+  try {
+    response = await fetch("/api/read", { method: "POST", headers, body: JSON.stringify({ url, offset }), signal });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    return null;
+  }
+  // Hosts without the API answer with the app's own page or a 404.
+  if (!(response.headers.get("content-type") || "").includes("application/json") || response.status === 404 || response.status === 405) {
+    canRelay = false;
+    return null;
+  }
+  const body = await response.json().catch(() => null);
+  if (response.ok && body) { canRelay = true; return body; }
+  if (response.status === 422) throw new Error(body?.error || "The page couldn't be read.");
+  return null;
+}
+
 export interface ServerFeatures { secrets: boolean; agent: boolean; approvals: boolean; google: boolean }
 const NONE: ServerFeatures = { secrets: false, agent: false, approvals: false, google: false };
 let features: Promise<ServerFeatures> | undefined;
