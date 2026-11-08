@@ -2,7 +2,7 @@ import { MemoryModal } from "./components/MemoryModal";
 import { renameTaskIcon } from "./utils/taskAppearance";
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
-import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
+import { cloudEnabled, cloudStatus, refreshCloud, REMOTE_CHANGE_EVENT } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder, CalendarEvent } from "./types";
@@ -174,18 +174,23 @@ export const App: React.FC = () => {
     return () => { disposed = true; };
   }, []);
 
+  // Pull other devices' changes every 15 s, on focus, and right after a save finds a conflict. The latest
+  // state is read when the download finishes, so the timer is not recreated on every edit.
+  const hasState = !!state;
   useEffect(() => {
-    if (!cloudEnabled || !state || conversation.busy) return;
+    if (!cloudEnabled || !hasState || conversation.busy) return;
     let disposed = false;
     const refresh = async () => {
-      if (document.hidden) return;
-      const next = await refreshCloud(state, () => !disposed);
-      if (next && !disposed) setState(next);
+      const base = latestSaveState.current;
+      if (document.hidden || !base) return;
+      const next = await refreshCloud(base, () => !disposed && latestSaveState.current?.userId === base.userId, () => latestSaveState.current);
+      if (next && !disposed) { latestSaveState.current = next; setState(next); }
     };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener("focus", refresh);
-    return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [state, conversation.busy]);
+    window.addEventListener(REMOTE_CHANGE_EVENT, refresh);
+    return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener(REMOTE_CHANGE_EVENT, refresh); };
+  }, [hasState, conversation.busy]);
 
   // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
   useEffect(() => {
