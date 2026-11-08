@@ -2,6 +2,9 @@ import type { AIMessage } from "../../src/types";
 import { productionDeps, providerKey, type Deps } from "../lib/context";
 import { HttpError, readJson, route } from "../lib/http";
 import { runServerAgent, type AgentEvent, type AgentRequest } from "../lib/serverAgent";
+import { googleSession } from "../lib/google";
+import { validTimeZone } from "../lib/googleApi";
+import { googleToolset } from "../lib/googleTools";
 
 // Vercel rejects request bodies over 4.5 MB; the browser runs larger (image-heavy) turns itself.
 const MAX_BODY = 4_400_000;
@@ -26,6 +29,7 @@ export function parseAgentRequest(body: Record<string, unknown>): AgentRequest {
     message, chatHistory: history as AIMessage[], images,
     conversationId: text(body.conversationId, 200), model: text(body.model, 200), visionModel: text(body.visionModel, 200),
     temporary: body.temporary === true,
+    timeZone: validTimeZone(body.timeZone),
   };
 }
 
@@ -47,7 +51,10 @@ export function agentHandlers(deps: Deps = productionDeps) {
             if (open) controller.enqueue(encoder.encode(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`));
           };
           try {
-            await runServerAgent(store, key, input, send, request.signal);
+            // Google tools are offered only when connected and only for the access granted.
+            const google = await googleSession(deps, store).catch(() => null);
+            const tools = google ? googleToolset(google, store, input.timeZone || "UTC") : undefined;
+            await runServerAgent(store, key, input, send, request.signal, tools);
           } catch (error) {
             const status = error instanceof HttpError ? error.status : 500;
             if (!(error instanceof HttpError)) console.error("[api/agent] turn failed", error);

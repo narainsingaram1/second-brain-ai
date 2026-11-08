@@ -4,6 +4,9 @@ import { productionDeps, type Deps } from "../lib/context";
 import { HttpError, json, readJson, route } from "../lib/http";
 import { loadWorkspace, saveWorkspace } from "../lib/serverAgent";
 import type { ServerStore } from "../lib/store";
+import { googleSession } from "../lib/google";
+import { validTimeZone } from "../lib/googleApi";
+import { googleToolset } from "../lib/googleTools";
 
 /** JSON with object keys sorted, so records compare equal regardless of how the database ordered them. */
 const canonical = (value: unknown): string => JSON.stringify(value, (_, v) => v && typeof v === "object" && !Array.isArray(v)
@@ -13,12 +16,21 @@ const canonical = (value: unknown): string => JSON.stringify(value, (_, v) => v 
  * Runs an action the user just approved. The change is prepared again from current data and refused if the
  * target record changed since the user saw the proposal. The database allows each approval to run once.
  */
-export async function executeApproved(store: ServerStore, id: string) {
+export async function executeApproved(deps: Deps, store: ServerStore, id: string) {
   const action = await store.claimAction(id);
-  const payload = action.payload as { tool?: string; args?: Record<string, unknown>; expected?: unknown };
+  const payload = action.payload as { tool?: string; args?: Record<string, unknown>; expected?: unknown; timeZone?: string };
   try {
     const tool = String(payload.tool || "");
-    if (toolTier(tool) !== "internal") throw new Error("This kind of action cannot run yet.");
+    if (toolTier(tool, payload.args) !== "internal") {
+      // Actions in connected services run with the same tools the assistant uses, as the user, once.
+      const google = await googleSession(deps, store);
+      const tools = google && googleToolset(google, store, validTimeZone(payload.timeZone));
+      if (!tools?.definitions.some(t => t.function.name === tool)) throw new Error("Connect Google in Settings to run this action.");
+      const result = await tools.execute(tool, payload.args || {}, new AbortController().signal);
+      await store.completeAction(id, true, { summary: result.summary ?? null, link: result.link ?? null });
+      return { status: "executed" as const, records: [], preferences: {}, action: tool, entityType: tool === "create_email_draft" ? "email_draft" : "google_event",
+        title: result.summary || action.summary, ...(result.link ? { link: result.link } : {}) };
+    }
     const { engine, workspace } = await loadWorkspace(store);
     const mutation = prepareMutation(tool, payload.args || {}, workspace);
     if (canonical(mutation.expected ?? null) !== canonical(payload.expected ?? null))
@@ -52,7 +64,7 @@ export function actionsHandlers(deps: Deps = productionDeps) {
       if (!id || !decision || !/^[0-9a-f]{64}$/.test(payloadHash)) throw new HttpError(400, "Invalid decision.");
       await store.decideAction(id, decision, payloadHash);
       if (decision === "reject") return json({ status: "rejected" });
-      return json(await executeApproved(store, id));
+      return json(await executeApproved(deps, store, id));
     }),
   };
 }

@@ -1,5 +1,5 @@
 import type { AIMessage, BrainState } from "../../src/types";
-import { AutonomousBrainAgent, type AgentExecutionResult } from "../../src/services/agentDispatcher";
+import { AutonomousBrainAgent, type AgentExecutionResult, type ExternalToolset } from "../../src/services/agentDispatcher";
 import { applyMutation, mutationRecords, type Mutation } from "../../src/services/brainTools";
 import { applyMemoryChange, normalizeAgentMemory } from "../../src/services/agentMemory";
 import { toolTier } from "../../src/services/actionPolicy";
@@ -33,6 +33,8 @@ export interface AgentRequest {
   visionModel?: string;
   temporary?: boolean;
   images?: PreparedImage[];
+  /** The user's IANA time zone, for dates in the prompt and in Google requests. */
+  timeZone?: string;
 }
 
 export type AgentEvent =
@@ -48,7 +50,7 @@ const recordTitle = (m: Mutation) => ("name" in m.record ? m.record.name : (m.re
  * revision checks as the browser; a record edited elsewhere during the turn is not overwritten. Each saved
  * change is audited and streamed back so the browser can show it at once.
  */
-export async function runServerAgent(store: ServerStore, key: string, input: AgentRequest, emit: (event: AgentEvent) => void, signal: AbortSignal): Promise<void> {
+export async function runServerAgent(store: ServerStore, key: string, input: AgentRequest, emit: (event: AgentEvent) => void, signal: AbortSignal, externalTools?: ExternalToolset): Promise<void> {
   const { engine, workspace } = await loadWorkspace(store);
   // `stored` is the workspace as saved; the agent's own working copy also carries this conversation.
   let stored = workspace;
@@ -77,6 +79,8 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     currentMessage: input.message,
     images: input.images,
     visionModel: input.visionModel,
+    timeZone: input.timeZone,
+    externalTools,
     retrieval: {
       documentText: id => texts.get(id),
       embeddingCache: { get: k => store.getEmbedding(k), put: (k, v) => store.putEmbedding(k, v) },
@@ -87,7 +91,7 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
       const tier = toolTier(change.tool);
       const row = await store.proposeAction({
         tool: change.tool, tier: tier === "read" ? "internal" : tier, summary: change.summary.slice(0, 2000), reason: change.reason.slice(0, 500),
-        payload: { tool: change.tool, args: change.args, expected: change.mutation.expected ?? null, details: change.details },
+        payload: { tool: change.tool, args: change.args, expected: change.mutation?.expected ?? null, details: change.details, ...(input.timeZone ? { timeZone: input.timeZone } : {}) },
         conversationId: input.conversationId, messageId: input.message.id,
       });
       return { id: row.id, tool: change.tool, summary: change.summary, details: change.details, reason: change.reason, status: "pending", remote: true, payloadHash: row.payload_hash };

@@ -256,6 +256,7 @@ export function useBrainConversation(
     const turn: RemoteTurn = {
       message: user, chatHistory: initial.chatHistory, conversationId: initial.conversationId, model: initial.selectedModel,
       visionModel: getVisionModel(), temporary, images: images.length ? images : undefined,
+      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     const runsOnServer = async () => isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
       && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;

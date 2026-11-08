@@ -1,11 +1,11 @@
 import { memoryContext, topicKey, normalizeAgentMemory, prepareMemoryChange, type MemoryChange, type AgentMemory } from "./agentMemory";
 import type { AIMessage, ApprovalRequest } from "../types";
 import { BrainState, Task } from "../types";
-import { describeImages, getVisionModel, modelSupportsImages, OpenRouterContentPart, OpenRouterMessage, queryOpenRouterWithTools } from "./openrouter";
+import { describeImages, getVisionModel, modelSupportsImages, OpenRouterContentPart, OpenRouterMessage, queryOpenRouterWithTools, type OpenRouterTool } from "./openrouter";
 import { PreparedImage, sessionImage } from "../utils/imageInput";
 import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, parseToolArguments } from "./brainTools";
 import { Source, type RetrievalContext } from "./brainRetrieval";
-import { approvalReason, describeMutation, readsUntrustedContent } from "./actionPolicy";
+import { approvalReason, describeExternal, describeMutation, readsUntrustedContent, toolTier } from "./actionPolicy";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { eventTimeLabel, formatTime, sortEvents, taskSortKey } from "../utils/events";
 import { bestScore, courseLabel, dueCards, studyOf } from "../utils/study";
@@ -24,10 +24,23 @@ export interface AgentExecutionResult {
   actions: Mutation[];
   /** Changes proposed this turn that wait for the user's decision. */
   approvals?: ApprovalRequest[];
+  /** Actions taken outside Synapse this turn (drafts saved, events created). */
+  external?: Array<{ tool: string; summary: string; link?: string }>;
   status: "complete" | "partial" | "error" | "cancelled";
 }
 /** A gated change, prepared and described, for the host to store until the user decides. */
-export interface ProposedChange { tool: string; args: Record<string, unknown>; mutation: Mutation; summary: string; details: string[]; reason: string }
+export interface ProposedChange { tool: string; args: Record<string, unknown>; mutation?: Mutation; summary: string; details: string[]; reason: string }
+
+/**
+ * Tools that reach outside Synapse (Google Calendar, Gmail), injected by the host that holds the
+ * credentials. Their reads are untrusted data; their writes go through the same approval policy.
+ */
+export interface ExternalToolset {
+  definitions: OpenRouterTool[];
+  /** Added to the per-turn context: what is connected and how to use it. */
+  instructions: string;
+  execute(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ output: unknown; summary?: string; link?: string }>;
+}
 export interface AgentOptions {
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
@@ -42,6 +55,10 @@ export interface AgentOptions {
   images?: PreparedImage[];
   /** Stores a change that needs the user's approval and returns its request. Without it, gated changes are refused. */
   propose?: (change: ProposedChange) => Promise<ApprovalRequest>;
+  /** Calendar, mail and other connected services, when the host has credentials for them. */
+  externalTools?: ExternalToolset;
+  /** The user's IANA time zone; defaults to this runtime's (which on a server is not the user's). */
+  timeZone?: string;
   /** Document text and embedding cache when running outside the browser (the server agent). */
   retrieval?: RetrievalContext;
   /** Model used to read images when the chat model cannot; defaults to the device preference. */
@@ -220,7 +237,13 @@ function boundedMessages(state: BrainState, prompt: string, options: AgentOption
   const memory = normalizeAgentMemory(state.agentMemory);
   const context = [
     `## Current context`,
-    `Time zone: ${Intl.DateTimeFormat().resolvedOptions().timeZone}. Resolve relative dates on this local calendar.`,
+    (() => {
+      const zone = options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const today = new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit", weekday: "long" }).formatToParts(new Date());
+      const part = (type: string) => today.find(p => p.type === type)?.value;
+      return `Time zone: ${zone}. Today is ${part("weekday")}, ${part("year")}-${part("month")}-${part("day")}. Resolve relative dates on this local calendar.`;
+    })(),
+    options.externalTools?.instructions || "",
     lifeSnapshot(state),
     `Sections and subsections: ${JSON.stringify(state.subsections)}.`,
     state.noteFolders?.length ? `Note folders: ${state.noteFolders.map(f => `${f.name} [folder:${f.id}]`).join(", ")}.` : "",
@@ -248,11 +271,16 @@ export class AutonomousBrainAgent {
     const currentMessage: AIMessage = options.currentMessage || { id: crypto.randomUUID(), role: "user", content: prompt, timestamp: new Date().toISOString() };
     const initialMemory = normalizeAgentMemory(initialState.agentMemory);
     const memoryAvailable = !options.temporary && initialMemory.enabled;
-    const tools = BRAIN_TOOLS.filter(t => memoryAvailable || !["search_memories","remember_memory","update_memory","forget_memory","search_conversations"].includes(t.function.name));
+    const external = options.externalTools;
+    const externalNames = new Set((external?.definitions || []).map(t => t.function.name));
+    const externalDone: NonNullable<AgentExecutionResult["external"]> = [];
+    const tools = [...BRAIN_TOOLS.filter(t => memoryAvailable || !["search_memories","remember_memory","update_memory","forget_memory","search_conversations"].includes(t.function.name)),
+      ...(external?.definitions || [])];
     const approvals: ApprovalRequest[] = [];
     let untrustedRead = false;
     const finish = (answer: string, status: AgentExecutionResult["status"] = "complete"): AgentExecutionResult => ({
       ...(approvals.length ? { approvals } : {}),
+      ...(externalDone.length ? { external: externalDone } : {}),
       actionType: actions.length ? "compound" : "query_brain", entityType: actions.length ? "compound" : "query",
       headline: status === "complete" || status === "partial" ? "Synapse" : status === "cancelled" ? "Stopped" : "Assistant unavailable",
       explanation: actions.length ? `${actions.length} change${actions.length === 1 ? "" : "s"} saved` : memoryWrites ? `${memoryWrites} memory change${memoryWrites === 1 ? "" : "s"} saved` : status === "complete" ? "" : "No changes saved",
@@ -367,6 +395,40 @@ export class AutonomousBrainAgent {
                 completedWrites.set(fingerprint, output); readCache.clear(); stateRevision++; roundProgress = true;
               }
               memoryErrors.delete(memoryErrorKey(args));
+            } else if (external && externalNames.has(call.function.name)) {
+              const name = call.function.name;
+              if (toolTier(name, args) === "read") {
+                options.onProgress?.(name === "list_calendar_events" ? "Checking your calendar…" : "Reading your email…");
+                const readKey = name + canonical(args);
+                let cached = readCache.get(readKey);
+                if (!cached) { cached = { output: (await external.execute(name, args, signal)).output, sources: [] }; readCache.set(readKey, cached); }
+                output = cached.output;
+                if (readsUntrustedContent(name, [])) untrustedRead = true;
+                if (!seenEvidence.has(readKey)) { seenEvidence.add(readKey); roundProgress = true; }
+                evidence.set(readKey, { tool: name, result: output, stateRevision });
+              } else {
+                const fingerprint = name + canonical(args);
+                if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
+                else {
+                  const { summary, details } = describeExternal(name, args);
+                  const reason = approvalReason(name, { untrustedRead, changes: actions.length + approvals.length + externalDone.length, askBeforeChanges: !!state.preferences?.askBeforeChanges }, args);
+                  if (reason) {
+                    if (!options.propose) throw new Error("This action needs the user's approval, which is not available in this session.");
+                    options.onProgress?.("Asking for your approval…");
+                    const request = await options.propose({ tool: name, args, summary, details, reason });
+                    approvals.push(request);
+                    output = { status: "awaiting_approval", saved: false, approvalId: request.id, summary, reason };
+                  } else {
+                    options.onProgress?.(name === "create_email_draft" ? "Saving a draft…" : "Adding to your calendar…");
+                    signal.throwIfAborted();
+                    const result = await external.execute(name, args, signal);
+                    externalDone.push({ tool: name, summary: result.summary || summary, ...(result.link ? { link: result.link } : {}) });
+                    output = { done: true, ...(result.output as object) };
+                  }
+                  completedWrites.set(fingerprint, output);
+                  roundProgress = true;
+                }
+              }
             } else if (readNames.has(call.function.name)) {
               if (options.getMemory) state = { ...state, agentMemory: options.getMemory() };
               if ((options.temporary || !normalizeAgentMemory(state.agentMemory).enabled) && (call.function.name === "search_memories" || call.function.name === "search_conversations" || (call.function.name === "recall_conversation" && args.conversationId && args.conversationId !== (state.conversationId || "current")))) throw new Error("Saved memory and archived recall are disabled.");

@@ -12,6 +12,7 @@ export interface RemoteTurn {
   visionModel?: string;
   temporary?: boolean;
   images?: PreparedImage[];
+  timeZone?: string;
 }
 export interface RemoteHandlers {
   signal: AbortSignal;
