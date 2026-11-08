@@ -10,7 +10,7 @@ const READ = new Set(["query_records", "read_record", "read_records", "search_re
   "list_calendar_events", "search_email", "read_email", "read_url", "web_search"]);
 /** Actions outside Synapse that can be undone there (a draft is not sent; an event without guests notifies no one). */
 const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_event"]);
-const MEMORY = new Set(["remember_memory", "update_memory", "forget_memory"]);
+const MEMORY = new Set(["remember_memory", "update_memory", "forget_memory", "organize_memory"]);
 const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete_habit", "create_habit", "create_goal", "update_goal", "log_journal",
   "create_note", "update_note", "create_event", "update_event", "delete_event", "create_tracker_item", "update_tracker_item", "create_course",
   "set_course_grading", "record_grade", "create_flashcard_deck", "create_quiz", "delete_tracker_item", "log_practice",

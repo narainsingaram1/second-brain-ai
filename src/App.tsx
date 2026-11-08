@@ -1270,7 +1270,7 @@ export const App: React.FC = () => {
         workspaceControls={cloudEnabled ? <CloudControls state={state} onImport={setState} /> : undefined}
       />
 
-      {isMemoryOpen && <MemoryModal key={state.userId} state={state} onClose={closeMemory} selectedId={selectedMemoryId} onChange={conversation.changeMemory} onOpenSource={id => { if (id !== state.conversationId && id !== "current") conversation.resume(id); setActiveTab("home"); setIsMemoryOpen(false); }} />}
+      {isMemoryOpen && <MemoryModal key={state.userId} state={state} onClose={closeMemory} selectedId={selectedMemoryId} status={conversation.memoryStatus} onChange={conversation.changeMemory} onOpenSource={id => { if (id !== state.conversationId && id !== "current") conversation.resume(id); setActiveTab("home"); setIsMemoryOpen(false); }} />}
 
       <TaskModal
         isOpen={isTaskModalOpen}

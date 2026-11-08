@@ -16,8 +16,11 @@ const { executeRead } = await server.ssrLoadModule(
 );
 const { semanticMemorySearch, setMemoryAccount, invalidateMemoryEmbedding } =
   await server.ssrLoadModule("/src/services/memorySemantic.ts");
-const { previewHistoryMemories, learnFromTurn } = await server.ssrLoadModule(
+const { previewHistoryMemories } = await server.ssrLoadModule(
   "/src/services/memoryHistory.ts",
+);
+const { learnFromTurn } = await server.ssrLoadModule(
+  "/src/services/memoryLearning.ts",
 );
 const now = "2026-11-01T12:00:00Z";
 const user = {

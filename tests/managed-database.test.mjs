@@ -6,6 +6,7 @@ import { PGlite } from '@electric-sql/pglite';
 const migration = await readFile(new URL('../supabase/migrations/202610300001_brain_accounts.sql', import.meta.url), 'utf8');
 const appearanceMigration = await readFile(new URL('../supabase/migrations/202611010001_task_appearance.sql', import.meta.url), 'utf8');
 const memoryMigration = await readFile(new URL('../supabase/migrations/202611010002_agent_memory.sql', import.meta.url), 'utf8');
+const connectedMemoryMigration = await readFile(new URL('../supabase/migrations/202611100001_connected_memory.sql', import.meta.url), 'utf8');
 const workspacesMigration = await readFile(new URL('../supabase/migrations/202611050001_workspaces.sql', import.meta.url), 'utf8');
 const eventsMigration = await readFile(new URL('../supabase/migrations/202611060001_calendar_events.sql', import.meta.url), 'utf8');
 const owner = '11111111-1111-4111-8111-111111111111';
@@ -44,6 +45,7 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
     await db.exec(memoryMigration);
     await db.exec(workspacesMigration);
     await db.exec(eventsMigration);
+    await db.exec(connectedMemoryMigration);
     const asUser = async id => { await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub', $1, false)", [id]); await db.exec('set role authenticated'); };
     const save = (revision, uid = owner, payload = state) => db.query('select public.save_brain($1::jsonb,$2::bigint,$3::uuid) as revision', [JSON.stringify(payload), revision, uid]);
     await asUser(owner);
@@ -65,6 +67,17 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
       assert.equal((await save(3, owner, { ...state, workspaces: [], trackerItems: [], events: [] })).rows[0].revision, 4);
       const cleared = (await db.query('select state from public.brains')).rows[0].state;
       assert.deepEqual(cleared.workspaces, []); assert.deepEqual(cleared.trackerItems, []); assert.deepEqual(cleared.events, []);
+    } finally { await db.exec('rollback'); }
+    await db.exec('begin');
+    try {
+      const entry = workspace.agentMemory.entries[0];
+      const connected = { ...workspace.agentMemory, entries: [{ ...entry, category: 'person', origin: 'auto', mentions: 2, entities: ['Priya'], related: [], records: [{ type: 'course', id: 'c1' }], history: [{ content: 'Earlier', until: '2026-11-01T12:00:00Z' }] }] };
+      assert.equal((await save(2, owner, { ...state, agentMemory: connected })).rows[0].revision, 3, 'connected memories are accepted after the migration');
+      for (const bad of [{ records: [{ type: 'made-up', id: 'x' }] }, { origin: 'other' }, { mentions: 0 }, { history: [{ content: 'x' }] }, { entities: ['x'.repeat(81)] }]) {
+        await db.exec('savepoint bad_memory');
+        await assert.rejects(save(3, owner, { ...state, agentMemory: { ...connected, entries: [{ ...connected.entries[0], ...bad }] } }), error => error.code === '22023', JSON.stringify(bad).slice(0, 60));
+        await db.exec('rollback to savepoint bad_memory');
+      }
     } finally { await db.exec('rollback'); }
     await assert.rejects(save(1), error => error.code === '40001');
     await assert.rejects(save(0), error => error.code === '40001');

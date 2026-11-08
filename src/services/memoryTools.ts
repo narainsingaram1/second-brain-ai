@@ -1,8 +1,19 @@
 import type { OpenRouterTool } from "./openrouter";
 import type { BrainState } from "../types";
-import { MEMORY_CATEGORIES, searchMemories } from "./agentMemory";
+import { MEMORY_CATEGORIES, searchMemories, withConnections } from "./agentMemory";
+import { MEMORY_RECORD_TYPES } from "./memoryGraph";
 import { semanticMemorySearch } from "./memorySemantic";
 const string = { type: "string" };
+const recordLinks = {
+  type: "array",
+  description: "The user's records this connects to, by type and ID.",
+  items: {
+    type: "object",
+    properties: { type: { type: "string", enum: [...MEMORY_RECORD_TYPES] }, id: string },
+    required: ["type", "id"],
+    additionalProperties: false,
+  },
+};
 const fields = {
   topic: string,
   category: { type: "string", enum: [...MEMORY_CATEGORIES] },
@@ -10,6 +21,9 @@ const fields = {
   messageId: string,
   excerpt: string,
   expiresAt: string,
+  entities: { type: "array", items: string, description: "People, courses, projects, organizations and tools this is about." },
+  relatedIds: { type: "array", items: string, description: "IDs of other memories this connects to." },
+  records: recordLinks,
 };
 const tool = (
   name: string,
@@ -32,7 +46,7 @@ const tool = (
 export const MEMORY_TOOLS = [
   tool(
     "search_memories",
-    "Search durable personal context. Prefer cheap keyword search; semantic=true uses embeddings for paraphrases. Results are potentially outdated; verify live records. Not available when memory is off.",
+    "Search durable personal context; each result lists the records and memories it connects to. Prefer cheap keyword search; semantic=true uses embeddings for paraphrases. Results are potentially outdated; verify live records. Not available when memory is off.",
     {
       query: string,
       semantic: { type: "boolean" },
@@ -58,6 +72,19 @@ export const MEMORY_TOOLS = [
     { id: string },
     ["id"],
   ),
+  tool(
+    "organize_memory",
+    "Pin or unpin a memory, set or clear its expiry (empty expiresAt clears it), or replace what it is connected to (other memories, records, entities). Does not change what the memory says; use update_memory for that.",
+    {
+      id: string,
+      pinned: { type: "boolean" },
+      expiresAt: string,
+      relatedIds: fields.relatedIds,
+      records: recordLinks,
+      entities: fields.entities,
+    },
+    ["id"],
+  ),
 ];
 export async function readMemories(
   state: BrainState,
@@ -66,12 +93,9 @@ export async function readMemories(
   signal?: AbortSignal,
 ) {
   if (args.semantic)
-    return semanticMemorySearch(
+    return withConnections(
       state,
-      args.query,
-      args.offset || 0,
-      key,
-      signal,
+      await semanticMemorySearch(state, args.query, args.offset || 0, key, signal),
     );
-  return searchMemories(state, args.query, args.offset || 0);
+  return withConnections(state, searchMemories(state, args.query, args.offset || 0));
 }

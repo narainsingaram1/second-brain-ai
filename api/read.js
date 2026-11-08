@@ -308,6 +308,7 @@ function getSupabase() {
 	} });
 	return client;
 }
+String.raw`^(?:(?:please|pls|also|and|oh|ok(?:ay)?|hey|so|btw|fyi|actually|just)[,\s]+)*`;
 // src/services/recordSync.ts
 var PreferencesConflict = class extends Error {};
 // src/services/supabaseBrain.ts

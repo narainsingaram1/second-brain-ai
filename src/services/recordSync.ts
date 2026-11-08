@@ -1,4 +1,5 @@
 import type { BrainState } from "../types";
+import { legacyMemoryRecord, type AgentMemory } from "./agentMemory";
 import {
   applyStoredRecord, assembleState, collectionRecords, createSerializer, diffRecords, preferencesOf, RECORD_COLLECTIONS, recordKey,
   type RecordChange, type RecordCollection, type StoredRecord, type SyncedRecord,
@@ -46,6 +47,8 @@ export class RecordSync {
   private savedLog: SavedRecord[] = [];
   private savedPrefs: Record<string, unknown> = {};
   private queued: Partial<BrainState> | undefined;
+  /** Set when this database turns out not to accept connected memories yet. */
+  private legacyMemory = false;
   private running: Promise<void> | undefined;
   /** Records replaced by another device's version during the last refresh. */
   lastRefreshConflicts = 0;
@@ -88,7 +91,7 @@ export class RecordSync {
   private async saveOnce(state: Partial<BrainState>) {
     const changes = diffRecords(state, this.synced, this.serialize).filter(c => !this.conflicted.has(recordKey(c.collection, c.id)));
     for (const batch of batches(changes)) {
-      const result = await this.transport.saveRecords(batch.map(({ collection, id, data, baseRevision }) => ({ collection, id, data, baseRevision })));
+      const result = await this.saveBatch(batch);
       const byKey = new Map(batch.map(c => [recordKey(c.collection, c.id), c]));
       for (const saved of result.saved) {
         const key = recordKey(saved.collection, saved.id);
@@ -112,6 +115,19 @@ export class RecordSync {
     for (const change of changes) if (change.baseRevision === 0 && change.data === null) this.synced.delete(recordKey(change.collection, change.id));
     if (this.conflicted.size) this.onRemoteChange();
     await this.savePreferences(state);
+  }
+
+  private async saveBatch(batch: RecordChange[]) {
+    const wire = (legacy: boolean) => batch.map(({ collection, id, data, baseRevision }) => ({ collection, id, baseRevision,
+      data: legacy && collection === "memory" && data ? legacyMemoryRecord(data as unknown as AgentMemory) : data }));
+    try {
+      return await this.transport.saveRecords(wire(this.legacyMemory));
+    } catch (error) {
+      // A database still on the older memory rules rejects the whole batch, so retrying without the new fields also rescues the other records.
+      if (this.legacyMemory || !batch.some(c => c.collection === "memory") || !/invalid record memory/i.test(error instanceof Error ? error.message : String((error as { message?: unknown })?.message ?? ""))) throw error;
+      this.legacyMemory = true;
+      return this.transport.saveRecords(wire(true));
+    }
   }
 
   private async savePreferences(state: Partial<BrainState>) {

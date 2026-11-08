@@ -81,6 +81,7 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
     case "search_memories": return { kind: "memory", label: "Checking what I remember about you" };
     case "search_conversations": return { kind: "memory", label: `Searching past chats for ${quote(args.query)}` };
     case "recall_conversation": return { kind: "memory", label: "Rereading an earlier message" };
+    case "organize_memory": return { kind: "memory", label: "Organizing a memory" };
     case "web_search": return { kind: "web", label: `Searching the web for ${quote(args.query)}` };
     case "read_url": return { kind: "web", label: `Reading ${host(args.url)}` };
     case "list_calendar_events": return { kind: "calendar", label: `Checking your Google Calendar, ${args.from} to ${args.to}` };

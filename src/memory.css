@@ -569,3 +569,56 @@
     font-size: 10px;
   }
 }
+
+.memory-learning {
+  margin-bottom: 10px;
+  font-size: 11px;
+  color: var(--mem-muted);
+}
+.memory-learning.is-error {
+  color: #c4453c;
+}
+.memory-entities,
+.memory-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.memory-entities button,
+.memory-links li {
+  border: 1px solid var(--mem-line);
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1.6;
+  padding: 1px 7px;
+}
+.memory-entities button:hover {
+  color: var(--mem-accent);
+  background: var(--mem-soft);
+}
+.memory-links li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.memory-links button {
+  display: inline-flex;
+  align-items: center;
+  color: var(--mem-muted);
+}
+.memory-links .memory-link-jump {
+  gap: 4px;
+  color: inherit;
+  font-size: inherit;
+  text-align: left;
+}
+.memory-links button:hover {
+  color: var(--mem-accent);
+}
+.memory-previous {
+  margin-top: 8px;
+  line-height: 1.6;
+}
