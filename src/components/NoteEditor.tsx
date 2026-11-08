@@ -129,8 +129,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", onKey);
-      if (previousFocus?.isConnected) previousFocus.focus();
-      else fullscreenButtonRef.current?.focus();
+      // The editor moves back into the page after this cleanup, so restore focus on the next frame.
+      requestAnimationFrame(() => (fullscreenButtonRef.current?.isConnected ? fullscreenButtonRef.current : previousFocus)?.focus());
     };
   }, [isFullscreen]);
 
@@ -318,12 +318,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       aria-label={isFullscreen ? "Full-screen note editor" : undefined}
       onKeyDownCapture={e => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") { e.preventDefault(); flushSave(); } }}
       style={{ "--note-font-size": `${textSize}px` } as React.CSSProperties}
-      className={`note-editor w-full flex flex-col bg-panel rounded-3xl border border-line shadow-sm transition-all ${
-        isFullscreen ? "note-editor-fullscreen fixed inset-0 z-[100] rounded-none border-none p-4 sm:p-8 overflow-y-auto" : "p-4 sm:p-6"
-      }`}
+      className={`note-editor w-full flex flex-col ${isFullscreen ? "note-editor-fullscreen" : "note-editor-docked"}`}
     >
       {/* Top Navigation & Action Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100 dark:border-slate-800/80">
+      <div className="note-toolbar">
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => { flushSave(); onBack(); }}
@@ -342,13 +340,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               onChange={(e) => handleFolderChange(e.target.value ? e.target.value : null)}
               className="bg-transparent focus:outline-none cursor-pointer max-w-[140px] truncate"
             >
-              <option value="">📁 Root / Unfiled</option>
+              <option value="">No folder</option>
               {folders.map((f) => {
                 const parent = folders.find((p) => p.id === f.parentId);
                 const label = parent ? `${parent.name} / ${f.name}` : f.name;
                 return (
                   <option key={f.id} value={f.id}>
-                    📁 {label}
+                    {label}
                   </option>
                 );
               })}
@@ -499,12 +497,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             aria-label={isFullscreen ? "Exit full screen" : "Full screen"}
             aria-pressed={isFullscreen}
             onClick={() => setIsFullscreen(!isFullscreen)}
-            className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 transition-colors"
-            title={isFullscreen ? "Exit Fullscreen" : "Fullscreen Focus"}
-            style={{ display: "inline-flex", alignItems: "center", background: "var(--note-focus-bg, #eff6ff)", color: "#2563eb", padding: "7px 10px" }}
+            className="note-fullscreen-button"
+            title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
           >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline text-xs font-semibold ml-1.5">{isFullscreen ? "Exit full screen" : "Full screen"}</span>
+            {isFullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+            <span className="hidden sm:inline">{isFullscreen ? "Exit full screen" : "Full screen"}</span>
           </button>
 
           <button

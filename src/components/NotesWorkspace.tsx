@@ -193,7 +193,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
   // If a note is selected, render the rich NoteEditor!
   if (selectedNote) {
     return (
-      <div className="w-full max-w-5xl mx-auto animate-fade-in">
+      <div className="note-page">
         <NoteEditor
           key={selectedNote.id}
           note={selectedNote}
