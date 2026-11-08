@@ -137,3 +137,19 @@
 }
 .chat-welcome-inner .chat-composer-dock { padding: 0; }
 .chat-welcome-inner .chat-composer-hint { text-align: left; }
+
+/* Changes waiting for the user's approval */
+.approval-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--workspace-line-strong); border-radius: 12px; background: var(--workspace-raised); font-size: 13px; }
+.approval-card header { display: flex; gap: 8px; align-items: flex-start; color: var(--workspace-ink); }
+.approval-card header svg { margin-top: 2px; flex-shrink: 0; color: var(--workspace-muted); }
+.approval-details { margin: 8px 0 0 23px; padding: 0; list-style: disc; color: var(--workspace-ink); overflow-wrap: anywhere; }
+.approval-reason { margin: 6px 0 0 23px; color: var(--workspace-muted); }
+.approval-actions { display: flex; gap: 8px; margin: 10px 0 0 23px; flex-wrap: wrap; }
+.approval-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--workspace-line-strong); font-weight: 600; transition: background-color 150ms var(--ease), border-color 150ms var(--ease); }
+.approval-actions button:disabled { opacity: .55; cursor: default; }
+.approval-approve { background: var(--workspace-ink); color: var(--workspace-panel, #fff); border-color: var(--workspace-ink) !important; }
+.approval-reject { background: transparent; color: var(--workspace-ink); }
+.approval-reject:hover:not(:disabled) { border-color: var(--workspace-danger); color: var(--workspace-danger); }
+.approval-status { margin: 8px 0 0 23px; color: var(--workspace-muted); }
+.approval-card.is-executed .approval-status { color: var(--workspace-success); }
+.approval-card.is-failed .approval-status, .approval-card.is-expired .approval-status { color: var(--workspace-danger); }

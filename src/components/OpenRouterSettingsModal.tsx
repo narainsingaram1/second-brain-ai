@@ -29,6 +29,8 @@ interface OpenRouterSettingsModalProps {
   onExportBackup: () => void;
   workspaceControls?: React.ReactNode;
   onOpenMemory?: () => void;
+  askBeforeChanges?: boolean;
+  onAskBeforeChanges?: (value: boolean) => void;
 }
 
 export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = ({
@@ -41,6 +43,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   onExportBackup,
   workspaceControls,
   onOpenMemory,
+  askBeforeChanges = false,
+  onAskBeforeChanges,
 }) => {
   const [keyInput, setKeyInput] = useState(openRouterKey);
   const [showKey, setShowKey] = useState(false);
@@ -196,6 +200,14 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
               Your key is saved locally on your device (and in Rust core <code className="font-mono text-slate-600 dark:text-slate-300">~/.second_brain_ai/openrouter.key</code>). It never leaves your machine except to contact OpenRouter.
             </p>
           </div>}
+
+          {onAskBeforeChanges && <label className="flex items-start gap-3 rounded-2xl border border-line p-3.5 cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={askBeforeChanges} onChange={e => onAskBeforeChanges(e.target.checked)} />
+            <span className="text-xs">
+              <strong className="block text-slate-800 dark:text-slate-200">Ask before every change</strong>
+              <span className="text-slate-400">The assistant proposes each change and waits for you to approve it. Deletions, large batches and changes after reading uploaded documents always ask.</span>
+            </span>
+          </label>}
 
           {/* Model Selector */}
           <div className="space-y-3">

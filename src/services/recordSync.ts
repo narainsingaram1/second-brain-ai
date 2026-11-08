@@ -44,6 +44,7 @@ export class RecordSync {
   private lastSeq = 0;
   private serialize = createSerializer();
   private savedLog: SavedRecord[] = [];
+  private savedPrefs: Record<string, unknown> = {};
   private queued: Partial<BrainState> | undefined;
   private running: Promise<void> | undefined;
   /** Records replaced by another device's version during the last refresh. */
@@ -124,6 +125,7 @@ export class RecordSync {
       try {
         this.prefsRevision = await this.transport.savePreferences(payload, base);
         for (const [key, value] of Object.entries(payload)) this.prefsJson.set(key, JSON.stringify(value));
+        for (const key of changed) this.savedPrefs[key] = prefs[key as keyof typeof prefs];
         return;
       } catch (error) {
         if (!(error instanceof PreferencesConflict) || attempt > 0) throw error;
@@ -203,6 +205,13 @@ export class RecordSync {
   takeSaved(): SavedRecord[] {
     const saved = this.savedLog;
     this.savedLog = [];
+    return saved;
+  }
+
+  /** Preference fields this engine changed on the server since the last call. */
+  takeSavedPreferences(): Record<string, unknown> {
+    const saved = this.savedPrefs;
+    this.savedPrefs = {};
     return saved;
   }
 

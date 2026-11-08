@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ApprovalCard } from "./ApprovalCard";
 import { Brain, ArrowUpRight, BookmarkPlus, Check, Copy, PenLine } from "lucide-react";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "../utils/chatPresentation";
@@ -7,7 +8,7 @@ import { MarkdownView } from "./MarkdownView";
 import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences";
 import { MessageImages } from "./ImageAttachments";
 
-export function ConversationMessage({ message, state, onSaveNote, streaming }: { message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean }) {
+export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide }: { message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
   const [selected, setSelected] = useState<ChatSource | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -37,6 +38,7 @@ export function ConversationMessage({ message, state, onSaveNote, streaming }: {
         const repeatsTitle = before.replace(/[*`_]/g, "").trimEnd().toLocaleLowerCase().endsWith(title.toLocaleLowerCase());
         return <button type="button" className={`chat-inline-reference ${repeatsTitle ? "is-citation" : ""}`} aria-label={`Open ${type === "knowledge" ? "note" : type}: ${title}`} title={title} onClick={() => setSelected(source)}><RecordIcon type={type} />{!repeatsTitle && <span>{title}</span>}<ArrowUpRight size={12} className="shrink-0 opacity-60" /></button>;
       }} />
+      {!streaming && message.approvals?.map(approval => <ApprovalCard key={approval.id} approval={approval} onDecide={onDecide ? decision => onDecide(approval.id, decision) : undefined} />)}
       {!streaming && <SourceReferences sources={message.sources} state={state} onSelect={setSelected} />}
       {message.rememberedIds?.length ? <button type="button" className="memory-remembered" onClick={() => window.dispatchEvent(new CustomEvent("synapse-open-memory", { detail: { id: message.rememberedIds![0] } }))}><Brain size={12} />Remembered{message.rememberedIds.length > 1 ? ` ${message.rememberedIds.length} facts` : ""}<ArrowUpRight size={11}/></button> : null}
       {message.memoryNotice && <p className="memory-chat-notice" role="status">Memory: {message.memoryNotice}</p>}

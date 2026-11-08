@@ -342,6 +342,7 @@ var RecordSync = class {
 	lastSeq = 0;
 	serialize = createSerializer();
 	savedLog = [];
+	savedPrefs = {};
 	queued;
 	running;
 	/** Records replaced by another device's version during the last refresh. */
@@ -451,6 +452,7 @@ var RecordSync = class {
 		for (let attempt = 0;; attempt++) try {
 			this.prefsRevision = await this.transport.savePreferences(payload, base);
 			for (const [key, value] of Object.entries(payload)) this.prefsJson.set(key, JSON.stringify(value));
+			for (const key of changed) this.savedPrefs[key] = prefs[key];
 			return;
 		} catch (error) {
 			if (!(error instanceof PreferencesConflict) || attempt > 0) throw error;
@@ -533,6 +535,12 @@ var RecordSync = class {
 	takeSaved() {
 		const saved = this.savedLog;
 		this.savedLog = [];
+		return saved;
+	}
+	/** Preference fields this engine changed on the server since the last call. */
+	takeSavedPreferences() {
+		const saved = this.savedPrefs;
+		this.savedPrefs = {};
 		return saved;
 	}
 	/**
@@ -4452,6 +4460,127 @@ function prepareMutation(name, args, state) {
 		default: throw new Error(`Unknown mutation ${name}`);
 	}
 }
+// src/services/actionPolicy.ts
+const READ = /* @__PURE__ */ new Set([
+	"query_records",
+	"read_record",
+	"read_records",
+	"search_records",
+	"search_conversations",
+	"recall_conversation",
+	"search_memories"
+]);
+const MEMORY = /* @__PURE__ */ new Set([
+	"remember_memory",
+	"update_memory",
+	"forget_memory"
+]);
+const INTERNAL = /* @__PURE__ */ new Set([
+	"create_task",
+	"update_task",
+	"delete_task",
+	"complete_habit",
+	"create_habit",
+	"create_goal",
+	"update_goal",
+	"log_journal",
+	"create_note",
+	"update_note",
+	"create_event",
+	"update_event",
+	"delete_event",
+	"create_tracker_item",
+	"update_tracker_item",
+	"create_course",
+	"set_course_grading",
+	"record_grade",
+	"create_flashcard_deck",
+	"create_quiz"
+]);
+/** Unknown tools are treated as the riskiest tier, so a new integration is gated until it is classified. */
+function toolTier(name) {
+	if (READ.has(name)) return "read";
+	if (MEMORY.has(name) || INTERNAL.has(name)) return "internal";
+	return "external_irreversible";
+}
+/** Reads whose content came from somewhere other than the user's own words in this conversation. */
+function readsUntrustedContent(tool, sourceTypes) {
+	return tool === "recall_conversation" || tool === "search_conversations" || sourceTypes.includes("document");
+}
+/** Why this call must wait for approval, or null if it may run now. */
+function approvalReason(tool, ctx) {
+	const tier = toolTier(tool);
+	if (tier === "read" || MEMORY.has(tool)) return null;
+	if (tier === "external_irreversible") return "Actions outside Synapse always need your approval.";
+	if (tool.startsWith("delete_")) return "Deleting needs your approval.";
+	if (ctx.askBeforeChanges) return "You asked to approve every change.";
+	if (ctx.untrustedRead && !tool.startsWith("create_") && tool !== "log_journal") return "This change came after reading an uploaded document or a past conversation, which could contain instructions that are not yours.";
+	if (ctx.changes >= 5) return `This would be more than 5 changes in one request.`;
+	return null;
+}
+const LABELS = {
+	title: "Title",
+	name: "Name",
+	status: "Status",
+	dueDate: "Due date",
+	dueTime: "Due time",
+	description: "Description",
+	section: "Section",
+	subsection: "Subsection",
+	priority: "Priority",
+	date: "Date",
+	startTime: "Start",
+	endTime: "End",
+	location: "Location",
+	content: "Content",
+	progress: "Progress",
+	targetDate: "Target date",
+	completed: "Completed",
+	notes: "Notes"
+};
+const show = (value) => {
+	if (value === void 0 || value === null || value === "") return "—";
+	const text = typeof value === "string" ? value : JSON.stringify(value);
+	return text.length > 80 ? `${text.slice(0, 77)}…` : text;
+};
+const recordName = (m) => ("name" in m.record ? m.record.name : m.record.title) || "Untitled";
+const NOUNS = {
+	task: "task",
+	goal: "goal",
+	habit: "habit",
+	journal: "journal entry",
+	knowledge: "note",
+	tracker: "tracker entry",
+	event: "event",
+	course: "course",
+	deck: "flashcard deck",
+	quiz: "quiz",
+	document: "document"
+};
+/** One-line summary and field-level details of exactly what a change will do. */
+function describeMutation(tool, m) {
+	const noun = NOUNS[m.type] || m.type;
+	if (m.remove) return {
+		summary: `Delete ${noun} "${recordName(m)}"`,
+		details: ["This cannot be undone from the assistant; you can undo it in the app afterwards."]
+	};
+	if (!m.expected) return {
+		summary: `Create ${noun} "${recordName(m)}"`,
+		details: []
+	};
+	const before = m.expected, after = m.record;
+	const details = Object.keys({
+		...before,
+		...after
+	}).filter((key) => key !== "updatedAt" && key !== "createdAt" && JSON.stringify(before[key]) !== JSON.stringify(after[key])).map((key) => `${LABELS[key] || key}: ${show(before[key])} → ${show(after[key])}`);
+	return {
+		summary: `${tool === "record_grade" ? "Record a grade in" : tool === "set_course_grading" ? "Change grading for" : "Update"} ${noun} "${recordName({
+			...m,
+			record: m.expected
+		})}"`,
+		details
+	};
+}
 // src/services/agentDispatcher.ts
 const readNames = new Set(READ_TOOLS.map((t) => t.function.name));
 function errorMessage(err) {
@@ -4482,6 +4611,7 @@ const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and p
 - Edits to something already discussed ("rename it", "push it to Friday", "mark that done") target the existing record with an update tool; never create a duplicate. If the target is ambiguous, ask briefly.
 - Never invent dates, folders or statuses. A tool result with saved:true confirms the change; errors do not. After saving, confirm briefly in plain language what changed.
 - Do not repeat writes that already succeeded. Report partial completion honestly.
+- Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
 
 ## Studying
 - Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
@@ -4677,7 +4807,10 @@ var AutonomousBrainAgent = class {
 			"forget_memory",
 			"search_conversations"
 		].includes(t.function.name));
+		const approvals = [];
+		let untrustedRead = false;
 		const finish = (answer, status = "complete") => ({
+			...approvals.length ? { approvals } : {},
 			actionType: actions.length ? "compound" : "query_brain",
 			entityType: actions.length ? "compound" : "query",
 			headline: status === "complete" || status === "partial" ? "Synapse" : status === "cancelled" ? "Stopped" : "Assistant unavailable",
@@ -4868,12 +5001,47 @@ var AutonomousBrainAgent = class {
 								stateRevision
 							});
 							for (const source of result.sources) sources.set(`${source.type}:${source.id}:${source.offset || 0}`, source);
+							if (readsUntrustedContent(call.function.name, result.sources.map((s) => s.type))) untrustedRead = true;
 						} else {
 							const fingerprint = call.function.name + JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
 							if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
 							else {
 								if (!options.commit) throw new Error("Writes are unavailable in this session.");
 								const mutation = prepareMutation(call.function.name, args, state);
+								const reason = approvalReason(call.function.name, {
+									untrustedRead,
+									changes: actions.length + approvals.length,
+									askBeforeChanges: !!state.preferences?.askBeforeChanges
+								});
+								if (reason) {
+									if (!options.propose) throw new Error("This change needs the user's approval, which is not available in this session.");
+									const { summary, details } = describeMutation(call.function.name, mutation);
+									options.onProgress?.("Asking for your approval…");
+									const request = await options.propose({
+										tool: call.function.name,
+										args,
+										mutation,
+										summary,
+										details,
+										reason
+									});
+									approvals.push(request);
+									output = {
+										status: "awaiting_approval",
+										saved: false,
+										approvalId: request.id,
+										summary,
+										reason
+									};
+									completedWrites.set(fingerprint, output);
+									roundProgress = true;
+									messages.push({
+										role: "tool",
+										tool_call_id: call.id,
+										content: JSON.stringify(output)
+									});
+									continue;
+								}
 								options.onProgress?.("Saving changes…");
 								signal.throwIfAborted();
 								await options.commit(mutation);
@@ -4931,6 +5099,30 @@ var AutonomousBrainAgent = class {
 	}
 };
 // server/lib/serverAgent.ts
+/** The saved workspace, loaded as the user, with defaults for collections that have no records yet. */
+async function loadWorkspace(store) {
+	const engine = new RecordSync(store.records);
+	const loaded = await engine.load();
+	if (!loaded) throw new HttpError(409, "Cloud storage for this account has not been upgraded yet. Reload the app.");
+	return {
+		engine,
+		workspace: {
+			...loaded,
+			userId: store.userId,
+			sections: loaded.sections || [],
+			subsections: loaded.subsections || {}
+		}
+	};
+}
+/** Saves `next` per record. Refuses if any record changed elsewhere; returns what was saved for the browser to adopt. */
+async function saveWorkspace(engine, next) {
+	await engine.save(next);
+	if (engine.pendingConflicts) throw new Error("This record was changed on another device in the meantime. Ask again to work from its current version.");
+	return {
+		records: engine.takeSaved(),
+		preferences: engine.takeSavedPreferences()
+	};
+}
 const recordTitle = (m) => ("name" in m.record ? m.record.name : m.record.title) || "Note";
 /**
 * Runs one assistant turn on the server for a signed-in user. Changes are saved per record with the same
@@ -4938,25 +5130,12 @@ const recordTitle = (m) => ("name" in m.record ? m.record.name : m.record.title)
 * change is audited and streamed back so the browser can show it at once.
 */
 async function runServerAgent(store, key, input, emit, signal) {
-	const engine = new RecordSync(store.records);
-	const loaded = await engine.load();
-	if (!loaded) throw new HttpError(409, "Cloud storage for this account has not been upgraded yet. Reload the app.");
-	let stored = {
-		...loaded,
-		userId: store.userId
-	};
+	const { engine, workspace } = await loadWorkspace(store);
+	let stored = workspace;
 	const documentIds = (stored.study?.documents || []).map((d) => d.id);
 	const texts = documentIds.length ? await store.documentTexts(documentIds) : /* @__PURE__ */ new Map();
 	const state = {
 		...stored,
-		tasks: stored.tasks || [],
-		goals: stored.goals || [],
-		habits: stored.habits || [],
-		journalEntries: stored.journalEntries || [],
-		knowledgeItems: stored.knowledgeItems || [],
-		trackerItems: stored.trackerItems || [],
-		sections: stored.sections || [],
-		subsections: stored.subsections || {},
 		agentMemory: normalizeAgentMemory(stored.agentMemory),
 		chatHistory: input.chatHistory,
 		conversationId: input.conversationId,
@@ -4965,16 +5144,11 @@ async function runServerAgent(store, key, input, emit, signal) {
 		theme: stored.theme || "light"
 	};
 	const persist = async (next, action, entityType, title) => {
-		const before = preferencesOf(stored);
-		await engine.save(next);
-		if (engine.pendingConflicts) throw new Error("This record was changed on another device during the conversation. Ask again to work from its current version.");
+		const saved = await saveWorkspace(engine, next);
 		stored = next;
-		const after = preferencesOf(next);
-		const preferences = Object.fromEntries(Object.entries(after).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(before[k])));
 		emit({
 			type: "saved",
-			records: engine.takeSaved(),
-			preferences,
+			...saved,
 			action,
 			entityType,
 			title
@@ -5003,7 +5177,34 @@ async function runServerAgent(store, key, input, emit, signal) {
 				type: "text",
 				text
 			}),
-			getMemory: () => stored.agentMemory,
+			propose: async (change) => {
+				const tier = toolTier(change.tool);
+				const row = await store.proposeAction({
+					tool: change.tool,
+					tier: tier === "read" ? "internal" : tier,
+					summary: change.summary.slice(0, 2e3),
+					reason: change.reason.slice(0, 500),
+					payload: {
+						tool: change.tool,
+						args: change.args,
+						expected: change.mutation.expected ?? null,
+						details: change.details
+					},
+					conversationId: input.conversationId,
+					messageId: input.message.id
+				});
+				return {
+					id: row.id,
+					tool: change.tool,
+					summary: change.summary,
+					details: change.details,
+					reason: change.reason,
+					status: "pending",
+					remote: true,
+					payloadHash: row.payload_hash
+				};
+			},
+			getMemory: () => normalizeAgentMemory(stored.agentMemory),
 			commitMemory: async (change) => {
 				const memory = applyMemoryChange(normalizeAgentMemory(stored.agentMemory), change);
 				await persist({

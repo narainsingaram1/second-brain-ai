@@ -1,10 +1,11 @@
 import { memoryContext, topicKey, normalizeAgentMemory, prepareMemoryChange, type MemoryChange, type AgentMemory } from "./agentMemory";
-import type { AIMessage } from "../types";
+import type { AIMessage, ApprovalRequest } from "../types";
 import { BrainState, Task } from "../types";
 import { describeImages, getVisionModel, modelSupportsImages, OpenRouterContentPart, OpenRouterMessage, queryOpenRouterWithTools } from "./openrouter";
 import { PreparedImage, sessionImage } from "../utils/imageInput";
 import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, parseToolArguments } from "./brainTools";
 import { Source, type RetrievalContext } from "./brainRetrieval";
+import { approvalReason, describeMutation, readsUntrustedContent } from "./actionPolicy";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { eventTimeLabel, formatTime, sortEvents, taskSortKey } from "../utils/events";
 import { bestScore, courseLabel, dueCards, studyOf } from "../utils/study";
@@ -21,8 +22,12 @@ export interface AgentExecutionResult {
   /** Vision-model description of attached images, when the chat model could not see them directly. */
   imageDescription?: string;
   actions: Mutation[];
+  /** Changes proposed this turn that wait for the user's decision. */
+  approvals?: ApprovalRequest[];
   status: "complete" | "partial" | "error" | "cancelled";
 }
+/** A gated change, prepared and described, for the host to store until the user decides. */
+export interface ProposedChange { tool: string; args: Record<string, unknown>; mutation: Mutation; summary: string; details: string[]; reason: string }
 export interface AgentOptions {
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
@@ -35,6 +40,8 @@ export interface AgentOptions {
   currentMessage?: AIMessage;
   /** Images attached to the current message. */
   images?: PreparedImage[];
+  /** Stores a change that needs the user's approval and returns its request. Without it, gated changes are refused. */
+  propose?: (change: ProposedChange) => Promise<ApprovalRequest>;
   /** Document text and embedding cache when running outside the browser (the server agent). */
   retrieval?: RetrievalContext;
   /** Model used to read images when the chat model cannot; defaults to the device preference. */
@@ -72,6 +79,7 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 - Edits to something already discussed ("rename it", "push it to Friday", "mark that done") target the existing record with an update tool; never create a duplicate. If the target is ambiguous, ask briefly.
 - Never invent dates, folders or statuses. A tool result with saved:true confirms the change; errors do not. After saving, confirm briefly in plain language what changed.
 - Do not repeat writes that already succeeded. Report partial completion honestly.
+- Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
 
 ## Studying
 - Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
@@ -241,7 +249,10 @@ export class AutonomousBrainAgent {
     const initialMemory = normalizeAgentMemory(initialState.agentMemory);
     const memoryAvailable = !options.temporary && initialMemory.enabled;
     const tools = BRAIN_TOOLS.filter(t => memoryAvailable || !["search_memories","remember_memory","update_memory","forget_memory","search_conversations"].includes(t.function.name));
+    const approvals: ApprovalRequest[] = [];
+    let untrustedRead = false;
     const finish = (answer: string, status: AgentExecutionResult["status"] = "complete"): AgentExecutionResult => ({
+      ...(approvals.length ? { approvals } : {}),
       actionType: actions.length ? "compound" : "query_brain", entityType: actions.length ? "compound" : "query",
       headline: status === "complete" || status === "partial" ? "Synapse" : status === "cancelled" ? "Stopped" : "Assistant unavailable",
       explanation: actions.length ? `${actions.length} change${actions.length === 1 ? "" : "s"} saved` : memoryWrites ? `${memoryWrites} memory change${memoryWrites === 1 ? "" : "s"} saved` : status === "complete" ? "" : "No changes saved",
@@ -376,12 +387,26 @@ export class AutonomousBrainAgent {
               }
               evidence.set(readKey, { tool: call.function.name, result: output, stateRevision });
               for (const source of result.sources) sources.set(`${source.type}:${source.id}:${source.offset || 0}`, source);
+              if (readsUntrustedContent(call.function.name, result.sources.map(s => s.type))) untrustedRead = true;
             } else {
               const fingerprint = call.function.name + JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
               if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
               else {
                 if (!options.commit) throw new Error("Writes are unavailable in this session.");
                 const mutation = prepareMutation(call.function.name, args, state);
+                const reason = approvalReason(call.function.name, { untrustedRead, changes: actions.length + approvals.length, askBeforeChanges: !!state.preferences?.askBeforeChanges });
+                if (reason) {
+                  if (!options.propose) throw new Error("This change needs the user's approval, which is not available in this session.");
+                  const { summary, details } = describeMutation(call.function.name, mutation);
+                  options.onProgress?.("Asking for your approval…");
+                  const request = await options.propose({ tool: call.function.name, args, mutation, summary, details, reason });
+                  approvals.push(request);
+                  output = { status: "awaiting_approval", saved: false, approvalId: request.id, summary, reason };
+                  completedWrites.set(fingerprint, output);
+                  roundProgress = true;
+                  messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(output) });
+                  continue;
+                }
                 options.onProgress?.("Saving changes…");
                 signal.throwIfAborted();
                 await options.commit(mutation);

@@ -41,3 +41,14 @@ export interface StoredKeyStatus { configured: boolean; hint?: string; updatedAt
 export const getStoredKey = () => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets").then(r => r.openrouter);
 export const storeKey = (value: string) => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets", { method: "POST", body: JSON.stringify({ name: "openrouter", value }) }).then(r => r.openrouter);
 export const removeStoredKey = () => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets?name=openrouter", { method: "DELETE" }).then(r => r.openrouter);
+
+export interface AccountHistoryEntry { id: number; at: string; actor: "user" | "assistant" | "system"; action: string; entity_type: string | null; title: string | null }
+/**
+ * The account's append-only audit trail (who changed what, including approvals), read directly as the
+ * signed-in user. Empty when the server migration is not applied yet.
+ */
+export async function accountHistory(limit = 100): Promise<AccountHistoryEntry[]> {
+  if (!managedAuthEnabled) return [];
+  const { data, error } = await (getSupabase() as any).from("audit_events").select("id,at,actor,action,entity_type,title").order("at", { ascending: false }).limit(limit);
+  return error ? [] : (data || []) as AccountHistoryEntry[];
+}

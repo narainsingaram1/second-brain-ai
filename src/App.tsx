@@ -1257,6 +1257,8 @@ export const App: React.FC = () => {
         onSaveKey={handleSaveOpenRouterKey}
         selectedModel={state.selectedModel}
         onSelectModel={handleSelectModel}
+        askBeforeChanges={!!state.preferences?.askBeforeChanges}
+        onAskBeforeChanges={value => setState(prev => prev ? { ...prev, preferences: { ...prev.preferences, askBeforeChanges: value } } : prev)}
         onOpenMemory={() => { setIsSettingsOpen(false); setSelectedMemoryId(undefined); setIsMemoryOpen(true); }}
         onExportBackup={handleExportBackup}
         workspaceControls={cloudEnabled ? <CloudControls state={state} onImport={setState} /> : undefined}

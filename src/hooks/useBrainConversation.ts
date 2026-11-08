@@ -2,17 +2,18 @@ import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { boundConversations } from "../utils/conversationBudget";
 import { attachmentOf, rememberImage } from "../utils/imageInput";
-import { AIMessage, AuditLogEntry, BrainState, ConversationThread } from "../types";
+import { AIMessage, ApprovalRequest, AuditLogEntry, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
   RunConversation,
   type AgentExecutionResult,
 } from "../services/agentDispatcher";
-import { applyMutation, mutationRecords } from "../services/brainTools";
+import { applyMutation, mutationRecords, type Mutation } from "../services/brainTools";
 import { persistBrainState } from "../services/storage";
 import { adoptServerChanges, usesRecordStorage } from "../services/cloudSync";
 import { isServerHeldKey } from "../services/providerTransport";
-import { serverFeatures } from "../services/serverApi";
+import { apiJson, serverFeatures } from "../services/serverApi";
+import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
 import { getVisionModel } from "../services/openrouter";
 import { learnFromTurn } from "../services/memoryHistory";
@@ -31,6 +32,7 @@ import {
 
 export interface BrainConversation {
   run: RunConversation;
+  decideApproval: (messageId: string, approvalId: string, decision: "approve" | "reject") => Promise<void>;
   busy: boolean;
   progress: string;
   /** The reply as it streams in, under the ID the finished message will keep. */
@@ -313,6 +315,9 @@ export function useBrainConversation(
             if (isCurrent()) setProgress(message);
             options.onProgress?.(message);
           },
+          // In-browser turns keep the prepared change with the reply until the user decides.
+          propose: async (change) => ({ id: crypto.randomUUID(), tool: change.tool, summary: change.summary, details: change.details,
+            reason: change.reason, status: "pending", remote: false, mutation: change.mutation }),
           commit: async (mutation) => {
             signal.throwIfAborted();
             const before = latest.current;
@@ -382,6 +387,7 @@ export function useBrainConversation(
           })),
           rememberedIds: result.rememberedIds,
           memoryNotice: result.memoryNotice,
+          ...(result.approvals?.length ? { approvals: result.approvals } : {}),
         };
         // Keep the vision model's reading of the images with the message so follow-ups work after reload.
         const withDescription = (messages: AIMessage[]) => result.imageDescription
@@ -438,8 +444,55 @@ export function useBrainConversation(
     setTemporaryMessages([]);
     setTemporaryState(value);
   };
+  /** Updates one approval request on the message that carries it, wherever that conversation is shown. */
+  const setApproval = (messageId: string, approvalId: string, patch: Partial<ApprovalRequest>) => {
+    const update = (messages: AIMessage[]) => messages.map(m => m.id !== messageId ? m : { ...m, approvals: m.approvals?.map(a => a.id === approvalId ? { ...a, ...patch } : a) });
+    if (tempLatest.current.some(m => m.id === messageId)) { tempLatest.current = update(tempLatest.current); setTemporaryMessages(tempLatest.current); return; }
+    const current = latest.current;
+    if (current) publish({ ...current, chatHistory: update(current.chatHistory) });
+  };
+  /**
+   * Applies or rejects a change the assistant proposed. Hosted requests are decided and run on the server,
+   * which re-checks the exact payload; local ones re-check that the record has not changed since.
+   */
+  const decideApproval = async (messageId: string, approvalId: string, decision: "approve" | "reject") => {
+    const current = latest.current;
+    const message = [...tempLatest.current, ...(current?.chatHistory || [])].find(m => m.id === messageId);
+    const approval = message?.approvals?.find(a => a.id === approvalId);
+    if (!current || !approval || approval.status !== "pending") return;
+    if (approval.remote) {
+      try {
+        const result = await apiJson<{ status: "rejected" | "executed" | "failed"; error?: string; records?: SavedRecord[]; preferences?: Record<string, unknown>; action?: string; entityType?: string; title?: string }>(
+          "/api/actions", { method: "POST", body: JSON.stringify({ id: approval.id, decision, payloadHash: approval.payloadHash }) });
+        if (result.status === "executed" && latest.current) {
+          onBeforeMutation(latest.current);
+          const next = adoptServerChanges(latest.current, result.records || [], result.preferences);
+          const audit = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            action: result.action || approval.tool, entityType: (result.entityType || "task") as AuditLogEntry["entityType"], entityTitle: result.title || approval.summary, canUndo: true };
+          publish({ ...next, auditLog: [audit, ...(next.auditLog || [])].slice(0, 100) });
+        }
+        setApproval(messageId, approvalId, { status: result.status, ...(result.error ? { error: result.error } : {}) });
+      } catch (error) {
+        setApproval(messageId, approvalId, { status: "expired", error: error instanceof Error ? error.message : "This request is no longer available." });
+      }
+      return;
+    }
+    if (decision === "reject") { setApproval(messageId, approvalId, { status: "rejected" }); return; }
+    const mutation = approval.mutation as Mutation | undefined;
+    const target = mutation && mutationRecords(current, mutation.type).find(r => r.id === mutation.record.id);
+    if (!mutation || JSON.stringify(target ?? null) !== JSON.stringify(mutation.expected ?? null)) {
+      setApproval(messageId, approvalId, { status: "failed", error: "The record changed after this was proposed, so it was not applied. Ask again to work from its current version." });
+      return;
+    }
+    onBeforeMutation(current);
+    const audit = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      action: mutation.action, entityType: mutation.type, entityTitle: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", canUndo: true };
+    publish({ ...applyMutation(current, mutation), auditLog: [audit, ...(current.auditLog || [])].slice(0, 100) });
+    setApproval(messageId, approvalId, { status: "executed", mutation: undefined });
+  };
   return {
     run,
+    decideApproval,
     busy,
     progress,
     draft,

@@ -1,5 +1,6 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { accountHistory, type AccountHistoryEntry } from "../services/serverApi";
 import { AuditLogEntry } from "../types";
 import {
   History,
@@ -34,6 +35,8 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
   onClearLog,
 }) => {
   const [filter, setFilter] = useState<string>("all");
+  const [history, setHistory] = useState<AccountHistoryEntry[]>([]);
+  useEffect(() => { if (isOpen) accountHistory().then(setHistory).catch(() => setHistory([])); }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -180,6 +183,14 @@ export const AuditLogModal: React.FC<AuditLogModalProps> = ({
               </div>
             ))
           )}
+          {history.length > 0 && <section className="pt-4 space-y-2" aria-label="Account history">
+            <h4 className="text-xs font-bold text-ink flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-[var(--workspace-success)]" />Account history</h4>
+            <p className="text-[11px] text-slate-400">Kept on the server for every device, including what the assistant proposed and what you approved. Entries cannot be edited or deleted.</p>
+            {history.map(entry => <div key={entry.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-line text-xs">
+              <span className="min-w-0 truncate"><span className="font-semibold">{entry.actor === "user" ? "You" : entry.actor === "assistant" ? "Assistant" : "System"}</span> · {entry.action}{entry.title ? `: ${entry.title}` : ""}</span>
+              <time className="shrink-0 text-[11px] font-mono text-slate-400" dateTime={entry.at}>{new Date(entry.at).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time>
+            </div>)}
+          </section>}
         </div>
 
         {/* Footer */}

@@ -150,7 +150,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
         onScroll={event => { const element = event.currentTarget; const near = isNearBottom(element.scrollHeight, element.scrollTop, element.clientHeight); if (scrollingToBottom.current && !near) return; scrollingToBottom.current = false; pinned.current = near; setShowJump(!near); }}>
         <div ref={content} className={active ? "chat-transcript" : "chat-welcome-content"}>
           {active ? <>
-            {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} />)}
+            {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} />)}
             {draft && <ConversationMessage key={draft.id} message={{ id: draft.id, role: "assistant", content: draft.content, timestamp: "" }} state={state} streaming />}
             {conversation.busy && !draft && <div className="chat-thinking" role="status"><span className="chat-thinking-dot" /><span>{conversation.progress || "Thinking…"}</span></div>}
           </> : <div className="chat-welcome-inner">
