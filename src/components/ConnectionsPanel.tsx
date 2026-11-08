@@ -13,7 +13,7 @@ export function ConnectionsPanel() {
   const [notice, setNotice] = useState(() => { try { const n = sessionStorage.getItem(CONNECT_RESULT_KEY) || ""; sessionStorage.removeItem(CONNECT_RESULT_KEY); return n; } catch { return ""; } });
 
   useEffect(() => { googleStatus().then(setStatus).catch(e => setError(e.message)); }, []);
-  const connect = async (access: "calendar" | "gmail") => {
+  const connect = async (access: "calendar" | "gmail" | "send") => {
     setBusy(true); setError("");
     try { await startGoogleConnect(access); } catch (e) { setError(e instanceof Error ? e.message : "Could not start the connection."); setBusy(false); }
   };
@@ -40,14 +40,17 @@ export function ConnectionsPanel() {
     {status?.connected && <div className="rounded-2xl border border-line p-3.5 space-y-2 text-xs">
       <div className="flex flex-wrap items-center gap-2">
         {status.status === "active" ? <CheckCircle2 className="w-4 h-4 text-[var(--workspace-success)]" /> : <AlertTriangle className="w-4 h-4 text-amber-500" />}
-        <span className="mr-auto"><strong>{status.email}</strong> · {status.gmail ? "Calendar and Gmail (read, drafts)" : "Calendar"}{status.connectedAt ? ` · since ${new Date(status.connectedAt).toLocaleDateString()}` : ""}</span>
+        <span className="mr-auto"><strong>{status.email}</strong> · {status.send ? "Calendar and Gmail (read, drafts, send with approval)" : status.gmail ? "Calendar and Gmail (read, drafts)" : "Calendar"}{status.connectedAt ? ` · since ${new Date(status.connectedAt).toLocaleDateString()}` : ""}</span>
         <button type="button" disabled={busy} className={button} onClick={disconnect}>Disconnect</button>
       </div>
       {status.status === "needs_reconnect" && <div className="flex flex-wrap items-center gap-2 text-amber-700 dark:text-amber-300">
         <span className="mr-auto">Google access expired or was revoked{status.lastError ? ` (${status.lastError})` : ""}.</span>
-        <button type="button" disabled={busy} className={button} onClick={() => connect(status.gmail ? "gmail" : "calendar")}>Reconnect</button>
+        <button type="button" disabled={busy} className={button} onClick={() => connect(status.send ? "send" : status.gmail ? "gmail" : "calendar")}>Reconnect</button>
       </div>}
       {status.status === "active" && !status.gmail && <button type="button" disabled={busy} className="text-xs underline text-muted" onClick={() => connect("gmail")}>Also allow Gmail</button>}
+      {status.status === "active" && status.gmail && !status.send && <p className="text-slate-500 dark:text-slate-400">
+        <button type="button" disabled={busy} className="underline text-ink" onClick={() => connect("send")}>Allow sending email</button>: the assistant can send email you ask for, only after you approve the full message. You get 10 seconds to undo, and at most 20 sends a day.
+      </p>}
     </div>}
     {error && <p role="alert" className="p-3 rounded-2xl text-xs flex items-center gap-2 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300"><AlertTriangle className="w-4 h-4 shrink-0" />{error}</p>}
   </section>;

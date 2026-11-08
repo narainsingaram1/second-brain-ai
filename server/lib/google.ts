@@ -3,16 +3,19 @@ import type { Deps } from "./context";
 import { HttpError } from "./http";
 import type { ConnectionRow, ServerStore } from "./store";
 
-/** What the user chooses to grant. Gmail access always includes the calendar. */
-export type GoogleAccess = "calendar" | "gmail";
+/** What the user chooses to grant. Gmail includes the calendar; sending includes Gmail. */
+export type GoogleAccess = "calendar" | "gmail" | "send";
 const CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"];
+const SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const GOOGLE_SCOPES: Record<GoogleAccess, string[]> = {
   calendar: ["openid", "email", ...CALENDAR_SCOPES],
   gmail: ["openid", "email", ...CALENDAR_SCOPES, ...GMAIL_SCOPES],
+  send: ["openid", "email", ...CALENDAR_SCOPES, ...GMAIL_SCOPES, SEND_SCOPE],
 };
 export const hasCalendar = (scopes: string[]) => CALENDAR_SCOPES.every(s => scopes.includes(s));
 export const hasGmail = (scopes: string[]) => GMAIL_SCOPES.every(s => scopes.includes(s));
+export const hasSend = (scopes: string[]) => hasGmail(scopes) && scopes.includes(SEND_SCOPE);
 const STATE_TTL_MS = 10 * 60 * 1000;
 
 const encoder = new TextEncoder();
@@ -64,7 +67,7 @@ async function verifyState(deps: Deps, state: string, userId: string, verifier: 
   if (data.u !== userId) throw new HttpError(400, "This connection was started by a different account. Start again from Settings.");
   if (data.e < now) throw new HttpError(400, "This connection link expired. Start again from Settings.");
   if (await sha256(verifier) !== data.c) throw new HttpError(400, "This connection was started in a different browser. Start again from Settings.");
-  if (data.a !== "calendar" && data.a !== "gmail") throw new HttpError(400, "Invalid connection request.");
+  if (data.a !== "calendar" && data.a !== "gmail" && data.a !== "send") throw new HttpError(400, "Invalid connection request.");
   return data.a;
 }
 
@@ -86,7 +89,7 @@ export async function completeGoogleConnection(deps: Deps, request: Request, sto
   const sealed = await sealSecret(deps.secretsKey(), store.userId, "google", token.refresh_token);
   await store.putSecret("google", { ...sealed, hint: email.slice(0, 8) });
   await store.putConnection({ provider: "google", accountEmail: email, scopes, status: "active" });
-  await store.appendAudit({ actor: "user", action: "connected", entityType: "connection", entityId: "google", title: `Google (${email}): ${hasGmail(scopes) ? "Calendar and Gmail" : "Calendar"}` });
+  await store.appendAudit({ actor: "user", action: "connected", entityType: "connection", entityId: "google", title: `Google (${email}): ${hasSend(scopes) ? "Calendar, Gmail and sending" : hasGmail(scopes) ? "Calendar and Gmail" : "Calendar"}` });
   return connectionStatus(await store.getConnection("google"));
 }
 
@@ -100,7 +103,7 @@ function idTokenEmail(idToken?: string): string | null {
 
 export function connectionStatus(row: ConnectionRow | null) {
   if (!row) return { connected: false as const };
-  return { connected: true as const, email: row.accountEmail, calendar: hasCalendar(row.scopes), gmail: hasGmail(row.scopes), status: row.status, connectedAt: row.connectedAt, lastError: row.lastError };
+  return { connected: true as const, email: row.accountEmail, calendar: hasCalendar(row.scopes), gmail: hasGmail(row.scopes), send: hasSend(row.scopes), status: row.status, connectedAt: row.connectedAt, lastError: row.lastError };
 }
 
 /** Revokes the grant at Google (best effort) and deletes the token and connection. */

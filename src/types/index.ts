@@ -325,6 +325,10 @@ export interface ApprovalRequest {
   /** Field-level description of what changes, e.g. "Status: Not started → Completed". */
   details: string[];
   reason: string;
+  /** The full text that will go out (e.g. an email body), shown in full before approving. */
+  preview?: string;
+  /** Things to check before approving, e.g. a recipient the user has never emailed. */
+  warnings?: string[];
   status: 'pending' | 'executed' | 'rejected' | 'failed' | 'expired';
   remote: boolean;
   payloadHash?: string;

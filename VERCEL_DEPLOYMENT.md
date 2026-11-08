@@ -102,7 +102,7 @@ The SQL runs in PGlite with Supabase's roles and `auth.uid()`, and the routes ru
 
 ## Phase 1: Google Calendar and Gmail
 
-The assistant can read your Google Calendar, search and read Gmail, save reply drafts, and add calendar events. It cannot send email: no send permission is requested, and drafts wait in Gmail › Drafts for you.
+The assistant can read your Google Calendar, search and read Gmail, save reply drafts, and add calendar events. Sending email is a separate, optional permission (below): without it, drafts wait in Gmail › Drafts for you.
 
 ### What it may do on its own
 
@@ -114,14 +114,16 @@ The assistant can read your Google Calendar, search and read Gmail, save reply d
 | Add an event with guests | Always asks (Google emails the invitations) |
 | Edit or delete anything after reading an email | Always asks. Email is untrusted: it may contain instructions that are not yours. Adding tasks and drafts after reading email still runs. |
 
-Every connection, disconnection, draft and created event is written to the account history.
+| Send an email or a draft (only with "Allow sending") | **Always** asks, whatever your settings. See "Sending email" below. |
+
+Every connection, disconnection, draft, created event and sent email is written to the account history.
 
 ### Setup (Google Cloud project `skilled-array-513300-e9`)
 
 1. **APIs & Services › Library:** enable the Gmail API and the Google Calendar API.
 2. **OAuth consent screen:**
    - User type External, app name "Synapse", your email as support contact.
-   - Add the scopes `openid`, `email`, `.../auth/calendar.events`, `.../auth/calendar.readonly`, `.../auth/gmail.readonly` and `.../auth/gmail.compose`.
+   - Add the scopes `openid`, `email`, `.../auth/calendar.events`, `.../auth/calendar.readonly`, `.../auth/gmail.readonly`, `.../auth/gmail.compose`, and (for sending) `.../auth/gmail.send`.
    - Under Test users, add every Google account that will connect.
 3. **Credentials › Create credentials › OAuth client ID:**
    - Type: Web application.
@@ -132,6 +134,18 @@ Every connection, disconnection, draft and created event is written to the accou
    - `GET /api/health` reports `"google": true`.
    - In the app, go to Settings › Connections › Connect Calendar + Gmail and approve.
    - Ask "What's on my calendar this week?" and "Triage my unread email."
+
+### Sending email
+
+Sending is off until you choose Settings › Connections › **Allow sending email**. That asks Google for the `gmail.send` permission, on top of read and drafts. With it on:
+
+- **When it sends.** The assistant sends only when you ask it to (otherwise it drafts), and every message needs your approval.
+- **What the approval card shows.** The **full** message, every recipient, whether it is a reply in a thread, and a red warning for any address you have never exchanged email with. Injected or mistyped addresses usually show up that way.
+- **The undo window.** After you click Send, there are 10 seconds to **Undo** before anything leaves your browser. Closing the tab in that time sends nothing.
+- **What the server checks.** The approved message must match what you saw (payload hash), it sends once, and messages are capped at 10,000 characters. "Send this draft" is refused if the draft was edited after you approved it.
+- **Daily limit.** At most 20 messages per account per 24 hours. Past that, the assistant asks you to send from Gmail.
+- **Even if something goes wrong.** The send tool itself refuses to run without an approved action, so a bug elsewhere cannot send mail.
+- **What the history keeps.** It records recipients and subject. Message bodies are not stored.
 
 ### Google's review rules: read before relying on it
 

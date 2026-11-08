@@ -50,6 +50,7 @@ export function pgStore(db, userId, PreferencesConflict, HttpError) {
     async appendAudit(e) {
       await db.query('select public.append_audit($1, $2, $3, $4, $5, $6, $7::jsonb)', [e.actor, e.action, e.entityType ?? null, e.entityId ?? null, e.title ?? null, e.actionId ?? null, JSON.stringify(e.metadata ?? {})]);
     },
+    async countAudit(action, since) { return (await one('select count(*)::int as n from public.audit_events where action = $1 and at >= $2', [action, since])).n; },
     proposeAction: i => rpc(() => one('select * from public.propose_action($1, $2, $3, $4, $5::jsonb, $6, $7)', [i.tool, i.tier, i.summary, i.reason, JSON.stringify(i.payload), i.conversationId ?? null, i.messageId ?? null]), 'Could not ask for approval.'),
     async getAction(id) { return (await one('select * from public.agent_actions where id = $1', [id])) || null; },
     async listPendingActions() { return (await db.query("select * from public.agent_actions where status = 'proposed' and expires_at > now() order by created_at desc")).rows; },

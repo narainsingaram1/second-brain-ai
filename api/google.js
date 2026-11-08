@@ -273,6 +273,14 @@ function supabaseStore(userId, client) {
 			});
 			if (error) rpcError(error, "Could not write the audit log.");
 		},
+		async countAudit(action, sinceIso) {
+			const { count, error } = await client.from("audit_events").select("id", {
+				count: "exact",
+				head: true
+			}).eq("user_id", userId).eq("action", action).gte("at", sinceIso);
+			if (error) rpcError(error, "Could not check recent activity.");
+			return count || 0;
+		},
 		async proposeAction(input) {
 			const { data, error } = await client.rpc("propose_action", {
 				p_tool: input.tool,
@@ -407,6 +415,7 @@ async function secretsAvailable(deps) {
 // server/lib/google.ts
 const CALENDAR_SCOPES = ["https://www.googleapis.com/auth/calendar.events", "https://www.googleapis.com/auth/calendar.readonly"];
 const GMAIL_SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"];
+const SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 const GOOGLE_SCOPES = {
 	calendar: [
 		"openid",
@@ -418,10 +427,18 @@ const GOOGLE_SCOPES = {
 		"email",
 		...CALENDAR_SCOPES,
 		...GMAIL_SCOPES
+	],
+	send: [
+		"openid",
+		"email",
+		...CALENDAR_SCOPES,
+		...GMAIL_SCOPES,
+		SEND_SCOPE
 	]
 };
 const hasCalendar = (scopes) => CALENDAR_SCOPES.every((s) => scopes.includes(s));
 const hasGmail = (scopes) => GMAIL_SCOPES.every((s) => scopes.includes(s));
+const hasSend = (scopes) => hasGmail(scopes) && scopes.includes(SEND_SCOPE);
 const STATE_TTL_MS = 6e5;
 const encoder = new TextEncoder();
 const base64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
@@ -492,7 +509,7 @@ async function verifyState(deps, state, userId, verifier, now) {
 	if (data.u !== userId) throw new HttpError(400, "This connection was started by a different account. Start again from Settings.");
 	if (data.e < now) throw new HttpError(400, "This connection link expired. Start again from Settings.");
 	if (await sha256(verifier) !== data.c) throw new HttpError(400, "This connection was started in a different browser. Start again from Settings.");
-	if (data.a !== "calendar" && data.a !== "gmail") throw new HttpError(400, "Invalid connection request.");
+	if (data.a !== "calendar" && data.a !== "gmail" && data.a !== "send") throw new HttpError(400, "Invalid connection request.");
 	return data.a;
 }
 /** Finishes a connection: exchanges the code, then stores the refresh token encrypted and the granted scopes. */
@@ -534,7 +551,7 @@ async function completeGoogleConnection(deps, request, store, input, now = Date.
 		action: "connected",
 		entityType: "connection",
 		entityId: "google",
-		title: `Google (${email}): ${hasGmail(scopes) ? "Calendar and Gmail" : "Calendar"}`
+		title: `Google (${email}): ${hasSend(scopes) ? "Calendar, Gmail and sending" : hasGmail(scopes) ? "Calendar and Gmail" : "Calendar"}`
 	});
 	return connectionStatus(await store.getConnection("google"));
 }
@@ -554,6 +571,7 @@ function connectionStatus(row) {
 		email: row.accountEmail,
 		calendar: hasCalendar(row.scopes),
 		gmail: hasGmail(row.scopes),
+		send: hasSend(row.scopes),
 		status: row.status,
 		connectedAt: row.connectedAt,
 		lastError: row.lastError
@@ -720,8 +738,9 @@ function googleHandlers(deps = productionDeps) {
 			});
 			await requireConfigured();
 			if (action === "start") {
-				const access = params.get("access") === "gmail" ? "gmail" : params.get("access") === "calendar" ? "calendar" : null;
-				if (!access) throw new HttpError(400, "Choose Calendar or Calendar and Gmail.");
+				const requested = params.get("access");
+				const access = requested === "calendar" || requested === "gmail" || requested === "send" ? requested : null;
+				if (!access) throw new HttpError(400, "Choose Calendar, Calendar and Gmail, or Gmail with sending.");
 				return json(await startGoogleConnection(deps, request, userId, access));
 			}
 			if (action === "events") {

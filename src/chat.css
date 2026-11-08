@@ -160,3 +160,8 @@
 .chat-external svg { flex-shrink: 0; color: var(--workspace-success, #2f8a57); }
 .chat-external a { display: inline-flex; align-items: center; gap: 3px; color: var(--workspace-ink, #171717); text-decoration: underline; text-underline-offset: 2px; }
 .chat-external a svg { color: inherit; }
+.approval-warnings { margin: 8px 0 0 23px; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--workspace-danger, #c93a3a); font-weight: 600; }
+.approval-warnings li { display: flex; gap: 6px; align-items: flex-start; }
+.approval-warnings svg { margin-top: 2px; flex-shrink: 0; }
+.approval-preview { margin: 8px 0 0 23px; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--workspace-ink, #171717); background: var(--workspace-panel, #fff); border: 1px solid var(--workspace-line, #e9e9eb); border-radius: 8px; }
+.approval-countdown { align-self: center; font-weight: 600; color: var(--workspace-ink, #171717); font-variant-numeric: tabular-nums; }

@@ -32,7 +32,7 @@ window.fetch = async (input, init) => {
     { id: "g2", title: "Career fair", date: day(2), endDate: day(3), allDay: true, attendees: 0, link: "https://calendar.google.com/event?eid=g2" },
   ] : [] });
   if (url.pathname === "/api/google") return Response.json(connected
-    ? { configured: true, connected: true, email: "student@gatech.edu", calendar: true, gmail: true, status: "active", connectedAt: "2026-11-07T15:00:00Z", lastError: null }
+    ? { configured: true, connected: true, email: "student@gatech.edu", calendar: true, gmail: true, send: false, status: "active", connectedAt: "2026-11-07T15:00:00Z", lastError: null }
     : { configured: true, connected: false });
   return new Response("Not found", { status: 404 });
 };
@@ -41,10 +41,19 @@ const tasks: Task[] = [{ id: "t1", title: "Submit project report", dueDate: day(
 const args = { title: "Project sync", date: day(1), startTime: "09:00", endTime: "09:30", attendees: ["amy@gatech.edu", "raj@gatech.edu"] };
 const { summary, details } = describeExternal("create_calendar_event", args);
 
+const decisions: string[] = [];
+(window as unknown as { __decisions: string[] }).__decisions = decisions;
+const sendApproval: ApprovalRequest = { id: "s1", tool: "send_email", summary: 'Send email to smith@gatech.edu, stranger@evil.example: "Re: Meeting"',
+  details: ["Sent as a reply in the same thread."], reason: "Sending email always needs your approval. It cannot be unsent.", status: "pending", remote: true, payloadHash: "1".repeat(64),
+  preview: "Hi Professor Smith,\n\nThanks for the reminder. I will see you Thursday at 2 PM in Klaus 1447.\n\nBest,\nNarain",
+  warnings: ["You have never emailed stranger@evil.example or received email from them. Check the address."] };
+
 function Fixture() {
+  const [send, setSend] = useState<ApprovalRequest>(sendApproval);
   const [approval, setApproval] = useState<ApprovalRequest>({ id: "a1", tool: "create_calendar_event", summary, details, reason: "Google will email invitations to the guests.", status: "pending", remote: true, payloadHash: "0".repeat(64) });
   return <main style={{ maxWidth: 1100, margin: "24px auto", padding: "0 16px", display: "grid", gap: 24 }}>
     <div style={{ maxWidth: 560 }}><ConnectionsPanel /></div>
+    <div style={{ maxWidth: 640 }}><ApprovalCard approval={send} onDecide={async decision => { decisions.push(`${decision}@${Date.now()}`); setSend(a => ({ ...a, status: decision === "approve" ? "executed" : "rejected" })); }} /></div>
     <div style={{ maxWidth: 640 }}><ApprovalCard approval={approval} onDecide={async decision => setApproval(a => ({ ...a, status: decision === "approve" ? "executed" : "rejected" }))} /></div>
     <TaskCalendarView tasks={tasks} sections={["Academic"]} subsections={{ Academic: ["General"] }} onToggleTask={() => {}} onAddTask={() => {}} onEditTask={() => {}} onDeleteTask={() => {}} />
   </main>;

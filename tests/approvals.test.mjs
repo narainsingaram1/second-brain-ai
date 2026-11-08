@@ -29,8 +29,10 @@ test('approval policy: reads and memory run, deletions and risky changes wait, u
   assert.equal(approvalReason('create_flashcard_deck', ctx({ untrustedRead: true })), null, 'adding records after reading a document is allowed');
   assert.equal(approvalReason('create_task', ctx({ changes: 4 })), null);
   assert.match(approvalReason('create_task', ctx({ changes: 5 })), /more than 5/);
+  assert.equal(toolTier('post_to_slack'), 'external_irreversible', 'an unclassified tool is treated as irreversible');
+  assert.match(approvalReason('post_to_slack', ctx()), /always need your approval/);
   assert.equal(toolTier('send_email'), 'external_irreversible');
-  assert.match(approvalReason('send_email', ctx()), /always need your approval/);
+  assert.match(approvalReason('send_email', ctx()), /always needs your approval/);
 });
 
 const tasks = [{ id: 'essay', title: 'Write essay', status: 'not_started', completed: false, priority: 'medium', section: 'Academic', dueDate: '2026-11-10' }];

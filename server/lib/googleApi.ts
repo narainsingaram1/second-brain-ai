@@ -146,8 +146,13 @@ export function validateDraft(args: Record<string, unknown>): NewDraft {
 const utf8Base64 = (text: string) => btoa(String.fromCharCode(...new TextEncoder().encode(text)));
 const encodeHeader = (text: string) => /^[\x20-\x7e]*$/.test(text) ? text : `=?UTF-8?B?${utf8Base64(text)}?=`;
 
-/** Saves a draft in the user's Gmail Drafts folder. Nothing is sent. Replies stay in their thread. */
-export async function createDraft(google: GoogleSession, draft: NewDraft) {
+export interface ComposedMessage { to: string[]; cc: string[]; subject: string; body: string; threadId?: string; replyHeaders: string[] }
+
+/**
+ * Resolves a draft or outgoing message to exactly what will be written: for a reply, the thread, the
+ * In-Reply-To headers and (when not given) the recipients and subject of the original message.
+ */
+export async function composeMessage(google: GoogleSession, draft: NewDraft): Promise<ComposedMessage> {
   let threadId: string | undefined, replyHeaders: string[] = [], to = draft.to, subject = draft.subject;
   if (draft.replyToId) {
     if (!/^[A-Za-z0-9_-]{1,64}$/.test(draft.replyToId)) throw new Error("Use a message ID from search_email.");
@@ -160,11 +165,65 @@ export async function createDraft(google: GoogleSession, draft: NewDraft) {
     if (!subject) { const original_ = header(h, "Subject").replace(/[\r\n]/g, ""); subject = /^re:/i.test(original_) ? original_ : `Re: ${original_}`; }
   }
   if (!to.length) throw new Error("Give at least one recipient.");
+  return { to, cc: draft.cc, subject, body: draft.body, ...(threadId ? { threadId } : {}), replyHeaders };
+}
+
+/** RFC 2822 message, base64url-encoded as the Gmail API expects. Headers cannot be injected through any field. */
+export function rawMessage(m: ComposedMessage): string {
   const mime = [
-    `To: ${to.join(", ")}`, ...(draft.cc.length ? [`Cc: ${draft.cc.join(", ")}`] : []), `Subject: ${encodeHeader(subject)}`, ...replyHeaders,
-    "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", utf8Base64(draft.body).replace(/.{76}/g, "$&\r\n"),
+    `To: ${m.to.join(", ")}`, ...(m.cc.length ? [`Cc: ${m.cc.join(", ")}`] : []), `Subject: ${encodeHeader(m.subject.replace(/[\r\n]/g, " "))}`, ...m.replyHeaders,
+    "MIME-Version: 1.0", "Content-Type: text/plain; charset=UTF-8", "Content-Transfer-Encoding: base64", "", utf8Base64(m.body).replace(/.{76}/g, "$&\r\n"),
   ].join("\r\n");
-  const raw = utf8Base64(mime).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-  const created = await google.json<any>(`${GMAIL}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: { raw, ...(threadId ? { threadId } : {}) } }) });
-  return { draftId: String(created.id), messageId: String(created.message?.id || ""), to, subject, link: "https://mail.google.com/mail/u/0/#drafts" };
+  return utf8Base64(mime).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Saves a draft in the user's Gmail Drafts folder. Nothing is sent. Replies stay in their thread. */
+export async function createDraft(google: GoogleSession, draft: NewDraft) {
+  const m = await composeMessage(google, draft);
+  const created = await google.json<any>(`${GMAIL}/drafts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: { raw: rawMessage(m), ...(m.threadId ? { threadId: m.threadId } : {}) } }) });
+  return { draftId: String(created.id), messageId: String(created.message?.id || ""), to: m.to, subject: m.subject, link: "https://mail.google.com/mail/u/0/#drafts" };
+}
+
+export const MAX_SEND_BODY = 10_000;
+/** A message to send must be short enough to be read in full on the approval card. */
+export function validateSend(args: Record<string, unknown>): NewDraft {
+  const draft = validateDraft(args);
+  if (draft.body.length > MAX_SEND_BODY) throw new Error(`Keep messages to send under ${MAX_SEND_BODY.toLocaleString()} characters, or save a draft instead.`);
+  return draft;
+}
+
+/** Sends a fully resolved message. Only ever called for an action the user approved. */
+export async function sendMessage(google: GoogleSession, m: ComposedMessage) {
+  const sent = await google.json<any>(`${GMAIL}/messages/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ raw: rawMessage(m), ...(m.threadId ? { threadId: m.threadId } : {}) }) });
+  return { messageId: String(sent.id), threadId: String(sent.threadId || m.threadId || "") };
+}
+
+/** An existing draft's recipients, subject and text, so the user approves exactly what will go out. */
+export async function readDraft(google: GoogleSession, draftId: string) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(draftId)) throw new Error("Use a draft ID returned by create_email_draft.");
+  const draft = await google.json<any>(`${GMAIL}/drafts/${draftId}?format=full`);
+  const message = draft.message || {};
+  const h = message.payload?.headers;
+  let body = "";
+  const walk = (part: any) => { if (!part || body) return; if (part.mimeType === "text/plain") body = decodeBody(part.body?.data); (part.parts || []).forEach(walk); };
+  walk(message.payload);
+  const split = (v: string) => v.split(",").map(a => (a.match(/<([^>]+)>/)?.[1] || a).trim()).filter(Boolean);
+  return { draftId, messageId: String(message.id || ""), to: split(header(h, "To")), cc: split(header(h, "Cc")), subject: header(h, "Subject"), body };
+}
+
+/** Sends a draft as it is in Gmail. Only ever called for an action the user approved. */
+export async function sendDraft(google: GoogleSession, draftId: string) {
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(draftId)) throw new Error("Use a draft ID returned by create_email_draft.");
+  const sent = await google.json<any>(`${GMAIL}/drafts/send`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: draftId }) });
+  return { messageId: String(sent.id), threadId: String(sent.threadId || "") };
+}
+
+/** Recipients the user has never exchanged email with (a common sign of a mistaken or injected address). */
+export async function unfamiliarRecipients(google: GoogleSession, addresses: string[]): Promise<string[]> {
+  const unknown: string[] = [];
+  for (const address of [...new Set(addresses.map(a => a.toLowerCase()))].slice(0, 10)) {
+    const found = await google.json<{ messages?: unknown[] }>(`${GMAIL}/messages?${new URLSearchParams({ q: `from:${address} OR to:${address}`, maxResults: "1" })}`);
+    if (!found.messages?.length) unknown.push(address);
+  }
+  return unknown;
 }

@@ -21,6 +21,8 @@ export interface ServerStore {
   putSecret(name: string, row: Omit<SealedRow, "updatedAt">): Promise<void>;
   deleteSecret(name: string): Promise<void>;
   appendAudit(entry: AuditInput): Promise<void>;
+  /** How many audit entries with this action were written since the given time (used for rate limits). */
+  countAudit(action: string, sinceIso: string): Promise<number>;
   proposeAction(input: { tool: string; tier: ActionTier; summary: string; reason: string; payload: Record<string, unknown>; conversationId?: string; messageId?: string }): Promise<ActionRow>;
   getAction(id: string): Promise<ActionRow | null>;
   listPendingActions(): Promise<ActionRow[]>;
@@ -65,6 +67,11 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
       const { error } = await client.rpc("append_audit", { p_actor: e.actor, p_action: e.action, p_entity_type: e.entityType ?? null, p_entity_id: e.entityId ?? null,
         p_title: e.title ?? null, p_action_id: e.actionId ?? null, p_metadata: e.metadata ?? {} });
       if (error) rpcError(error, "Could not write the audit log.");
+    },
+    async countAudit(action, sinceIso) {
+      const { count, error } = await client.from("audit_events").select("id", { count: "exact", head: true }).eq("user_id", userId).eq("action", action).gte("at", sinceIso);
+      if (error) rpcError(error, "Could not check recent activity.");
+      return count || 0;
     },
     async proposeAction(input) {
       const { data, error } = await client.rpc("propose_action", { p_tool: input.tool, p_tier: input.tier, p_summary: input.summary, p_reason: input.reason,

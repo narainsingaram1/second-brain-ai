@@ -29,7 +29,7 @@ export interface AgentExecutionResult {
   status: "complete" | "partial" | "error" | "cancelled";
 }
 /** A gated change, prepared and described, for the host to store until the user decides. */
-export interface ProposedChange { tool: string; args: Record<string, unknown>; mutation?: Mutation; summary: string; details: string[]; reason: string }
+export interface ProposedChange { tool: string; args: Record<string, unknown>; mutation?: Mutation; summary: string; details: string[]; reason: string; preview?: string; warnings?: string[] }
 
 /**
  * Tools that reach outside Synapse (Google Calendar, Gmail), injected by the host that holds the
@@ -39,7 +39,14 @@ export interface ExternalToolset {
   definitions: OpenRouterTool[];
   /** Added to the per-turn context: what is connected and how to use it. */
   instructions: string;
-  execute(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ output: unknown; summary?: string; link?: string }>;
+  /**
+   * Resolves and describes a write before it is run or proposed: e.g. the actual recipients of a reply,
+   * the full text of a message, warnings. Returned `args` replace the model's, so an approval covers
+   * exactly what will happen.
+   */
+  prepare?(name: string, args: Record<string, unknown>, signal: AbortSignal): Promise<{ args?: Record<string, unknown>; summary?: string; details?: string[]; preview?: string; warnings?: string[] } | undefined>;
+  /** `approvedActionId` is set only when running an action the user approved. */
+  execute(name: string, args: Record<string, unknown>, signal: AbortSignal, context?: { approvedActionId?: string }): Promise<{ output: unknown; summary?: string; link?: string }>;
 }
 export interface AgentOptions {
   signal?: AbortSignal;
@@ -410,18 +417,22 @@ export class AutonomousBrainAgent {
                 const fingerprint = name + canonical(args);
                 if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
                 else {
-                  const { summary, details } = describeExternal(name, args);
-                  const reason = approvalReason(name, { untrustedRead, changes: actions.length + approvals.length + externalDone.length, askBeforeChanges: !!state.preferences?.askBeforeChanges }, args);
+                  const prepared = await external.prepare?.(name, args, signal);
+                  const finalArgs = prepared?.args ?? args;
+                  const described = describeExternal(name, finalArgs);
+                  const summary = prepared?.summary ?? described.summary, details = prepared?.details ?? described.details;
+                  const reason = approvalReason(name, { untrustedRead, changes: actions.length + approvals.length + externalDone.length, askBeforeChanges: !!state.preferences?.askBeforeChanges }, finalArgs);
                   if (reason) {
                     if (!options.propose) throw new Error("This action needs the user's approval, which is not available in this session.");
                     options.onProgress?.("Asking for your approval…");
-                    const request = await options.propose({ tool: name, args, summary, details, reason });
+                    const request = await options.propose({ tool: name, args: finalArgs, summary, details, reason,
+                      ...(prepared?.preview ? { preview: prepared.preview } : {}), ...(prepared?.warnings?.length ? { warnings: prepared.warnings } : {}) });
                     approvals.push(request);
                     output = { status: "awaiting_approval", saved: false, approvalId: request.id, summary, reason };
                   } else {
                     options.onProgress?.(name === "create_email_draft" ? "Saving a draft…" : "Adding to your calendar…");
                     signal.throwIfAborted();
-                    const result = await external.execute(name, args, signal);
+                    const result = await external.execute(name, finalArgs, signal);
                     externalDone.push({ tool: name, summary: result.summary || summary, ...(result.link ? { link: result.link } : {}) });
                     output = { done: true, ...(result.output as object) };
                   }

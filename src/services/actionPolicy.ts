@@ -47,6 +47,7 @@ export function approvalReason(tool: string, ctx: TurnContext, args: Record<stri
   const tier = toolTier(tool, args);
   if (tier === "read" || MEMORY.has(tool)) return null; // Memory has its own review controls.
   if (tool === "create_calendar_event" && tier === "external_irreversible") return "Google will email invitations to the guests.";
+  if (tool === "send_email" || tool === "send_draft") return "Sending email always needs your approval. It cannot be unsent.";
   if (tier === "external_irreversible") return "Actions outside Synapse always need your approval.";
   if (tool.startsWith("delete_")) return "Deleting needs your approval.";
   if (ctx.askBeforeChanges) return "You asked to approve every change.";

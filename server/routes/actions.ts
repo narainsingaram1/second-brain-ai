@@ -26,9 +26,9 @@ export async function executeApproved(deps: Deps, store: ServerStore, id: string
       const google = await googleSession(deps, store);
       const tools = google && googleToolset(google, store, validTimeZone(payload.timeZone));
       if (!tools?.definitions.some(t => t.function.name === tool)) throw new Error("Connect Google in Settings to run this action.");
-      const result = await tools.execute(tool, payload.args || {}, new AbortController().signal);
+      const result = await tools.execute(tool, payload.args || {}, new AbortController().signal, { approvedActionId: id });
       await store.completeAction(id, true, { summary: result.summary ?? null, link: result.link ?? null });
-      return { status: "executed" as const, records: [], preferences: {}, action: tool, entityType: tool === "create_email_draft" ? "email_draft" : "google_event",
+      return { status: "executed" as const, records: [], preferences: {}, action: tool, entityType: tool === "create_email_draft" ? "email_draft" : tool.startsWith("send_") ? "email" : "google_event",
         title: result.summary || action.summary, ...(result.link ? { link: result.link } : {}) };
     }
     const { engine, workspace } = await loadWorkspace(store);

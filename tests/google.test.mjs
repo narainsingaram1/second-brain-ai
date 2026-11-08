@@ -59,7 +59,7 @@ test('connecting Google: scopes per choice, PKCE and signed state, encrypted ref
     assert.equal(mock.calls.filter(c => c.url.endsWith('/token')).length, 0, 'nothing is exchanged for a bad request');
 
     const connected = await (await post({ code: 'c1', state, verifier: start.verifier })).json();
-    assert.deepEqual({ ...connected, connectedAt: undefined }, { connected: true, email: 'student@gatech.edu', calendar: true, gmail: true, status: 'active', connectedAt: undefined, lastError: null });
+    assert.deepEqual({ ...connected, connectedAt: undefined }, { connected: true, email: 'student@gatech.edu', calendar: true, gmail: true, send: false, status: 'active', connectedAt: undefined, lastError: null });
     const exchange = mock.calls.find(c => c.url.endsWith('/token'));
     assert.equal(exchange.body.code_verifier, start.verifier);
     const secret = (await db.query("select ciphertext from public.user_secrets where name = 'google'")).rows[0];

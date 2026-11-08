@@ -91,10 +91,12 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
       const tier = toolTier(change.tool);
       const row = await store.proposeAction({
         tool: change.tool, tier: tier === "read" ? "internal" : tier, summary: change.summary.slice(0, 2000), reason: change.reason.slice(0, 500),
-        payload: { tool: change.tool, args: change.args, expected: change.mutation?.expected ?? null, details: change.details, ...(input.timeZone ? { timeZone: input.timeZone } : {}) },
+        payload: { tool: change.tool, args: change.args, expected: change.mutation?.expected ?? null, details: change.details, ...(input.timeZone ? { timeZone: input.timeZone } : {}),
+          ...(change.preview ? { preview: change.preview } : {}), ...(change.warnings?.length ? { warnings: change.warnings } : {}) },
         conversationId: input.conversationId, messageId: input.message.id,
       });
-      return { id: row.id, tool: change.tool, summary: change.summary, details: change.details, reason: change.reason, status: "pending", remote: true, payloadHash: row.payload_hash };
+      return { id: row.id, tool: change.tool, summary: change.summary, details: change.details, reason: change.reason, status: "pending", remote: true, payloadHash: row.payload_hash,
+        ...(change.preview ? { preview: change.preview } : {}), ...(change.warnings?.length ? { warnings: change.warnings } : {}) };
     },
     getMemory: () => normalizeAgentMemory(stored.agentMemory),
     commitMemory: async change => {

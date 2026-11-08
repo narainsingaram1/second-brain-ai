@@ -21,8 +21,9 @@ export function googleHandlers(deps: Deps = productionDeps) {
       if (action === "status") return json({ configured: !!deps.google?.(), ...connectionStatus(await store.getConnection("google")) });
       await requireConfigured();
       if (action === "start") {
-        const access = params.get("access") === "gmail" ? "gmail" : params.get("access") === "calendar" ? "calendar" : null;
-        if (!access) throw new HttpError(400, "Choose Calendar or Calendar and Gmail.");
+        const requested = params.get("access");
+        const access = requested === "calendar" || requested === "gmail" || requested === "send" ? requested : null;
+        if (!access) throw new HttpError(400, "Choose Calendar, Calendar and Gmail, or Gmail with sending.");
         return json(await startGoogleConnection(deps, request, userId, access as GoogleAccess));
       }
       if (action === "events") {

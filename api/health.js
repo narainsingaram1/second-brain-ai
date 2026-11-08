@@ -233,6 +233,14 @@ function supabaseStore(userId, client) {
 			});
 			if (error) rpcError(error, "Could not write the audit log.");
 		},
+		async countAudit(action, sinceIso) {
+			const { count, error } = await client.from("audit_events").select("id", {
+				count: "exact",
+				head: true
+			}).eq("user_id", userId).eq("action", action).gte("at", sinceIso);
+			if (error) rpcError(error, "Could not check recent activity.");
+			return count || 0;
+		},
 		async proposeAction(input) {
 			const { data, error } = await client.rpc("propose_action", {
 				p_tool: input.tool,

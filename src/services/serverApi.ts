@@ -53,7 +53,7 @@ export async function accountHistory(limit = 100): Promise<AccountHistoryEntry[]
   return error ? [] : (data || []) as AccountHistoryEntry[];
 }
 
-export interface GoogleStatus { configured?: boolean; connected: boolean; email?: string; calendar?: boolean; gmail?: boolean; status?: "active" | "needs_reconnect"; connectedAt?: string; lastError?: string | null }
+export interface GoogleStatus { configured?: boolean; connected: boolean; email?: string; calendar?: boolean; gmail?: boolean; send?: boolean; status?: "active" | "needs_reconnect"; connectedAt?: string; lastError?: string | null }
 export interface GoogleCalendarEvent { id: string; title: string; date: string; endDate?: string; startTime?: string; endTime?: string; allDay: boolean; location?: string; link?: string; attendees: number }
 export const googleStatus = () => apiJson<GoogleStatus>("/api/google");
 export const disconnectGoogle = () => apiJson<GoogleStatus>("/api/google", { method: "DELETE" });
@@ -61,7 +61,7 @@ export const disconnectGoogle = () => apiJson<GoogleStatus>("/api/google", { met
 const VERIFIER_KEY = "synapse_google_verifier";
 export const CONNECT_RESULT_KEY = "synapse_google_connect_result";
 /** Sends the browser to Google's consent screen. The PKCE verifier waits in this tab until Google returns. */
-export async function startGoogleConnect(access: "calendar" | "gmail"): Promise<void> {
+export async function startGoogleConnect(access: "calendar" | "gmail" | "send"): Promise<void> {
   const { url, verifier } = await apiJson<{ url: string; verifier: string }>(`/api/google?action=start&access=${access}`);
   sessionStorage.setItem(VERIFIER_KEY, verifier);
   window.location.assign(url);
@@ -81,7 +81,7 @@ export async function finishGoogleConnect(): Promise<string | null> {
   else {
     try {
       const status = await apiJson<GoogleStatus>("/api/google", { method: "POST", body: JSON.stringify({ code: params.get("code"), state: params.get("state"), verifier }) });
-      message = `Connected ${status.email}: ${status.gmail ? "Calendar and Gmail" : "Calendar"}.`;
+      message = `Connected ${status.email}: ${status.send ? "Calendar, Gmail and sending with your approval" : status.gmail ? "Calendar and Gmail" : "Calendar"}.`;
     } catch (error) { message = error instanceof Error ? error.message : "Could not connect Google."; }
   }
   sessionStorage.setItem(CONNECT_RESULT_KEY, message);
