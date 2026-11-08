@@ -38,6 +38,9 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
         const repeatsTitle = before.replace(/[*`_]/g, "").trimEnd().toLocaleLowerCase().endsWith(title.toLocaleLowerCase());
         return <button type="button" className={`chat-inline-reference ${repeatsTitle ? "is-citation" : ""}`} aria-label={`Open ${type === "knowledge" ? "note" : type}: ${title}`} title={title} onClick={() => setSelected(source)}><RecordIcon type={type} />{!repeatsTitle && <span>{title}</span>}<ArrowUpRight size={12} className="shrink-0 opacity-60" /></button>;
       }} />
+      {!streaming && message.external?.length ? <ul className="chat-external">{message.external.map((item, i) => <li key={i}>
+        <Check size={13} aria-hidden="true" />{item.link ? <a href={item.link} target="_blank" rel="noreferrer">{item.summary}<ArrowUpRight size={12} aria-hidden="true" /></a> : item.summary}
+      </li>)}</ul> : null}
       {!streaming && message.approvals?.map(approval => <ApprovalCard key={approval.id} approval={approval} onDecide={onDecide ? decision => onDecide(approval.id, decision) : undefined} />)}
       {!streaming && <SourceReferences sources={message.sources} state={state} onSelect={setSelected} />}
       {message.rememberedIds?.length ? <button type="button" className="memory-remembered" onClick={() => window.dispatchEvent(new CustomEvent("synapse-open-memory", { detail: { id: message.rememberedIds![0] } }))}><Brain size={12} />Remembered{message.rememberedIds.length > 1 ? ` ${message.rememberedIds.length} facts` : ""}<ArrowUpRight size={11}/></button> : null}

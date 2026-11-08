@@ -310,6 +310,8 @@ export interface AIMessage {
   memoryNotice?: string;
   /** Changes the assistant proposed in this reply that wait for the user's decision. */
   approvals?: ApprovalRequest[];
+  /** Things the assistant did in connected services (drafts saved, events created), with links. */
+  external?: Array<{ tool: string; summary: string; link?: string }>;
 }
 
 /**

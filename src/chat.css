@@ -153,3 +153,10 @@
 .approval-status { margin: 8px 0 0 23px; color: var(--workspace-muted); }
 .approval-card.is-executed .approval-status { color: var(--workspace-success); }
 .approval-card.is-failed .approval-status, .approval-card.is-expired .approval-status { color: var(--workspace-danger); }
+
+/* Actions taken in connected services during a reply */
+.chat-external { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--workspace-muted); }
+.chat-external li { display: flex; align-items: center; gap: 6px; }
+.chat-external svg { flex-shrink: 0; color: var(--workspace-success, #2f8a57); }
+.chat-external a { display: inline-flex; align-items: center; gap: 3px; color: var(--workspace-ink, #171717); text-decoration: underline; text-underline-offset: 2px; }
+.chat-external a svg { color: inherit; }

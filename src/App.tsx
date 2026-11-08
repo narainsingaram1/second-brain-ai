@@ -36,7 +36,7 @@ import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal"
 import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
 import { AuditLogModal } from "./components/AuditLogModal";
 import { dropLegacyVault, vectorVault } from "./services/vectorVault";
-import { accessToken, getStoredKey, serverFeatures } from "./services/serverApi";
+import { accessToken, finishGoogleConnect, getStoredKey, serverFeatures } from "./services/serverApi";
 import { isServerHeldKey, SERVER_HELD_KEY, setProviderProxyAuth } from "./services/providerTransport";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
 
@@ -168,6 +168,8 @@ export const App: React.FC = () => {
         // Hosted accounts: use the provider key stored encrypted on the server when there is one.
         if (managedAuthEnabled && authSession.currentUser) {
           setProviderProxyAuth(accessToken);
+          // Returning from Google's consent screen: finish connecting, then show the result in Settings.
+          finishGoogleConnect().then(result => { if (result && !disposed) setIsSettingsOpen(true); }).catch(() => {});
           serverFeatures().then(async features => {
             if (!features.secrets || disposed) return;
             const stored = await getStoredKey();

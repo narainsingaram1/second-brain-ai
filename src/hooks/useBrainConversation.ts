@@ -389,6 +389,7 @@ export function useBrainConversation(
           rememberedIds: result.rememberedIds,
           memoryNotice: result.memoryNotice,
           ...(result.approvals?.length ? { approvals: result.approvals } : {}),
+          ...(result.external?.length ? { external: result.external } : {}),
         };
         // Keep the vision model's reading of the images with the message so follow-ups work after reload.
         const withDescription = (messages: AIMessage[]) => result.imageDescription

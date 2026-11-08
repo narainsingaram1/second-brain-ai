@@ -236,3 +236,7 @@
 @media (max-width: 767px) { .stat-strip.is-three { grid-template-columns: minmax(0, 1fr); } .stat-strip.is-three > * { border-left: 0; border-top: 1px solid var(--workspace-line); } .stat-strip.is-three > :first-child { border-top: 0; } }
 /* Large figures use Geist with tabular digits; mono stays for dates, counts and meta. */
 .stat-strip .figure, .knowledge-shortcuts .figure, .tally-streak .figure { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
+
+/* Read-only events from the connected Google Calendar */
+.google-event-chip { color: var(--workspace-ink, #171717); background: transparent; border: 1px dashed var(--workspace-line-strong, #dcdcdf); border-left: 2px solid #4285f4; text-decoration: none; }
+.google-event-chip:hover { background: var(--workspace-raised, #f4f4f5); }

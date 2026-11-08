@@ -1,6 +1,7 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useEffect, useState } from "react";
 import { ServerKeyField } from "./ServerKeyField";
+import { ConnectionsPanel } from "./ConnectionsPanel";
 import { serverFeatures } from "../services/serverApi";
 import { DEFAULT_MODEL, DEFAULT_VISION_MODEL, getVisionModel, OPENROUTER_MODELS, setVisionModel, testOpenRouterKey, VISION_MODELS } from "../services/openrouter";
 import {
@@ -59,7 +60,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   const [visionInput, setVisionInput] = useState(getVisionModel);
   // Hosted accounts keep the provider key encrypted on the server when the server supports it.
   const [serverKeys, setServerKeys] = useState(false);
-  useEffect(() => { if (isOpen) serverFeatures().then(f => setServerKeys(f.secrets)); }, [isOpen]);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
+  useEffect(() => { if (isOpen) serverFeatures().then(f => { setServerKeys(f.secrets); setGoogleAvailable(f.google); }); }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -200,6 +202,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
               Your key is saved locally on your device (and in Rust core <code className="font-mono text-slate-600 dark:text-slate-300">~/.second_brain_ai/openrouter.key</code>). It never leaves your machine except to contact OpenRouter.
             </p>
           </div>}
+
+          {googleAvailable && <ConnectionsPanel />}
 
           {onAskBeforeChanges && <label className="flex items-start gap-3 rounded-2xl border border-line p-3.5 cursor-pointer">
             <input type="checkbox" className="mt-0.5" checked={askBeforeChanges} onChange={e => onAskBeforeChanges(e.target.checked)} />

@@ -1,6 +1,7 @@
 import "../memory.css";
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, CheckSquare, Clock3, Lightbulb, MessageCircle, Mic, MicOff, Plus, Settings2, PenLine, Square, Target } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, CalendarDays, CheckSquare, Clock3, Lightbulb, Mail, MessageCircle, Mic, MicOff, Plus, Settings2, PenLine, Square, Target } from "lucide-react";
+import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
 import { conversationTitle, isNearBottom } from "../utils/chatPresentation";
@@ -22,6 +23,11 @@ const suggestions = [
   { icon: Target, title: "Review my goals", detail: "Next steps for each goal", prompt: "Review all my goals and suggest concrete improvements based on their current progress and milestones." },
   { icon: Lightbulb, title: "Connect notes", detail: "Links between notes and goals", prompt: "Help me find connections between my recent notes and goals." },
 ];
+/** Shown instead of the last two when Google is connected. */
+const googleSuggestions = {
+  calendar: { icon: CalendarDays, title: "My week", detail: "Calendar, deadlines and tasks", prompt: "What's on my calendar this week? Include task deadlines and point out busy days and free blocks for deep work." },
+  gmail: { icon: Mail, title: "Triage my inbox", detail: "What needs a reply or a task", prompt: "Triage my unread email from the last 3 days: what needs a reply, what has a deadline I should add as a task, and what can wait. Offer to draft replies." },
+};
 export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpenSettings, compact = false, externalError }: ChatWorkspaceProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
@@ -46,6 +52,16 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   if (draft) streamedId.current = draft.id;
   const title = conversationTitle(messages);
   const archives = conversation.temporary ? [] : state?.conversations || [];
+  const [google, setGoogle] = useState<{ calendar: boolean; gmail: boolean }>({ calendar: false, gmail: false });
+  useEffect(() => {
+    let live = true;
+    serverFeatures().then(f => f.google ? googleStatus() : null)
+      .then(s => { if (live && s?.connected && s.status === "active") setGoogle({ calendar: !!s.calendar, gmail: !!s.gmail }); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const shownSuggestions = google.calendar
+    ? [...suggestions.slice(0, 2), googleSuggestions.calendar, google.gmail ? googleSuggestions.gmail : suggestions[2]]
+    : suggestions;
   const bottom = (smooth = false) => {
     if (!active) return;
     pinned.current = true;
@@ -157,7 +173,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
             <h1>Ask Iris</h1>
             <p className="chat-welcome-subtitle">Iris has read your tasks, notes, goals, journal and course materials, and can change them when you ask</p>
             {composer}
-            <div className="chat-suggestions">{suggestions.map(({ icon: Icon, ...suggestion }) => <button type="button" key={suggestion.title} onClick={() => { setInput(suggestion.prompt); textarea.current?.focus(); }} className="chat-suggestion"><Icon size={16} strokeWidth={1.5} /><strong>{suggestion.title}</strong><span>{suggestion.detail}</span></button>)}</div>
+            <div className="chat-suggestions">{shownSuggestions.map(({ icon: Icon, ...suggestion }) => <button type="button" key={suggestion.title} onClick={() => { setInput(suggestion.prompt); textarea.current?.focus(); }} className="chat-suggestion"><Icon size={16} strokeWidth={1.5} /><strong>{suggestion.title}</strong><span>{suggestion.detail}</span></button>)}</div>
             <section className="chat-recents" aria-label="Recent conversations"><div className="flex items-center justify-between mb-3"><h2 className="text-[15px] font-medium">Recent conversations</h2>{archives.length > 3 && <button type="button" className="text-xs text-muted" onClick={() => setShowAllRecent(!showAllRecent)}>{showAllRecent ? "Show less" : "View all"}</button>}</div><div className="chat-recent-list">{archives.slice(0, showAllRecent ? archives.length : 3).map(thread => <button type="button" key={thread.id} onClick={() => conversation.resume(thread.id)} className="chat-recent"><span className="chat-recent-icon"><Clock3 size={16} strokeWidth={1.5} /></span><span className="min-w-0 flex-1"><strong>{thread.title}</strong><span>{thread.messages.filter(m => m.role === "user").length} messages · {new Date(thread.updatedAt).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}</span></span><ArrowUpRight size={16} className="text-slate-400 shrink-0" /></button>)}{archives.length === 0 && <div className="chat-empty-recents"><MessageCircle size={16} strokeWidth={1.5} /><div><strong>No past conversations</strong><p>Finished chats are kept here so you can pick them up again</p></div></div>}</div></section>
           </div>}
         </div>

@@ -99,3 +99,50 @@ Routes live in `server/routes/*.ts` as Web `Request`/`Response` handlers. `npm r
 ### Not covered by automated tests
 
 The SQL runs in PGlite with Supabase's roles and `auth.uid()`, and the routes run against it with a mocked AI provider. The live Supabase project, Vercel's function runtime and streaming, and real model behavior are not exercised by the tests. Check them with the verification steps above after deploying.
+
+## Phase 1: Google Calendar and Gmail
+
+The assistant can read your Google Calendar, search and read Gmail, save reply drafts, and add calendar events. It cannot send email: no send permission is requested, and drafts wait in Gmail › Drafts for you.
+
+### What it may do on its own
+
+| Action | Approval |
+|---|---|
+| Read your calendar; search and read email | Runs on its own |
+| Save an email draft | Runs on its own (nothing is sent) |
+| Add an event with no guests | Runs on its own |
+| Add an event with guests | Always asks (Google emails the invitations) |
+| Edit or delete anything after reading an email | Always asks. Email is untrusted: it may contain instructions that are not yours. Adding tasks and drafts after reading email still runs. |
+
+Every connection, disconnection, draft and created event is written to the account history.
+
+### Setup (Google Cloud project `skilled-array-513300-e9`)
+
+1. **APIs & Services › Library:** enable the Gmail API and the Google Calendar API.
+2. **OAuth consent screen:**
+   - User type External, app name "Synapse", your email as support contact.
+   - Add the scopes `openid`, `email`, `.../auth/calendar.events`, `.../auth/calendar.readonly`, `.../auth/gmail.readonly` and `.../auth/gmail.compose`.
+   - Under Test users, add every Google account that will connect.
+3. **Credentials › Create credentials › OAuth client ID:**
+   - Type: Web application.
+   - Authorized redirect URIs: `https://second-brain-ai-src-tauri.vercel.app/connect/google` (your production origin) and `http://localhost:1420/connect/google`.
+4. **Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`** in Vercel (Production and Preview), and in `.env.local` for `npm run dev`. If your redirect URI differs from `<origin>/connect/google` (custom domain behind a proxy), set `GOOGLE_REDIRECT_URI` to it exactly.
+5. **Apply the migration** `supabase/migrations/202611090001_google_connections.sql`, then redeploy.
+6. **Verify:**
+   - `GET /api/health` reports `"google": true`.
+   - In the app, go to Settings › Connections › Connect Calendar + Gmail and approve.
+   - Ask "What's on my calendar this week?" and "Triage my unread email."
+
+### Google's review rules: read before relying on it
+
+- **Testing mode:** the consent screen is set to Testing for personal use. Only listed test users can connect, and Google shows an "unverified app" notice. **Google expires refresh tokens issued in Testing after 7 days.** When that happens, Settings › Connections shows *Reconnect*, and the assistant stops using Google until you reconnect.
+- **Production for other people:** publishing for other people requires Google's verification. The Gmail scopes are restricted, which also requires an annual third-party security assessment (CASA). Calendar-only connections need verification but no assessment.
+- **Revoking access:** disconnecting in Settings revokes the grant at Google and deletes the stored token. You can also remove Synapse at myaccount.google.com/permissions; the app then marks the connection for reconnecting.
+
+### Privacy
+
+Mail and calendar content is fetched live for each request and is not stored by Synapse. The refresh token is encrypted with `SYNAPSE_SECRETS_KEY`, and access tokens live only in memory for one request. A conversation keeps what the assistant wrote about your email in its replies, like any other chat.
+
+### Browser fixture
+
+`npm exec vite -- --config tests/fixtures/vite.config.ts` and open `http://127.0.0.1:1423/tests/fixtures/connections.html` to see the Connections panel, Google events in the calendar, and an approval card for an event with guests. It uses synthetic data and intercepted `/api` responses.
