@@ -12,6 +12,7 @@ import type {
 } from "../types";
 import { getLocalDateString } from "./habitStreaks";
 import { normalizeGrading } from "./grades";
+import { renameTaskIcon } from "./taskAppearance";
 
 export const emptyStudy = (): StudyState => ({ courses: [], folders: [], documents: [], decks: [], quizzes: [] });
 export const studyOf = (state: Pick<BrainState, "study">): StudyState => state.study || emptyStudy();
@@ -33,7 +34,7 @@ export function normalizeStudy(value: unknown): StudyState {
   };
   const now = new Date().toISOString();
   const courses: Course[] = unique(list("courses").filter((c) => typeof c.workspaceId === "string").map((c) => ({
-    id: c.id, workspaceId: c.workspaceId, code: str(c.code, 40), name: str(c.name, 120) || "Untitled course",
+    id: c.id, workspaceId: c.workspaceId, code: str(c.code, 120), name: str(c.name, 120) || "Untitled course",
     ...(str(c.term, 60) ? { term: str(c.term, 60) } : {}), ...(str(c.instructor, 80) ? { instructor: str(c.instructor, 80) } : {}),
     ...(normalizeGrading(c.grading) ? { grading: normalizeGrading(c.grading) } : {}),
     createdAt: str(c.createdAt) || now, updatedAt: str(c.updatedAt) || now,
@@ -166,17 +167,56 @@ export function removeWorkspaceCourses(study: StudyState, workspaceId: string): 
   return { study: next, documentIds };
 }
 
-/** Courses double as task subsections under Academic, so assignments and materials line up. */
-export function linkCourseToTasks(state: BrainState, course: Course): BrainState {
-  const label = course.code || course.name;
-  if (!state.sections.includes(ACADEMIC_SECTION)) return state;
-  const existing = state.subsections[ACADEMIC_SECTION] || [];
-  if (existing.some((s) => s.toLocaleLowerCase() === label.toLocaleLowerCase())) return state;
-  return { ...state, subsections: { ...state.subsections, [ACADEMIC_SECTION]: [...existing, label] } };
+/** Spacing, hyphens and case don't matter: "CS1332" and "cs 1332" are the same class. */
+function sameGroup(a: string, b: string) {
+  const key = (value: string) => value.replace(/[\s-]+/g, "").toLocaleLowerCase();
+  return key(a) === key(b);
+}
+const courseGroup = (course: Course) => course.code || course.name;
+
+/** The Academic subsection holding a course's tasks, spelled the way the Tasks page spells it. */
+export function courseSubsection(state: BrainState, course: Course) {
+  const group = courseGroup(course);
+  return state.subsections[ACADEMIC_SECTION]?.find((s) => sameGroup(s, group)) || group;
+}
+function renameGroup(state: BrainState, from: string, to: string): BrainState {
+  const subs = state.subsections[ACADEMIC_SECTION] || [];
+  const merged = subs.find((s) => sameGroup(s, to) && !sameGroup(s, from));
+  return {
+    ...state,
+    ...(state.taskAppearance && !merged ? { taskAppearance: renameTaskIcon(state.taskAppearance, ACADEMIC_SECTION, subs.find((s) => sameGroup(s, from)) || from, to) } : {}),
+    subsections: { ...state.subsections, [ACADEMIC_SECTION]: merged ? subs.filter((s) => !sameGroup(s, from)) : subs.map((s) => (sameGroup(s, from) ? to : s)) },
+    tasks: state.tasks.map((t) => (t.section === ACADEMIC_SECTION && t.subsection && sameGroup(t.subsection, from) ? { ...t, subsection: merged || to } : t)),
+  };
+}
+/**
+ * Courses double as task subsections under Academic, so a course's tasks are the same records the Tasks page shows.
+ * Pass the course as it was before an edit so a new code carries its subsection and tasks along.
+ */
+export function linkCourseToTasks(state: BrainState, course: Course, before?: Course): BrainState {
+  const label = courseGroup(course);
+  const from = before && courseGroup(before);
+  const next = from && from !== label ? renameGroup(state, from, label) : state;
+  const existing = next.subsections[ACADEMIC_SECTION];
+  const hasSection = next.sections.includes(ACADEMIC_SECTION);
+  if (hasSection && existing?.some((s) => sameGroup(s, label))) return next;
+  return {
+    ...next,
+    sections: hasSection ? next.sections : [...next.sections, ACADEMIC_SECTION],
+    subsections: { ...next.subsections, [ACADEMIC_SECTION]: [...(existing?.length ? existing : ["General"]), label] },
+  };
+}
+/** The other direction: renaming a course's subsection on the Tasks page renames the course to match. */
+export function followSubsectionRename(state: BrainState, section: string, from: string, to: string): BrainState {
+  if (section !== ACADEMIC_SECTION || !studyOf(state).courses.some((c) => sameGroup(courseGroup(c), from))) return state;
+  const updatedAt = new Date().toISOString();
+  return withStudy(state, (s) => ({
+    courses: s.courses.map((c) => (!sameGroup(courseGroup(c), from) ? c : { ...c, ...(c.code ? { code: to } : { name: to }), updatedAt })),
+  }));
 }
 export function courseTasks(state: BrainState, course: Course) {
-  const label = (course.code || course.name).toLocaleLowerCase();
-  return state.tasks.filter((t) => t.section === ACADEMIC_SECTION && t.subsection?.toLocaleLowerCase() === label);
+  const group = courseGroup(course);
+  return state.tasks.filter((t) => t.section === ACADEMIC_SECTION && !!t.subsection && sameGroup(t.subsection, group));
 }
 
 export function bestScore(quiz: Quiz) {

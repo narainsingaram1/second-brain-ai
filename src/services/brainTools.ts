@@ -433,7 +433,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
 
 
 import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder } from "../types";
-import { ACADEMIC_SECTION, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
+import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
 import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
 import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
@@ -570,8 +570,8 @@ function applySectionChange(state: BrainState, m: Mutation): BrainState {
     case "rename_subsection": {
       const i = (exp?.subsections || []).findIndex((s, k) => s !== rec.subsections[k]);
       const from = exp!.subsections[i], to = rec.subsections[i];
-      return { ...state, subsections: { ...subs, [rec.id]: rec.subsections },
-        tasks: state.tasks.map(t => t.section === rec.id && (t.subsection || "General") === from ? { ...t, subsection: to } : t) };
+      return followSubsectionRename({ ...state, subsections: { ...subs, [rec.id]: rec.subsections },
+        tasks: state.tasks.map(t => t.section === rec.id && (t.subsection || "General") === from ? { ...t, subsection: to } : t) }, rec.id, from, to);
     }
     case "delete_subsection": {
       const removed = (exp?.subsections || []).find(s => !rec.subsections.includes(s));
@@ -646,13 +646,7 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
           template: "academic", color: "blue", notes: "", createdAt: new Date().toISOString() };
         next = { ...next, workspaces: [...(next.workspaces || []), workspace] };
       }
-      // A changed code (or name, without a code) renames the course's task subsection under Academic.
-      const before = mutation.expected as Course | undefined;
-      const oldLabel = before && (before.code || before.name), newLabel = course.code || course.name;
-      if (oldLabel && oldLabel !== newLabel && (next.subsections[ACADEMIC_SECTION] || []).includes(oldLabel))
-        next = { ...next, subsections: { ...next.subsections, [ACADEMIC_SECTION]: next.subsections[ACADEMIC_SECTION].map(s => s === oldLabel ? newLabel : s) },
-          tasks: next.tasks.map(t => t.section === ACADEMIC_SECTION && t.subsection === oldLabel ? { ...t, subsection: newLabel } : t) };
-      next = linkCourseToTasks(next, course);
+      next = linkCourseToTasks(next, course, mutation.expected as Course | undefined);
     }
     return next;
   }

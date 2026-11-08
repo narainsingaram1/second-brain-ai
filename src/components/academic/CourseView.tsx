@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, CalendarClock, FileText, GraduationCap, Layers, ListChecks, MessageCircle, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, CheckSquare, FileText, GraduationCap, Layers, ListChecks, MessageCircle, Settings2, Trash2 } from "lucide-react";
 import type { Course } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
 import { courseLabel, courseTasks, dueCards, removeCourse, studyOf } from "../../utils/study";
@@ -10,12 +10,13 @@ import { MaterialsPanel } from "./MaterialsPanel";
 import { DecksPanel } from "./DecksPanel";
 import { QuizzesPanel } from "./QuizzesPanel";
 import { GradesPanel } from "./GradesPanel";
+import { TasksPanel, type TaskActions } from "./TasksPanel";
 import { formatPercent, summarize } from "../../utils/grades";
 import { GenerateDialog, type GenerateRequest } from "./GenerateDialog";
 
-type Tab = "materials" | "flashcards" | "quizzes" | "grades";
+type Tab = "materials" | "tasks" | "flashcards" | "quizzes" | "grades";
 
-export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: StudyProps & { course: Course; onBack: () => void; onEdit: () => void }) {
+export function CourseView({ state, course, onChange, onAsk, taskActions, onBack, onEdit }: StudyProps & { course: Course; taskActions: TaskActions; onBack: () => void; onEdit: () => void }) {
   const study = studyOf(state);
   const [tab, setTab] = useState<Tab>("materials");
   const [generate, setGenerate] = useState<GenerateRequest | null>(null);
@@ -27,7 +28,8 @@ export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: S
   const decks = study.decks.filter((d) => d.courseId === course.id);
   const quizzes = study.quizzes.filter((q) => q.courseId === course.id);
   const due = decks.reduce((n, d) => n + dueCards(d, today).length, 0);
-  const upcoming = courseTasks(state, course).filter((t) => t.status !== "completed" && t.dueDate && t.dueDate >= today)
+  const openTasks = courseTasks(state, course).filter((t) => t.status !== "completed");
+  const upcoming = openTasks.filter((t) => t.dueDate && t.dueDate >= today)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate)).slice(0, 3);
 
   return (
@@ -58,6 +60,7 @@ export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: S
       <div className="ws-tabs" role="tablist" aria-label="Course pages">
         {([
           { id: "materials", label: "Materials", icon: FileText, count: docs.length },
+          { id: "tasks", label: "Tasks", icon: CheckSquare, count: openTasks.length },
           { id: "flashcards", label: "Flashcards", icon: Layers, count: due || decks.length },
           { id: "quizzes", label: "Quizzes", icon: ListChecks, count: quizzes.length },
           { id: "grades", label: "Grades", icon: GraduationCap, count: course.grading?.categories.length ? formatPercent(summarize(course.grading).current) : null },
@@ -68,6 +71,7 @@ export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: S
         ))}
       </div>
       {tab === "materials" && <MaterialsPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={setGenerate} />}
+      {tab === "tasks" && <TasksPanel state={state} course={course} onChange={onChange} actions={taskActions} />}
       {tab === "flashcards" && <DecksPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "flashcards", documentIds: [] })} openDeckId={opened?.kind === "deck" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
       {tab === "quizzes" && <QuizzesPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "quiz", documentIds: [] })} openQuizId={opened?.kind === "quiz" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
       {tab === "grades" && <GradesPanel state={state} course={course} onChange={onChange} onAsk={onAsk} />}

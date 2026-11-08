@@ -230,6 +230,140 @@ function findCategory(grading, name) {
 	const wanted = key(name);
 	return grading?.categories.find((c) => key(c.name) === wanted) || grading?.categories.find((c) => key(c.name).startsWith(wanted) || wanted.startsWith(key(c.name)));
 }
+// src/utils/taskAppearance.ts
+const TASK_ACCENTS = [
+	{
+		id: "purple",
+		label: "Purple",
+		light: "#6240c5",
+		dark: "#bca6ff",
+		rgb: "124, 92, 224"
+	},
+	{
+		id: "blue",
+		label: "Blue",
+		light: "#245bbd",
+		dark: "#94bbff",
+		rgb: "59, 115, 220"
+	},
+	{
+		id: "green",
+		label: "Green",
+		light: "#247044",
+		dark: "#8cdbad",
+		rgb: "47, 151, 91"
+	},
+	{
+		id: "teal",
+		label: "Teal",
+		light: "#167477",
+		dark: "#7dd6d0",
+		rgb: "32, 155, 151"
+	},
+	{
+		id: "rose",
+		label: "Rose",
+		light: "#b33667",
+		dark: "#f5a2c1",
+		rgb: "210, 80, 130"
+	},
+	{
+		id: "orange",
+		label: "Orange",
+		light: "#a45419",
+		dark: "#f2b481",
+		rgb: "207, 126, 56"
+	},
+	{
+		id: "indigo",
+		label: "Indigo",
+		light: "#4949b8",
+		dark: "#aaaaff",
+		rgb: "100, 100, 211"
+	},
+	{
+		id: "slate",
+		label: "Slate",
+		light: "#506078",
+		dark: "#b3c3da",
+		rgb: "113, 133, 158"
+	}
+];
+const TASK_VISUALS = [
+	{
+		id: "circuit",
+		label: "Circuit",
+		description: "Technology & engineering"
+	},
+	{
+		id: "book",
+		label: "Open book",
+		description: "Reading & study"
+	},
+	{
+		id: "network",
+		label: "Connections",
+		description: "Ideas & intelligence"
+	},
+	{
+		id: "botanical",
+		label: "Botanical",
+		description: "Growth & wellbeing"
+	},
+	{
+		id: "orbit",
+		label: "Orbit",
+		description: "Explore & discover"
+	},
+	{
+		id: "mountains",
+		label: "Landscape",
+		description: "Adventure & perspective"
+	},
+	{
+		id: "waves",
+		label: "Flow",
+		description: "Calm & creativity"
+	},
+	{
+		id: "none",
+		label: "Minimal",
+		description: "Color without illustration"
+	}
+];
+const taskIconKey = (section, subsection) => JSON.stringify([section, subsection ?? null]);
+function normalizeTaskAppearance(value) {
+	const source = value && typeof value === "object" ? value : {};
+	const icons = {};
+	if (source.icons && typeof source.icons === "object") {
+		for (const [key, icon] of Object.entries(source.icons).slice(0, 1e3)) if (typeof icon === "string" && /^[A-Za-z][A-Za-z0-9]{0,40}$/.test(icon)) icons[key] = icon;
+	}
+	const subsections = {};
+	if (source.subsections && typeof source.subsections === "object") for (const [key, style] of Object.entries(source.subsections).slice(0, 1e3)) {
+		if (!style || typeof style !== "object") continue;
+		subsections[key] = {
+			accent: TASK_ACCENTS.some((a) => a.id === style.accent) ? style.accent : "purple",
+			visual: TASK_VISUALS.some((v) => v.id === style.visual) ? style.visual : "none"
+		};
+	}
+	return {
+		...Object.keys(subsections).length ? { subsections } : {},
+		accent: TASK_ACCENTS.some((a) => a.id === source.accent) ? source.accent : "purple",
+		icons
+	};
+}
+function renameTaskIcon(appearance, section, oldName, newName) {
+	const next = normalizeTaskAppearance(appearance);
+	const oldKey = taskIconKey(section, oldName);
+	const icon = next.icons[oldKey];
+	delete next.icons[oldKey];
+	if (icon) next.icons[taskIconKey(section, newName)] = icon;
+	if (next.subsections?.[oldKey]) {
+		next.subsections[taskIconKey(section, newName)] = next.subsections[oldKey];
+		delete next.subsections[oldKey];
+	}
+	return next;
+}
 // src/utils/study.ts
 const emptyStudy = () => ({
 	courses: [],
@@ -280,6 +414,17 @@ function newCard(front, back, sourceDocId, today = getLocalDateString()) {
 		lapses: 0
 	};
 }
+/** Updates the study collections immutably. */
+function withStudy(state, change) {
+	const study = studyOf(state);
+	return {
+		...state,
+		study: {
+			...study,
+			...change(study)
+		}
+	};
+}
 /** Removes a course with everything inside it. Returns the document IDs whose stored text should be deleted. */
 function removeCourse(study, courseId) {
 	return {
@@ -307,19 +452,57 @@ function removeWorkspaceCourses(study, workspaceId) {
 		documentIds
 	};
 }
-/** Courses double as task subsections under Academic, so assignments and materials line up. */
-function linkCourseToTasks(state, course) {
-	const label = course.code || course.name;
-	if (!state.sections.includes("Academic")) return state;
-	const existing = state.subsections["Academic"] || [];
-	if (existing.some((s) => s.toLocaleLowerCase() === label.toLocaleLowerCase())) return state;
+/** Spacing, hyphens and case don't matter: "CS1332" and "cs 1332" are the same class. */
+function sameGroup(a, b) {
+	const key = (value) => value.replace(/[\s-]+/g, "").toLocaleLowerCase();
+	return key(a) === key(b);
+}
+const courseGroup = (course) => course.code || course.name;
+function renameGroup(state, from, to) {
+	const subs = state.subsections["Academic"] || [];
+	const merged = subs.find((s) => sameGroup(s, to) && !sameGroup(s, from));
 	return {
 		...state,
+		...state.taskAppearance && !merged ? { taskAppearance: renameTaskIcon(state.taskAppearance, ACADEMIC_SECTION, subs.find((s) => sameGroup(s, from)) || from, to) } : {},
 		subsections: {
 			...state.subsections,
-			[ACADEMIC_SECTION]: [...existing, label]
+			[ACADEMIC_SECTION]: merged ? subs.filter((s) => !sameGroup(s, from)) : subs.map((s) => sameGroup(s, from) ? to : s)
+		},
+		tasks: state.tasks.map((t) => t.section === "Academic" && t.subsection && sameGroup(t.subsection, from) ? {
+			...t,
+			subsection: merged || to
+		} : t)
+	};
+}
+/**
+* Courses double as task subsections under Academic, so a course's tasks are the same records the Tasks page shows.
+* Pass the course as it was before an edit so a new code carries its subsection and tasks along.
+*/
+function linkCourseToTasks(state, course, before) {
+	const label = courseGroup(course);
+	const from = before && courseGroup(before);
+	const next = from && from !== label ? renameGroup(state, from, label) : state;
+	const existing = next.subsections[ACADEMIC_SECTION];
+	const hasSection = next.sections.includes(ACADEMIC_SECTION);
+	if (hasSection && existing?.some((s) => sameGroup(s, label))) return next;
+	return {
+		...next,
+		sections: hasSection ? next.sections : [...next.sections, ACADEMIC_SECTION],
+		subsections: {
+			...next.subsections,
+			[ACADEMIC_SECTION]: [...existing?.length ? existing : ["General"], label]
 		}
 	};
+}
+/** The other direction: renaming a course's subsection on the Tasks page renames the course to match. */
+function followSubsectionRename(state, section, from, to) {
+	if (section !== "Academic" || !studyOf(state).courses.some((c) => sameGroup(courseGroup(c), from))) return state;
+	const updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+	return withStudy(state, (s) => ({ courses: s.courses.map((c) => !sameGroup(courseGroup(c), from) ? c : {
+		...c,
+		...c.code ? { code: to } : { name: to },
+		updatedAt
+	}) }));
 }
 ({}).VITE_GOOGLE_ONLY;
 ({}).VITE_AUTH_PROVIDER;
@@ -1595,7 +1778,7 @@ function applySectionChange(state, m) {
 		case "rename_subsection": {
 			const i = (exp?.subsections || []).findIndex((s, k) => s !== rec.subsections[k]);
 			const from = exp.subsections[i], to = rec.subsections[i];
-			return {
+			return followSubsectionRename({
 				...state,
 				subsections: {
 					...subs,
@@ -1605,7 +1788,7 @@ function applySectionChange(state, m) {
 					...t,
 					subsection: to
 				} : t)
-			};
+			}, rec.id, from, to);
 		}
 		case "delete_subsection": {
 			const removed = (exp?.subsections || []).find((s) => !rec.subsections.includes(s));
@@ -1732,20 +1915,7 @@ function applyMutation(state, mutation) {
 					workspaces: [...next.workspaces || [], workspace]
 				};
 			}
-			const before = mutation.expected;
-			const oldLabel = before && (before.code || before.name), newLabel = course.code || course.name;
-			if (oldLabel && oldLabel !== newLabel && (next.subsections["Academic"] || []).includes(oldLabel)) next = {
-				...next,
-				subsections: {
-					...next.subsections,
-					[ACADEMIC_SECTION]: next.subsections[ACADEMIC_SECTION].map((s) => s === oldLabel ? newLabel : s)
-				},
-				tasks: next.tasks.map((t) => t.section === "Academic" && t.subsection === oldLabel ? {
-					...t,
-					subsection: newLabel
-				} : t)
-			};
-			next = linkCourseToTasks(next, course);
+			next = linkCourseToTasks(next, course, mutation.expected);
 		}
 		return next;
 	}

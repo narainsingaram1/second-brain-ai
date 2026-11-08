@@ -1,5 +1,6 @@
 import { MemoryModal } from "./components/MemoryModal";
 import { renameTaskIcon } from "./utils/taskAppearance";
+import { followSubsectionRename } from "./utils/study";
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud, REMOTE_CHANGE_EVENT } from "./services/cloudSync";
@@ -468,6 +469,19 @@ export const App: React.FC = () => {
     // Auto-update Semantic Memory Vault
   };
 
+  const openNewTask = (section?: string, subsection?: string, defaultDueDate?: string) => {
+    const sec = section || state?.sections[0] || "Academic";
+    setTaskModalDefaultSection(sec);
+    setTaskModalDefaultSubsection(subsection || state?.subsections[sec]?.[0] || "General");
+    setTaskModalDefaultDueDate(defaultDueDate || getLocalDateString());
+    setActiveEditTask(null);
+    setIsTaskModalOpen(true);
+  };
+  const openEditTask = (task: Task) => {
+    setActiveEditTask(task);
+    setIsTaskModalOpen(true);
+  };
+
   const openNewEvent = (date?: string) => {
     setActiveEditEvent(null);
     setEventModalDefaultDate(date || getLocalDateString());
@@ -610,7 +624,7 @@ export const App: React.FC = () => {
           ? { ...t, subsection: trimmed }
           : t
       );
-      return {
+      return followSubsectionRename({
         ...prev,
         taskAppearance: renameTaskIcon(prev.taskAppearance, section, oldName, trimmed),
         subsections: {
@@ -618,7 +632,7 @@ export const App: React.FC = () => {
           [section]: updatedSubs,
         },
         tasks: updatedTasks,
-      };
+      }, section, oldName, trimmed);
     });
   };
 
@@ -992,6 +1006,7 @@ export const App: React.FC = () => {
                 onNavigate={setActiveTab}
                 onAsk={prompt => { void askAssistant(prompt); }}
                 onChange={update => setState(prev => prev ? update(prev) : prev)}
+                taskActions={{ onToggle: handleToggleTask, onEdit: openEditTask, onNew: openNewTask }}
               />}
               {/* ========================================================= */}
               {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
@@ -1029,19 +1044,8 @@ export const App: React.FC = () => {
                   onAppearanceChange={(taskAppearance) => setState(prev => prev ? { ...prev, taskAppearance } : prev)}
                   onToggleTask={handleToggleTask}
                   onStatusChange={handleStatusChange}
-                  onAddTask={(section, subsection, defaultDueDate) => {
-                    const sec = section || state.sections[0] || "Academic";
-                    const sub = subsection || state.subsections[sec]?.[0] || "General";
-                    setTaskModalDefaultSection(sec);
-                    setTaskModalDefaultSubsection(sub);
-                    setTaskModalDefaultDueDate(defaultDueDate || getLocalDateString());
-                    setActiveEditTask(null);
-                    setIsTaskModalOpen(true);
-                  }}
-                  onEditTask={(task) => {
-                    setActiveEditTask(task);
-                    setIsTaskModalOpen(true);
-                  }}
+                  onAddTask={openNewTask}
+                  onEditTask={openEditTask}
                   onDeleteTask={handleDeleteTask}
                   onSaveTask={handleSaveTask}
                   onAIBreakdown={handleTriggerAIBreakdown}
