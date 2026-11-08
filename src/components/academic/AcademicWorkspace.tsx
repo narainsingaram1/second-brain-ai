@@ -6,6 +6,7 @@ import { bestScore, courseTasks, dueCards, linkCourseToTasks, studyOf, upsert, w
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import { formatPercent, summarize } from "../../utils/grades";
 import { CourseView } from "./CourseView";
+import type { TaskActions } from "./TasksPanel";
 import "../../academic.css";
 
 export type StudyUpdate = (update: (state: BrainState) => BrainState) => void;
@@ -16,7 +17,7 @@ export interface StudyProps {
   onAsk: (prompt: string) => void;
 }
 
-export function AcademicWorkspace({ state, workspace, onChange, onAsk }: StudyProps & { workspace: Workspace }) {
+export function AcademicWorkspace({ state, workspace, onChange, onAsk, taskActions }: StudyProps & { workspace: Workspace; taskActions: TaskActions }) {
   const study = studyOf(state);
   const courses = study.courses.filter((c) => c.workspaceId === workspace.id);
   const [courseId, setCourseId] = useState<string | null>(null);
@@ -29,7 +30,7 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk }: StudyPr
   const attempts = study.quizzes.filter((q) => courseIds.has(q.courseId)).reduce((n, q) => n + q.attempts.length, 0);
 
   const saveCourse = (next: Course) => {
-    onChange((prev) => linkCourseToTasks(withStudy(prev, (s) => ({ courses: upsert(s.courses, next) })), next));
+    onChange((prev) => linkCourseToTasks(withStudy(prev, (s) => ({ courses: upsert(s.courses, next) })), next, studyOf(prev).courses.find((c) => c.id === next.id)));
     setEditor(null);
     setCourseId(next.id);
   };
@@ -37,7 +38,7 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk }: StudyPr
   if (course)
     return (
       <>
-        <CourseView state={state} course={course} onChange={onChange} onAsk={onAsk} onBack={() => setCourseId(null)} onEdit={() => setEditor(course)} />
+        <CourseView state={state} course={course} onChange={onChange} onAsk={onAsk} taskActions={taskActions} onBack={() => setCourseId(null)} onEdit={() => setEditor(course)} />
         {editor && <CourseEditor course={editor === "new" ? undefined : editor} workspaceId={workspace.id} onSave={saveCourse} onClose={() => setEditor(null)} />}
       </>
     );

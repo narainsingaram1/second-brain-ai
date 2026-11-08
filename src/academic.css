@@ -327,3 +327,22 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
   .ac-cat-row > :nth-child(4) { display: none; }
   .ac-weight-row { grid-template-columns: minmax(0, 1fr) 64px 64px 64px 32px; }
 }
+
+/* Course tasks */
+.ac-tasks { list-style: none; display: flex; flex-direction: column; }
+.ac-task { display: flex; align-items: center; gap: 12px; padding: 4px 0; border-top: 1px solid var(--workspace-line); }
+.ac-task:first-child { border-top: 0; }
+.ac-task-check {
+  width: 20px; height: 20px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%;
+  border: 1.5px solid var(--workspace-line-strong); color: var(--workspace-panel); transition: border-color 0.15s, background 0.15s;
+}
+.ac-task-check:hover { border-color: var(--workspace-success); }
+.ac-task.is-done .ac-task-check { background: var(--workspace-success); border-color: var(--workspace-success); }
+.ac-task-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding: 8px 0; text-align: left; }
+.ac-task-title { font-size: 14px; overflow-wrap: anywhere; }
+.ac-task-open:hover .ac-task-title { color: var(--workspace-accent); }
+.ac-task-open small { font-size: 12px; color: var(--workspace-muted); }
+.ac-task.is-done .ac-task-title { color: var(--workspace-muted); text-decoration: line-through; }
+.ac-task-due { font-size: 13px; color: var(--workspace-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ac-task-due.is-overdue { color: var(--workspace-danger); }
+.ac-tasks-toggle { margin-top: 10px; }

@@ -46,6 +46,7 @@ import {
 import { getLocalDateString } from "../utils/habitStreaks";
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import { AcademicWorkspace } from "./academic/AcademicWorkspace";
+import type { TaskActions } from "./academic/TasksPanel";
 import { studyOf } from "../utils/study";
 import { deleteDocumentTexts } from "../services/studyDocuments";
 import { DIFFICULTIES, JOB_TYPES } from "../utils/trackerFields";
@@ -59,6 +60,7 @@ interface Props {
   onChange: Update;
   onNavigate: (tab: string) => void;
   onAsk: (prompt: string) => void;
+  taskActions: TaskActions;
 }
 type Panel = "overview" | "leetcode" | "job_application" | "notes";
 const stagesFor = (kind: TrackerKind) =>
@@ -137,6 +139,7 @@ export function WorkspacesView({
   onChange,
   onNavigate,
   onAsk,
+  taskActions,
 }: Props) {
   const workspaces = state.workspaces || [];
   const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -402,6 +405,7 @@ export function WorkspacesView({
                 workspace={workspace}
                 onChange={onChange}
                 onAsk={onAsk}
+                taskActions={taskActions}
               />
             )}
             {panel === "overview" &&

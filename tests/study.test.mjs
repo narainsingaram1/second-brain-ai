@@ -91,6 +91,34 @@ test("courses become Academic task subsections", () => {
   assert.equal(study.linkCourseToTasks(state, course), state);
 });
 
+test("a course's tasks are the Academic subsection's tasks, however it is spelled", () => {
+  const task = { id: "t1", title: "HW 1", section: "Academic", subsection: "cs1332", status: "not_started" };
+  const state = { ...base(), subsections: { Academic: ["General", "cs1332"] }, tasks: [task, { ...task, id: "t2", section: "Career" }] };
+  assert.deepEqual(study.courseTasks(state, course), [task]);
+  assert.equal(study.courseSubsection(state, course), "cs1332");
+  assert.equal(study.linkCourseToTasks(state, course), state, "does not add a duplicate subsection");
+});
+
+test("linking a course restores a missing Academic section", () => {
+  const state = study.linkCourseToTasks({ ...base(), sections: ["Career"], subsections: { Career: ["General"] } }, course);
+  assert.deepEqual(state.sections, ["Career", "Academic"]);
+  assert.deepEqual(state.subsections.Academic, ["General", "CS 1332"]);
+});
+
+test("renaming a course or its subsection keeps the two linked", () => {
+  const task = { id: "t1", title: "HW 1", section: "Academic", subsection: "CS 1332", status: "not_started" };
+  const linked = { ...base(), subsections: { Academic: ["General", "CS 1332"] }, tasks: [task] };
+  const recoded = { ...course, code: "CS 2340" };
+  const moved = study.linkCourseToTasks(linked, recoded, course);
+  assert.deepEqual(moved.subsections.Academic, ["General", "CS 2340"]);
+  assert.equal(moved.tasks[0].subsection, "CS 2340");
+
+  const m = tools.prepareMutation("rename_subsection", { section: "Academic", subsection: "CS 1332", newName: "CS 1331" }, linked);
+  const renamed = tools.applyMutation(linked, m);
+  assert.equal(renamed.study.courses[0].code, "CS 1331");
+  assert.deepEqual(study.courseTasks(renamed, renamed.study.courses[0]).map((t) => t.id), ["t1"]);
+});
+
 test("office XML extraction keeps paragraphs, headings and entities", () => {
   const docx = '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Trees</w:t></w:r></w:p><w:p><w:r><w:t xml:space="preserve">AVL &amp; </w:t></w:r><w:r><w:t>BST</w:t></w:r></w:p>';
   assert.deepEqual(officeXmlText(docx, "w:p", "w:t"), ["## Trees", "AVL & BST"]);
