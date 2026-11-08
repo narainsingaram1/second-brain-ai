@@ -1,5 +1,6 @@
 import { Task, Habit, JournalEntry } from "../types";
 import { getLocalDateString } from "../utils/habitStreaks";
+import { isServerHeldKey, providerFetch } from "./providerTransport";
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 /** Fast, inexpensive model for small structured jobs (classification, breakdowns). */
@@ -52,15 +53,6 @@ export async function modelSupportsImages(model: string): Promise<boolean> {
   const id = resolveModel(model);
   const known = (await loadCatalog()).get(id);
   return known ?? guessVision(id);
-}
-
-function headers(apiKey: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${apiKey.trim()}`,
-    "Content-Type": "application/json",
-    "HTTP-Referer": "https://synapse-second-brain.local",
-    "X-Title": "Synapse Second Brain",
-  };
 }
 
 /** Marks the final text part of a message as a cache breakpoint. */
@@ -142,7 +134,7 @@ export async function queryOpenRouterWithTools(
   systemPrompt?: string,
   toolChoice: "auto" | "none" | { type: "function"; function: { name: string } } = "auto",
   signal?: AbortSignal,
-  tuning: { temperature?: number; maxTokens?: number } = {}
+  tuning: { temperature?: number; maxTokens?: number; onText?: (textSoFar: string) => void } = {}
 ): Promise<OpenRouterCompletionResponse> {
   if (!apiKey) {
     throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
@@ -167,20 +159,81 @@ export async function queryOpenRouterWithTools(
     bodyPayload.tools = tools;
     bodyPayload.tool_choice = toolChoice;
   }
+  if (tuning.onText) bodyPayload.stream = true;
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90000)]) : AbortSignal.timeout(90000),
-    headers: headers(apiKey),
-    body: JSON.stringify(bodyPayload),
-  });
+  // Streams may run longer than a buffered reply, so they are bounded by silence between chunks
+  // rather than by total duration; the caller's signal still bounds the whole turn.
+  const stall = new AbortController();
+  let stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 90000);
+  const resetStall = () => {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 45000);
+  };
+  try {
+    const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal);
 
-  if (!res.ok) {
-    const errorBody = await res.json().catch(() => ({}));
-    throw new Error(errorBody?.error?.message || `OpenRouter Error (HTTP ${res.status})`);
+    if (!res.ok) {
+      const errorBody = await res.json().catch(() => ({}));
+      throw new Error(errorBody?.error?.message || `OpenRouter Error (HTTP ${res.status})`);
+    }
+
+    const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
+    const data = streamed ? await readCompletionStream(res.body!, tuning.onText!, resetStall) : await res.json();
+    return completionFrom(data);
+  } finally {
+    clearTimeout(stallTimer);
   }
+}
 
-  const data = await res.json();
+/**
+ * Reassembles an OpenAI-style server-sent event stream into the shape of a buffered completion,
+ * reporting the visible text as it grows. Tool-call arguments arrive in fragments keyed by index.
+ */
+export async function readCompletionStream(body: ReadableStream<Uint8Array>, onText: (textSoFar: string) => void, onChunk: () => void = () => {}): Promise<any> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", content = "", finishReason: string | undefined;
+  const calls: OpenRouterToolCall[] = [];
+  const handle = (line: string) => {
+    if (!line.startsWith("data:")) return; // Comments (": OPENROUTER PROCESSING") keep the connection alive.
+    const payload = line.slice(5).trim();
+    if (!payload || payload === "[DONE]") return;
+    let event: any;
+    try { event = JSON.parse(payload); } catch { return; }
+    if (event.error) throw new Error(event.error.message || "Provider returned an error.");
+    const choice = event.choices?.[0];
+    if (!choice) return;
+    if (choice.finish_reason) finishReason = choice.finish_reason;
+    const delta = choice.delta || {};
+    if (typeof delta.content === "string" && delta.content) {
+      content += delta.content;
+      onText(content);
+    }
+    for (const part of delta.tool_calls || []) {
+      const index = typeof part.index === "number" ? part.index : calls.length;
+      const call = calls[index] ??= { id: "", type: "function", function: { name: "", arguments: "" } };
+      if (part.id) call.id = part.id;
+      if (part.function?.name) call.function.name += part.function.name;
+      if (part.function?.arguments) call.function.arguments += part.function.arguments;
+    }
+  };
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    onChunk();
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+    for (const line of lines) handle(line);
+  }
+  buffer += decoder.decode();
+  if (buffer) handle(buffer);
+  const toolCalls = calls.filter(Boolean).map((c, i) => ({ ...c, id: c.id || `call-${Date.now()}-${i}`, function: { ...c.function, arguments: c.function.arguments || "{}" } }));
+  if (!finishReason && !content && !toolCalls.length) throw new Error("The provider closed the stream without a reply.");
+  return { choices: [{ finish_reason: finishReason || "stop", message: { content: content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
+}
+
+function completionFrom(data: any): OpenRouterCompletionResponse {
   if (data.error) throw new Error(data.error.message || "Provider returned an error.");
   const choice = data.choices?.[0];
   if (!choice?.message) throw new Error("Provider returned no message.");
@@ -217,6 +270,7 @@ export async function testOpenRouterKey(apiKey: string): Promise<{ success: bool
   if (!apiKey || apiKey.trim() === "") {
     return { success: false, message: "Please provide an API key." };
   }
+  if (isServerHeldKey(apiKey)) return { success: true, message: "Your key is stored encrypted on the server." };
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/auth/key", {
@@ -276,18 +330,13 @@ export async function queryOpenRouter(
   }
   payloadMessages.push(...messages);
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 60000)]) : AbortSignal.timeout(options.timeoutMs ?? 60000),
-    headers: headers(apiKey),
-    body: JSON.stringify({
-      model: resolveModel(model),
-      messages: payloadMessages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2000,
-      ...(options.json ? { response_format: { type: "json_object" } } : {}),
-    }),
-  });
+  const res = await providerFetch("chat/completions", apiKey, {
+    model: resolveModel(model),
+    messages: payloadMessages,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.maxTokens ?? 2000,
+    ...(options.json ? { response_format: { type: "json_object" } } : {}),
+  }, options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 60000)]) : AbortSignal.timeout(options.timeoutMs ?? 60000));
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));

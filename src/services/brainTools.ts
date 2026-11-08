@@ -382,7 +382,7 @@ import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, PROBLEM_STAGES, safeTrackerUrl } from "../utils/workspaces";
-import { records, RecordType, searchRecords, Source } from "./brainRetrieval";
+import { records, RecordType, searchRecords, Source, type RetrievalContext } from "./brainRetrieval";
 
 const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz"];
 const str = { type: "string" };
@@ -546,10 +546,10 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
   const exists = list.some(r => r.id === mutation.record.id);
   return { ...state, [key]: exists ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record] };
 }
-export async function executeRead(name: string, args: any, state: BrainState, key: string, signal?: AbortSignal, progress?: (s: string) => void): Promise<{ output: unknown; sources: Source[] }> {
+export async function executeRead(name: string, args: any, state: BrainState, key: string, signal?: AbortSignal, progress?: (s: string) => void, ctx?: RetrievalContext): Promise<{ output: unknown; sources: Source[] }> {
   if (name === "search_memories") return { output: await readMemories(state,args,key,signal), sources: [] };
   if (name === "search_conversations") return { output: searchConversations(state,args.query,args.offset || 0), sources: [] };
-  const all = name === "recall_conversation" || name === "search_records" ? [] : records(state, args.type);
+  const all = name === "recall_conversation" || name === "search_records" ? [] : records(state, args.type, ctx);
   const offset = args.offset || 0;
   if (name === "recall_conversation") {
     const thread = args.conversationId ? conversationThreads(state).find(t => t.id === args.conversationId) : { id: state.conversationId || "current", messages: state.chatHistory };
@@ -563,7 +563,7 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
       nextOffset: offset + 1 < thread.messages.length ? offset + 1 : null }, sources: [] };
   }
   if (name === "search_records") {
-    const output = await searchRecords(state, args.query, args.type, offset, key, signal, progress);
+    const output = await searchRecords(state, args.query, args.type, offset, key, signal, progress, ctx);
     return { output, sources: output.results };
   }
   if (name === "read_records") {

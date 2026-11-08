@@ -31,18 +31,21 @@ test('markdown links reject executable schemes while preserving HTTPS links', as
 });
 
 
-test('hosted semantic cache clears between accounts and drops in-flight indexing from the prior account', async () => {
+test('the shared index never reuses one account\'s embeddings for another, and clears on sign-out', async () => {
+  const { warmIndex, clearRetrievalMemory } = await server.ssrLoadModule('/src/services/brainRetrieval.ts');
   const { vectorVault } = await server.ssrLoadModule('/src/services/vectorVault.ts');
-  const item = { id: 'private-task', title: 'Private interview notes', dueDate: '', priority: 'medium', section: 'Career', status: 'not_started', completed: false };
-  vectorVault.setAccount('alice');
-  await vectorVault.indexItem(item, 'task');
-  assert.equal((await vectorVault.getVaultStats()).total_chunks, 1);
-  vectorVault.setAccount('bob');
-  assert.equal((await vectorVault.getVaultStats()).total_chunks, 0);
-  assert.equal((await vectorVault.search('interview')).length, 0);
-  vectorVault.setAccount('alice');
-  const pending = vectorVault.indexItem(item, 'task');
-  vectorVault.setAccount('bob');
-  await pending;
-  assert.equal((await vectorVault.getVaultStats()).total_chunks, 0);
+  let embedded = 0;
+  globalThis.fetch = async (_url, opts) => { const input = JSON.parse(opts.body).input; embedded += input.length; return Response.json({ data: input.map((_, index) => ({ index, embedding: [1, 0, 0] })) }); };
+  const task = { id: 'private-task', title: 'Private interview notes', dueDate: '', priority: 'medium', section: 'Career', status: 'not_started', completed: false };
+  const brain = (userId, tasks) => ({ userId, openRouterKey: 'k', tasks, goals: [], habits: [], journalEntries: [], knowledgeItems: [], events: [], trackerItems: [] });
+  await warmIndex(brain('alice', [task]), 'k');
+  assert.equal(embedded, 1);
+  await warmIndex(brain('alice', [task]), 'k');
+  assert.equal(embedded, 1, 'unchanged passages are not re-embedded');
+  await warmIndex(brain('bob', [task]), 'k');
+  assert.equal(embedded, 2, 'another account embeds its own copy');
+  assert.equal((await vectorVault.search(brain('bob', []), 'interview')).length, 0);
+  assert.equal((await vectorVault.getVaultStats(brain('alice', [task]))).embedded_chunks, 1);
+  clearRetrievalMemory();
+  assert.equal((await vectorVault.getVaultStats(brain('alice', [task]))).embedded_chunks, 0, 'in-memory vectors are dropped on sign-out');
 });

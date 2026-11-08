@@ -1,5 +1,8 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useEffect, useState } from "react";
+import { ServerKeyField } from "./ServerKeyField";
+import { ConnectionsPanel } from "./ConnectionsPanel";
+import { serverFeatures } from "../services/serverApi";
 import { DEFAULT_MODEL, DEFAULT_VISION_MODEL, getVisionModel, OPENROUTER_MODELS, setVisionModel, testOpenRouterKey, VISION_MODELS } from "../services/openrouter";
 import {
   Key,
@@ -27,6 +30,8 @@ interface OpenRouterSettingsModalProps {
   onExportBackup: () => void;
   workspaceControls?: React.ReactNode;
   onOpenMemory?: () => void;
+  askBeforeChanges?: boolean;
+  onAskBeforeChanges?: (value: boolean) => void;
 }
 
 export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = ({
@@ -39,6 +44,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   onExportBackup,
   workspaceControls,
   onOpenMemory,
+  askBeforeChanges = false,
+  onAskBeforeChanges,
 }) => {
   const [keyInput, setKeyInput] = useState(openRouterKey);
   const [showKey, setShowKey] = useState(false);
@@ -51,6 +58,10 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   );
   const [customModelInput, setCustomModelInput] = useState(useCustomModel ? selectedModel : "");
   const [visionInput, setVisionInput] = useState(getVisionModel);
+  // Hosted accounts keep the provider key encrypted on the server when the server supports it.
+  const [serverKeys, setServerKeys] = useState(false);
+  const [googleAvailable, setGoogleAvailable] = useState(false);
+  useEffect(() => { if (isOpen) serverFeatures().then(f => { setServerKeys(f.secrets); setGoogleAvailable(f.google); }); }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -89,7 +100,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
 
   const handleSave = () => {
     if (!isModelValid || !isVisionValid) return;
-    onSaveKey(keyInput.trim());
+    if (!serverKeys) onSaveKey(keyInput.trim());
     onSelectModel(modelToSave);
     setVisionModel(visionInput.trim());
     setSaveSuccess(true);
@@ -122,7 +133,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
         {/* Modal Body */}
         <div className="p-6 space-y-6 overflow-y-auto max-h-[500px]">
           {/* API Key Input Section */}
-          <div className="space-y-2">
+          {serverKeys ? <ServerKeyField localKey={openRouterKey} onUseKey={onSaveKey} /> : <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[var(--workspace-success)]" />
@@ -190,7 +201,17 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             <p className="text-[11px] text-slate-400 leading-normal">
               Your key is saved locally on your device (and in Rust core <code className="font-mono text-slate-600 dark:text-slate-300">~/.second_brain_ai/openrouter.key</code>). It never leaves your machine except to contact OpenRouter.
             </p>
-          </div>
+          </div>}
+
+          {googleAvailable && <ConnectionsPanel />}
+
+          {onAskBeforeChanges && <label className="flex items-start gap-3 rounded-2xl border border-line p-3.5 cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={askBeforeChanges} onChange={e => onAskBeforeChanges(e.target.checked)} />
+            <span className="text-xs">
+              <strong className="block text-slate-800 dark:text-slate-200">Ask before every change</strong>
+              <span className="text-slate-400">The assistant proposes each change and waits for you to approve it. Deletions, large batches and changes after reading uploaded documents always ask.</span>
+            </span>
+          </label>}
 
           {/* Model Selector */}
           <div className="space-y-3">

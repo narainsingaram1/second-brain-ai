@@ -2,15 +2,16 @@ import { normalizeAgentMemory } from "../services/agentMemory";
 import { managedAuthEnabled, signOutManaged } from "../services/managedAuth";
 import { useEffect, useRef, useState } from "react";
 import type { BrainState } from "../types";
-import { cloudEnabled, cloudStatus, markCloudDirty, sharedState } from "../services/cloudSync";
+import { cloudEnabled, cloudNotice, cloudStatus, markCloudDirty, sharedState } from "../services/cloudSync";
 import { persistBrainState } from "../services/storage";
 
 export function CloudControls({ state, onImport }: { state: BrainState; onImport: (state: BrainState) => void }) {
   const [status, setStatus] = useState(cloudStatus());
+  const [notice, setNotice] = useState(cloudNotice());
   const [retrying, setRetrying] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    const update = () => setStatus(cloudStatus());
+    const update = () => { setStatus(cloudStatus()); setNotice(cloudNotice()); };
     update();
     window.addEventListener("synapse-sync-status", update);
     return () => {
@@ -22,7 +23,7 @@ export function CloudControls({ state, onImport }: { state: BrainState; onImport
     const a = document.createElement("a"); a.href = url; a.download = `synapse-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click(); URL.revokeObjectURL(url);
   };
   return <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-slate-50 dark:bg-slate-900/50 p-4 text-xs [&_button]:rounded-xl [&_button]:border [&_button]:border-slate-200 dark:[&_button]:border-slate-700 [&_button]:px-3 [&_button]:py-2 [&_button]:font-semibold hover:[&_button]:bg-slate-200 dark:hover:[&_button]:bg-slate-800">
-    <span role="status" className="mr-auto">{cloudEnabled ? status : "Stored on this device"}</span>
+    <span role="status" className="mr-auto">{cloudEnabled ? status : "Stored on this device"}{cloudEnabled && notice && <span className="block mt-1 text-muted">{notice}</span>}</span>
     {cloudEnabled && status !== "Synced" && status !== "Saving…" && status !== "Connecting…" && (
       <button type="button" disabled={retrying} onClick={async () => {
         setRetrying(true);

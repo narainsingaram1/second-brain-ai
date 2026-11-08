@@ -137,3 +137,31 @@
 }
 .chat-welcome-inner .chat-composer-dock { padding: 0; }
 .chat-welcome-inner .chat-composer-hint { text-align: left; }
+
+/* Changes waiting for the user's approval */
+.approval-card { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--workspace-line-strong); border-radius: 12px; background: var(--workspace-raised); font-size: 13px; }
+.approval-card header { display: flex; gap: 8px; align-items: flex-start; color: var(--workspace-ink); }
+.approval-card header svg { margin-top: 2px; flex-shrink: 0; color: var(--workspace-muted); }
+.approval-details { margin: 8px 0 0 23px; padding: 0; list-style: disc; color: var(--workspace-ink); overflow-wrap: anywhere; }
+.approval-reason { margin: 6px 0 0 23px; color: var(--workspace-muted); }
+.approval-actions { display: flex; gap: 8px; margin: 10px 0 0 23px; flex-wrap: wrap; }
+.approval-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--workspace-line-strong); font-weight: 600; transition: background-color 150ms var(--ease), border-color 150ms var(--ease); }
+.approval-actions button:disabled { opacity: .55; cursor: default; }
+.approval-approve { background: var(--workspace-ink, #171717); color: var(--workspace-panel, #fff); border-color: var(--workspace-ink, #171717) !important; }
+.approval-reject { background: transparent; color: var(--workspace-ink); }
+.approval-reject:hover:not(:disabled) { border-color: var(--workspace-danger); color: var(--workspace-danger); }
+.approval-status { margin: 8px 0 0 23px; color: var(--workspace-muted); }
+.approval-card.is-executed .approval-status { color: var(--workspace-success); }
+.approval-card.is-failed .approval-status, .approval-card.is-expired .approval-status { color: var(--workspace-danger); }
+
+/* Actions taken in connected services during a reply */
+.chat-external { margin: 10px 0 0; padding: 0; list-style: none; display: grid; gap: 4px; font-size: 13px; color: var(--workspace-muted); }
+.chat-external li { display: flex; align-items: center; gap: 6px; }
+.chat-external svg { flex-shrink: 0; color: var(--workspace-success, #2f8a57); }
+.chat-external a { display: inline-flex; align-items: center; gap: 3px; color: var(--workspace-ink, #171717); text-decoration: underline; text-underline-offset: 2px; }
+.chat-external a svg { color: inherit; }
+.approval-warnings { margin: 8px 0 0 23px; padding: 0; list-style: none; display: grid; gap: 4px; color: var(--workspace-danger, #c93a3a); font-weight: 600; }
+.approval-warnings li { display: flex; gap: 6px; align-items: flex-start; }
+.approval-warnings svg { margin-top: 2px; flex-shrink: 0; }
+.approval-preview { margin: 8px 0 0 23px; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--workspace-ink, #171717); background: var(--workspace-panel, #fff); border: 1px solid var(--workspace-line, #e9e9eb); border-radius: 8px; }
+.approval-countdown { align-self: center; font-weight: 600; color: var(--workspace-ink, #171717); font-variant-numeric: tabular-nums; }

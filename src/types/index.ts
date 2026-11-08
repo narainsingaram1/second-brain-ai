@@ -308,6 +308,38 @@ export interface AIMessage {
   timestamp: string;
   rememberedIds?: string[];
   memoryNotice?: string;
+  /** Changes the assistant proposed in this reply that wait for the user's decision. */
+  approvals?: ApprovalRequest[];
+  /** Things the assistant did in connected services (drafts saved, events created), with links. */
+  external?: Array<{ tool: string; summary: string; link?: string }>;
+}
+
+/**
+ * A change the assistant may make only after the user approves it. Hosted accounts keep the request on
+ * the server (bound to a hash of its exact payload); local mode keeps the prepared change here.
+ */
+export interface ApprovalRequest {
+  id: string;
+  tool: string;
+  summary: string;
+  /** Field-level description of what changes, e.g. "Status: Not started → Completed". */
+  details: string[];
+  reason: string;
+  /** The full text that will go out (e.g. an email body), shown in full before approving. */
+  preview?: string;
+  /** Things to check before approving, e.g. a recipient the user has never emailed. */
+  warnings?: string[];
+  status: 'pending' | 'executed' | 'rejected' | 'failed' | 'expired';
+  remote: boolean;
+  payloadHash?: string;
+  /** Local mode only: the prepared change to apply on approval. */
+  mutation?: unknown;
+  error?: string;
+}
+
+export interface BrainPreferences {
+  /** Every change the assistant makes waits for approval. */
+  askBeforeChanges?: boolean;
 }
 
 export interface ConversationThread {
@@ -393,4 +425,5 @@ export interface BrainState {
   taskAppearance?: TaskAppearance;
   dailyBrief?: DailyBrief;
   auditLog?: AuditLogEntry[];
+  preferences?: BrainPreferences;
 }

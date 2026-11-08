@@ -2,7 +2,6 @@ import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect, useRef } from "react";
 import { Task, JournalEntry, KnowledgeItem, Habit, BrainState } from "../types";
 import { normalizeTask } from "../utils/taskState";
-import { vectorVault } from "../services/vectorVault";
 import { autoClassifyWithAI } from "../services/openrouter";
 import { getLocalDateString } from "../utils/habitStreaks";
 import {
@@ -247,7 +246,6 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
       });
       onAddTask(newTask);
       // Index immediately into Semantic Memory Vault
-      vectorVault.indexItem(newTask, "task", openRouterKey).catch(() => {});
       setToastMessage(`Captured Task: "${rawText.slice(0, 30)}..."`);
     } else if (activeType === "journal") {
       const newEntry: JournalEntry = {
@@ -261,7 +259,6 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
         tags: ["quick-capture"],
       };
       onAddJournal(newEntry);
-      vectorVault.indexItem(newEntry, "journal", openRouterKey).catch(() => {});
       setToastMessage(`Captured Journal Reflection`);
     } else if (activeType === "knowledge") {
       const isUrl = /https?:\/\//i.test(rawText);
@@ -289,7 +286,6 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
         updatedAt: new Date().toISOString(),
       };
       onAddKnowledge(newKnowledge);
-      vectorVault.indexItem(newKnowledge, "knowledge", openRouterKey).catch(() => {});
       setToastMessage(`Captured Note: "${title}"`);
     } else if (activeType === "habit") {
       const newHabit: Habit = {
@@ -303,7 +299,6 @@ export const UniversalQuickCapture: React.FC<UniversalQuickCaptureProps> = ({
         timeOfDay: "morning",
       };
       onAddHabit(newHabit);
-      vectorVault.indexItem(newHabit, "habit", openRouterKey).catch(() => {});
       setToastMessage(`Captured Habit: "${rawText.slice(0, 30)}"`);
     }
 

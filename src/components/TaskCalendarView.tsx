@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
+import { googleEvents as fetchGoogleEvents, serverFeatures, type GoogleCalendarEvent } from "../services/serverApi";
 import { CalendarEvent, Task, TaskStatus } from "../types";
 import { eventTimeLabel, formatTime, sortEvents, taskSortKey, EVENT_KINDS } from "../utils/events";
 import {
@@ -69,6 +70,16 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
   const [filterSection, setFilterSection] = useState<string>("all");
   const [hideCompleted, setHideCompleted] = useState<boolean>(false);
+  // Google Calendar events for the visible grid (read-only), when Google is connected.
+  const [googleEvents, setGoogleEvents] = useState<GoogleCalendarEvent[]>([]);
+  useEffect(() => {
+    let live = true;
+    const from = getLocalDateString(new Date(currentYear, currentMonth, -6));
+    const to = getLocalDateString(new Date(currentYear, currentMonth + 1, 7));
+    serverFeatures().then(f => f.google ? fetchGoogleEvents(from, to) : []).then(events => { if (live) setGoogleEvents(events); }).catch(() => {});
+    return () => { live = false; };
+  }, [currentYear, currentMonth]);
+  const googleOn = (date: string) => googleEvents.filter(e => e.date <= date && (e.endDate || e.date) >= date);
 
   // Month navigation
   const handlePrevMonth = () => {
@@ -359,9 +370,11 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
             {displayedCells.map((cell) => {
               const dayTasks = tasksOn(cell.dateStr);
               const dayEvents = eventsOn(cell.dateStr);
+              const dayGoogle = googleOn(cell.dateStr);
               const visibleEvents = dayEvents.slice(0, 3);
-              const visibleTasks = dayTasks.slice(0, Math.max(0, 3 - visibleEvents.length));
-              const hiddenCount = dayEvents.length + dayTasks.length - visibleEvents.length - visibleTasks.length;
+              const visibleGoogle = dayGoogle.slice(0, Math.max(0, 3 - visibleEvents.length));
+              const visibleTasks = dayTasks.slice(0, Math.max(0, 3 - visibleEvents.length - visibleGoogle.length));
+              const hiddenCount = dayEvents.length + dayGoogle.length + dayTasks.length - visibleEvents.length - visibleGoogle.length - visibleTasks.length;
               const pendingDayTasks = dayTasks.filter((t) => t.status !== "completed");
               const isCellSelected = cell.dateStr === selectedDate;
 
@@ -420,6 +433,20 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                         {event.startTime && <span className="shrink-0 opacity-75">{formatTime(event.startTime).replace(":00", "").replace(" ", "")}</span>}
                         <span className="truncate">{event.title}</span>
                       </button>
+                    ))}
+                    {visibleGoogle.map((event) => (
+                      <a
+                        key={`google-${event.id}`}
+                        href={event.link}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        title={`Google Calendar: ${event.title}${event.startTime ? ` · ${formatTime(event.startTime)}–${formatTime(event.endTime!)}` : " · all day"}${event.location ? ` · ${event.location}` : ""}`}
+                        className="google-event-chip w-full text-left px-1.5 py-0.5 rounded-lg text-[11px] font-bold truncate flex items-center gap-1"
+                      >
+                        {event.startTime && <span className="shrink-0 opacity-75">{formatTime(event.startTime).replace(":00", "").replace(" ", "")}</span>}
+                        <span className="truncate">{event.title}</span>
+                      </a>
                     ))}
                     {visibleTasks.map((task) => {
                       const isCompleted = task.status === "completed";

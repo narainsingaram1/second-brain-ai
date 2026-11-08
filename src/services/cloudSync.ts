@@ -1,6 +1,7 @@
 import type { BrainState, AuthSession } from "../types";
-import { managedAuthEnabled } from "./managedAuth";
-import { readManagedBrain, writeManagedBrain } from "./supabaseBrain";
+import { getManagedSession, managedAuthEnabled } from "./managedAuth";
+import { readManagedBrain, supabaseRecordTransport, writeManagedBrain } from "./supabaseBrain";
+import { RecordSync, type SavedRecord } from "./recordSync";
 
 export const cloudEnabled = import.meta.env.VITE_CLOUD_SYNC === "true" || managedAuthEnabled;
 let revision = 0;
@@ -10,7 +11,14 @@ let saved = "";
 let dirty = false;
 let pending = 0;
 let status = "Connecting…";
+/** Per-record sync for hosted accounts once the database supports it; otherwise the whole-snapshot path below. */
+let records: RecordSync | undefined;
+/** Asks the app to refresh now, e.g. after a save found records changed on another device. */
+export const REMOTE_CHANGE_EVENT = "synapse-remote-change";
 export const cloudStatus = () => status;
+let notice = "";
+/** Informational sync note, e.g. records replaced by another device's newer version. Not an error. */
+export const cloudNotice = () => notice;
 function report(message: string) {
   status = message;
   window.dispatchEvent(new Event("synapse-sync-status"));
@@ -33,6 +41,20 @@ async function request(method = "GET", body?: unknown, knownRevision?: number) {
 }
 export async function loadCloud(): Promise<{ state: Partial<BrainState>; session: AuthSession }> {
   const runGeneration = ++generation;
+  records = undefined;
+  if (managedAuthEnabled) {
+    const session = await getManagedSession();
+    const engine = new RecordSync(supabaseRecordTransport(session.currentUser!.id), () => window.dispatchEvent(new Event(REMOTE_CHANGE_EVENT)));
+    const state = await engine.load();
+    if (runGeneration !== generation) throw new Error("Account changed during load. Reload before editing.");
+    if (state) {
+      records = engine;
+      ownerId = session.currentUser!.id;
+      dirty = false;
+      report("Synced");
+      return { state, session };
+    }
+  }
   const data = await request();
   if (runGeneration !== generation) throw new Error("Account changed during load. Reload before editing.");
   ownerId = data.user.id;
@@ -48,6 +70,21 @@ export async function cloudSession(): Promise<AuthSession> {
 }
 export async function saveCloud(state: BrainState) {
   const runGeneration = generation;
+  if (records) {
+    if (!ownerId || state.userId !== ownerId) throw new Error("Account changed. Reload before saving.");
+    const engine = records;
+    pending++;
+    report("Saving…");
+    try {
+      await engine.save(sharedState(state));
+      if (runGeneration !== generation) throw new Error("Account changed during save. Reload before editing.");
+      report("Synced");
+    } catch (error) {
+      report(error instanceof Error ? error.message : "Sync failed");
+      throw error;
+    } finally { pending--; }
+    return;
+  }
   if (managedAuthEnabled && (!ownerId || state.userId !== ownerId)) throw new Error("Account changed. Reload before saving.");
   const payload = sharedState(state);
   const text = JSON.stringify(payload);
@@ -69,7 +106,25 @@ export async function saveCloud(state: BrainState) {
   } finally { pending--; }
 }
 export function markCloudDirty() { dirty = true; }
-export async function refreshCloud(current: BrainState, isCurrent: () => boolean = () => true): Promise<BrainState | null> {
+/** Applies changes the server agent saved on this account's behalf, marking them as already in sync. */
+export function adoptServerChanges(state: BrainState, rows: SavedRecord[], prefs?: Record<string, unknown>): BrainState {
+  return records ? records.adopt(state, rows, prefs) : state;
+}
+/** Whether this account uses per-record storage (required for the server agent). */
+export const usesRecordStorage = () => !!records;
+export async function refreshCloud(current: BrainState, isCurrent: () => boolean = () => true, latest: () => BrainState | null = () => current): Promise<BrainState | null> {
+  if (records) {
+    const engine = records;
+    try {
+      const next = await engine.refresh(() => isCurrent() && engine === records ? latest() : null);
+      if (!next) return null;
+      if (engine.lastRefreshConflicts) {
+        notice = `${engine.lastRefreshConflicts} record${engine.lastRefreshConflicts === 1 ? " was" : "s were"} edited on another device at the same time; the newer saved version was kept.`;
+        report(status);
+      }
+      return next;
+    } catch { return null; }
+  }
   if (pending || dirty || JSON.stringify(sharedState(current)) !== saved) return null;
   try {
     const runGeneration = generation;

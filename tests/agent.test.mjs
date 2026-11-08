@@ -284,10 +284,12 @@ test('neural passage cache reuses unchanged content, refreshes edits and never r
     assert.equal(inputs.length, 2);
     inputs.length = 0;
     await search(s, 'Research', 'knowledge', 0, 'test');
-    assert.deepEqual(inputs, [['Research']], 'Warm searches embed only the question');
+    assert.deepEqual(inputs, [], 'Warm repeated searches reuse both passage and question vectors');
+    await search(s, 'Original findings', 'knowledge', 0, 'test');
+    assert.deepEqual(inputs, [['Original findings']], 'A new question embeds only the question');
     s.knowledgeItems[0].content = 'Revised passage'; inputs.length = 0;
     const changed = await search(s, 'Research', 'knowledge', 0, 'test');
-    assert.equal(inputs.length, 2); assert.match(changed.results[0].snippet, /Revised passage/);
+    assert.equal(inputs.length, 1, 'Only the edited passage is re-embedded'); assert.match(changed.results[0].snippet, /Revised passage/);
     s.knowledgeItems = []; inputs.length = 0;
     assert.equal((await search(s, 'Research', 'knowledge', 0, 'test')).total, 0);
     assert.equal(inputs.length, 0);
@@ -480,18 +482,55 @@ test('archived conversations stay within the cloud size budget, newest first', a
   assert.equal(huge.length, 1); assert.equal(huge[0].messages.at(-1).id, 'h19'); assert.ok(JSON.stringify(huge).length <= ARCHIVE_CHAR_BUDGET + 1000);
 });
 
-test('vault indexing coalesces rapid saves and embeds unchanged text once', async () => {
+test('streamed replies reassemble text and fragmented tool calls', async () => {
+  const { readCompletionStream } = await server.ssrLoadModule('/src/services/openrouter.ts');
+  const events = [
+    ': OPENROUTER PROCESSING',
+    'data: {"choices":[{"delta":{"content":"Let me "}}]}',
+    'data: {"choices":[{"delta":{"content":"check."}}]}',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"query_records","arguments":"{\\"type\\":"}}]}}]}',
+    'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\"task\\"}"}}]},"finish_reason":"tool_calls"}]}',
+    'data: [DONE]', '',
+  ].join('\n');
+  // Split mid-line to exercise buffering across network chunks.
+  const bytes = new TextEncoder().encode(events);
+  const body = new ReadableStream({ start(c) { c.enqueue(bytes.slice(0, 57)); c.enqueue(bytes.slice(57)); c.close(); } });
+  const seen = [];
+  const data = await readCompletionStream(body, t => seen.push(t));
+  assert.deepEqual(seen, ['Let me ', 'Let me check.']);
+  const message = data.choices[0].message;
+  assert.equal(data.choices[0].finish_reason, 'tool_calls');
+  assert.equal(message.tool_calls[0].function.name, 'query_records');
+  assert.deepEqual(JSON.parse(message.tool_calls[0].function.arguments), { type: 'task' });
+  const failing = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data: {"error":{"message":"overloaded"}}\n')); c.close(); } });
+  await assert.rejects(readCompletionStream(failing, () => {}), /overloaded/);
+});
+
+test('the agent streams its answer and clears preamble text before tool calls', async () => {
+  const sse = (...events) => new Response(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  const replies = [
+    sse({ choices: [{ delta: { content: 'Checking…' } }] }, { choices: [{ delta: { tool_calls: [{ index: 0, id: 'q1', function: { name: 'query_records', arguments: JSON.stringify({ type: 'task', countOnly: true }) } }] }, finish_reason: 'tool_calls' }] }),
+    sse({ choices: [{ delta: { content: 'You have ' } }] }, { choices: [{ delta: { content: '105 tasks.' }, finish_reason: 'stop' }] }),
+  ];
+  const bodies = [];
+  globalThis.fetch = async (_url, opts) => { bodies.push(JSON.parse(opts.body)); return replies.shift(); };
+  const texts = [];
+  const result = await AutonomousBrainAgent.execute('How many tasks?', state(), 'k', 'm', { onText: t => texts.push(t) });
+  assert.equal(result.queryAnswer, 'You have 105 tasks.');
+  assert.deepEqual(texts, ['Checking…', '', 'You have ', 'You have 105 tasks.']);
+  assert.ok(bodies.every(b => b.stream === true));
+});
+
+test('search UI results come from the shared hybrid index, one per record', async () => {
   const { vectorVault } = await server.ssrLoadModule('/src/services/vectorVault.ts');
-  let calls = 0;
-  globalThis.fetch = async (url, opts) => { calls++; return Response.json({ data: [{ embedding: Array.from({ length: 1536 }, (_, i) => (i % 7) / 7 + JSON.parse(opts.body).input.length) }] }); };
-  const note = (content) => ({ id: 'n1', title: 'Draft', subject: 'Draft', content, summary: '', status: 'Synthesized', tags: [] });
-  const results = await Promise.all(['a', 'ab', 'abc'].map(c => vectorVault.indexItem(note(c), 'knowledge', 'key', 5)));
-  assert.equal(calls, 1); assert.equal(results.filter(Boolean).length, 1);
-  await vectorVault.indexItem(note('abc'), 'knowledge', 'key', 0);
-  assert.equal(calls, 1, 'unchanged content is not re-embedded');
-  const pending = vectorVault.indexItem(note('abcd'), 'knowledge', 'key', 20);
-  await vectorVault.removeItem('n1');
-  assert.equal(await pending, null); assert.equal(calls, 1, 'deleted items are not indexed later');
+  globalThis.fetch = async () => new Response('', { status: 503 });
+  const s = state();
+  s.knowledgeItems = [{ id: 'graphs', subject: 'Graphs', title: 'Graph algorithms', content: '# Dijkstra\n\n' + 'Shortest path with a priority queue. '.repeat(80) + '\n\n# BFS\n\nShortest path in unweighted graphs.', summary: '', startDate: '2026-10-01', endDate: '2026-10-01', status: 'Draft' }];
+  s.events = [{ id: 'ev', title: 'Shortest path review session', date: '2026-11-09' }];
+  const results = await vectorVault.search(s, 'shortest path', 10);
+  assert.deepEqual(results.map(r => r.chunk.item_id).sort(), ['ev', 'graphs']);
+  assert.ok(results.every(r => r.score > 0 && r.score <= 1));
+  assert.equal(results.find(r => r.chunk.item_id === 'ev').chunk.date, '2026-11-09');
 });
 
 const { rememberImage } = await server.ssrLoadModule('/src/utils/imageInput.ts');

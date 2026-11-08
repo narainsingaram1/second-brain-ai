@@ -10,6 +10,10 @@ type Database = {
   public: {
     Tables: {
       brains: { Row: { user_id: string; state: Record<string, unknown>; revision: number; updated_at: string }; Insert: never; Update: never; Relationships: [] };
+      brain_records: {
+        Row: { user_id: string; collection: string; id: string; data: Record<string, unknown> | null; revision: number; seq: number; ord: number; deleted: boolean; updated_at: string };
+        Insert: never; Update: never; Relationships: [];
+      };
       study_documents: {
         Row: { user_id: string; id: string; hash: string; content: string; updated_at: string };
         Insert: { user_id: string; id: string; hash: string; content: string; updated_at?: string };
@@ -18,7 +22,12 @@ type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: { save_brain: { Args: { p_state: unknown; p_revision: number; p_owner_id: string }; Returns: number } };
+    Functions: {
+      save_brain: { Args: { p_state: unknown; p_revision: number; p_owner_id: string }; Returns: number };
+      migrate_brain_to_records: { Args: Record<string, never>; Returns: { layout: number; moved: number } };
+      save_brain_prefs: { Args: { p_state: unknown; p_revision: number }; Returns: number };
+      save_records: { Args: { p_changes: unknown }; Returns: unknown };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

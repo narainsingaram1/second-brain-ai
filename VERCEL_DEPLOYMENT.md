@@ -65,3 +65,98 @@ Normal recall uses bounded local keyword indexing and no extra extraction call. 
 Disabling memory stops retrieval and automatic learning without deleting data. To roll back the UI, keep the additive database migration and retain the `agentMemory` field in backups; old clients cannot manage this field, and the save RPC preserves existing memory when an older client omits it. Validate the current frontend before asking a model to remember private context.
 
 Validation on November 1, 2026: the production build and 65 automated tests pass. Browser integration checks cover memory persistence/reload/new-chat recall, source controls, pin/edit/forget, approved history import, temporary transcript privacy, account changes during pending work, and desktop/mobile light/dark layouts. The compiled production app was also exercised against the actual Supabase project with a disposable confirmed account: remember, start a new chat, recall, sign out/in, and reload all retained the saved memory. These checks use deterministic intercepted AI responses and a fake device-local provider key, so they verify tool orchestration and real cloud persistence without making paid AI calls. Real-provider model judgment remains dependent on the user's selected model.
+
+## Phase 0: records, server agent and approvals
+
+Three additive changes, each of which the app detects and falls back from until it is live, so they can be rolled out in this order without breaking running clients.
+
+### What changes
+
+- **Per-record storage.** Tasks, notes, events, course items, conversations and agent memory move from the single `brains` snapshot into `brain_records`, one row per record with its own revision. Saves send only what changed. Two devices conflict only when they edit the same record; the version already saved wins and the other device picks it up on refresh (Settings › Workspace & Sync says how many records were updated). Preferences and the open conversation stay in `brains` and merge per field.
+- **Encrypted provider keys.** Settings stores the OpenRouter key on the server, encrypted with AES-256-GCM and bound to the account. Browsers only see its last four characters. Browser-side AI features (journal, notes, study tools, search) go through the authenticated `/api/ai` proxy.
+- **Server-side assistant.** With a server-held key, each turn runs in `/api/agent` as the signed-in user (row-level security applies; no service-role key is used). Turns over 4.3 MB (large images), desktop, and accounts without a server key keep running in the browser.
+- **Approvals and account history.** Deletions, more than five changes in one request, and edits made after reading uploaded documents or past conversations wait for approval in the chat. Settings › "Ask before every change" gates all changes. Proposals, decisions and results are written to `audit_events`, which nobody can edit or delete (Activity log › Account history).
+
+### Rollout
+
+1. **Back up.** In the app, Settings › Workspace & Sync › Export data.
+2. **Apply the migrations** in the Supabase SQL editor, in order:
+   - `supabase/migrations/202611080001_records.sql`
+   - `supabase/migrations/202611080002_secrets_audit_actions.sql`
+
+   Both are additive. Each account moves to records the first time an updated client loads it (`migrate_brain_to_records()`, atomic and idempotent). After that, `save_brain` refuses whole-collection writes from tabs opened before the upgrade, and those tabs are asked to reload.
+3. **Set Vercel environment variables** (Production and Preview), then redeploy:
+   - `SYNAPSE_SECRETS_KEY`: the output of `openssl rand -base64 32`. Keep a copy somewhere safe. Losing it means everyone re-enters their key. To rotate, set `2:<new>,1:<old>`: new writes use version 2 and old ciphertexts still open.
+   - `SUPABASE_URL` and `SUPABASE_ANON_KEY` (optional; default to the public values in `hosting/independent.json`).
+
+   Never put `SYNAPSE_SECRETS_KEY` in a `VITE_*` variable.
+4. **Verify.** `GET /api/health` returns `{"secrets":true,"agent":true,"approvals":true}`. Then, in the app: Settings › move the key to secure storage, ask the assistant to change a task, ask it to delete one and approve the card, and check Activity log › Account history.
+
+### Server code
+
+Routes live in `server/routes/*.ts` as Web `Request`/`Response` handlers. `npm run build:api` bundles each into a self-contained `api/*.js`, which Vercel deploys. Commit the output; `npm run build` and `npm test` fail if it is stale. `npm run dev` serves the same handlers from source (`scripts/vite-api-plugin.ts`). For local server features, put `SYNAPSE_SECRETS_KEY` in `.env.local`. The agent and AI proxy run for up to 300 seconds (`vercel.json`), which needs a Vercel plan that allows that duration.
+
+### Not covered by automated tests
+
+The SQL runs in PGlite with Supabase's roles and `auth.uid()`, and the routes run against it with a mocked AI provider. The live Supabase project, Vercel's function runtime and streaming, and real model behavior are not exercised by the tests. Check them with the verification steps above after deploying.
+
+## Phase 1: Google Calendar and Gmail
+
+The assistant can read your Google Calendar, search and read Gmail, save reply drafts, and add calendar events. Sending email is a separate, optional permission (below): without it, drafts wait in Gmail › Drafts for you.
+
+### What it may do on its own
+
+| Action | Approval |
+|---|---|
+| Read your calendar; search and read email | Runs on its own |
+| Save an email draft | Runs on its own (nothing is sent) |
+| Add an event with no guests | Runs on its own |
+| Add an event with guests | Always asks (Google emails the invitations) |
+| Edit or delete anything after reading an email | Always asks. Email is untrusted: it may contain instructions that are not yours. Adding tasks and drafts after reading email still runs. |
+
+| Send an email or a draft (only with "Allow sending") | **Always** asks, whatever your settings. See "Sending email" below. |
+
+Every connection, disconnection, draft, created event and sent email is written to the account history.
+
+### Setup (Google Cloud project `skilled-array-513300-e9`)
+
+1. **APIs & Services › Library:** enable the Gmail API and the Google Calendar API.
+2. **OAuth consent screen:**
+   - User type External, app name "Synapse", your email as support contact.
+   - Add the scopes `openid`, `email`, `.../auth/calendar.events`, `.../auth/calendar.readonly`, `.../auth/gmail.readonly`, `.../auth/gmail.compose`, and (for sending) `.../auth/gmail.send`.
+   - Under Test users, add every Google account that will connect.
+3. **Credentials › Create credentials › OAuth client ID:**
+   - Type: Web application.
+   - Authorized redirect URIs: `https://second-brain-ai-src-tauri.vercel.app/connect/google` (your production origin) and `http://localhost:1420/connect/google`.
+4. **Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`** in Vercel (Production and Preview), and in `.env.local` for `npm run dev`. If your redirect URI differs from `<origin>/connect/google` (custom domain behind a proxy), set `GOOGLE_REDIRECT_URI` to it exactly.
+5. **Apply the migration** `supabase/migrations/202611090001_google_connections.sql`, then redeploy.
+6. **Verify:**
+   - `GET /api/health` reports `"google": true`.
+   - In the app, go to Settings › Connections › Connect Calendar + Gmail and approve.
+   - Ask "What's on my calendar this week?" and "Triage my unread email."
+
+### Sending email
+
+Sending is off until you choose Settings › Connections › **Allow sending email**. That asks Google for the `gmail.send` permission, on top of read and drafts. With it on:
+
+- **When it sends.** The assistant sends only when you ask it to (otherwise it drafts), and every message needs your approval.
+- **What the approval card shows.** The **full** message, every recipient, whether it is a reply in a thread, and a red warning for any address you have never exchanged email with. Injected or mistyped addresses usually show up that way.
+- **The undo window.** After you click Send, there are 10 seconds to **Undo** before anything leaves your browser. Closing the tab in that time sends nothing.
+- **What the server checks.** The approved message must match what you saw (payload hash), it sends once, and messages are capped at 10,000 characters. "Send this draft" is refused if the draft was edited after you approved it.
+- **Daily limit.** At most 20 messages per account per 24 hours. Past that, the assistant asks you to send from Gmail.
+- **Even if something goes wrong.** The send tool itself refuses to run without an approved action, so a bug elsewhere cannot send mail.
+- **What the history keeps.** It records recipients and subject. Message bodies are not stored.
+
+### Google's review rules: read before relying on it
+
+- **Testing mode:** the consent screen is set to Testing for personal use. Only listed test users can connect, and Google shows an "unverified app" notice. **Google expires refresh tokens issued in Testing after 7 days.** When that happens, Settings › Connections shows *Reconnect*, and the assistant stops using Google until you reconnect.
+- **Production for other people:** publishing for other people requires Google's verification. The Gmail scopes are restricted, which also requires an annual third-party security assessment (CASA). Calendar-only connections need verification but no assessment.
+- **Revoking access:** disconnecting in Settings revokes the grant at Google and deletes the stored token. You can also remove Synapse at myaccount.google.com/permissions; the app then marks the connection for reconnecting.
+
+### Privacy
+
+Mail and calendar content is fetched live for each request and is not stored by Synapse. The refresh token is encrypted with `SYNAPSE_SECRETS_KEY`, and access tokens live only in memory for one request. A conversation keeps what the assistant wrote about your email in its replies, like any other chat.
+
+### Browser fixture
+
+`npm exec vite -- --config tests/fixtures/vite.config.ts` and open `http://127.0.0.1:1423/tests/fixtures/connections.html` to see the Connections panel, Google events in the calendar, and an approval card for an event with guests. It uses synthetic data and intercepted `/api` responses.

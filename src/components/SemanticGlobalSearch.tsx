@@ -102,7 +102,7 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
       // Very short queries are served by keyword matching alone; each neural query costs an embedding call
       // (repeated queries are answered from the embedding cache).
       if (q.length >= 3) try {
-        vectorMatches = await vectorVault.search(q, 15, undefined, openRouterKey);
+        vectorMatches = await vectorVault.search({ ...brainState, openRouterKey }, q, 15);
       } catch (err) {
         console.warn("Vector omnibar search fallback:", err);
       }
@@ -115,6 +115,8 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
       for (const vm of vectorMatches) {
         const itemType = vm.chunk.item_type;
         const itemId = vm.chunk.item_id;
+        // The omnibar opens these record types; others (events, courses, documents) are found by the assistant.
+        if (itemType !== "task" && itemType !== "habit" && itemType !== "journal" && itemType !== "knowledge" && itemType !== "goal") continue;
 
         let rawItem: any = null;
         if (itemType === "task") rawItem = brainState.tasks.find((t) => t.id === itemId);

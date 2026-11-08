@@ -2,7 +2,7 @@ import { MemoryModal } from "./components/MemoryModal";
 import { renameTaskIcon } from "./utils/taskAppearance";
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
-import { cloudEnabled, cloudStatus, refreshCloud } from "./services/cloudSync";
+import { cloudEnabled, cloudStatus, refreshCloud, REMOTE_CHANGE_EVENT } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder, CalendarEvent } from "./types";
@@ -35,7 +35,9 @@ import { UniversalQuickCapture } from "./components/UniversalQuickCapture";
 import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal";
 import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
 import { AuditLogModal } from "./components/AuditLogModal";
-import { vectorVault } from "./services/vectorVault";
+import { dropLegacyVault, vectorVault } from "./services/vectorVault";
+import { accessToken, finishGoogleConnect, getStoredKey, serverFeatures } from "./services/serverApi";
+import { isServerHeldKey, SERVER_HELD_KEY, setProviderProxyAuth } from "./services/providerTransport";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
 
 export const App: React.FC = () => {
@@ -156,7 +158,6 @@ export const App: React.FC = () => {
       setSession(authSession);
       return loadInitialState(authSession.currentUser?.id).then((loaded) => {
         if (disposed) return;
-        vectorVault.setAccount(authSession.currentUser?.id || "");
         setState(loaded);
         if (loaded.theme === "dark") {
           document.documentElement.classList.add("dark");
@@ -164,29 +165,51 @@ export const App: React.FC = () => {
           document.documentElement.classList.remove("dark");
         }
 
-        // Prime the local vector vault if not yet indexed
-        vectorVault.getVaultStats().then((vStats) => {
-          if (vStats.total_chunks === 0 && (loaded.tasks.length > 0 || loaded.journalEntries.length > 0)) {
-            vectorVault.reindexBrain(loaded, loaded.openRouterKey).catch(() => {});
-          }
-        });
+        // Hosted accounts: use the provider key stored encrypted on the server when there is one.
+        if (managedAuthEnabled && authSession.currentUser) {
+          setProviderProxyAuth(accessToken);
+          // Returning from Google's consent screen: finish connecting, then show the result in Settings.
+          finishGoogleConnect().then(result => { if (result && !disposed) setIsSettingsOpen(true); }).catch(() => {});
+          serverFeatures().then(async features => {
+            if (!features.secrets || disposed) return;
+            const stored = await getStoredKey();
+            if (disposed) return;
+            setState(prev => {
+              if (!prev || prev.userId !== loaded.userId) return prev;
+              if (stored.configured && !isServerHeldKey(prev.openRouterKey)) return { ...prev, openRouterKey: SERVER_HELD_KEY };
+              if (!stored.configured && isServerHeldKey(prev.openRouterKey)) return { ...prev, openRouterKey: "" };
+              return prev;
+            });
+          }).catch(() => {});
+        }
+        // Embed new or edited passages in the background, so the first search is fast.
+        dropLegacyVault();
+        if (loaded.openRouterKey?.trim()) {
+          const warm = () => { if (!disposed) vectorVault.reindexBrain(loaded).catch(() => {}); };
+          if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 10000 }); else setTimeout(warm, 3000);
+        }
       });
     }).catch(error => { if (!disposed) setStartupError(error.message || "Could not load your records."); });
     return () => { disposed = true; };
   }, []);
 
+  // Pull other devices' changes every 15 s, on focus, and right after a save finds a conflict. The latest
+  // state is read when the download finishes, so the timer is not recreated on every edit.
+  const hasState = !!state;
   useEffect(() => {
-    if (!cloudEnabled || !state || conversation.busy) return;
+    if (!cloudEnabled || !hasState || conversation.busy) return;
     let disposed = false;
     const refresh = async () => {
-      if (document.hidden) return;
-      const next = await refreshCloud(state, () => !disposed);
-      if (next && !disposed) setState(next);
+      const base = latestSaveState.current;
+      if (document.hidden || !base) return;
+      const next = await refreshCloud(base, () => !disposed && latestSaveState.current?.userId === base.userId, () => latestSaveState.current);
+      if (next && !disposed) { latestSaveState.current = next; setState(next); }
     };
     const timer = window.setInterval(refresh, 15000);
     window.addEventListener("focus", refresh);
-    return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [state, conversation.busy]);
+    window.addEventListener(REMOTE_CHANGE_EVENT, refresh);
+    return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener(REMOTE_CHANGE_EVENT, refresh); };
+  }, [hasState, conversation.busy]);
 
   // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
   useEffect(() => {
@@ -443,7 +466,6 @@ export const App: React.FC = () => {
       };
     });
     // Auto-update Semantic Memory Vault
-    vectorVault.indexItem(normalized, "task", state?.openRouterKey).catch(() => {});
   };
 
   const openNewEvent = (date?: string) => {
@@ -482,7 +504,6 @@ export const App: React.FC = () => {
         tasks: prev.tasks.filter((t) => t.id !== taskId),
       };
     });
-    vectorVault.removeItem(taskId).catch(() => {});
   };
 
   // Section Management Handlers
@@ -651,7 +672,6 @@ export const App: React.FC = () => {
           : [...prev.habits, synced],
       };
     });
-    vectorVault.indexItem(synced, "habit", state?.openRouterKey).catch(() => {});
   };
 
   // Goal Handlers (Macro Life Improvement & Horizons)
@@ -670,7 +690,6 @@ export const App: React.FC = () => {
           : [goal, ...currentGoals],
       };
     });
-    vectorVault.indexItem(goal, "goal", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteGoal = (goalId: string) => {
@@ -685,7 +704,6 @@ export const App: React.FC = () => {
         goals: (prev.goals || []).filter((g) => g.id !== goalId),
       };
     });
-    vectorVault.removeItem(goalId).catch(() => {});
   };
 
   const handleToggleMilestone = (goalId: string, milestoneId: string) => {
@@ -707,7 +725,6 @@ export const App: React.FC = () => {
           progress,
           status,
         };
-        vectorVault.indexItem(updatedGoal, "goal", prev.openRouterKey).catch(() => {});
         return updatedGoal;
       });
       return {
@@ -724,7 +741,6 @@ export const App: React.FC = () => {
         if (g.id !== goalId) return g;
         const progress = status === "achieved" ? 100 : (g.progress === 100 ? 50 : g.progress);
         const updated = { ...g, status, progress };
-        vectorVault.indexItem(updated, "goal", prev.openRouterKey).catch(() => {});
         return updated;
       });
       return {
@@ -747,7 +763,6 @@ export const App: React.FC = () => {
           : [entry, ...prev.journalEntries],
       };
     });
-    vectorVault.indexItem(entry, "journal", state?.openRouterKey).catch(() => {});
   };
 
   const handleSynthesizeAI = async (entry: JournalEntry) => {
@@ -788,7 +803,6 @@ export const App: React.FC = () => {
           : [normalizedItem, ...prev.knowledgeItems],
       };
     });
-    vectorVault.indexItem(normalizedItem, "knowledge", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteKnowledge = (id: string) => {
@@ -803,7 +817,6 @@ export const App: React.FC = () => {
         knowledgeItems: prev.knowledgeItems.filter((k) => k.id !== id),
       };
     });
-    vectorVault.removeItem(id).catch(() => {});
   };
 
   // Folder Handlers
@@ -1246,6 +1259,8 @@ export const App: React.FC = () => {
         onSaveKey={handleSaveOpenRouterKey}
         selectedModel={state.selectedModel}
         onSelectModel={handleSelectModel}
+        askBeforeChanges={!!state.preferences?.askBeforeChanges}
+        onAskBeforeChanges={value => setState(prev => prev ? { ...prev, preferences: { ...prev.preferences, askBeforeChanges: value } } : prev)}
         onOpenMemory={() => { setIsSettingsOpen(false); setSelectedMemoryId(undefined); setIsMemoryOpen(true); }}
         onExportBackup={handleExportBackup}
         workspaceControls={cloudEnabled ? <CloudControls state={state} onImport={setState} /> : undefined}

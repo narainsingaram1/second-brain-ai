@@ -7,7 +7,7 @@
   "cleanUrls": true,
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/index.html"
     }
   ],
@@ -29,5 +29,13 @@
         }
       ]
     }
-  ]
+  ],
+  "functions": {
+    "api/ai.js": {
+      "maxDuration": 300
+    },
+    "api/agent.js": {
+      "maxDuration": 300
+    }
+  }
 }

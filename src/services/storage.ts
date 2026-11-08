@@ -720,6 +720,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     taskAppearance: normalizeTaskAppearance(storedState.taskAppearance),
     dailyBrief: storedState.dailyBrief,
     auditLog: storedState.auditLog || [],
+    preferences: storedState.preferences && typeof storedState.preferences === "object" ? storedState.preferences : undefined,
   };
 }
 
