@@ -36,6 +36,8 @@ import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal"
 import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
 import { AuditLogModal } from "./components/AuditLogModal";
 import { dropLegacyVault, vectorVault } from "./services/vectorVault";
+import { accessToken, getStoredKey, serverFeatures } from "./services/serverApi";
+import { isServerHeldKey, SERVER_HELD_KEY, setProviderProxyAuth } from "./services/providerTransport";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
 
 export const App: React.FC = () => {
@@ -163,6 +165,21 @@ export const App: React.FC = () => {
           document.documentElement.classList.remove("dark");
         }
 
+        // Hosted accounts: use the provider key stored encrypted on the server when there is one.
+        if (managedAuthEnabled && authSession.currentUser) {
+          setProviderProxyAuth(accessToken);
+          serverFeatures().then(async features => {
+            if (!features.secrets || disposed) return;
+            const stored = await getStoredKey();
+            if (disposed) return;
+            setState(prev => {
+              if (!prev || prev.userId !== loaded.userId) return prev;
+              if (stored.configured && !isServerHeldKey(prev.openRouterKey)) return { ...prev, openRouterKey: SERVER_HELD_KEY };
+              if (!stored.configured && isServerHeldKey(prev.openRouterKey)) return { ...prev, openRouterKey: "" };
+              return prev;
+            });
+          }).catch(() => {});
+        }
         // Embed new or edited passages in the background, so the first search is fast.
         dropLegacyVault();
         if (loaded.openRouterKey?.trim()) {

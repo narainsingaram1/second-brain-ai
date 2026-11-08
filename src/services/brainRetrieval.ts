@@ -4,6 +4,7 @@ import { getLocalDateString } from "../utils/habitStreaks";
 import { bestScore, courseLabel, courseTasks, dueCards, studyOf } from "../utils/study";
 import { gradingForAssistant } from "../utils/grades";
 import { cachedDocumentText } from "./studyDocuments";
+import { providerFetch } from "./providerTransport";
 
 export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz";
 
@@ -228,11 +229,7 @@ export async function storeEmbedding(key: string, vector: number[]): Promise<voi
   } catch { /* An unavailable cache does not invalidate retrieved evidence. */ }
 }
 export async function embed(inputs: string[], key: string, signal?: AbortSignal): Promise<number[][]> {
-  const res = await fetch("https://openrouter.ai/api/v1/embeddings", {
-    method: "POST", signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
-    headers: { Authorization: `Bearer ${key.trim()}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: MODEL, input: inputs }),
-  });
+  const res = await providerFetch("embeddings", key, { model: MODEL, input: inputs }, signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000));
   if (!res.ok) throw new Error(`Embedding service failed (HTTP ${res.status})`);
   const body = await res.json();
   const sorted = body.data?.sort((a: { index: number }, b: { index: number }) => a.index - b.index);

@@ -2,31 +2,12 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { owner, supabaseLikeDatabase } from './helpers/supabaseDb.mjs';
+import { pgTransport } from './helpers/pgStore.mjs';
 
 const server = await createServer({ cacheDir: '/tmp/synapse-record-sync-test-cache', configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const { RecordSync, PreferencesConflict } = await server.ssrLoadModule('/src/services/recordSync.ts');
 
-
-/** The same transport contract as supabaseRecordTransport, over PGlite as the signed-in user. */
-function pgTransport(db, sent) {
-  const rows = r => r.rows.map(x => ({ ...x, revision: Number(x.revision), seq: Number(x.seq), ord: Number(x.ord) }));
-  return {
-    async migrate() { await db.query('select public.migrate_brain_to_records()'); return 'records'; },
-    async readPreferences() { const r = (await db.query('select state, revision from public.brains')).rows[0]; return { state: r.state, revision: Number(r.revision) }; },
-    async preferencesRevision() { return Number((await db.query('select revision from public.brains')).rows[0].revision); },
-    async readRecords(since) {
-      return since === undefined
-        ? rows(await db.query('select collection, id, data, revision, seq, ord, deleted from public.brain_records where not deleted order by seq'))
-        : rows(await db.query('select collection, id, data, revision, seq, ord, deleted from public.brain_records where seq > $1 order by seq', [since]));
-    },
-    async saveRecords(changes) { sent?.push(changes); return (await db.query('select public.save_records($1::jsonb) as r', [JSON.stringify(changes)])).rows[0].r; },
-    async savePreferences(state, revision) {
-      try { return Number((await db.query('select public.save_brain_prefs($1::jsonb, $2) as r', [JSON.stringify(state), revision])).rows[0].r); }
-      catch (error) { if (error.code === '40001') throw new PreferencesConflict(); throw error; }
-    },
-  };
-}
 
 const blob = {
   tasks: [{ id: 't2', title: 'Newer task' }, { id: 't1', title: 'Older task' }],
@@ -42,8 +23,8 @@ test('record sync sends only changed records and keeps the server version when t
     await db.query('select public.save_brain($1::jsonb, 0, $2::uuid)', [JSON.stringify(blob), owner]);
     const sentA = [], sentB = [];
     let remoteChanges = 0;
-    const a = new RecordSync(pgTransport(db, sentA));
-    const b = new RecordSync(pgTransport(db, sentB), () => remoteChanges++);
+    const a = new RecordSync(pgTransport(db, sentA, PreferencesConflict));
+    const b = new RecordSync(pgTransport(db, sentB, PreferencesConflict), () => remoteChanges++);
     let stateA = await a.load();
     assert.deepEqual(stateA.tasks, blob.tasks, 'newest-first order survives the upgrade');
     assert.deepEqual(stateA.study.courses, blob.study.courses);
@@ -107,7 +88,7 @@ test('record sync coalesces saves made while one is running', async () => {
   try {
     await asUser(owner);
     const sent = [];
-    const transport = pgTransport(db, sent);
+    const transport = pgTransport(db, sent, PreferencesConflict);
     const slow = { ...transport, async saveRecords(changes) { await new Promise(r => setTimeout(r, 20)); return transport.saveRecords(changes); } };
     const sync = new RecordSync(slow);
     const base = await sync.load();

@@ -1,5 +1,6 @@
 import { Task, Habit, JournalEntry } from "../types";
 import { getLocalDateString } from "../utils/habitStreaks";
+import { isServerHeldKey, providerFetch } from "./providerTransport";
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 /** Fast, inexpensive model for small structured jobs (classification, breakdowns). */
@@ -52,15 +53,6 @@ export async function modelSupportsImages(model: string): Promise<boolean> {
   const id = resolveModel(model);
   const known = (await loadCatalog()).get(id);
   return known ?? guessVision(id);
-}
-
-function headers(apiKey: string): Record<string, string> {
-  return {
-    Authorization: `Bearer ${apiKey.trim()}`,
-    "Content-Type": "application/json",
-    "HTTP-Referer": "https://synapse-second-brain.local",
-    "X-Title": "Synapse Second Brain",
-  };
 }
 
 /** Marks the final text part of a message as a cache breakpoint. */
@@ -178,12 +170,7 @@ export async function queryOpenRouterWithTools(
     stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 45000);
   };
   try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      signal: signal ? AbortSignal.any([signal, stall.signal]) : stall.signal,
-      headers: headers(apiKey),
-      body: JSON.stringify(bodyPayload),
-    });
+    const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal);
 
     if (!res.ok) {
       const errorBody = await res.json().catch(() => ({}));
@@ -283,6 +270,7 @@ export async function testOpenRouterKey(apiKey: string): Promise<{ success: bool
   if (!apiKey || apiKey.trim() === "") {
     return { success: false, message: "Please provide an API key." };
   }
+  if (isServerHeldKey(apiKey)) return { success: true, message: "Your key is stored encrypted on the server." };
 
   try {
     const res = await fetch("https://openrouter.ai/api/v1/auth/key", {
@@ -342,18 +330,13 @@ export async function queryOpenRouter(
   }
   payloadMessages.push(...messages);
 
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 60000)]) : AbortSignal.timeout(options.timeoutMs ?? 60000),
-    headers: headers(apiKey),
-    body: JSON.stringify({
-      model: resolveModel(model),
-      messages: payloadMessages,
-      temperature: options.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2000,
-      ...(options.json ? { response_format: { type: "json_object" } } : {}),
-    }),
-  });
+  const res = await providerFetch("chat/completions", apiKey, {
+    model: resolveModel(model),
+    messages: payloadMessages,
+    temperature: options.temperature ?? 0.7,
+    max_tokens: options.maxTokens ?? 2000,
+    ...(options.json ? { response_format: { type: "json_object" } } : {}),
+  }, options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 60000)]) : AbortSignal.timeout(options.timeoutMs ?? 60000));
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));

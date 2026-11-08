@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { getManagedSession, getSupabase } from "./managedAuth";
 import type { BrainState } from "../types";
 import type { RecordCollection, StoredRecord } from "./brainRecords";
@@ -26,8 +27,7 @@ export async function writeManagedBrain(state: unknown, revision: number, ownerI
 
 const PAGE = 1000;
 /** Per-record storage over Supabase. Every call runs as the signed-in user, so row-level security applies. */
-export function supabaseRecordTransport(userId: string): RecordTransport {
-  const client = getSupabase();
+export function supabaseRecordTransport(userId: string, client: SupabaseClient<any> = getSupabase()): RecordTransport {
   const fail = (what: string) => new Error(`Could not ${what}. Check your connection and try again.`);
   return {
     async migrate() {

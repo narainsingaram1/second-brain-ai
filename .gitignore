@@ -33,3 +33,6 @@ dist-ssr
 
 /dist-independent/
 /.wrangler/
+
+# TypeScript incremental build state
+*.tsbuildinfo
