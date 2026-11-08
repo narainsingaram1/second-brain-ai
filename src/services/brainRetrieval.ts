@@ -13,6 +13,16 @@ function trackerDate(item: TrackerItem): string | undefined {
   if (typeof item.fields.lastPractice === "string") return item.fields.lastPractice;
   return undefined;
 }
+/**
+ * Per-request lookups for code that runs outside the browser (the server agent). Passed explicitly rather
+ * than set globally, so concurrent requests from different accounts never share them.
+ */
+export interface RetrievalContext {
+  /** Extracted text of an uploaded course document. Defaults to this browser's document cache. */
+  documentText?: (id: string) => string | undefined;
+  /** Where passage embeddings are cached. Defaults to this browser's IndexedDB. */
+  embeddingCache?: { get(key: string): Promise<number[] | undefined>; put(key: string, vector: number[]): Promise<void> };
+}
 export interface BrainRecord { id: string; type: RecordType; title: string; date?: string; text: string; index: string; data: Record<string, unknown> }
 export interface Source { id: string; type: string; title: string; snippet: string; offset?: number }
 
@@ -65,7 +75,8 @@ export function recordProse(type: RecordType, d: any): string {
   }
 }
 /** Course material flattened into readable records. Document text comes from the loaded text cache. */
-function studyRecords(state: BrainState) {
+function studyRecords(state: BrainState, ctx?: RetrievalContext) {
+  const documentText = ctx?.documentText ?? cachedDocumentText;
   const study = studyOf(state);
   const today = getLocalDateString();
   const courses = new Map(study.courses.map(c => [c.id, c]));
@@ -83,7 +94,7 @@ function studyRecords(state: BrainState) {
       return { type: "course" as const, title: courseLabel(c), date: undefined, data, source: data as unknown };
     }),
     ...study.documents.map(d => {
-      const data = { ...d, course: label(d.courseId), section: section(d.courseId), folder: folderName(d.folderId), content: cachedDocumentText(d.id) };
+      const data = { ...d, course: label(d.courseId), section: section(d.courseId), folder: folderName(d.folderId), content: documentText(d.id) };
       return { type: "document" as const, title: d.name, date: d.createdAt.slice(0, 10), data, source: data as unknown };
     }),
     ...study.decks.map(d => {
@@ -100,7 +111,7 @@ function studyRecords(state: BrainState) {
     }),
   ];
 }
-export function records(state: BrainState, type?: RecordType): BrainRecord[] {
+export function records(state: BrainState, type?: RecordType, ctx?: RetrievalContext): BrainRecord[] {
   return ([
     ...state.tasks.map(data => ({ type: "task" as const, title: data.title, date: data.dueDate, data, source: data as unknown })),
     ...state.goals.map(data => ({ type: "goal" as const, title: data.title, date: data.targetDate, data, source: data as unknown })),
@@ -115,7 +126,7 @@ export function records(state: BrainState, type?: RecordType): BrainRecord[] {
       data: { ...data.fields, ...data },
       source: data as unknown,
     })),
-    ...(!type || ["course", "document", "deck", "quiz"].includes(type) ? studyRecords(state) : []),
+    ...(!type || ["course", "document", "deck", "quiz"].includes(type) ? studyRecords(state, ctx) : []),
   ]).filter(r => !type || r.type === type).map(({ source, ...r }) => ({ ...r, id: r.data.id, data: { ...r.data },
     // Document text is read as prose after its metadata, not as one escaped JSON string.
     text: r.type === "document" ? `${JSON.stringify({ ...r.data, content: undefined }, null, 2)}\n\n${(r.data as { content?: string }).content ?? "[Text not loaded on this device.]"}` : JSON.stringify(r.data, null, 2),
@@ -255,8 +266,8 @@ export function clearRetrievalMemory(): void {
 }
 
 type Passage = { source: Source; slot: string; date?: string };
-function passages(state: BrainState, type?: RecordType): Passage[] {
-  return records(state, type).flatMap(record => chunks(record).map((source, i) => ({ source, date: record.date, slot: `${state.userId || "guest"}|${MODEL}|${record.type}|${record.id}|${i}` })));
+function passages(state: BrainState, type?: RecordType, ctx?: RetrievalContext): Passage[] {
+  return records(state, type, ctx).flatMap(record => chunks(record).map((source, i) => ({ source, date: record.date, slot: `${state.userId || "guest"}|${MODEL}|${record.type}|${record.id}|${i}` })));
 }
 const embeddingText = (source: Source) => source.snippet.startsWith(source.title) ? source.snippet : `${source.title}\n${source.snippet}`;
 
@@ -265,12 +276,13 @@ const embeddingText = (source: Source) => source.snippet.startsWith(source.title
  * passages whose text is unchanged reuse their cached vector, so nothing has to be "indexed" on save,
  * and deleted or edited text can never be served from a stale entry.
  */
-async function passageVectorsFor(state: BrainState, items: Passage[], key: string | undefined, signal?: AbortSignal, progress?: (done: number, total: number) => void) {
+async function passageVectorsFor(state: BrainState, items: Passage[], key: string | undefined, signal?: AbortSignal, progress?: (done: number, total: number) => void, ctx?: RetrievalContext) {
+  const cache = ctx?.embeddingCache ?? { get: cachedEmbedding, put: storeEmbedding };
   const entries = await Promise.all(items.map(async ({ source, slot }) => {
     const known = passageVectors.get(slot);
     if (known?.snippet === source.snippet) return known;
     const entry: { snippet: string; key: string; vector?: number[] } = { snippet: source.snippet, key: await digest(`${state.userId || "guest"}|${MODEL}|${source.title}|${source.snippet}`) };
-    entry.vector = await cachedEmbedding(entry.key);
+    entry.vector = await cache.get(entry.key).catch(() => undefined);
     passageVectors.delete(slot);
     passageVectors.set(slot, entry);
     return entry;
@@ -283,7 +295,7 @@ async function passageVectorsFor(state: BrainState, items: Passage[], key: strin
     progress?.(start, missing.length);
     const indices = missing.slice(start, start + 32);
     const batch = await embed(indices.map(i => embeddingText(items[i].source)), key!, signal);
-    await Promise.all(indices.map(async (i, j) => { entries[i].vector = batch[j]; await storeEmbedding(entries[i].key, batch[j]); }));
+    await Promise.all(indices.map(async (i, j) => { entries[i].vector = batch[j]; await cache.put(entries[i].key, batch[j]).catch(() => {}); }));
   }
   if (missing.length) progress?.(missing.length, missing.length);
   return entries;
@@ -300,15 +312,15 @@ async function queryVector(query: string, key: string, signal?: AbortSignal): Pr
 
 export interface RankedPassage extends Source { score: number; similarity?: number; date?: string }
 /** Hybrid ranking over every passage: BM25 and embeddings fused by rank. */
-export async function rankPassages(state: BrainState, query: string, type: RecordType | undefined, key: string | undefined, signal?: AbortSignal, progress?: (s: string) => void) {
-  const items = passages(state, type);
+export async function rankPassages(state: BrainState, query: string, type: RecordType | undefined, key: string | undefined, signal?: AbortSignal, progress?: (s: string) => void, ctx?: RetrievalContext) {
+  const items = passages(state, type, ctx);
   if (!items.length || !query.trim()) return { ranked: [] as RankedPassage[], searched: items.length, neural: false, warning: undefined as string | undefined };
   const queryTerms = tokenize(query);
   const lexical = bm25(items.map(({ source }) => [...tokenize(source.snippet), ...tokenize(source.title)]), queryTerms);
   let neural: number[] | undefined;
   let warning: string | undefined;
   try {
-    const entries = await passageVectorsFor(state, items, key, signal, (done, total) => progress?.(`Indexing notes: ${Math.min(done + 32, total)} of ${total} passages`));
+    const entries = await passageVectorsFor(state, items, key, signal, (done, total) => progress?.(`Indexing notes: ${Math.min(done + 32, total)} of ${total} passages`), ctx);
     const q = await queryVector(query, key!, signal);
     neural = entries.map(e => e.vector ? cosine(q, e.vector) : 0);
   } catch (err) {
@@ -328,8 +340,8 @@ export async function rankPassages(state: BrainState, query: string, type: Recor
   return { ranked, searched: items.length, neural: !!neural, warning };
 }
 
-export async function searchRecords(state: BrainState, query: string, type: RecordType | undefined, offset: number, key: string, signal?: AbortSignal, progress?: (s: string) => void) {
-  const { ranked: all, searched, neural, warning } = await rankPassages(state, query, type, key, signal, progress);
+export async function searchRecords(state: BrainState, query: string, type: RecordType | undefined, offset: number, key: string, signal?: AbortSignal, progress?: (s: string) => void, ctx?: RetrievalContext) {
+  const { ranked: all, searched, neural, warning } = await rankPassages(state, query, type, key, signal, progress, ctx);
   if (!searched) return { results: [], total: 0, nextOffset: null, complete: true, mode: "hybrid" };
   const ranked = all.map(({ offset: _passageOffset, similarity: _similarity, date: _date, ...source }) => source);
   const results = ranked.slice(offset, offset + 6);

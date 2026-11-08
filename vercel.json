@@ -33,6 +33,9 @@
   "functions": {
     "api/ai.js": {
       "maxDuration": 300
+    },
+    "api/agent.js": {
+      "maxDuration": 300
     }
   }
 }

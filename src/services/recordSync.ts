@@ -22,6 +22,9 @@ export interface RecordTransport {
   savePreferences(state: Record<string, unknown>, revision: number): Promise<number>;
 }
 
+/** A record write confirmed by the server, with the data that was written (null for a deletion). */
+export interface SavedRecord { collection: RecordCollection; id: string; revision: number; seq: number; data: object | null }
+
 const BATCH_RECORDS = 200;
 const BATCH_BYTES = 1_500_000;
 
@@ -40,6 +43,7 @@ export class RecordSync {
   private prefsRevision = 0;
   private lastSeq = 0;
   private serialize = createSerializer();
+  private savedLog: SavedRecord[] = [];
   private queued: Partial<BrainState> | undefined;
   private running: Promise<void> | undefined;
   /** Records replaced by another device's version during the last refresh. */
@@ -89,6 +93,7 @@ export class RecordSync {
         const key = recordKey(saved.collection, saved.id);
         this.synced.set(key, { revision: saved.revision, json: saved.deleted ? null : byKey.get(key)?.json ?? null });
         this.ownSeqs.add(saved.seq);
+        this.savedLog.push({ collection: saved.collection as RecordCollection, id: saved.id, revision: saved.revision, seq: saved.seq, data: saved.deleted ? null : byKey.get(key)?.data ?? null });
       }
       for (const conflict of result.conflicts) {
         const key = recordKey(conflict.collection, conflict.id);
@@ -192,6 +197,35 @@ export class RecordSync {
     this.synced.set(key, { revision: row.revision, json: data ? this.serialize(data) : null });
     this.conflicted.delete(key);
     return applyStoredRecord(state, row.collection, row.id, data);
+  }
+
+  /** Record writes confirmed since the last call (used by the server agent to tell the browser what it saved). */
+  takeSaved(): SavedRecord[] {
+    const saved = this.savedLog;
+    this.savedLog = [];
+    return saved;
+  }
+
+  /**
+   * Applies records and preferences another writer (the server agent) already saved for this account, and
+   * records them as in sync, so they are neither uploaded again nor reported as conflicts.
+   */
+  adopt<T extends Partial<BrainState>>(state: T, rows: SavedRecord[], prefs: Record<string, unknown> = {}): T {
+    let next = state;
+    for (const row of rows) {
+      this.ownSeqs.add(row.seq);
+      const key = recordKey(row.collection, row.id);
+      const known = this.synced.get(key);
+      if (known && known.revision > row.revision) continue; // Already have something newer.
+      this.synced.set(key, { revision: row.revision, json: row.data ? this.serialize(row.data) : null });
+      this.conflicted.delete(key);
+      next = applyStoredRecord(next, row.collection, row.id, row.data);
+    }
+    for (const [key, value] of Object.entries(prefs)) {
+      this.prefsJson.set(key, JSON.stringify(value));
+      next = { ...next, [key]: value };
+    }
+    return next;
   }
 
   /** True when the state has record or preference edits the server has not confirmed. */

@@ -1,7 +1,7 @@
 import type { BrainState, AuthSession } from "../types";
 import { getManagedSession, managedAuthEnabled } from "./managedAuth";
 import { readManagedBrain, supabaseRecordTransport, writeManagedBrain } from "./supabaseBrain";
-import { RecordSync } from "./recordSync";
+import { RecordSync, type SavedRecord } from "./recordSync";
 
 export const cloudEnabled = import.meta.env.VITE_CLOUD_SYNC === "true" || managedAuthEnabled;
 let revision = 0;
@@ -106,6 +106,12 @@ export async function saveCloud(state: BrainState) {
   } finally { pending--; }
 }
 export function markCloudDirty() { dirty = true; }
+/** Applies changes the server agent saved on this account's behalf, marking them as already in sync. */
+export function adoptServerChanges(state: BrainState, rows: SavedRecord[], prefs?: Record<string, unknown>): BrainState {
+  return records ? records.adopt(state, rows, prefs) : state;
+}
+/** Whether this account uses per-record storage (required for the server agent). */
+export const usesRecordStorage = () => !!records;
 export async function refreshCloud(current: BrainState, isCurrent: () => boolean = () => true, latest: () => BrainState | null = () => current): Promise<BrainState | null> {
   if (records) {
     const engine = records;

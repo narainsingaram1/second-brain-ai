@@ -2,13 +2,19 @@ import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { boundConversations } from "../utils/conversationBudget";
 import { attachmentOf, rememberImage } from "../utils/imageInput";
-import { AIMessage, BrainState, ConversationThread } from "../types";
+import { AIMessage, AuditLogEntry, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
   RunConversation,
+  type AgentExecutionResult,
 } from "../services/agentDispatcher";
 import { applyMutation, mutationRecords } from "../services/brainTools";
 import { persistBrainState } from "../services/storage";
+import { adoptServerChanges, usesRecordStorage } from "../services/cloudSync";
+import { isServerHeldKey } from "../services/providerTransport";
+import { serverFeatures } from "../services/serverApi";
+import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
+import { getVisionModel } from "../services/openrouter";
 import { learnFromTurn } from "../services/memoryHistory";
 import {
   applyMemoryChange,
@@ -244,8 +250,45 @@ export function useBrainConversation(
         if (isCurrent() && active.current === controller) setDraft(streamedText ? { id: assistantId, content: streamedText } : null);
       });
     };
+    // Hosted accounts whose key is stored on the server run the turn there; otherwise it runs here.
+    const turn: RemoteTurn = {
+      message: user, chatHistory: initial.chatHistory, conversationId: initial.conversationId, model: initial.selectedModel,
+      visionModel: getVisionModel(), temporary, images: images.length ? images : undefined,
+    };
+    const runsOnServer = async () => isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
+      && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;
+    const runOnServer = async () => {
+      let saved = 0;
+      try {
+        // The server reads the workspace from the database, so pending edits are saved first.
+        await persistBrainState(() => latest.current!, initial.userId);
+        return await runRemoteTurn(turn, {
+        signal,
+        onText,
+        onProgress: message => { if (isCurrent()) setProgress(message); options.onProgress?.(message); },
+        onSaved: (records, preferences, action, entityType, title) => {
+          const before = latest.current;
+          if (!before || !isCurrent()) return;
+          onBeforeMutation(before);
+          const next = adoptServerChanges(before, records, preferences);
+          if (entityType === "memory") { publish(next); return; }
+          const audit = { id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: timestamp(), action,
+            entityType: entityType as AuditLogEntry["entityType"], entityTitle: title, canUndo: true };
+          publish({ ...next, auditLog: [audit, ...(next.auditLog || [])].slice(0, 100) });
+          saved++;
+        },
+        });
+      } catch (error) {
+        // Same shape as a failed in-browser turn: say what happened and whether anything was saved.
+        const cancelled = signal.aborted;
+        const savedNote = saved ? `\n\n${saved} change${saved === 1 ? " was" : "s were"} saved before this stopped and remain saved.` : "\n\nNo changes were saved.";
+        return { actionType: "query_brain", entityType: "query", headline: cancelled ? "Stopped" : "Assistant unavailable", explanation: saved ? `${saved} changes saved` : "No changes saved",
+          queryAnswer: (cancelled ? "The request was stopped." : `I couldn’t finish this request: ${error instanceof Error ? error.message : "the server did not respond"}`) + savedNote,
+          actions: [], citations: [], status: cancelled ? "cancelled" : "error", rememberedIds: [] } satisfies AgentExecutionResult;
+      }
+    };
     try {
-      const result = await AutonomousBrainAgent.execute(
+      const result = await runsOnServer() ? await runOnServer() : await AutonomousBrainAgent.execute(
         prompt,
         initial,
         initial.openRouterKey,

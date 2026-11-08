@@ -4,7 +4,7 @@ import { BrainState, Task } from "../types";
 import { describeImages, getVisionModel, modelSupportsImages, OpenRouterContentPart, OpenRouterMessage, queryOpenRouterWithTools } from "./openrouter";
 import { PreparedImage, sessionImage } from "../utils/imageInput";
 import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, parseToolArguments } from "./brainTools";
-import { Source } from "./brainRetrieval";
+import { Source, type RetrievalContext } from "./brainRetrieval";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { eventTimeLabel, formatTime, sortEvents, taskSortKey } from "../utils/events";
 import { bestScore, courseLabel, dueCards, studyOf } from "../utils/study";
@@ -35,6 +35,8 @@ export interface AgentOptions {
   currentMessage?: AIMessage;
   /** Images attached to the current message. */
   images?: PreparedImage[];
+  /** Document text and embedding cache when running outside the browser (the server agent). */
+  retrieval?: RetrievalContext;
   /** Model used to read images when the chat model cannot; defaults to the device preference. */
   visionModel?: string;
 }
@@ -362,7 +364,7 @@ export class AutonomousBrainAgent {
               const readKey = call.function.name + canonical(normalizedArgs);
               let result = readCache.get(readKey);
               if (!result) {
-                result = await executeRead(call.function.name, args, state, key, signal, options.onProgress);
+                result = await executeRead(call.function.name, args, state, key, signal, options.onProgress, options.retrieval);
                 readCache.set(readKey, result);
               }
               output = result.output;
