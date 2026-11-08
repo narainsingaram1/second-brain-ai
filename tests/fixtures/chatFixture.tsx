@@ -1,8 +1,9 @@
 // Manual browser regression fixture. No storage reads and no external provider requests.
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import "../../src/index.css";
 import "../../src/chat.css";
+import "../../src/index.css";
+import "../../src/redesign.css";
 import { ChatWorkspace } from "../../src/components/ChatWorkspace";
 import { Sidebar } from "../../src/components/Sidebar";
 import { TopHeader } from "../../src/components/TopHeader";
@@ -13,9 +14,20 @@ const goals = [{ id: "fixture-goal", title: "Find a research opportunity", secto
 const sources = [...tasks.map(t => ({ type: "task", id: t.id, title: t.title })), { type: "goal", id: goals[0].id, title: goals[0].title }];
 const answer = `## Your week at a glance\n\nHere are seven upcoming tasks, sorted by deadline.\n\n${tasks.map(t => `- **${t.title}** [task:${t.id}] — due ${t.dueDate}. Complete the next concrete step before starting another task.`).join("\n")}\n\n### A clearer next step\n\nFor [goal:fixture-goal], start with your existing shortlist. Your goal is already 35% complete; the next milestone is to prepare a research introduction.\n\nKeep the introduction specific to the lab’s current work, and use your robotics project as evidence of your interest.\n\n### What to prioritize\n\nFinish the presentation first, then work through the problem set. Leave a buffer before each deadline. These are recommendations; no records were changed.`;
 function makeMessage(role: "user" | "assistant", content: string): AIMessage { return { id: crypto.randomUUID(), role, content, timestamp: "3:30 PM", sources: role === "assistant" ? sources : undefined }; }
-// Streams the synthetic answer a few words at a time, like a provider's server-sent events.
-window.fetch = async () => {
+const sseResponse = (...events: unknown[]) => new Response(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join("") + "data: [DONE]\n\n", { headers: { "content-type": "text/event-stream" } });
+// Streams the synthetic answer a few words at a time, like a provider's server-sent events. A message
+// containing "delete" makes the model ask to delete the first task, which needs the user's approval.
+window.fetch = async (_url, init) => {
   await new Promise(resolve => setTimeout(resolve, 600));
+  const request = JSON.parse(String((init as RequestInit | undefined)?.body || "{}"));
+  const lastUser = [...(request.messages || [])].reverse().find((m: { role: string }) => m.role === "user");
+  const userText = typeof lastUser?.content === "string" ? lastUser.content : "";
+  if (/delete/i.test(userText)) {
+    const answered = (request.messages || []).some((m: { role: string }) => m.role === "tool");
+    return answered
+      ? sseResponse({ choices: [{ delta: { content: "Deleting **Prepare project presentation** is waiting for your approval below." }, finish_reason: "stop" }] })
+      : sseResponse({ choices: [{ delta: { tool_calls: [{ index: 0, id: "fixture-delete", function: { name: "delete_task", arguments: JSON.stringify({ taskId: "fixture-task-0" }) } }] }, finish_reason: "tool_calls" }] });
+  }
   const words = answer.split(/(?<= )/);
   const encoder = new TextEncoder();
   const body = new ReadableStream<Uint8Array>({ async start(controller) {
@@ -32,6 +44,7 @@ function Fixture() {
   const [state, setState] = useState<BrainState | null>({ userId: "ui-fixture", tasks, goals, habits: [], journalEntries: [], knowledgeItems: [], sections: ["Academic"], subsections: { Academic: ["General"] }, chatHistory: [], conversations: [], selectedModel: "fixture/synthetic-model", openRouterKey: "fixture-only", theme: "light" });
   const [collapsed, setCollapsed] = useState(window.innerWidth < 768);
   const conversation = useBrainConversation(state, setState, () => {});
+  (window as unknown as { __fixtureTasks: () => string[] }).__fixtureTasks = () => state?.tasks.map(t => t.title) || [];
   if (!state) return null;
   const active = state.chatHistory.some(m => m.role === "user");
   return <div className="h-[100dvh] overflow-hidden flex bg-[#f8f9fd] text-slate-900 dark:text-slate-100 dark:bg-[#090b14]">

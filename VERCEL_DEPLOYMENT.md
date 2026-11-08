@@ -65,3 +65,37 @@ Normal recall uses bounded local keyword indexing and no extra extraction call. 
 Disabling memory stops retrieval and automatic learning without deleting data. To roll back the UI, keep the additive database migration and retain the `agentMemory` field in backups; old clients cannot manage this field, and the save RPC preserves existing memory when an older client omits it. Validate the current frontend before asking a model to remember private context.
 
 Validation on November 1, 2026: the production build and 65 automated tests pass. Browser integration checks cover memory persistence/reload/new-chat recall, source controls, pin/edit/forget, approved history import, temporary transcript privacy, account changes during pending work, and desktop/mobile light/dark layouts. The compiled production app was also exercised against the actual Supabase project with a disposable confirmed account: remember, start a new chat, recall, sign out/in, and reload all retained the saved memory. These checks use deterministic intercepted AI responses and a fake device-local provider key, so they verify tool orchestration and real cloud persistence without making paid AI calls. Real-provider model judgment remains dependent on the user's selected model.
+
+## Phase 0: records, server agent and approvals
+
+Three additive changes, each of which the app detects and falls back from until it is live, so they can be rolled out in this order without breaking running clients.
+
+### What changes
+
+- **Per-record storage.** Tasks, notes, events, course items, conversations and agent memory move from the single `brains` snapshot into `brain_records`, one row per record with its own revision. Saves send only what changed. Two devices conflict only when they edit the same record; the version already saved wins and the other device picks it up on refresh (Settings › Workspace & Sync says how many records were updated). Preferences and the open conversation stay in `brains` and merge per field.
+- **Encrypted provider keys.** Settings stores the OpenRouter key on the server, encrypted with AES-256-GCM and bound to the account. Browsers only see its last four characters. Browser-side AI features (journal, notes, study tools, search) go through the authenticated `/api/ai` proxy.
+- **Server-side assistant.** With a server-held key, each turn runs in `/api/agent` as the signed-in user (row-level security applies; no service-role key is used). Turns over 4.3 MB (large images), desktop, and accounts without a server key keep running in the browser.
+- **Approvals and account history.** Deletions, more than five changes in one request, and edits made after reading uploaded documents or past conversations wait for approval in the chat. Settings › "Ask before every change" gates all changes. Proposals, decisions and results are written to `audit_events`, which nobody can edit or delete (Activity log › Account history).
+
+### Rollout
+
+1. **Back up.** In the app, Settings › Workspace & Sync › Export data.
+2. **Apply the migrations** in the Supabase SQL editor, in order:
+   - `supabase/migrations/202611080001_records.sql`
+   - `supabase/migrations/202611080002_secrets_audit_actions.sql`
+
+   Both are additive. Each account moves to records the first time an updated client loads it (`migrate_brain_to_records()`, atomic and idempotent). After that, `save_brain` refuses whole-collection writes from tabs opened before the upgrade, and those tabs are asked to reload.
+3. **Set Vercel environment variables** (Production and Preview), then redeploy:
+   - `SYNAPSE_SECRETS_KEY`: the output of `openssl rand -base64 32`. Keep a copy somewhere safe. Losing it means everyone re-enters their key. To rotate, set `2:<new>,1:<old>`: new writes use version 2 and old ciphertexts still open.
+   - `SUPABASE_URL` and `SUPABASE_ANON_KEY` (optional; default to the public values in `hosting/independent.json`).
+
+   Never put `SYNAPSE_SECRETS_KEY` in a `VITE_*` variable.
+4. **Verify.** `GET /api/health` returns `{"secrets":true,"agent":true,"approvals":true}`. Then, in the app: Settings › move the key to secure storage, ask the assistant to change a task, ask it to delete one and approve the card, and check Activity log › Account history.
+
+### Server code
+
+Routes live in `server/routes/*.ts` as Web `Request`/`Response` handlers. `npm run build:api` bundles each into a self-contained `api/*.js`, which Vercel deploys. Commit the output; `npm run build` and `npm test` fail if it is stale. `npm run dev` serves the same handlers from source (`scripts/vite-api-plugin.ts`). For local server features, put `SYNAPSE_SECRETS_KEY` in `.env.local`. The agent and AI proxy run for up to 300 seconds (`vercel.json`), which needs a Vercel plan that allows that duration.
+
+### Not covered by automated tests
+
+The SQL runs in PGlite with Supabase's roles and `auth.uid()`, and the routes run against it with a mocked AI provider. The live Supabase project, Vercel's function runtime and streaming, and real model behavior are not exercised by the tests. Check them with the verification steps above after deploying.

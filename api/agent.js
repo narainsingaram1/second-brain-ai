@@ -4562,7 +4562,7 @@ function describeMutation(tool, m) {
 	const noun = NOUNS[m.type] || m.type;
 	if (m.remove) return {
 		summary: `Delete ${noun} "${recordName(m)}"`,
-		details: ["This cannot be undone from the assistant; you can undo it in the app afterwards."]
+		details: ["Removes it from your workspace. You can restore it with Undo in the activity log until you reload."]
 	};
 	if (!m.expected) return {
 		summary: `Create ${noun} "${recordName(m)}"`,

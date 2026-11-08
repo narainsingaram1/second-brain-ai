@@ -147,7 +147,7 @@
 .approval-actions { display: flex; gap: 8px; margin: 10px 0 0 23px; flex-wrap: wrap; }
 .approval-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--workspace-line-strong); font-weight: 600; transition: background-color 150ms var(--ease), border-color 150ms var(--ease); }
 .approval-actions button:disabled { opacity: .55; cursor: default; }
-.approval-approve { background: var(--workspace-ink); color: var(--workspace-panel, #fff); border-color: var(--workspace-ink) !important; }
+.approval-approve { background: var(--workspace-ink, #171717); color: var(--workspace-panel, #fff); border-color: var(--workspace-ink, #171717) !important; }
 .approval-reject { background: transparent; color: var(--workspace-ink); }
 .approval-reject:hover:not(:disabled) { border-color: var(--workspace-danger); color: var(--workspace-danger); }
 .approval-status { margin: 8px 0 0 23px; color: var(--workspace-muted); }

@@ -63,7 +63,7 @@ const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habi
 /** One-line summary and field-level details of exactly what a change will do. */
 export function describeMutation(tool: string, m: Mutation): { summary: string; details: string[] } {
   const noun = NOUNS[m.type] || m.type;
-  if (m.remove) return { summary: `Delete ${noun} "${recordName(m)}"`, details: ["This cannot be undone from the assistant; you can undo it in the app afterwards."] };
+  if (m.remove) return { summary: `Delete ${noun} "${recordName(m)}"`, details: ["Removes it from your workspace. You can restore it with Undo in the activity log until you reload."] };
   if (!m.expected) return { summary: `Create ${noun} "${recordName(m)}"`, details: [] };
   const before = m.expected as unknown as Record<string, unknown>, after = m.record as unknown as Record<string, unknown>;
   const details = Object.keys({ ...before, ...after })
