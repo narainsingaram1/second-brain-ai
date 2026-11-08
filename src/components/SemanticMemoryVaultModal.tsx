@@ -48,7 +48,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
   }, [isOpen]);
 
   const loadStats = async () => {
-    const s = await vectorVault.getVaultStats();
+    const s = await vectorVault.getVaultStats(brainState);
     setStats(s);
   };
 
@@ -61,10 +61,10 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
     setIsSearching(true);
     try {
       const results = await vectorVault.search(
+        { ...brainState, openRouterKey },
         q,
         8,
         filterType !== "all" ? filterType : undefined,
-        openRouterKey
       );
       setSearchResults(results);
     } catch (err) {
@@ -91,7 +91,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
     setReindexSuccess(false);
 
     try {
-      await vectorVault.reindexBrain(brainState, openRouterKey, (current, total) => {
+      await vectorVault.reindexBrain({ ...brainState, openRouterKey }, (current, total) => {
         setReindexProgress({ current, total });
       });
       await loadStats();
@@ -181,7 +181,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
             <div className="flex items-center gap-2 text-muted dark:text-slate-400 font-semibold">
               <RefreshCw className="w-3.5 h-3.5 animate-spin" />
               <span>
-                Embedding brain entities: {reindexProgress.current} of {reindexProgress.total} items...
+                Embedding new passages: {reindexProgress.current} of {reindexProgress.total}…
               </span>
             </div>
             <div className="w-32 bg-indigo-200 dark:bg-raised rounded-full h-1.5 overflow-hidden">
@@ -208,17 +208,17 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
                 <Layers className="w-3.5 h-3.5 text-muted" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Vector chunks</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider">Passages</span>
               </div>
               <div className="text-xl font-extrabold text-ink">
-                {stats?.total_chunks || 0}
+                {stats?.embedded_chunks || 0}<span className="text-xs font-semibold text-muted"> / {stats?.total_chunks || 0} embedded</span>
               </div>
             </div>
 
             <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-900/60 border border-line">
               <div className="flex items-center gap-2 text-slate-400 mb-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-[var(--workspace-success)]" />
-                <span className="text-[11px] font-bold uppercase tracking-wider">Indexed items</span>
+                <span className="text-[11px] font-bold uppercase tracking-wider">Records</span>
               </div>
               <div className="text-xl font-extrabold text-ink">
                 {stats?.total_items || 0}
@@ -231,7 +231,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                 <span className="text-[11px] font-bold uppercase tracking-wider">Dimensions</span>
               </div>
               <div className="text-xl font-extrabold text-ink">
-                {stats?.vector_dim || 384}d
+                {stats?.vector_dim ? `${stats.vector_dim}d` : "—"}
               </div>
             </div>
 
@@ -241,7 +241,7 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
                 <span className="text-[11px] font-bold uppercase tracking-wider">Engine</span>
               </div>
               <div className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate mt-1">
-                {stats?.provider === "openrouter" ? "OpenRouter Neural" : "Local Fast Engine"}
+                {stats?.provider === "openrouter" ? "Hybrid (keyword + neural)" : "Keyword only"}
               </div>
             </div>
           </div>

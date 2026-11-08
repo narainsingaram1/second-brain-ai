@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import App from "../App";
-import { vectorVault } from "../services/vectorVault";
+import { clearRetrievalMemory } from "../services/brainRetrieval";
 import {
   getSupabase,
   googleOnly,
@@ -73,7 +73,7 @@ export function ManagedRoot() {
       if (event === "PASSWORD_RECOVERY" && mounted) setMode("recovery");
       if (["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED", "PASSWORD_RECOVERY"].includes(event)) {
         if (mounted && event === "SIGNED_OUT") {
-          vectorVault.setAccount("");
+          clearRetrievalMemory();
           setUser(null);
           setLoading(false);
         }

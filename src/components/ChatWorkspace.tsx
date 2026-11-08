@@ -40,6 +40,10 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const active = messages.some(m => m.role === "user");
   const visible = active ? messages.filter(m => m.role !== "system") : [];
   const last = visible[visible.length - 1];
+  const draft = conversation.draft && !visible.some(m => m.id === conversation.draft!.id) ? conversation.draft : null;
+  // A reply the reader watched stream in should not jump back to its beginning when it completes.
+  const streamedId = useRef<string | undefined>(undefined);
+  if (draft) streamedId.current = draft.id;
   const title = conversationTitle(messages);
   const archives = conversation.temporary ? [] : state?.conversations || [];
   const bottom = (smooth = false) => {
@@ -64,7 +68,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
     const changed = previousMessage.current !== last?.id;
     previousMessage.current = last?.id;
     if (!element) return;
-    if (pinned.current && changed && last?.role === "assistant") {
+    if (pinned.current && changed && last?.role === "assistant" && last.id !== streamedId.current) {
       const answer = Array.from(element.querySelectorAll<HTMLElement>("[data-message-id]")).find(node => node.dataset.messageId === last.id);
       if (answer) {
         // Non-streamed long answers open at their beginning, rather than hiding it above the fold.
@@ -147,7 +151,8 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
         <div ref={content} className={active ? "chat-transcript" : "chat-welcome-content"}>
           {active ? <>
             {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} />)}
-            {conversation.busy && <div className="chat-thinking" role="status"><span className="chat-thinking-dot" /><span>{conversation.progress || "Thinking…"}</span></div>}
+            {draft && <ConversationMessage key={draft.id} message={{ id: draft.id, role: "assistant", content: draft.content, timestamp: "" }} state={state} streaming />}
+            {conversation.busy && !draft && <div className="chat-thinking" role="status"><span className="chat-thinking-dot" /><span>{conversation.progress || "Thinking…"}</span></div>}
           </> : <div className="chat-welcome-inner">
             <h1>Ask Iris</h1>
             <p className="chat-welcome-subtitle">Iris has read your tasks, notes, goals, journal and course materials, and can change them when you ask</p>

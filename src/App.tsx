@@ -35,7 +35,7 @@ import { UniversalQuickCapture } from "./components/UniversalQuickCapture";
 import { SemanticMemoryVaultModal } from "./components/SemanticMemoryVaultModal";
 import { SemanticGlobalSearch } from "./components/SemanticGlobalSearch";
 import { AuditLogModal } from "./components/AuditLogModal";
-import { vectorVault } from "./services/vectorVault";
+import { dropLegacyVault, vectorVault } from "./services/vectorVault";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
 
 export const App: React.FC = () => {
@@ -156,7 +156,6 @@ export const App: React.FC = () => {
       setSession(authSession);
       return loadInitialState(authSession.currentUser?.id).then((loaded) => {
         if (disposed) return;
-        vectorVault.setAccount(authSession.currentUser?.id || "");
         setState(loaded);
         if (loaded.theme === "dark") {
           document.documentElement.classList.add("dark");
@@ -164,12 +163,12 @@ export const App: React.FC = () => {
           document.documentElement.classList.remove("dark");
         }
 
-        // Prime the local vector vault if not yet indexed
-        vectorVault.getVaultStats().then((vStats) => {
-          if (vStats.total_chunks === 0 && (loaded.tasks.length > 0 || loaded.journalEntries.length > 0)) {
-            vectorVault.reindexBrain(loaded, loaded.openRouterKey).catch(() => {});
-          }
-        });
+        // Embed new or edited passages in the background, so the first search is fast.
+        dropLegacyVault();
+        if (loaded.openRouterKey?.trim()) {
+          const warm = () => { if (!disposed) vectorVault.reindexBrain(loaded).catch(() => {}); };
+          if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 10000 }); else setTimeout(warm, 3000);
+        }
       });
     }).catch(error => { if (!disposed) setStartupError(error.message || "Could not load your records."); });
     return () => { disposed = true; };
@@ -443,7 +442,6 @@ export const App: React.FC = () => {
       };
     });
     // Auto-update Semantic Memory Vault
-    vectorVault.indexItem(normalized, "task", state?.openRouterKey).catch(() => {});
   };
 
   const openNewEvent = (date?: string) => {
@@ -482,7 +480,6 @@ export const App: React.FC = () => {
         tasks: prev.tasks.filter((t) => t.id !== taskId),
       };
     });
-    vectorVault.removeItem(taskId).catch(() => {});
   };
 
   // Section Management Handlers
@@ -651,7 +648,6 @@ export const App: React.FC = () => {
           : [...prev.habits, synced],
       };
     });
-    vectorVault.indexItem(synced, "habit", state?.openRouterKey).catch(() => {});
   };
 
   // Goal Handlers (Macro Life Improvement & Horizons)
@@ -670,7 +666,6 @@ export const App: React.FC = () => {
           : [goal, ...currentGoals],
       };
     });
-    vectorVault.indexItem(goal, "goal", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteGoal = (goalId: string) => {
@@ -685,7 +680,6 @@ export const App: React.FC = () => {
         goals: (prev.goals || []).filter((g) => g.id !== goalId),
       };
     });
-    vectorVault.removeItem(goalId).catch(() => {});
   };
 
   const handleToggleMilestone = (goalId: string, milestoneId: string) => {
@@ -707,7 +701,6 @@ export const App: React.FC = () => {
           progress,
           status,
         };
-        vectorVault.indexItem(updatedGoal, "goal", prev.openRouterKey).catch(() => {});
         return updatedGoal;
       });
       return {
@@ -724,7 +717,6 @@ export const App: React.FC = () => {
         if (g.id !== goalId) return g;
         const progress = status === "achieved" ? 100 : (g.progress === 100 ? 50 : g.progress);
         const updated = { ...g, status, progress };
-        vectorVault.indexItem(updated, "goal", prev.openRouterKey).catch(() => {});
         return updated;
       });
       return {
@@ -747,7 +739,6 @@ export const App: React.FC = () => {
           : [entry, ...prev.journalEntries],
       };
     });
-    vectorVault.indexItem(entry, "journal", state?.openRouterKey).catch(() => {});
   };
 
   const handleSynthesizeAI = async (entry: JournalEntry) => {
@@ -788,7 +779,6 @@ export const App: React.FC = () => {
           : [normalizedItem, ...prev.knowledgeItems],
       };
     });
-    vectorVault.indexItem(normalizedItem, "knowledge", state?.openRouterKey).catch(() => {});
   };
 
   const handleDeleteKnowledge = (id: string) => {
@@ -803,7 +793,6 @@ export const App: React.FC = () => {
         knowledgeItems: prev.knowledgeItems.filter((k) => k.id !== id),
       };
     });
-    vectorVault.removeItem(id).catch(() => {});
   };
 
   // Folder Handlers

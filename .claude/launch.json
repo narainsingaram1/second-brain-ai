@@ -4,8 +4,23 @@
     {
       "name": "synapse-local",
       "runtimeExecutable": "sh",
-      "runtimeArgs": ["-c", "VITE_AUTH_PROVIDER=local npx vite --port 1420 --strictPort"],
+      "runtimeArgs": [
+        "-c",
+        "VITE_AUTH_PROVIDER=local npx vite --port 1420 --strictPort"
+      ],
       "port": 1420
+    },
+    {
+      "name": "chat-fixture",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "exec",
+        "vite",
+        "--",
+        "--config",
+        "tests/fixtures/vite.config.ts"
+      ],
+      "port": 1423
     }
   ]
 }

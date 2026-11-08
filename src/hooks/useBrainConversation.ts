@@ -27,6 +27,8 @@ export interface BrainConversation {
   run: RunConversation;
   busy: boolean;
   progress: string;
+  /** The reply as it streams in, under the ID the finished message will keep. */
+  draft: { id: string; content: string } | null;
   stop: () => void;
   startNew: () => void;
   resume: (id: string) => void;
@@ -58,6 +60,7 @@ export function useBrainConversation(
   const generation = useRef(0);
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState("");
+  const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
   const [temporary, setTemporaryState] = useState(false),
     [temporaryMessages, setTemporaryMessages] = useState<AIMessage[]>([]);
   const tempLatest = useRef(temporaryMessages);
@@ -79,6 +82,7 @@ export function useBrainConversation(
     setTemporaryMessages([]);
     setBusy(false);
     setProgress("");
+    setDraft(null);
     return () => {
       generation.current++;
       active.current?.abort();
@@ -228,6 +232,18 @@ export function useBrainConversation(
         conversationId,
         chatHistory: [...workspace.chatHistory, user],
       });
+    // Streamed text is applied at most once per frame, so long answers do not re-render per token.
+    const assistantId = crypto.randomUUID();
+    let streamedText = "", frame = 0;
+    const onText = (text: string) => {
+      options.onText?.(text);
+      if (!isCurrent()) return;
+      streamedText = text;
+      if (!frame) frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (isCurrent() && active.current === controller) setDraft(streamedText ? { id: assistantId, content: streamedText } : null);
+      });
+    };
     try {
       const result = await AutonomousBrainAgent.execute(
         prompt,
@@ -249,6 +265,7 @@ export function useBrainConversation(
             const memory = await changeMemory(change, true);
             return memory;
           },
+          onText,
           onProgress: (message) => {
             if (isCurrent()) setProgress(message);
             options.onProgress?.(message);
@@ -310,7 +327,7 @@ export function useBrainConversation(
       );
       if (isCurrent()) {
         const assistant: AIMessage = {
-          id: crypto.randomUUID(),
+          id: assistantId,
           role: "assistant",
           content: result.queryAnswer,
           timestamp: timestamp(),
@@ -341,10 +358,12 @@ export function useBrainConversation(
       }
       return result;
     } finally {
+      if (frame) cancelAnimationFrame(frame);
       if (active.current === controller) {
         active.current = null;
         setBusy(false);
         setProgress("");
+        setDraft(null);
       }
     }
   };
@@ -380,6 +399,7 @@ export function useBrainConversation(
     run,
     busy,
     progress,
+    draft,
     stop: () => active.current?.abort(),
     startNew: () => switchConversation(),
     resume: (id: string) => switchConversation(id),
