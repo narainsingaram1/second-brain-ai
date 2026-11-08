@@ -55,6 +55,8 @@ export interface Course {
   name: string; // e.g. "Data Structures & Algorithms"
   term?: string;
   instructor?: string;
+  /** Grade weights, scores and letter scale for this course. */
+  grading?: import("../utils/grades").CourseGrading;
   createdAt: string;
   updatedAt: string;
 }

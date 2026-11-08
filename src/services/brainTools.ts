@@ -102,6 +102,27 @@ const STUDY_TOOLS: OpenRouterTool[] = [
     term: d_("e.g. 'Fall 2026'."),
     instructor: s_,
   }, ["name"]),
+  fn("set_course_grading", "Save how a course's final grade is weighted (categories and weights, optional number of items and dropped scores, letter cutoffs, target). Replaces the category list; categories with the same name keep their scores. Use when the user describes their grading breakdown or asks you to read it from the syllabus (read the syllabus document first).", {
+    courseId: d_("ID of the course."),
+    categories: { type: "array", minItems: 1, maxItems: 30, items: { type: "object", properties: {
+      name: d_("e.g. 'Exams', 'Homework', 'Projects'."),
+      weight: { type: "number", description: "Percent of the final grade, e.g. 30." },
+      count: { type: "integer", minimum: 1, description: "Total number of items in this category if known, e.g. 10 homeworks." },
+      dropLowest: { type: "integer", minimum: 1, description: "How many lowest scores are dropped, if any." },
+    }, required: ["name", "weight"], additionalProperties: false } },
+    scale: { type: "array", items: { type: "object", properties: { letter: s_, min: { type: "number" } }, required: ["letter", "min"], additionalProperties: false },
+      description: "Letter cutoffs if the syllabus states them, e.g. [{letter:'A',min:90},...]. Omit to keep the current scale." },
+    target: { type: "number", description: "The final percentage the user is aiming for, if they said so." },
+  }, ["courseId", "categories"]),
+  fn("record_grade", "Add a score to a course's grade tracker, add an upcoming assignment with no score yet, or update one (gradeId). Use when the user reports a grade ('got 87/100 on the midterm') or lists upcoming graded work. The course must have grading set up.", {
+    courseId: d_("ID of the course."),
+    gradeId: d_("ID of an existing grade item to update. Omit to add a new one."),
+    category: d_("Category name as set up for the course, e.g. 'Exams'."),
+    title: d_("e.g. 'Midterm 1', 'Homework 4'."),
+    score: { type: "number", description: "Points earned. Omit for upcoming work that is not graded yet." },
+    maxScore: { type: "number", description: "Points possible. Defaults to 100 (use 100 when the user gives a percentage)." },
+    date: d_("YYYY-MM-DD the work was due or returned."),
+  }, ["courseId"]),
   fn("create_flashcard_deck", "Create a flashcard deck for a course, or add cards to an existing deck (deckId). Read the relevant course documents first and ground every card in them; link sourceDocumentId. Use when the user asks for flashcards.", {
     courseId: d_("ID of the course. Required when creating a new deck."),
     deckId: d_("Existing deck ID to append cards to instead of creating a deck."),
@@ -356,6 +377,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
 
 import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace } from "../types";
 import { linkCourseToTasks, newCard, normalizeQuestion, studyOf } from "../utils/study";
+import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
 import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
@@ -767,6 +789,53 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const now = new Date().toISOString();
       return { type: "course", action: "create_course", record: { id, workspaceId, code, name,
         ...(args.term ? { term: args.term.trim() } : {}), ...(args.instructor ? { instructor: args.instructor.trim() } : {}), createdAt: now, updatedAt: now } };
+    }
+    case "set_course_grading": {
+      const course = studyOf(state).courses.find(c => c.id === args.courseId);
+      if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
+      const names = new Set<string>();
+      for (const c of args.categories) {
+        const key = String(c.name).trim().toLowerCase();
+        if (!key) throw new Error("Category names must be nonempty.");
+        if (names.has(key)) throw new Error(`Category ${c.name} is listed twice.`);
+        names.add(key);
+        if (!(c.weight > 0 && c.weight <= 100)) throw new Error("Category weights must be between 0 and 100.");
+      }
+      const lost = (course.grading?.categories || []).filter(c => !names.has(c.name.toLowerCase()) && course.grading!.items.some(i => i.categoryId === c.id));
+      if (lost.length) throw new Error(`These categories have scores and would be removed: ${lost.map(c => c.name).join(", ")}. Keep them in the list (same name) unless the user asked to remove them.`);
+      const next = applyCategories(course.grading, args.categories.map((c: any) => ({ name: String(c.name).trim(), weight: c.weight, ...(c.count > 1 ? { count: c.count } : {}), ...(c.dropLowest ? { dropLowest: c.dropLowest } : {}) })), () => crypto.randomUUID());
+      const grading = normalizeGrading({ ...next, ...(args.scale?.length ? { scale: args.scale } : {}), ...(args.target !== undefined ? { target: args.target } : {}) });
+      if (!grading) throw new Error("Could not read that grading breakdown.");
+      return { type: "course", action: name, expected: course, record: { ...course, grading, updatedAt: new Date().toISOString() } };
+    }
+    case "record_grade": {
+      const course = studyOf(state).courses.find(c => c.id === args.courseId);
+      if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
+      const grading = course.grading;
+      if (!grading?.categories.length) throw new Error("This course has no grading set up. Ask the user how it is weighted (or read the syllabus) and call set_course_grading first.");
+      if (args.date) validDate(args.date);
+      if (args.score !== undefined && !(args.score >= 0)) throw new Error("score must be zero or more.");
+      if (args.maxScore !== undefined && !(args.maxScore > 0)) throw new Error("maxScore must be more than zero.");
+      const category = args.category ? findCategory(grading, args.category) : undefined;
+      if (args.category && !category) throw new Error(`Unknown category. This course's categories are: ${grading.categories.map(c => c.name).join(", ")}.`);
+      let items;
+      if (args.gradeId) {
+        const item = grading.items.find(i => i.id === args.gradeId);
+        if (!item) throw new Error("Grade ID not found. Query the course record for grade item IDs.");
+        const updated = { ...item, ...(category ? { categoryId: category.id } : {}), ...(args.title ? { title: args.title.trim() } : {}),
+          ...(args.score !== undefined ? { score: args.score } : {}), ...(args.maxScore !== undefined ? { maxScore: args.maxScore } : {}), ...(args.date ? { date: args.date } : {}) };
+        items = grading.items.map(i => i.id === item.id ? updated : i);
+      } else {
+        if (!category) throw new Error(`Name the category. This course's categories are: ${grading.categories.map(c => c.name).join(", ")}.`);
+        if (!args.title?.trim()) throw new Error("A new grade needs a title.");
+        // Fill in an existing upcoming item with the same title instead of duplicating it.
+        const upcoming = grading.items.find(i => i.categoryId === category.id && i.score === undefined && i.title.toLowerCase() === args.title.trim().toLowerCase());
+        const item = { ...(upcoming || {}), id: upcoming?.id || id, categoryId: category.id, title: args.title.trim(), maxScore: args.maxScore ?? upcoming?.maxScore ?? 100,
+          ...(args.score !== undefined ? { score: args.score } : {}), ...(args.date ? { date: args.date } : upcoming?.date ? { date: upcoming.date } : {}) };
+        items = upcoming ? grading.items.map(i => i.id === upcoming.id ? item : i) : [...grading.items, item];
+      }
+      if (args.score !== undefined && args.score > (args.maxScore ?? 100) * 1.5) throw new Error("That score is far above the points possible; check maxScore.");
+      return { type: "course", action: name, expected: course, record: { ...course, grading: { ...grading, items }, updatedAt: new Date().toISOString() } };
     }
     case "create_flashcard_deck": {
       const study = studyOf(state);

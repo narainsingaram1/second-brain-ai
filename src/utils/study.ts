@@ -11,6 +11,7 @@ import type {
   StudyState,
 } from "../types";
 import { getLocalDateString } from "./habitStreaks";
+import { normalizeGrading } from "./grades";
 
 export const emptyStudy = (): StudyState => ({ courses: [], folders: [], documents: [], decks: [], quizzes: [] });
 export const studyOf = (state: Pick<BrainState, "study">): StudyState => state.study || emptyStudy();
@@ -34,6 +35,7 @@ export function normalizeStudy(value: unknown): StudyState {
   const courses: Course[] = unique(list("courses").filter((c) => typeof c.workspaceId === "string").map((c) => ({
     id: c.id, workspaceId: c.workspaceId, code: str(c.code, 40), name: str(c.name, 120) || "Untitled course",
     ...(str(c.term, 60) ? { term: str(c.term, 60) } : {}), ...(str(c.instructor, 80) ? { instructor: str(c.instructor, 80) } : {}),
+    ...(normalizeGrading(c.grading) ? { grading: normalizeGrading(c.grading) } : {}),
     createdAt: str(c.createdAt) || now, updatedAt: str(c.updatedAt) || now,
   })));
   const courseIds = new Set(courses.map((c) => c.id));

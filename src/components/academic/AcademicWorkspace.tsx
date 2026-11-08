@@ -4,6 +4,7 @@ import type { BrainState, Course, Workspace } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
 import { bestScore, courseTasks, dueCards, linkCourseToTasks, studyOf, upsert, withStudy } from "../../utils/study";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
+import { formatPercent, summarize } from "../../utils/grades";
 import { CourseView } from "./CourseView";
 import "../../academic.css";
 
@@ -74,11 +75,12 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk }: StudyPr
               const quizzes = study.quizzes.filter((q) => q.courseId === c.id);
               const scores = quizzes.map(bestScore).filter((s): s is number => s !== null);
               const openTasks = courseTasks(state, c).filter((t) => t.status !== "completed").length;
+              const grade = c.grading?.categories.length ? summarize(c.grading) : null;
               return (
                 <button key={c.id} className="ac-course-card" onClick={() => setCourseId(c.id)}>
                   <div className="ac-course-top">
                     <span className="ac-course-code">{c.code || "Course"}</span>
-                    <ArrowRight size={16} />
+                    {grade?.current != null ? <span className="ac-card-grade"><strong>{formatPercent(grade.current)}</strong> {grade.letter}</span> : <ArrowRight size={16} />}
                   </div>
                   <h3>{c.name}</h3>
                   <p>{[c.term, c.instructor].filter(Boolean).join(" · ") || "No term set"}</p>
@@ -119,7 +121,7 @@ export function CourseEditor({ course, workspaceId, onSave, onClose }: { course?
           event.preventDefault();
           if (!name.trim()) return;
           const now = new Date().toISOString();
-          onSave({ id: course?.id || crypto.randomUUID(), workspaceId: course?.workspaceId || workspaceId, code: code.trim(), name: name.trim(),
+          onSave({ ...(course || {}), id: course?.id || crypto.randomUUID(), workspaceId: course?.workspaceId || workspaceId, code: code.trim(), name: name.trim(),
             ...(term.trim() ? { term: term.trim() } : {}), ...(instructor.trim() ? { instructor: instructor.trim() } : {}),
             createdAt: course?.createdAt || now, updatedAt: now });
         }}
