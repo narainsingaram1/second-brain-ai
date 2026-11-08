@@ -11,7 +11,12 @@ function serverEnv() {
 		supabaseUrl: env.SUPABASE_URL || env.VITE_SUPABASE_URL || supabaseUrl,
 		supabaseAnonKey: env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_PUBLISHABLE_KEY || supabasePublishableKey,
 		/** `base64` or `version:base64[,version:base64…]`; the first entry encrypts, all entries decrypt (for rotation). */
-		secretsKey: env.SYNAPSE_SECRETS_KEY || ""
+		secretsKey: env.SYNAPSE_SECRETS_KEY || "",
+		/** OAuth web client for Google Calendar and Gmail; both required to offer the connection. */
+		googleClientId: env.GOOGLE_CLIENT_ID || "",
+		googleClientSecret: env.GOOGLE_CLIENT_SECRET || "",
+		/** Optional fixed redirect URI; otherwise `<request origin>/connect/google`. */
+		googleRedirectUri: env.GOOGLE_REDIRECT_URI || ""
 	};
 }
 // server/lib/http.ts
@@ -284,6 +289,42 @@ function supabaseStore(userId, client) {
 				vector
 			});
 		},
+		async getConnection(provider) {
+			const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
+			if (error) rpcError(error, "Could not read your connections.");
+			return data ? {
+				provider: data.provider,
+				accountEmail: data.account_email,
+				scopes: data.scopes,
+				status: data.status,
+				connectedAt: data.connected_at,
+				lastUsedAt: data.last_used_at,
+				lastError: data.last_error
+			} : null;
+		},
+		async putConnection(row) {
+			const { error } = await client.from("connections").upsert({
+				user_id: userId,
+				provider: row.provider,
+				account_email: row.accountEmail,
+				scopes: row.scopes,
+				status: row.status,
+				connected_at: (/* @__PURE__ */ new Date()).toISOString(),
+				last_error: null
+			});
+			if (error) rpcError(error, "Could not save the connection.");
+		},
+		async markConnection(provider, patch) {
+			const update = {};
+			if (patch.status) update.status = patch.status;
+			if (patch.lastError !== void 0) update.last_error = patch.lastError?.slice(0, 500) ?? null;
+			if (patch.used) update.last_used_at = (/* @__PURE__ */ new Date()).toISOString();
+			if (Object.keys(update).length) await client.from("connections").update(update).eq("user_id", userId).eq("provider", provider);
+		},
+		async deleteConnection(provider) {
+			const { error } = await client.from("connections").delete().eq("user_id", userId).eq("provider", provider);
+			if (error) rpcError(error, "Could not remove the connection.");
+		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
 			for (let i = 0; i < ids.length; i += 50) {
@@ -304,7 +345,16 @@ const productionDeps = {
 			store: supabaseStore(caller.userId, caller.client)
 		};
 	},
-	secretsKey: () => serverEnv().secretsKey
+	secretsKey: () => serverEnv().secretsKey,
+	google: () => {
+		const env = serverEnv();
+		return env.googleClientId && env.googleClientSecret ? {
+			clientId: env.googleClientId,
+			clientSecret: env.googleClientSecret,
+			redirectUri: env.googleRedirectUri || void 0
+		} : null;
+	},
+	googleFetch: (...args) => fetch(...args)
 };
 async function secretsAvailable(deps) {
 	try {
@@ -323,7 +373,8 @@ function healthHandlers(deps = productionDeps) {
 			ok: true,
 			secrets: secure,
 			agent: secure,
-			approvals: secure
+			approvals: secure,
+			google: secure && !!deps.google?.()
 		});
 	}) };
 }

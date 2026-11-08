@@ -10,6 +10,7 @@ export interface ActionRow {
   status: ActionStatus; conversation_id: string | null; message_id: string | null; created_at: string; expires_at: string; result: unknown;
 }
 export interface SealedRow { ciphertext: string; iv: string; keyVersion: number; hint: string; updatedAt: string }
+export interface ConnectionRow { provider: "google"; accountEmail: string; scopes: string[]; status: "active" | "needs_reconnect"; connectedAt: string; lastUsedAt: string | null; lastError: string | null }
 export interface AuditInput { actor: "user" | "assistant" | "system"; action: string; entityType?: string; entityId?: string; title?: string; actionId?: string; metadata?: Record<string, unknown> }
 
 /** Everything the server reads or writes for one signed-in user. Supabase in production, memory in tests. */
@@ -29,6 +30,10 @@ export interface ServerStore {
   getEmbedding(key: string): Promise<number[] | undefined>;
   putEmbedding(key: string, vector: number[]): Promise<void>;
   documentTexts(ids: string[]): Promise<Map<string, string>>;
+  getConnection(provider: "google"): Promise<ConnectionRow | null>;
+  putConnection(row: Omit<ConnectionRow, "connectedAt" | "lastUsedAt" | "lastError">): Promise<void>;
+  markConnection(provider: "google", patch: { status?: ConnectionRow["status"]; lastError?: string | null; used?: boolean }): Promise<void>;
+  deleteConnection(provider: "google"): Promise<void>;
 }
 
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
@@ -97,6 +102,27 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
     },
     async putEmbedding(key, vector) {
       await client.from("passage_embeddings").upsert({ user_id: userId, key, vector });
+    },
+    async getConnection(provider) {
+      const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
+      if (error) rpcError(error, "Could not read your connections.");
+      return data ? { provider: data.provider, accountEmail: data.account_email, scopes: data.scopes, status: data.status, connectedAt: data.connected_at, lastUsedAt: data.last_used_at, lastError: data.last_error } : null;
+    },
+    async putConnection(row) {
+      const { error } = await client.from("connections").upsert({ user_id: userId, provider: row.provider, account_email: row.accountEmail, scopes: row.scopes,
+        status: row.status, connected_at: new Date().toISOString(), last_error: null });
+      if (error) rpcError(error, "Could not save the connection.");
+    },
+    async markConnection(provider, patch) {
+      const update: Record<string, unknown> = {};
+      if (patch.status) update.status = patch.status;
+      if (patch.lastError !== undefined) update.last_error = patch.lastError?.slice(0, 500) ?? null;
+      if (patch.used) update.last_used_at = new Date().toISOString();
+      if (Object.keys(update).length) await client.from("connections").update(update).eq("user_id", userId).eq("provider", provider);
+    },
+    async deleteConnection(provider) {
+      const { error } = await client.from("connections").delete().eq("user_id", userId).eq("provider", provider);
+      if (error) rpcError(error, "Could not remove the connection.");
     },
     async documentTexts(ids) {
       const texts = new Map<string, string>();

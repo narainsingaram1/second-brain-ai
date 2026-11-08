@@ -83,7 +83,7 @@ test('secrets route stores keys encrypted, never returns them, and the AI proxy 
     // Without a server key, storage reports unavailable instead of storing plaintext.
     const unconfigured = { ...deps, secretsKey: () => '' };
     assert.equal((await secretsHandlers(unconfigured, async () => ({ success: true })).POST(req('POST', { name: 'openrouter', value: 'sk-or-v1-a-perfectly-good-key-WXYZ' }))).status, 503);
-    assert.deepEqual(await (await healthHandlers(unconfigured).GET(new Request('http://app/api/health'))).json(), { ok: true, secrets: false, agent: false, approvals: false });
+    assert.deepEqual(await (await healthHandlers(unconfigured).GET(new Request('http://app/api/health'))).json(), { ok: true, secrets: false, agent: false, approvals: false, google: false });
   } finally { await db.close(); }
 });
 

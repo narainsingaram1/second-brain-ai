@@ -10,5 +10,10 @@ export function serverEnv() {
     supabaseAnonKey: env.SUPABASE_ANON_KEY || env.VITE_SUPABASE_PUBLISHABLE_KEY || defaults.supabasePublishableKey,
     /** `base64` or `version:base64[,version:base64…]`; the first entry encrypts, all entries decrypt (for rotation). */
     secretsKey: env.SYNAPSE_SECRETS_KEY || "",
+    /** OAuth web client for Google Calendar and Gmail; both required to offer the connection. */
+    googleClientId: env.GOOGLE_CLIENT_ID || "",
+    googleClientSecret: env.GOOGLE_CLIENT_SECRET || "",
+    /** Optional fixed redirect URI; otherwise `<request origin>/connect/google`. */
+    googleRedirectUri: env.GOOGLE_REDIRECT_URI || "",
   };
 }

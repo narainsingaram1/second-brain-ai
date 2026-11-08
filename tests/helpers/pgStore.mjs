@@ -58,6 +58,21 @@ export function pgStore(db, userId, PreferencesConflict, HttpError) {
     async completeAction(id, ok, result) { await db.query('select public.complete_action($1, $2, $3::jsonb)', [id, ok, JSON.stringify(result ?? null)]); },
     async getEmbedding(key) { return (await one('select vector from public.passage_embeddings where key = $1', [key]))?.vector; },
     async putEmbedding(key, vector) { await db.query('insert into public.passage_embeddings (user_id, key, vector) values ($1, $2, $3) on conflict do nothing', [userId, key, vector]); },
+    async getConnection(provider) {
+      const r = await one('select * from public.connections where provider = $1', [provider]);
+      return r ? { provider: r.provider, accountEmail: r.account_email, scopes: r.scopes, status: r.status, connectedAt: String(r.connected_at), lastUsedAt: r.last_used_at && String(r.last_used_at), lastError: r.last_error } : null;
+    },
+    async putConnection(row) {
+      await db.query(`insert into public.connections (user_id, provider, account_email, scopes, status) values ($1, $2, $3, $4, $5)
+        on conflict (user_id, provider) do update set account_email = excluded.account_email, scopes = excluded.scopes, status = excluded.status, connected_at = now(), last_error = null`,
+        [userId, row.provider, row.accountEmail, row.scopes, row.status]);
+    },
+    async markConnection(provider, patch) {
+      if (patch.status) await db.query('update public.connections set status = $2 where provider = $1', [provider, patch.status]);
+      if (patch.lastError !== undefined) await db.query('update public.connections set last_error = $2 where provider = $1', [provider, patch.lastError]);
+      if (patch.used) await db.query('update public.connections set last_used_at = now() where provider = $1', [provider]);
+    },
+    async deleteConnection(provider) { await db.query('delete from public.connections where provider = $1', [provider]); },
     async documentTexts(ids) { return new Map((await db.query('select id, content from public.study_documents where id = any($1)', [ids])).rows.map(r => [r.id, r.content])); },
   };
 }
