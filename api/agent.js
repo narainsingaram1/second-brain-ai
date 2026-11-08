@@ -1101,7 +1101,7 @@ async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT
 			const errorBody = await res.json().catch(() => ({}));
 			throw new Error(errorBody?.error?.message || `OpenRouter Error (HTTP ${res.status})`);
 		}
-		return completionFrom(tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream") ? await readCompletionStream(res.body, tuning.onText, resetStall) : await res.json());
+		return completionFrom(tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream") ? await readCompletionStream(res.body, tuning.onText, resetStall, tuning.onReasoning) : await res.json());
 	} finally {
 		clearTimeout(stallTimer);
 	}
@@ -1110,10 +1110,10 @@ async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT
 * Reassembles an OpenAI-style server-sent event stream into the shape of a buffered completion,
 * reporting the visible text as it grows. Tool-call arguments arrive in fragments keyed by index.
 */
-async function readCompletionStream(body, onText, onChunk = () => {}) {
+async function readCompletionStream(body, onText, onChunk = () => {}, onReasoning) {
 	const reader = body.getReader();
 	const decoder = new TextDecoder();
-	let buffer = "", content = "", finishReason;
+	let buffer = "", content = "", reasoning = "", finishReason;
 	const calls = [];
 	const handle = (line) => {
 		if (!line.startsWith("data:")) return;
@@ -1130,6 +1130,11 @@ async function readCompletionStream(body, onText, onChunk = () => {}) {
 		if (!choice) return;
 		if (choice.finish_reason) finishReason = choice.finish_reason;
 		const delta = choice.delta || {};
+		const thought = typeof delta.reasoning === "string" && delta.reasoning ? delta.reasoning : Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map((d) => typeof d?.text === "string" ? d.text : typeof d?.summary === "string" ? d.summary : "").join("") : "";
+		if (thought) {
+			reasoning += thought;
+			onReasoning?.(reasoning);
+		}
 		if (typeof delta.content === "string" && delta.content) {
 			content += delta.content;
 			onText(content);
@@ -1975,6 +1980,267 @@ function searchConversations(state, query, offset = 0) {
 		total: results.length,
 		nextOffset: offset + 10 < results.length ? offset + 10 : null
 	};
+}
+// src/services/agentActivity.ts
+/**
+* Turns what the assistant is doing into steps a person can follow: "Searching your notes for “heaps”",
+* "Reading “Lecture 4”", "Searching the web…". Each step is reported as it starts and again when it ends.
+*/
+var ActivityTracker = class {
+	emit;
+	steps = [];
+	pending = /* @__PURE__ */ new Map();
+	constructor(emit) {
+		this.emit = emit;
+	}
+	start(kind, label, extra = {}) {
+		const step = {
+			id: crypto.randomUUID(),
+			kind,
+			label,
+			status: "running",
+			startedAt: Date.now(),
+			...extra
+		};
+		this.steps.push(step);
+		this.send(step);
+		return step.id;
+	}
+	/** Changes a step. Frequent updates (streamed reasoning) are coalesced so they don't flood the connection. */
+	update(id, patch, coalesce = false) {
+		const step = this.get(id);
+		if (!step) return;
+		Object.assign(step, patch);
+		if (!coalesce) {
+			this.flush(id);
+			this.send(step);
+			return;
+		}
+		if (!this.pending.has(id)) this.pending.set(id, setTimeout(() => {
+			this.pending.delete(id);
+			this.send(step);
+		}, 120));
+	}
+	finish(id, patch = {}) {
+		this.flush(id);
+		this.update(id, {
+			status: "done",
+			endedAt: Date.now(),
+			...patch
+		});
+	}
+	fail(id, message) {
+		this.flush(id);
+		this.update(id, {
+			status: "error",
+			endedAt: Date.now(),
+			detail: message
+		});
+	}
+	hide(id) {
+		this.finish(id, { hidden: true });
+	}
+	get(id) {
+		return this.steps.find((s) => s.id === id);
+	}
+	/** The visible steps, bounded, to keep with the finished reply. */
+	list() {
+		for (const id of [...this.pending.keys()]) this.flush(id);
+		return this.steps.filter((s) => !s.hidden).map((s) => ({
+			...s,
+			status: s.status === "running" ? "done" : s.status,
+			endedAt: s.endedAt ?? Date.now(),
+			...s.detail ? { detail: s.detail.length > 8e3 ? `${s.detail.slice(0, 7999)}…` : s.detail } : {},
+			...s.items ? { items: s.items.slice(0, 12) } : {}
+		}));
+	}
+	flush(id) {
+		const timer = this.pending.get(id);
+		if (timer) {
+			clearTimeout(timer);
+			this.pending.delete(id);
+		}
+	}
+	send(step) {
+		this.emit?.({
+			...step,
+			...step.items ? { items: [...step.items] } : {}
+		});
+	}
+};
+const NOUN = {
+	task: ["task", "tasks"],
+	goal: ["goal", "goals"],
+	habit: ["habit", "habits"],
+	journal: ["journal entry", "journal entries"],
+	knowledge: ["note", "notes"],
+	tracker: ["tracker entry", "tracker entries"],
+	event: ["event", "events"],
+	course: ["course", "courses"],
+	document: ["course document", "course documents"],
+	deck: ["flashcard deck", "flashcard decks"],
+	quiz: ["quiz", "quizzes"]
+};
+const noun = (type, many = false) => NOUN[String(type)]?.[many ? 1 : 0] || (many ? "records" : "record");
+const quote = (text) => `“${String(text).trim().slice(0, 80)}”`;
+const host = (url) => {
+	try {
+		return new URL(String(url)).hostname.replace(/^www\./, "");
+	} catch {
+		return "a web page";
+	}
+};
+const VERBS = {
+	create: "Adding",
+	update: "Updating",
+	delete: "Deleting",
+	log: "Logging",
+	complete: "Checking off",
+	rename: "Renaming",
+	set: "Setting",
+	record: "Recording",
+	remember: "Remembering",
+	forget: "Forgetting"
+};
+const PAST = {
+	Adding: "Added",
+	Updating: "Updated",
+	Deleting: "Deleted",
+	Logging: "Logged",
+	"Checking off": "Checked off",
+	Renaming: "Renamed",
+	Setting: "Set",
+	Recording: "Recorded",
+	Remembering: "Remembered",
+	Forgetting: "Forgot",
+	Searching: "Searched",
+	Reading: "Read",
+	"Looking through": "Looked through",
+	Checking: "Checked",
+	Drafting: "Drafted",
+	Rereading: "Reread"
+};
+/** "Searching the web for …" → "Searched the web for …", for a finished step. */
+const pastTense = (label) => {
+	const word = Object.keys(PAST).find((w) => label.startsWith(`${w} `));
+	return word ? PAST[word] + label.slice(word.length) : label;
+};
+/** What a tool call is about to do, in plain words. */
+function describeCall(name, args) {
+	switch (name) {
+		case "query_records": {
+			const range = args.dateFrom && args.dateTo ? ` from ${args.dateFrom} to ${args.dateTo}` : args.dateFrom ? ` from ${args.dateFrom}` : args.dateTo ? ` through ${args.dateTo}` : "";
+			return {
+				kind: "records",
+				label: `Looking through your ${noun(args.type, true)}${range}${args.text ? ` mentioning ${quote(args.text)}` : ""}`
+			};
+		}
+		case "search_records": return {
+			kind: "records",
+			label: `Searching your ${args.type ? noun(args.type, true) : "records"} for ${quote(args.query)}`
+		};
+		case "read_record": return {
+			kind: "records",
+			label: `Reading a ${noun(args.type)}`
+		};
+		case "read_records": return {
+			kind: "records",
+			label: `Reading ${args.ids?.length || "several"} ${noun(args.type, (args.ids?.length || 2) > 1)}`
+		};
+		case "search_memories": return {
+			kind: "memory",
+			label: "Checking what I remember about you"
+		};
+		case "search_conversations": return {
+			kind: "memory",
+			label: `Searching past chats for ${quote(args.query)}`
+		};
+		case "recall_conversation": return {
+			kind: "memory",
+			label: "Rereading an earlier message"
+		};
+		case "web_search": return {
+			kind: "web",
+			label: `Searching the web for ${quote(args.query)}`
+		};
+		case "read_url": return {
+			kind: "web",
+			label: `Reading ${host(args.url)}`
+		};
+		case "list_calendar_events": return {
+			kind: "calendar",
+			label: `Checking your Google Calendar, ${args.from} to ${args.to}`
+		};
+		case "create_calendar_event": return {
+			kind: "calendar",
+			label: `Adding ${quote(args.title)} to Google Calendar`
+		};
+		case "search_email": return {
+			kind: "email",
+			label: `Searching your email for ${quote(args.query)}`
+		};
+		case "read_email": return {
+			kind: "email",
+			label: "Reading an email"
+		};
+		case "create_email_draft": return {
+			kind: "email",
+			label: "Drafting an email"
+		};
+		case "send_email":
+		case "send_draft": return {
+			kind: "email",
+			label: "Preparing an email to send"
+		};
+	}
+	const [verb, ...rest] = name.split("_");
+	const target = args.title || args.name || args.newTitle || args.section || args.topic;
+	const thing = rest.join(" ").replace(/\bitem\b/, "entry").replace("knowledge", "note");
+	return {
+		kind: name.endsWith("_memory") ? "memory" : "change",
+		label: `${VERBS[verb] || "Updating"} ${thing}${target ? ` ${quote(target)}` : ""}`
+	};
+}
+const titles = (list, key = "title") => Array.isArray(list) ? list.map((r) => r?.[key]).filter((t) => typeof t === "string" && !!t.trim()) : [];
+const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+/** A short summary of what a finished tool call found or did. */
+function describeResult(name, args, output) {
+	if (!output || typeof output !== "object") return {};
+	if (output.status === "awaiting_approval") return {
+		kind: "approval",
+		label: `Asked for your approval: ${output.summary}`
+	};
+	switch (name) {
+		case "query_records": return {
+			detail: output.countOnly ? void 0 : `Found ${count(output.total ?? 0, noun(args.type), noun(args.type, true))}`,
+			items: titles(output.records)
+		};
+		case "search_records": return {
+			detail: `${count(output.results?.length ?? 0, "match", "matches")}`,
+			items: titles(output.results)
+		};
+		case "read_record": return output.title ? { label: `Read ${quote(output.title)}` } : {};
+		case "read_records": return { items: titles(output.records) };
+		case "search_conversations": return { detail: `${count(output.results?.length ?? 0, "message", "messages")} found` };
+		case "web_search": return {
+			detail: Array.isArray(output.sources) && output.sources.length ? `${count(output.sources.length, "source", "sources")}` : void 0,
+			items: (output.sources || []).map((s) => `${s.title}|${s.url}`)
+		};
+		case "read_url": return {
+			label: `Read ${output.title ? quote(output.title) : host(output.url)}`,
+			items: [`${output.title || host(output.url)}|${output.url}`]
+		};
+		case "list_calendar_events": return {
+			detail: count(output.events?.length ?? 0, "event", "events"),
+			items: titles(output.events)
+		};
+		case "search_email": return {
+			detail: count(output.results?.length ?? 0, "email", "emails"),
+			items: titles(output.results, "subject")
+		};
+		case "read_email": return output.email?.subject ? { label: `Read ${quote(output.email.subject)}` } : {};
+	}
+	return {};
 }
 // src/utils/imageInput.ts
 /** Full images for this session, so follow-up questions can still look at them. Cleared on reload. */
@@ -6167,7 +6433,12 @@ var AutonomousBrainAgent = class {
 		].includes(t.function.name)), ...external?.definitions || []];
 		const approvals = [];
 		let untrustedRead = false;
+		const activity = new ActivityTracker(options.onStep);
 		const finish = (answer, status = "complete") => ({
+			...(() => {
+				const steps = activity.list();
+				return steps.length ? { activity: steps } : {};
+			})(),
 			...approvals.length ? { approvals } : {},
 			...externalDone.length ? { external: externalDone } : {},
 			actionType: actions.length ? "compound" : "query_brain",
@@ -6198,10 +6469,16 @@ var AutonomousBrainAgent = class {
 			}, ...imageParts(images)];
 			else {
 				const visionModel = options.visionModel || getVisionModel();
+				const looking = activity.start("image", images.length > 1 ? `Looking at your ${images.length} images` : "Looking at your image");
 				try {
 					options.onProgress?.(images.length > 1 ? "Looking at your images…" : "Looking at your image…");
 					imageDescription = await describeImages(images, prompt, key, visionModel, signal);
+					activity.finish(looking, {
+						label: images.length > 1 ? `Looked at your ${images.length} images` : "Looked at your image",
+						detail: imageDescription.slice(0, 1500)
+					});
 				} catch (err) {
+					activity.fail(looking, errorMessage(err));
 					return finish(signal.aborted ? "The request was stopped or timed out. No changes were saved." : `I couldn’t read the image with ${visionModel}: ${errorMessage(err)} No changes were saved. You can pick another vision model in Settings.`, signal.aborted ? "cancelled" : "error");
 				}
 				last.content = `${text}\n\n[The user attached ${images.length} image(s): ${images.map((i) => i.name).join(", ")}. A vision model read them for you; treat this description as what you see and answer as if viewing the images directly:]\n${imageDescription}`;
@@ -6219,6 +6496,7 @@ var AutonomousBrainAgent = class {
 		const canonical = (value) => JSON.stringify(value, (_, child) => child && typeof child === "object" && !Array.isArray(child) ? Object.fromEntries(Object.entries(child).sort(([a], [b]) => a.localeCompare(b))) : child);
 		const finalize = async (reason) => {
 			options.onProgress?.("Writing your answer…");
+			const wrapUp = activity.start("write", "Pulling together what I found");
 			let remaining = 6e4;
 			const available = [];
 			let omitted = 0;
@@ -6247,6 +6525,7 @@ var AutonomousBrainAgent = class {
 				}
 			], tools, key, model, void 0, "none", signal, { onText: options.onText });
 			if (completion.toolCalls?.length || !completion.content?.trim()) throw new Error("The provider did not return an answer when tool calls were disabled. Try another configured model.");
+			activity.finish(wrapUp, { label: "Pulled together what I found" });
 			return finish(completion.content, "partial");
 		};
 		try {
@@ -6264,7 +6543,17 @@ var AutonomousBrainAgent = class {
 						content: "{\"contextOmitted\":true,\"instruction\":\"Read evidence again if needed. Successful writes remain saved; do not repeat them.\"}"
 					};
 				}
-				const completion = await queryOpenRouterWithTools(messages, tools, key, model, void 0, "auto", signal, { onText: options.onText });
+				const thinking = activity.start("think", step ? "Thinking about what I found" : "Thinking");
+				const completion = await queryOpenRouterWithTools(messages, tools, key, model, void 0, "auto", signal, {
+					onText: options.onText,
+					onReasoning: (text) => activity.update(thinking, { detail: text }, true)
+				});
+				const thought = activity.get(thinking)?.detail?.trim() || (completion.toolCalls?.length ? completion.content?.trim() : "");
+				if (thought) activity.finish(thinking, {
+					detail: thought,
+					label: `Thought for ${Math.max(1, Math.round((Date.now() - activity.get(thinking).startedAt) / 1e3))}s`
+				});
+				else activity.hide(thinking);
 				if (!completion.toolCalls?.length) {
 					if (!completion.content?.trim()) throw new Error("The model returned no answer. Please retry or select another model in Settings.");
 					return finish(completion.content);
@@ -6278,6 +6567,19 @@ var AutonomousBrainAgent = class {
 				for (const call of completion.toolCalls) {
 					signal.throwIfAborted();
 					let output;
+					let preview = {};
+					try {
+						preview = JSON.parse(call.function.arguments) || {};
+					} catch {}
+					const described = describeCall(call.function.name, preview);
+					const stepId = activity.start(described.kind, described.label);
+					const settle = (result) => {
+						if (result && typeof result === "object" && "error" in result) activity.fail(stepId, String(result.error));
+						else activity.finish(stepId, {
+							label: pastTense(described.label),
+							...describeResult(call.function.name, preview, result)
+						});
+					};
 					try {
 						if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
 						const tool = tools.find((t) => t.function.name === call.function.name);
@@ -6469,6 +6771,7 @@ var AutonomousBrainAgent = class {
 									};
 									completedWrites.set(fingerprint, output);
 									roundProgress = true;
+									settle(output);
 									messages.push({
 										role: "tool",
 										tool_call_id: call.id,
@@ -6521,6 +6824,7 @@ var AutonomousBrainAgent = class {
 							saved: false
 						};
 					}
+					settle(output);
 					messages.push({
 						role: "tool",
 						tool_call_id: call.id,
@@ -6568,10 +6872,31 @@ const recordTitle = (m) => ("name" in m.record ? m.record.name : m.record.title)
 * change is audited and streamed back so the browser can show it at once.
 */
 async function runServerAgent(store, key, input, emit, signal, externalTools, web) {
+	const loading = {
+		id: crypto.randomUUID(),
+		kind: "prepare",
+		label: "Opening your workspace",
+		status: "running",
+		startedAt: Date.now()
+	};
+	emit({
+		type: "step",
+		step: loading
+	});
 	const { engine, workspace } = await loadWorkspace(store);
 	let stored = workspace;
 	const documentIds = (stored.study?.documents || []).map((d) => d.id);
 	const texts = documentIds.length ? await store.documentTexts(documentIds) : /* @__PURE__ */ new Map();
+	emit({
+		type: "step",
+		step: {
+			...loading,
+			status: "done",
+			endedAt: Date.now(),
+			label: "Opened your workspace",
+			hidden: Date.now() - loading.startedAt < 400
+		}
+	});
 	const state = {
 		...stored,
 		agentMemory: normalizeAgentMemory(stored.agentMemory),
@@ -6616,6 +6941,10 @@ async function runServerAgent(store, key, input, emit, signal, externalTools, we
 			onText: (text) => emit({
 				type: "text",
 				text
+			}),
+			onStep: (step) => emit({
+				type: "step",
+				step
 			}),
 			propose: async (change) => {
 				const tier = toolTier(change.tool);

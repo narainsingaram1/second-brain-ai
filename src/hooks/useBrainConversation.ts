@@ -2,7 +2,7 @@ import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { boundConversations } from "../utils/conversationBudget";
 import { attachmentOf, rememberImage } from "../utils/imageInput";
-import { AIMessage, ApprovalRequest, AuditLogEntry, BrainState, ConversationThread } from "../types";
+import { AgentStep, AIMessage, ApprovalRequest, AuditLogEntry, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
   RunConversation,
@@ -38,6 +38,8 @@ export interface BrainConversation {
   progress: string;
   /** The reply as it streams in, under the ID the finished message will keep. */
   draft: { id: string; content: string } | null;
+  /** What the assistant is doing right now, step by step, while a reply is in progress. */
+  activity: AgentStep[];
   stop: () => void;
   startNew: () => void;
   resume: (id: string) => void;
@@ -70,6 +72,7 @@ export function useBrainConversation(
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState("");
   const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
+  const [activity, setActivity] = useState<AgentStep[]>([]);
   const [temporary, setTemporaryState] = useState(false),
     [temporaryMessages, setTemporaryMessages] = useState<AIMessage[]>([]);
   const tempLatest = useRef(temporaryMessages);
@@ -92,6 +95,7 @@ export function useBrainConversation(
     setBusy(false);
     setProgress("");
     setDraft(null);
+    setActivity([]);
     return () => {
       generation.current++;
       active.current?.abort();
@@ -243,7 +247,18 @@ export function useBrainConversation(
       });
     // Streamed text is applied at most once per frame, so long answers do not re-render per token.
     const assistantId = crypto.randomUUID();
-    let streamedText = "", frame = 0;
+    let streamedText = "", frame = 0, stepFrame = 0;
+    // Steps arrive often (reasoning streams in); they are applied at most once per frame too.
+    const steps = new Map<string, AgentStep>();
+    setActivity([]);
+    const onStep = (step: AgentStep) => {
+      if (!isCurrent()) return;
+      steps.set(step.id, step);
+      if (!stepFrame) stepFrame = requestAnimationFrame(() => {
+        stepFrame = 0;
+        if (isCurrent() && active.current === controller) setActivity([...steps.values()]);
+      });
+    };
     const onText = (text: string) => {
       options.onText?.(text);
       if (!isCurrent()) return;
@@ -269,6 +284,7 @@ export function useBrainConversation(
         return await runRemoteTurn(turn, {
         signal,
         onText,
+        onStep,
         onProgress: message => { if (isCurrent()) setProgress(message); options.onProgress?.(message); },
         onSaved: (records, preferences, action, entityType, title) => {
           const before = latest.current;
@@ -316,6 +332,7 @@ export function useBrainConversation(
             return memory;
           },
           onText,
+          onStep,
           onProgress: (message) => {
             if (isCurrent()) setProgress(message);
             options.onProgress?.(message);
@@ -394,6 +411,7 @@ export function useBrainConversation(
           memoryNotice: result.memoryNotice,
           ...(result.approvals?.length ? { approvals: result.approvals } : {}),
           ...(result.external?.length ? { external: result.external } : {}),
+          ...(result.activity?.length ? { activity: result.activity } : {}),
         };
         // Keep the vision model's reading of the images with the message so follow-ups work after reload.
         const withDescription = (messages: AIMessage[]) => result.imageDescription
@@ -414,11 +432,13 @@ export function useBrainConversation(
       return result;
     } finally {
       if (frame) cancelAnimationFrame(frame);
+      if (stepFrame) cancelAnimationFrame(stepFrame);
       if (active.current === controller) {
         active.current = null;
         setBusy(false);
         setProgress("");
         setDraft(null);
+        setActivity([]);
       }
     }
   };
@@ -501,6 +521,7 @@ export function useBrainConversation(
     decideApproval,
     busy,
     progress,
+    activity,
     draft,
     stop: () => active.current?.abort(),
     startNew: () => switchConversation(),

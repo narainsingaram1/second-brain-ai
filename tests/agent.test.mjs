@@ -751,3 +751,24 @@ test('tasks can create new subsections and sections, reusing existing names in a
   assert.deepEqual(applyMutation(next, moved).subsections.Career, ['OAs / Interviews', 'Projects', 'Side projects']);
   assert.throws(() => prepareMutation('create_task', { title: 'x', section: 'Career', subsection: '   ', priority: 'low' }, s), /nonempty/);
 });
+
+test('the agent reports each step live: reasoning, searches and what they found', async () => {
+  const sse = (...deltas) => new Response(deltas.map(d => `data: ${JSON.stringify({ choices: [d] })}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+  const replies = [
+    () => sse({ delta: { reasoning: 'Check the notes ' } }, { delta: { reasoning: 'first.' } }, { delta: { tool_calls: [{ index: 0, id: 's1', function: { name: 'search_records', arguments: JSON.stringify({ query: 'Assignment 3' }) } }] }, finish_reason: 'tool_calls' }),
+    () => sse({ delta: { content: 'Assignment 3 is due Oct 29.' }, finish_reason: 'stop' }),
+  ];
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    if (/embeddings/.test(url) || !body.messages) return new Response('', { status: 503 });
+    return replies.shift()();
+  };
+  const seen = [];
+  const result = await AutonomousBrainAgent.execute('when is assignment 3 due?', state(), 'test-key', 'test-model', { onText() {}, onStep: step => seen.push(step) });
+  assert.equal(result.status, 'complete');
+  const labels = result.activity.map(s => s.label);
+  assert.match(labels[0], /^Thought for \d+s$/); assert.equal(result.activity[0].detail, 'Check the notes first.');
+  assert.equal(labels[1], 'Searched your records for “Assignment 3”'); assert.match(result.activity[1].detail, /match/);
+  assert.equal(result.activity.length, 2, 'the final answer pass without reasoning is not shown');
+  assert.ok(seen.some(s => s.status === 'running' && s.label === 'Searching your records for “Assignment 3”'), 'steps are reported while running');
+});

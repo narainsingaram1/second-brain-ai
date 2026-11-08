@@ -1,4 +1,4 @@
-import type { AIMessage } from "../types";
+import type { AgentStep, AIMessage } from "../types";
 import type { AgentExecutionResult } from "./agentDispatcher";
 import type { SavedRecord } from "./recordSync";
 import { apiFetch } from "./serverApi";
@@ -18,6 +18,7 @@ export interface RemoteHandlers {
   signal: AbortSignal;
   onProgress: (message: string) => void;
   onText: (text: string) => void;
+  onStep?: (step: AgentStep) => void;
   /** A change the server saved: records with their new revisions, plus any changed preferences. */
   onSaved: (records: SavedRecord[], preferences: Record<string, unknown>, action: string, entityType: string, title: string) => void;
   /** An action waiting for the user's approval (set in a later step). */
@@ -56,6 +57,7 @@ export async function runRemoteTurn(turn: RemoteTurn, handlers: RemoteHandlers):
   for await (const event of readEvents(response.body)) {
     if (event.type === "progress") handlers.onProgress(event.message);
     else if (event.type === "text") handlers.onText(event.text);
+    else if (event.type === "step") handlers.onStep?.(event.step);
     else if (event.type === "saved") handlers.onSaved(event.records, event.preferences, event.action, event.entityType, event.title);
     else if (event.type === "approval") handlers.onApproval?.(event.action);
     else if (event.type === "error") throw new Error(event.message);

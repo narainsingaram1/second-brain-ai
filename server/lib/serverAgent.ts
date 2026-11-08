@@ -1,4 +1,4 @@
-import type { AIMessage, BrainState } from "../../src/types";
+import type { AgentStep, AIMessage, BrainState } from "../../src/types";
 import { AutonomousBrainAgent, type AgentExecutionResult, type ExternalToolset } from "../../src/services/agentDispatcher";
 import { applyMutation, mutationRecords, type Mutation } from "../../src/services/brainTools";
 import { applyMemoryChange, normalizeAgentMemory } from "../../src/services/agentMemory";
@@ -41,6 +41,7 @@ export interface AgentRequest {
 export type AgentEvent =
   | { type: "progress"; message: string }
   | { type: "text"; text: string }
+  | { type: "step"; step: AgentStep }
   | { type: "saved"; records: SavedRecord[]; preferences: Record<string, unknown>; action: string; entityType: Mutation["type"] | "memory"; title: string }
   | { type: "done"; result: AgentExecutionResult };
 
@@ -52,11 +53,15 @@ const recordTitle = (m: Mutation) => ("name" in m.record ? m.record.name : (m.re
  * change is audited and streamed back so the browser can show it at once.
  */
 export async function runServerAgent(store: ServerStore, key: string, input: AgentRequest, emit: (event: AgentEvent) => void, signal: AbortSignal, externalTools?: ExternalToolset, web?: WebAccess): Promise<void> {
+  const loading: AgentStep = { id: crypto.randomUUID(), kind: "prepare", label: "Opening your workspace", status: "running", startedAt: Date.now() };
+  emit({ type: "step", step: loading });
   const { engine, workspace } = await loadWorkspace(store);
   // `stored` is the workspace as saved; the agent's own working copy also carries this conversation.
   let stored = workspace;
   const documentIds = (stored.study?.documents || []).map(d => d.id);
   const texts = documentIds.length ? await store.documentTexts(documentIds) : new Map<string, string>();
+  // Only worth showing when it took a noticeable moment.
+  emit({ type: "step", step: { ...loading, status: "done", endedAt: Date.now(), label: "Opened your workspace", hidden: Date.now() - loading.startedAt < 400 } });
 
   const state: BrainState = {
     ...stored,
@@ -88,6 +93,7 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     },
     onProgress: message => emit({ type: "progress", message }),
     onText: text => emit({ type: "text", text }),
+    onStep: step => emit({ type: "step", step }),
     propose: async change => {
       const tier = toolTier(change.tool);
       const row = await store.proposeAction({
