@@ -1,9 +1,10 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { Task, TaskStatus } from "../types";
 import { normalizeTask } from "../utils/taskState";
-import { X, Trash2, Clock } from "lucide-react";
+import { X, Trash2 } from "lucide-react";
 import { formatTime } from "../utils/events";
+import { getLocalDateString } from "../utils/habitStreaks";
 import { CustomDatePicker } from "./CustomDatePicker";
 
 interface TaskModalProps {
@@ -23,6 +24,71 @@ interface TaskModalProps {
   onOpenSettings?: () => void;
 }
 
+const STATUSES: Array<{ id: TaskStatus; label: string }> = [
+  { id: "not_started", label: "Not started" },
+  { id: "in_progress", label: "In progress" },
+  { id: "completed", label: "Done" },
+];
+const PRIORITIES: Array<{ id: Task["priority"]; label: string }> = [
+  { id: "urgent", label: "Urgent" },
+  { id: "high", label: "High" },
+  { id: "medium", label: "Medium" },
+  { id: "low", label: "Low" },
+];
+// Half-hour slots plus end of day, which is how most deadlines are written.
+const TIME_OPTIONS = [
+  ...Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, "0")}:${i % 2 ? "30" : "00"}`),
+  "23:59",
+];
+
+const dateFromToday = (days: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return getLocalDateString(d);
+};
+
+/** A single-choice row of buttons that behaves as a radio group for keyboard and screen reader users. */
+function ChoiceGroup<T extends string>({ label, options, value, onChange, dot }: {
+  label: string;
+  options: Array<{ id: T; label: string }>;
+  value: T;
+  onChange: (value: T) => void;
+  dot: string;
+}) {
+  const labelId = useId();
+  const refs = useRef<Array<HTMLButtonElement | null>>([]);
+  const move = (event: React.KeyboardEvent, index: number) => {
+    const step = event.key === "ArrowRight" || event.key === "ArrowDown" ? 1 : event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    event.preventDefault();
+    const next = (index + step + options.length) % options.length;
+    onChange(options[next].id);
+    refs.current[next]?.focus();
+  };
+  return (
+    <div className="task-field">
+      <span id={labelId} className="task-label">{label}</span>
+      <div role="radiogroup" aria-labelledby={labelId} className="task-choice">
+        {options.map((option, index) => (
+          <button
+            key={option.id}
+            ref={(node) => { refs.current[index] = node; }}
+            type="button"
+            role="radio"
+            aria-checked={value === option.id}
+            tabIndex={value === option.id ? 0 : -1}
+            onClick={() => onChange(option.id)}
+            onKeyDown={(event) => move(event, index)}
+          >
+            <span aria-hidden="true" className={`task-dot ${dot}-${option.id}`} />
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export const TaskModal: React.FC<TaskModalProps> = ({
   isOpen,
   onClose,
@@ -36,78 +102,78 @@ export const TaskModal: React.FC<TaskModalProps> = ({
   onDelete,
   onAddSubsection,
 }) => {
-  const todayStr = new Date().toISOString().split("T")[0];
+  const today = getLocalDateString();
+  const ids = useId();
+  const field = (name: string) => `${ids}-${name}`;
 
-  const initialSec = task?.section || defaultSection || sections[0] || "Academic";
-  const initialSubs = subsections[initialSec] || ["General"];
-  const initialSub = task?.subsection || defaultSubsection || initialSubs[0] || "General";
+  const [title, setTitle] = useState("");
+  const [titleError, setTitleError] = useState(false);
+  const [description, setDescription] = useState("");
+  const [dueDate, setDueDate] = useState(today);
+  const [dueTime, setDueTime] = useState("");
+  const [priority, setPriority] = useState<Task["priority"]>("medium");
+  const [status, setStatus] = useState<TaskStatus>("not_started");
+  const [section, setSection] = useState("");
+  const [subsection, setSubsection] = useState("");
+  const [addingSub, setAddingSub] = useState(false);
+  const [newSub, setNewSub] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const [title, setTitle] = useState(task?.title || "");
-  const [description, setDescription] = useState(task?.description || "");
-  const [dueDate, setDueDate] = useState(task?.dueDate || defaultDueDate || todayStr);
-  const [dueTime, setDueTime] = useState(task?.dueTime || "");
-  const [priority, setPriority] = useState<Task["priority"]>(task?.priority || "medium");
-  const [status, setStatus] = useState<TaskStatus>(
-    task?.status || (task?.completed ? "completed" : "not_started")
-  );
-  const [section, setSection] = useState<string>(initialSec);
-  const [subsection, setSubsection] = useState<string>(initialSub);
-  const [isAddingNewSub, setIsAddingNewSub] = useState(false);
-  const [customSubName, setCustomSubName] = useState("");
-
-  // Synchronize state when opening or task changes
+  // Reset the form whenever the dialog opens or targets another task.
   useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDescription(task.description || "");
-      setDueDate(task.dueDate || todayStr);
-      setDueTime(task.dueTime || "");
-      setPriority(task.priority || "medium");
-      setStatus(task.status || (task.completed ? "completed" : "not_started"));
-      setSection(task.section || defaultSection || sections[0] || "Academic");
-      setSubsection(task.subsection || defaultSubsection || "General");
-    } else {
-      const sec = defaultSection || sections[0] || "Academic";
-      const subs = subsections[sec] || ["General"];
-      setTitle("");
-      setDescription("");
-      setDueDate(defaultDueDate || todayStr);
-      setDueTime("");
-      setPriority("medium");
-      setStatus("not_started");
-      setSection(sec);
-      setSubsection(defaultSubsection || subs[0] || "General");
-    }
-    setIsAddingNewSub(false);
-    setCustomSubName("");
-  }, [task, defaultSection, defaultSubsection, defaultDueDate, sections, subsections, isOpen, todayStr]);
+    if (!isOpen) return;
+    const sec = task?.section || defaultSection || sections[0] || "Academic";
+    setTitle(task?.title || "");
+    setDescription(task?.description || "");
+    setDueDate(task ? task.dueDate || "" : defaultDueDate || today);
+    setDueTime(task?.dueTime || "");
+    setPriority(task?.priority || "medium");
+    setStatus(task?.status || (task?.completed ? "completed" : "not_started"));
+    setSection(sec);
+    setSubsection(task?.subsection || defaultSubsection || subsections[sec]?.[0] || "General");
+    setTitleError(false);
+    setAddingSub(false);
+    setNewSub("");
+    setConfirmDelete(false);
+    // Section lists change identity on unrelated edits; only reopen or retarget resets the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, task?.id]);
+
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const timer = window.setTimeout(() => setConfirmDelete(false), 4000);
+    return () => window.clearTimeout(timer);
+  }, [confirmDelete]);
 
   if (!isOpen) return null;
 
-  const currentAvailableSubs = subsections[section] || ["General"];
+  const availableSubs = subsections[section] || ["General"];
+  const subOptions = availableSubs.includes(subsection) ? availableSubs : [...availableSubs, subsection];
+  const timeOptions = dueTime && !TIME_OPTIONS.includes(dueTime) ? [...TIME_OPTIONS, dueTime].sort() : TIME_OPTIONS;
 
-  const handleSectionChange = (newSec: string) => {
-    setSection(newSec);
-    const available = subsections[newSec] || ["General"];
-    setSubsection(available[0] || "General");
+  const changeSection = (next: string) => {
+    setSection(next);
+    setSubsection(subsections[next]?.[0] || "General");
   };
 
-  const handleCreateNewSub = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!customSubName.trim()) return;
-    if (onAddSubsection) {
-      onAddSubsection(section, customSubName.trim());
+  const addSubsection = () => {
+    const name = newSub.trim().replace(/\s+/g, " ");
+    if (!name) return;
+    const existing = availableSubs.find((s) => s.toLocaleLowerCase() === name.toLocaleLowerCase());
+    if (!existing) onAddSubsection?.(section, name);
+    setSubsection(existing || name);
+    setNewSub("");
+    setAddingSub(false);
+  };
+
+  const save = (event?: React.FormEvent) => {
+    event?.preventDefault();
+    if (!title.trim()) {
+      setTitleError(true);
+      document.getElementById(field("title"))?.focus();
+      return;
     }
-    setSubsection(customSubName.trim());
-    setCustomSubName("");
-    setIsAddingNewSub(false);
-  };
-
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim()) return;
-
-    const updatedTask = normalizeTask({
+    onSave(normalizeTask({
       id: task?.id || `task-${Date.now()}`,
       title: title.trim(),
       description: description.trim() || undefined,
@@ -118,322 +184,164 @@ export const TaskModal: React.FC<TaskModalProps> = ({
       subsection,
       status,
       subtasks: task?.subtasks || [],
-    });
-
-    onSave(updatedTask);
+    }));
     onClose();
   };
 
-  const setPresetDate = (daysAhead: number) => {
-    const d = new Date(Date.now() + daysAhead * 86400000);
-    setDueDate(d.toISOString().split("T")[0]);
-  };
+  const quickDates = [
+    { label: "Today", date: dateFromToday(0) },
+    { label: "Tomorrow", date: dateFromToday(1) },
+    { label: "Next week", date: dateFromToday(7) },
+  ];
 
   return (
-    <DialogBackdrop onClose={onClose} label="Task details" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
-      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-lg overflow-visible flex flex-col">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-          <div>
-            <h3 className="font-extrabold text-base tracking-tight text-ink">
-              {task ? "Edit task" : "New task"}
-            </h3>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              {task ? "Update task details and due date" : "Something to get done, with a due date"}
-            </p>
-          </div>
-          <button aria-label="Close dialog" onClick={onClose}
-            className="p-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-colors"
-          >
-            <X className="w-4 h-4" />
+    <DialogBackdrop
+      onClose={onClose}
+      label={task ? "Edit task" : "New task"}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          save();
+        }
+      }}
+    >
+      <div className="workspace-dialog task-dialog">
+        <header className="task-dialog-head">
+          <h2>{task ? "Edit task" : "New task"}</h2>
+          <button type="button" aria-label="Close" onClick={onClose} className="task-icon-button">
+            <X aria-hidden="true" />
           </button>
-        </div>
+        </header>
 
-        <form onSubmit={handleSave} className="p-6 space-y-4">
-          {/* Title */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Title *
-            </label>
-            <input
-              type="text"
-              required
-              placeholder="e.g. CS 1332 Homework or Job Application"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-ink px-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white transition-all"
-            />
-          </div>
-
-          {/* Description / Notes */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Notes
-            </label>
-            <textarea
-              rows={2}
-              placeholder="Optional notes or details..."
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs text-ink p-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white resize-none transition-all"
-            />
-          </div>
-
-          {/* Section & Subsection Grid */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Section
-              </label>
-              <select
-                value={section}
-                onChange={(e) => handleSectionChange(e.target.value)}
-                className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
-              >
-                {sections.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+        <form onSubmit={save} noValidate className="task-form">
+          <div className="task-form-body">
+            <div className="task-field">
+              <label htmlFor={field("title")} className="task-label">Title</label>
+              <input
+                id={field("title")}
+                type="text"
+                autoFocus
+                autoComplete="off"
+                placeholder="What needs doing"
+                value={title}
+                aria-invalid={titleError || undefined}
+                aria-describedby={titleError ? field("title-error") : undefined}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  if (titleError && e.target.value.trim()) setTitleError(false);
+                }}
+                className="task-input task-input-title"
+              />
+              {titleError && <p id={field("title-error")} className="task-error" role="alert">Add a title to save this task</p>}
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                  Subsection
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingNewSub(!isAddingNewSub)}
-                  className="text-[11px] text-muted dark:text-slate-400 font-bold hover:underline"
-                >
-                  {isAddingNewSub ? "Select" : "+ New"}
-                </button>
-              </div>
-
-              {isAddingNewSub ? (
-                <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    placeholder="New sub name..."
-                    value={customSubName}
-                    onChange={(e) => setCustomSubName(e.target.value)}
-                    className="w-full text-xs bg-slate-50 dark:bg-slate-800 px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 focus:outline-none"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCreateNewSub}
-                    className="px-2.5 py-2 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold shrink-0 hover:bg-slate-800"
-                  >
-                    Add
-                  </button>
-                </div>
-              ) : (
-                <select
-                  value={subsection}
-                  onChange={(e) => setSubsection(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
-                >
-                  {currentAvailableSubs.map((sub) => (
-                    <option key={sub} value={sub}>
-                      {sub}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-          </div>
-
-          {/* Progress / Status Selection */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
-              Progress status
-            </label>
-            <div className="grid grid-cols-3 gap-2 bg-raised p-1.5 rounded-2xl border border-slate-200 dark:border-slate-700">
-              <button
-                type="button"
-                onClick={() => setStatus("not_started")}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  status === "not_started"
-                    ? "bg-white dark:bg-slate-700 text-ink shadow-xs"
-                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                }`}
-              >
-                <span>⚪</span>
-                <span>Not started</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatus("in_progress")}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  status === "in_progress"
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                }`}
-              >
-                <span>🟡</span>
-                <span>In progress</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setStatus("completed")}
-                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
-                  status === "completed"
-                    ? "bg-blue-600 text-white shadow-xs"
-                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                }`}
-              >
-                <span>🟢</span>
-                <span>Complete</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Priority & Due Date */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Priority
-              </label>
-              <select
-                value={priority}
-                onChange={(e) => setPriority(e.target.value as any)}
-                className="w-full bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-slate-800 dark:text-slate-200 px-3 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none cursor-pointer"
-              >
-                <option value="urgent">Urgent</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                Due date
-              </label>
-              <CustomDatePicker
-                value={dueDate}
-                onChange={(newDate) => setDueDate(newDate)}
-                placeholder="Choose due date"
+            <div className="task-field">
+              <label htmlFor={field("notes")} className="task-label">Notes</label>
+              <textarea
+                id={field("notes")}
+                rows={3}
+                placeholder="Links, requirements, anything worth remembering"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="task-input task-textarea"
               />
             </div>
-          </div>
 
-          {/* Due Time */}
-          <div>
-            <label htmlFor="task-due-time" className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-              Due time <span className="font-semibold text-slate-400">(optional)</span>
-            </label>
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="relative">
-                <Clock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-                <input
-                  id="task-due-time"
-                  type="time"
+            <div className="task-pair">
+              <div className="task-field">
+                <label htmlFor={field("section")} className="task-label">Section</label>
+                <select id={field("section")} value={section} onChange={(e) => changeSection(e.target.value)} className="task-input task-picker">
+                  {sections.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+
+              <div className="task-field">
+                <div className="task-label-row">
+                  <label htmlFor={field(addingSub ? "new-sub" : "subsection")} className="task-label">Subsection</label>
+                  <button type="button" className="task-link" onClick={() => { setAddingSub(!addingSub); setNewSub(""); }}>
+                    {addingSub ? "Cancel" : "New"}
+                  </button>
+                </div>
+                {addingSub ? (
+                  <div className="task-inline-add">
+                    <input
+                      id={field("new-sub")}
+                      type="text"
+                      autoFocus
+                      placeholder="Name"
+                      value={newSub}
+                      onChange={(e) => setNewSub(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); addSubsection(); }
+                        if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setAddingSub(false); }
+                      }}
+                      className="task-input"
+                    />
+                    <button type="button" onClick={addSubsection} disabled={!newSub.trim()} className="task-button task-button-secondary">Add</button>
+                  </div>
+                ) : (
+                  <select id={field("subsection")} value={subsection} onChange={(e) => setSubsection(e.target.value)} className="task-input task-picker">
+                    {subOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                )}
+              </div>
+            </div>
+
+            <ChoiceGroup label="Status" options={STATUSES} value={status} onChange={setStatus} dot="status" />
+            <ChoiceGroup label="Priority" options={PRIORITIES} value={priority} onChange={setPriority} dot="priority" />
+
+            <div className="task-pair">
+              <div className="task-field">
+                <label htmlFor={field("date")} className="task-label">Due date</label>
+                <CustomDatePicker id={field("date")} value={dueDate} onChange={(d) => { setDueDate(d); if (!d) setDueTime(""); }} placeholder="No due date" />
+              </div>
+              <div className="task-field">
+                <label htmlFor={field("time")} className="task-label">Time</label>
+                <select
+                  id={field("time")}
                   value={dueTime}
                   disabled={!dueDate}
+                  aria-describedby={!dueDate ? field("time-hint") : undefined}
                   onChange={(e) => setDueTime(e.target.value)}
-                  className="bg-slate-50 dark:bg-slate-800/80 text-xs font-bold text-slate-800 dark:text-slate-200 pl-8 pr-3 py-2 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-900 dark:focus:ring-white disabled:opacity-50"
-                />
+                  className="task-input task-picker"
+                >
+                  <option value="">Any time</option>
+                  {timeOptions.map((t) => <option key={t} value={t}>{formatTime(t)}</option>)}
+                </select>
+                {!dueDate && <span id={field("time-hint")} className="sr-only">Pick a due date to set a time</span>}
               </div>
-              {["09:00", "12:00", "17:00", "23:59"].map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  disabled={!dueDate}
-                  aria-pressed={dueTime === preset}
-                  onClick={() => setDueTime(preset)}
-                  className={`text-[11px] font-bold px-2.5 py-1 rounded-full transition-colors disabled:opacity-50 ${
-                    dueTime === preset
-                      ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900"
-                      : "bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
-                  }`}
-                >
-                  {formatTime(preset)}
-                </button>
+            </div>
+
+            <div className="task-quick" role="group" aria-label="Quick due dates">
+              {quickDates.map((q) => (
+                <button key={q.label} type="button" aria-pressed={dueDate === q.date} onClick={() => setDueDate(q.date)}>{q.label}</button>
               ))}
-              {dueTime && (
-                <button
-                  type="button"
-                  onClick={() => setDueTime("")}
-                  className="text-[11px] font-semibold text-slate-400 hover:text-rose-500 transition-colors"
-                >
-                  No time
-                </button>
-              )}
+              <button type="button" aria-pressed={!dueDate} onClick={() => { setDueDate(""); setDueTime(""); }}>No date</button>
             </div>
           </div>
 
-          {/* Quick Date Presets */}
-          <div className="flex items-center gap-1.5 pt-1">
-            <span className="text-[11px] text-slate-400 font-semibold">Quick pick:</span>
-            <button
-              type="button"
-              onClick={() => setPresetDate(0)}
-              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
-            >
-              Today
-            </button>
-            <button
-              type="button"
-              onClick={() => setPresetDate(1)}
-              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
-            >
-              Tomorrow
-            </button>
-            <button
-              type="button"
-              onClick={() => setPresetDate(7)}
-              className="text-[11px] font-bold px-2.5 py-1 rounded-full bg-raised hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition-colors"
-            >
-              In 7 Days
-            </button>
-            {dueDate && (
-              <button
-                type="button"
-                onClick={() => { setDueDate(""); setDueTime(""); }}
-                className="text-[11px] font-semibold text-slate-400 hover:text-rose-500 ml-auto transition-colors"
-              >
-                Clear date
-              </button>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <footer className="task-dialog-foot">
             {task && onDelete ? (
               <button
                 type="button"
+                className={`task-button task-button-danger${confirmDelete ? " is-confirming" : ""}`}
                 onClick={() => {
+                  if (!confirmDelete) return setConfirmDelete(true);
                   onDelete(task.id);
                   onClose();
                 }}
-                className="text-xs font-bold text-rose-500 hover:text-rose-600 flex items-center gap-1 transition-colors"
               >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete task</span>
+                <Trash2 aria-hidden="true" />
+                {confirmDelete ? "Confirm delete" : "Delete"}
               </button>
-            ) : (
-              <div />
-            )}
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 rounded-full text-xs font-semibold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 rounded-full bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold shadow-sm hover:opacity-90 active:scale-[0.98] transition-all"
-              >
-                Save Task
-              </button>
+            ) : <span />}
+            <div className="task-dialog-actions">
+              <span className="task-shortcut" aria-hidden="true"><kbd>⌘</kbd><kbd>↵</kbd></span>
+              <button type="button" onClick={onClose} className="task-button task-button-ghost">Cancel</button>
+              <button type="submit" className="task-button task-button-primary">{task ? "Save" : "Add task"}</button>
             </div>
-          </div>
+          </footer>
         </form>
       </div>
     </DialogBackdrop>

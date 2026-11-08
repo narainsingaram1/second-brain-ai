@@ -7,6 +7,7 @@ import App from "./App";
 import "./index.css";
 import "./redesign.css";
 import "./pages.css";
+import "./forms.css";
 
 const isTauri =
   typeof window !== "undefined" &&

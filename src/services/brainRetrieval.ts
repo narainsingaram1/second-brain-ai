@@ -2,6 +2,7 @@ import { BrainState, TrackerItem } from "../types";
 import { eventTimeLabel, formatTime } from "../utils/events";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { bestScore, courseLabel, courseTasks, dueCards, studyOf } from "../utils/study";
+import { gradingForAssistant } from "../utils/grades";
 import { cachedDocumentText } from "./studyDocuments";
 
 export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz";
@@ -44,7 +45,9 @@ export function recordProse(type: RecordType, d: any): string {
       d.location && `Location: ${d.location}`, list(d.attendees) && `With: ${list(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
     case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`,
       `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`,
-      list(d.documentNames) && `Materials: ${list(d.documentNames)}`, list(d.folderNames) && `Folders: ${list(d.folderNames)}`);
+      list(d.documentNames) && `Materials: ${list(d.documentNames)}`, list(d.folderNames) && `Folders: ${list(d.folderNames)}`,
+      d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`,
+      d.grading && `Grade categories: ${d.grading.categories.map((c: any) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
     case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`,
       d.content || "[The extracted text of this document is not loaded on this device.]");
     case "deck": return lines(`Flashcard deck: ${d.title} (${d.course})`, `${d.cardCount} cards, ${d.cardsDue} due for review today`,
@@ -75,7 +78,7 @@ function studyRecords(state: BrainState) {
       const data = { ...c, label: courseLabel(c), section: c.code || c.name, documentCount: docs.length, documentNames: docs.map(d => d.name),
         folderNames: study.folders.filter(f => f.courseId === c.id).map(f => f.name), deckCount: decks.length,
         cardsDue: decks.reduce((n, d) => n + dueCards(d, today).length, 0), quizCount: study.quizzes.filter(q => q.courseId === c.id).length,
-        openTasks: courseTasks(state, c).filter(t => t.status !== "completed").length };
+        openTasks: courseTasks(state, c).filter(t => t.status !== "completed").length, grading: gradingForAssistant(c.grading) };
       return { type: "course" as const, title: courseLabel(c), date: undefined, data, source: data as unknown };
     }),
     ...study.documents.map(d => {

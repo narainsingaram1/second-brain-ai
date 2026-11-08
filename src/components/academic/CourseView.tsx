@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, CalendarClock, FileText, Layers, ListChecks, MessageCircle, Settings2, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarClock, FileText, GraduationCap, Layers, ListChecks, MessageCircle, Settings2, Trash2 } from "lucide-react";
 import type { Course } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
 import { courseLabel, courseTasks, dueCards, removeCourse, studyOf } from "../../utils/study";
@@ -9,9 +9,11 @@ import type { StudyProps } from "./AcademicWorkspace";
 import { MaterialsPanel } from "./MaterialsPanel";
 import { DecksPanel } from "./DecksPanel";
 import { QuizzesPanel } from "./QuizzesPanel";
+import { GradesPanel } from "./GradesPanel";
+import { formatPercent, summarize } from "../../utils/grades";
 import { GenerateDialog, type GenerateRequest } from "./GenerateDialog";
 
-type Tab = "materials" | "flashcards" | "quizzes";
+type Tab = "materials" | "flashcards" | "quizzes" | "grades";
 
 export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: StudyProps & { course: Course; onBack: () => void; onEdit: () => void }) {
   const study = studyOf(state);
@@ -40,7 +42,7 @@ export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: S
           </div>
           <div className="ac-actions">
             <button className="ws-button ws-secondary" onClick={() => onAsk(`Let's study ${courseLabel(course)}. Look through my course materials and give me a quick map of the key topics, then suggest what I should review first.`)}>
-              <MessageCircle size={15} />Ask Synapse
+              <MessageCircle size={15} />Ask Iris
             </button>
             <button className="ws-icon-button" aria-label="Edit course" onClick={onEdit}><Settings2 size={16} /></button>
             <button className="ws-icon-button" aria-label="Delete course" onClick={() => setConfirmDelete(true)}><Trash2 size={16} /></button>
@@ -58,15 +60,17 @@ export function CourseView({ state, course, onChange, onAsk, onBack, onEdit }: S
           { id: "materials", label: "Materials", icon: FileText, count: docs.length },
           { id: "flashcards", label: "Flashcards", icon: Layers, count: due || decks.length },
           { id: "quizzes", label: "Quizzes", icon: ListChecks, count: quizzes.length },
+          { id: "grades", label: "Grades", icon: GraduationCap, count: course.grading?.categories.length ? formatPercent(summarize(course.grading).current) : null },
         ] as const).map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-            <t.icon size={16} />{t.label}<span className={t.id === "flashcards" && due ? "ac-due" : ""}>{t.count}</span>
+            <t.icon size={16} />{t.label}{t.count !== null && <span className={t.id === "flashcards" && due ? "ac-due" : ""}>{t.count}</span>}
           </button>
         ))}
       </div>
       {tab === "materials" && <MaterialsPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={setGenerate} />}
       {tab === "flashcards" && <DecksPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "flashcards", documentIds: [] })} openDeckId={opened?.kind === "deck" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
       {tab === "quizzes" && <QuizzesPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "quiz", documentIds: [] })} openQuizId={opened?.kind === "quiz" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
+      {tab === "grades" && <GradesPanel state={state} course={course} onChange={onChange} onAsk={onAsk} />}
       {generate && (
         <GenerateDialog state={state} course={course} request={generate} onChange={onChange} onClose={() => setGenerate(null)}
           onCreated={(kind, id) => { setGenerate(null); setTab(kind === "deck" ? "flashcards" : "quizzes"); setOpened({ kind, id }); }} />

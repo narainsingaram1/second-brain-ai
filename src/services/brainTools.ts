@@ -102,6 +102,27 @@ const STUDY_TOOLS: OpenRouterTool[] = [
     term: d_("e.g. 'Fall 2026'."),
     instructor: s_,
   }, ["name"]),
+  fn("set_course_grading", "Save how a course's final grade is weighted (categories and weights, optional number of items and dropped scores, letter cutoffs, target). Replaces the category list; categories with the same name keep their scores. Use when the user describes their grading breakdown or asks you to read it from the syllabus (read the syllabus document first).", {
+    courseId: d_("ID of the course."),
+    categories: { type: "array", minItems: 1, maxItems: 30, items: { type: "object", properties: {
+      name: d_("e.g. 'Exams', 'Homework', 'Projects'."),
+      weight: { type: "number", description: "Percent of the final grade, e.g. 30." },
+      count: { type: "integer", minimum: 1, description: "Total number of items in this category if known, e.g. 10 homeworks." },
+      dropLowest: { type: "integer", minimum: 1, description: "How many lowest scores are dropped, if any." },
+    }, required: ["name", "weight"], additionalProperties: false } },
+    scale: { type: "array", items: { type: "object", properties: { letter: s_, min: { type: "number" } }, required: ["letter", "min"], additionalProperties: false },
+      description: "Letter cutoffs if the syllabus states them, e.g. [{letter:'A',min:90},...]. Omit to keep the current scale." },
+    target: { type: "number", description: "The final percentage the user is aiming for, if they said so." },
+  }, ["courseId", "categories"]),
+  fn("record_grade", "Add a score to a course's grade tracker, add an upcoming assignment with no score yet, or update one (gradeId). Use when the user reports a grade ('got 87/100 on the midterm') or lists upcoming graded work. The course must have grading set up.", {
+    courseId: d_("ID of the course."),
+    gradeId: d_("ID of an existing grade item to update. Omit to add a new one."),
+    category: d_("Category name as set up for the course, e.g. 'Exams'."),
+    title: d_("e.g. 'Midterm 1', 'Homework 4'."),
+    score: { type: "number", description: "Points earned. Omit for upcoming work that is not graded yet." },
+    maxScore: { type: "number", description: "Points possible. Defaults to 100 (use 100 when the user gives a percentage)." },
+    date: d_("YYYY-MM-DD the work was due or returned."),
+  }, ["courseId"]),
   fn("create_flashcard_deck", "Create a flashcard deck for a course, or add cards to an existing deck (deckId). Read the relevant course documents first and ground every card in them; link sourceDocumentId. Use when the user asks for flashcards.", {
     courseId: d_("ID of the course. Required when creating a new deck."),
     deckId: d_("Existing deck ID to append cards to instead of creating a deck."),
@@ -130,11 +151,11 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
               },
               section: {
                 type: "string",
-                description: "Target life section (e.g., 'Academic', 'Career', 'Personal', 'Health').",
+                description: "Target life section. Prefer an existing section from the context; a new name creates that section.",
               },
               subsection: {
                 type: "string",
-                description: "Target subsection or course (e.g., 'CS 1332', 'CS 2110', 'General').",
+                description: "Target subsection or course within the section. Prefer an existing one; a new name (e.g. 'Projects') creates that subsection. Omit to use the section's first subsection.",
               },
               dueDate: {
                 type: "string",
@@ -168,7 +189,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
         function: {
           name: "update_task",
           description:
-            "Update the title, status or schedule of an existing task. Use for follow-up corrections and renaming, preserving its ID and all unspecified fields. Resolve the existing task ID from conversation source references or read tools.",
+            "Update the title, status, schedule or section/subsection of an existing task. Use for follow-up corrections, renaming and moving, preserving its ID and all unspecified fields. Resolve the existing task ID from conversation source references or read tools.",
           parameters: {
             type: "object",
             properties: {
@@ -200,6 +221,14 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
               newDescription: {
                 type: "string",
                 description: "Replacement details/description for the task (time, location, links, notes).",
+              },
+              newSection: {
+                type: "string",
+                description: "Move the task to this section. A new name creates the section.",
+              },
+              newSubsection: {
+                type: "string",
+                description: "Move the task to this subsection (of newSection, or of its current section). A new name creates the subsection.",
               },
             },
             required: ["taskId"],
@@ -348,6 +377,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
 
 import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace } from "../types";
 import { linkCourseToTasks, newCard, normalizeQuestion, studyOf } from "../utils/study";
+import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
 import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
 import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
@@ -454,6 +484,38 @@ export function mutationRecords(state: BrainState, type: RecordType): Array<{ id
   if (type in STUDY_COLLECTIONS) return studyOf(state)[STUDY_COLLECTIONS[type as keyof typeof STUDY_COLLECTIONS]];
   return (state[MUTATION_COLLECTIONS[type as keyof typeof MUTATION_COLLECTIONS]] || []) as Array<{ id: string }>;
 }
+const sameName = (a: string, b: string) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+function groupName(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error(`${label} name must be nonempty.`);
+  const name = value.trim().replace(/\s+/g, " ");
+  if (name.length > 48) throw new Error(`${label} name must be at most 48 characters.`);
+  return name;
+}
+/**
+ * Resolves a task's section and subsection against the user's own groups, matching names
+ * case-insensitively. Names that don't exist yet are kept as new groups, created when the task is saved.
+ */
+export function resolveTaskGroup(state: BrainState, sectionArg?: string, subsectionArg?: string): { section: string; subsection: string } {
+  const requested = sectionArg === undefined ? state.sections[0] : groupName(sectionArg, "Section");
+  if (!requested) throw new Error("Name a section for this task.");
+  const section = state.sections.find(s => sameName(s, requested)) || requested;
+  const existing = state.subsections[section] || [];
+  if (subsectionArg === undefined) return { section, subsection: existing[0] || "General" };
+  const wanted = groupName(subsectionArg, "Subsection");
+  return { section, subsection: existing.find(s => sameName(s, wanted)) || wanted };
+}
+/** Adds a section and subsection to the user's task groups if they are not there yet. */
+export function registerTaskGroup(state: BrainState, section: string, subsection?: string): BrainState {
+  const hasSection = state.sections.includes(section);
+  const subs = state.subsections[section] || ["General"];
+  const sub = subsection || subs[0];
+  if (hasSection && state.subsections[section]?.includes(sub)) return state;
+  return {
+    ...state,
+    sections: hasSection ? state.sections : [...state.sections, section],
+    subsections: { ...state.subsections, [section]: subs.includes(sub) ? subs : [...subs, sub] },
+  };
+}
 export function applyMutation(state: BrainState, mutation: Mutation): BrainState {
   if (mutation.type in STUDY_COLLECTIONS) {
     const key = STUDY_COLLECTIONS[mutation.type as keyof typeof STUDY_COLLECTIONS];
@@ -473,6 +535,10 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
       next = linkCourseToTasks(next, course);
     }
     return next;
+  }
+  if (mutation.type === "task" && !mutation.remove) {
+    const task = mutation.record as Task;
+    state = registerTaskGroup(state, task.section, task.subsection);
   }
   const key = MUTATION_COLLECTIONS[mutation.type as keyof typeof MUTATION_COLLECTIONS];
   const list = (state[key] || []) as Array<{ id: string }>;
@@ -548,10 +614,7 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
   const id = crypto.randomUUID();
   switch (name) {
     case "create_task": {
-      const section = args.section || state.sections[0];
-      if (!section || !state.sections.includes(section)) throw new Error("Unknown section. Use a registered section.");
-      const subsection = args.subsection || state.subsections[section]?.[0];
-      if (subsection && !state.subsections[section]?.includes(subsection)) throw new Error("Unknown subsection for this section.");
+      const { section, subsection } = resolveTaskGroup(state, args.section, args.subsection);
       if (args.dueTime !== undefined && !isValidTime(args.dueTime)) throw new Error("dueTime must be 24-hour HH:MM.");
       if (args.dueTime && !args.dueDate) throw new Error("A due time needs a dueDate.");
       return { type: "task", action: name, record: normalizeTask({ id, title: args.title, section, subsection, dueDate: args.dueDate || "", dueTime: args.dueTime, priority: args.priority, status: "not_started",
@@ -562,13 +625,16 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const task = state.tasks.find(t => t.id === args.taskId);
       if (!task) throw new Error("Task ID not found. Query live tasks; do not guess IDs.");
       if (args.newTitle !== undefined && (typeof args.newTitle !== "string" || !args.newTitle.trim())) throw new Error("New task title must be nonempty.");
-      if (!args.status && !args.newDueDate && args.newTitle === undefined && args.newDescription === undefined && args.newDueTime === undefined && !args.clearDueTime) throw new Error("Supply newTitle, status, newDueDate, newDueTime, clearDueTime or newDescription to update.");
+      if (!args.status && !args.newDueDate && args.newTitle === undefined && args.newDescription === undefined && args.newDueTime === undefined && !args.clearDueTime && !args.newSection && !args.newSubsection) throw new Error("Supply newTitle, status, newDueDate, newDueTime, clearDueTime, newDescription, newSection or newSubsection to update.");
+      const moved = args.newSection || args.newSubsection
+        ? resolveTaskGroup(state, args.newSection || task.section, args.newSubsection || (args.newSection ? undefined : task.subsection)) : undefined;
       if (args.newDueTime !== undefined && !isValidTime(args.newDueTime)) throw new Error("newDueTime must be 24-hour HH:MM.");
       if (args.newDueTime && !(args.newDueDate || task.dueDate)) throw new Error("This task has no due date; set newDueDate too.");
       const { dueTime: _oldTime, ...withoutTime } = args.status ? setTaskStatus(task, args.status) : task;
       const dueTime = args.clearDueTime ? undefined : args.newDueTime || task.dueTime;
       return { type: "task", action: name, expected: task, record: { ...withoutTime, ...(dueTime ? { dueTime } : {}), dueDate: args.newDueDate || task.dueDate,
         ...(args.newTitle !== undefined ? { title: args.newTitle.trim() } : {}),
+        ...(moved ? moved : {}),
         ...(args.newDescription !== undefined ? { description: args.newDescription.trim() } : {}) } };
     }
     case "complete_habit": {
@@ -723,6 +789,53 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const now = new Date().toISOString();
       return { type: "course", action: "create_course", record: { id, workspaceId, code, name,
         ...(args.term ? { term: args.term.trim() } : {}), ...(args.instructor ? { instructor: args.instructor.trim() } : {}), createdAt: now, updatedAt: now } };
+    }
+    case "set_course_grading": {
+      const course = studyOf(state).courses.find(c => c.id === args.courseId);
+      if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
+      const names = new Set<string>();
+      for (const c of args.categories) {
+        const key = String(c.name).trim().toLowerCase();
+        if (!key) throw new Error("Category names must be nonempty.");
+        if (names.has(key)) throw new Error(`Category ${c.name} is listed twice.`);
+        names.add(key);
+        if (!(c.weight > 0 && c.weight <= 100)) throw new Error("Category weights must be between 0 and 100.");
+      }
+      const lost = (course.grading?.categories || []).filter(c => !names.has(c.name.toLowerCase()) && course.grading!.items.some(i => i.categoryId === c.id));
+      if (lost.length) throw new Error(`These categories have scores and would be removed: ${lost.map(c => c.name).join(", ")}. Keep them in the list (same name) unless the user asked to remove them.`);
+      const next = applyCategories(course.grading, args.categories.map((c: any) => ({ name: String(c.name).trim(), weight: c.weight, ...(c.count > 1 ? { count: c.count } : {}), ...(c.dropLowest ? { dropLowest: c.dropLowest } : {}) })), () => crypto.randomUUID());
+      const grading = normalizeGrading({ ...next, ...(args.scale?.length ? { scale: args.scale } : {}), ...(args.target !== undefined ? { target: args.target } : {}) });
+      if (!grading) throw new Error("Could not read that grading breakdown.");
+      return { type: "course", action: name, expected: course, record: { ...course, grading, updatedAt: new Date().toISOString() } };
+    }
+    case "record_grade": {
+      const course = studyOf(state).courses.find(c => c.id === args.courseId);
+      if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
+      const grading = course.grading;
+      if (!grading?.categories.length) throw new Error("This course has no grading set up. Ask the user how it is weighted (or read the syllabus) and call set_course_grading first.");
+      if (args.date) validDate(args.date);
+      if (args.score !== undefined && !(args.score >= 0)) throw new Error("score must be zero or more.");
+      if (args.maxScore !== undefined && !(args.maxScore > 0)) throw new Error("maxScore must be more than zero.");
+      const category = args.category ? findCategory(grading, args.category) : undefined;
+      if (args.category && !category) throw new Error(`Unknown category. This course's categories are: ${grading.categories.map(c => c.name).join(", ")}.`);
+      let items;
+      if (args.gradeId) {
+        const item = grading.items.find(i => i.id === args.gradeId);
+        if (!item) throw new Error("Grade ID not found. Query the course record for grade item IDs.");
+        const updated = { ...item, ...(category ? { categoryId: category.id } : {}), ...(args.title ? { title: args.title.trim() } : {}),
+          ...(args.score !== undefined ? { score: args.score } : {}), ...(args.maxScore !== undefined ? { maxScore: args.maxScore } : {}), ...(args.date ? { date: args.date } : {}) };
+        items = grading.items.map(i => i.id === item.id ? updated : i);
+      } else {
+        if (!category) throw new Error(`Name the category. This course's categories are: ${grading.categories.map(c => c.name).join(", ")}.`);
+        if (!args.title?.trim()) throw new Error("A new grade needs a title.");
+        // Fill in an existing upcoming item with the same title instead of duplicating it.
+        const upcoming = grading.items.find(i => i.categoryId === category.id && i.score === undefined && i.title.toLowerCase() === args.title.trim().toLowerCase());
+        const item = { ...(upcoming || {}), id: upcoming?.id || id, categoryId: category.id, title: args.title.trim(), maxScore: args.maxScore ?? upcoming?.maxScore ?? 100,
+          ...(args.score !== undefined ? { score: args.score } : {}), ...(args.date ? { date: args.date } : upcoming?.date ? { date: upcoming.date } : {}) };
+        items = upcoming ? grading.items.map(i => i.id === upcoming.id ? item : i) : [...grading.items, item];
+      }
+      if (args.score !== undefined && args.score > (args.maxScore ?? 100) * 1.5) throw new Error("That score is far above the points possible; check maxScore.");
+      return { type: "course", action: name, expected: course, record: { ...course, grading: { ...grading, items }, updatedAt: new Date().toISOString() } };
     }
     case "create_flashcard_deck": {
       const study = studyOf(state);

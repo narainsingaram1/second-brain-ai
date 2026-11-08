@@ -688,3 +688,27 @@ test('calendar events and task due times: tools validate, snapshot and search ex
   assert.equal(normalized.length, 1); assert.equal(normalized[0].title, 'Lunch'); assert.equal(normalized[0].kind, 'event');
   assert.equal(normalized[0].endTime, undefined); assert.equal(normalized[0].link, undefined);
 });
+
+test('tasks can create new subsections and sections, reusing existing names in any case', () => {
+  const s = { ...state(), sections: ['Academic', 'Career'], subsections: { Academic: ['General'], Career: ['OAs / Interviews'] } };
+  const created = prepareMutation('create_task', { title: 'Improve the order book project', section: 'career', subsection: 'Projects', priority: 'medium' }, s);
+  assert.equal(created.record.section, 'Career');
+  assert.equal(created.record.subsection, 'Projects');
+  const next = applyMutation(s, created);
+  assert.deepEqual(next.sections, ['Academic', 'Career']);
+  assert.deepEqual(next.subsections.Career, ['OAs / Interviews', 'Projects']);
+  assert.equal(next.tasks.at(-1).subsection, 'Projects');
+
+  const again = prepareMutation('create_task', { title: 'Write the README', section: 'Career', subsection: 'projects', priority: 'low' }, next);
+  assert.equal(again.record.subsection, 'Projects');
+  assert.deepEqual(applyMutation(next, again).subsections.Career, ['OAs / Interviews', 'Projects']);
+
+  const newSection = applyMutation(next, prepareMutation('create_task', { title: 'Book flights', section: 'Travel', priority: 'low' }, next));
+  assert.deepEqual(newSection.sections, ['Academic', 'Career', 'Travel']);
+  assert.deepEqual(newSection.subsections.Travel, ['General']);
+
+  const moved = prepareMutation('update_task', { taskId: created.record.id, newSubsection: 'Side projects' }, next);
+  assert.equal(moved.record.section, 'Career');
+  assert.deepEqual(applyMutation(next, moved).subsections.Career, ['OAs / Interviews', 'Projects', 'Side projects']);
+  assert.throws(() => prepareMutation('create_task', { title: 'x', section: 'Career', subsection: '   ', priority: 'low' }, s), /nonempty/);
+});

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "synapse-local",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "VITE_AUTH_PROVIDER=local npx vite --port 1420 --strictPort"],
+      "port": 1420
+    }
+  ]
+}
