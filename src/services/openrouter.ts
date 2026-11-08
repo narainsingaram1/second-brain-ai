@@ -134,7 +134,7 @@ export async function queryOpenRouterWithTools(
   systemPrompt?: string,
   toolChoice: "auto" | "none" | { type: "function"; function: { name: string } } = "auto",
   signal?: AbortSignal,
-  tuning: { temperature?: number; maxTokens?: number; onText?: (textSoFar: string) => void } = {}
+  tuning: { temperature?: number; maxTokens?: number; onText?: (textSoFar: string) => void; onReasoning?: (textSoFar: string) => void } = {}
 ): Promise<OpenRouterCompletionResponse> {
   if (!apiKey) {
     throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
@@ -178,7 +178,7 @@ export async function queryOpenRouterWithTools(
     }
 
     const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
-    const data = streamed ? await readCompletionStream(res.body!, tuning.onText!, resetStall) : await res.json();
+    const data = streamed ? await readCompletionStream(res.body!, tuning.onText!, resetStall, tuning.onReasoning) : await res.json();
     return completionFrom(data);
   } finally {
     clearTimeout(stallTimer);
@@ -189,10 +189,11 @@ export async function queryOpenRouterWithTools(
  * Reassembles an OpenAI-style server-sent event stream into the shape of a buffered completion,
  * reporting the visible text as it grows. Tool-call arguments arrive in fragments keyed by index.
  */
-export async function readCompletionStream(body: ReadableStream<Uint8Array>, onText: (textSoFar: string) => void, onChunk: () => void = () => {}): Promise<any> {
+export async function readCompletionStream(body: ReadableStream<Uint8Array>, onText: (textSoFar: string) => void, onChunk: () => void = () => {},
+  onReasoning?: (textSoFar: string) => void): Promise<any> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let buffer = "", content = "", finishReason: string | undefined;
+  let buffer = "", content = "", reasoning = "", finishReason: string | undefined;
   const calls: OpenRouterToolCall[] = [];
   const handle = (line: string) => {
     if (!line.startsWith("data:")) return; // Comments (": OPENROUTER PROCESSING") keep the connection alive.
@@ -205,6 +206,13 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
     if (!choice) return;
     if (choice.finish_reason) finishReason = choice.finish_reason;
     const delta = choice.delta || {};
+    // Models that reason before answering stream it separately; it is shown to the user, never sent back.
+    const thought = typeof delta.reasoning === "string" && delta.reasoning ? delta.reasoning
+      : Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map((d: any) => typeof d?.text === "string" ? d.text : typeof d?.summary === "string" ? d.summary : "").join("") : "";
+    if (thought) {
+      reasoning += thought;
+      onReasoning?.(reasoning);
+    }
     if (typeof delta.content === "string" && delta.content) {
       content += delta.content;
       onText(content);

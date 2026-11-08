@@ -297,6 +297,24 @@ export interface ImageAttachment {
   thumbnail?: string;
 }
 
+/** One thing the assistant did while working on a reply, shown live and kept with the reply. */
+export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write";
+export interface AgentStep {
+  id: string;
+  kind: AgentStepKind;
+  /** What it is doing or did, in plain words: "Searching the web for “LC-3 ISA”". */
+  label: string;
+  /** The model's reasoning, or a short result ("Found 4 matches"). */
+  detail?: string;
+  /** Things the step touched: record titles, or web sources as "title|url". */
+  items?: string[];
+  status: "running" | "done" | "error";
+  startedAt: number;
+  endedAt?: number;
+  /** Superseded steps (e.g. a thinking pass that produced nothing to show). */
+  hidden?: boolean;
+}
+
 export interface AIMessage {
   sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
   attachments?: ImageAttachment[];
@@ -312,6 +330,8 @@ export interface AIMessage {
   approvals?: ApprovalRequest[];
   /** Things the assistant did in connected services (drafts saved, events created), with links. */
   external?: Array<{ tool: string; summary: string; link?: string }>;
+  /** What the assistant did to produce this reply, step by step. */
+  activity?: AgentStep[];
 }
 
 /**
@@ -364,7 +384,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'workspace' | 'folder';
   entityTitle: string;
   details?: string;
   canUndo: boolean;

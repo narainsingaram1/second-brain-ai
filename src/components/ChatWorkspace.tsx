@@ -167,8 +167,9 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
         <div ref={content} className={active ? "chat-transcript" : "chat-welcome-content"}>
           {active ? <>
             {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} />)}
-            {draft && <ConversationMessage key={draft.id} message={{ id: draft.id, role: "assistant", content: draft.content, timestamp: "" }} state={state} streaming />}
-            {conversation.busy && !draft && <div className="chat-thinking" role="status"><span className="chat-thinking-dot" /><span>{conversation.progress || "Thinking…"}</span></div>}
+            {/* The reply in progress: live steps first, then its text as it streams in. One stable element for the whole turn. */}
+            {conversation.busy && last?.role === "user" && <ConversationMessage key="live-turn" state={state} streaming
+              message={{ id: draft?.id || "live-turn", role: "assistant", content: draft?.content || "", timestamp: "", activity: conversation.activity }} />}
           </> : <div className="chat-welcome-inner">
             <h1>Ask Iris</h1>
             <p className="chat-welcome-subtitle">Iris has read your tasks, notes, goals, journal and course materials, and can change them when you ask</p>

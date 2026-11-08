@@ -1,5 +1,6 @@
 import { memoryContext, topicKey, normalizeAgentMemory, prepareMemoryChange, type MemoryChange, type AgentMemory } from "./agentMemory";
-import type { AIMessage, ApprovalRequest } from "../types";
+import type { AgentStep, AIMessage, ApprovalRequest } from "../types";
+import { ActivityTracker, describeCall, describeResult, pastTense } from "./agentActivity";
 import { BrainState, Task } from "../types";
 import { describeImages, getVisionModel, modelSupportsImages, OpenRouterContentPart, OpenRouterMessage, queryOpenRouterWithTools, type OpenRouterTool } from "./openrouter";
 import { PreparedImage, sessionImage } from "../utils/imageInput";
@@ -26,6 +27,8 @@ export interface AgentExecutionResult {
   approvals?: ApprovalRequest[];
   /** Actions taken outside Synapse this turn (drafts saved, events created). */
   external?: Array<{ tool: string; summary: string; link?: string }>;
+  /** What the assistant did this turn, step by step. */
+  activity?: AgentStep[];
   status: "complete" | "partial" | "error" | "cancelled";
 }
 /** A gated change, prepared and described, for the host to store until the user decides. */
@@ -51,6 +54,8 @@ export interface ExternalToolset {
 export interface AgentOptions {
   signal?: AbortSignal;
   onProgress?: (message: string) => void;
+  /** Each step of the work as it starts, changes and ends (the same step ID is reported again). */
+  onStep?: (step: AgentStep) => void;
   /** The answer text as it streams in; an empty string clears a draft that turned into tool calls. */
   onText?: (textSoFar: string) => void;
   commit?: (mutation: Mutation) => Promise<void>;
@@ -100,7 +105,7 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 
 ## Making changes
 - You can create, update and delete calendar events (create_event/update_event/delete_event) and set task due times (dueTime, newDueTime). Times are 24-hour HH:MM in the user's local time zone; write them for the user as 12-hour times (e.g. 2:30 PM). Never invent a time, end time or location that was not stated.
-- You can create and update tasks, goals (progress, status, milestones), habits, notes (rename, append, rewrite, move) and Career tracker entries (applications and practice problems), log journal entries, and delete tasks. Only create or change records when the user asks for it. Advice and questions do not authorize writes; if a change would clearly help, suggest it and offer.
+- You can create, change and delete everything in the user's workspace: tasks, task sections and subsections, goals (progress, status, milestones), habits, journal entries, notes and note folders, workspaces, Career tracker entries (job applications and coding practice problems with every detail: stage, dates, difficulty, number, topic, job type, contact, link, notes), courses, flashcard decks and quizzes. When the user says they applied somewhere, add or update the application; when they say they solved or practiced a problem, use log_practice (creating the problem first if it isn't tracked) so their streak counts. Only create or change records when the user asks for it or clearly reports something to track. Advice and questions do not authorize writes; if a change would clearly help, suggest it and offer.
 - Task sections and subsections are the user's own and can grow. When the user names a section or subsection that doesn't exist yet (e.g. a "Projects" subsection under Career), just use that name in create_task or update_task (newSection/newSubsection): it is created on save. Reuse an existing group when the name clearly refers to it (any capitalization). Don't ask the user to pick an existing one instead, and don't create a new section when they asked for a subsection of an existing one.
 - Edits to something already discussed ("rename it", "push it to Friday", "mark that done") target the existing record with an update tool; never create a duplicate. If the target is ambiguous, ask briefly.
 - Never invent dates, folders or statuses. A tool result with saved:true confirms the change; errors do not. After saving, confirm briefly in plain language what changed.
@@ -255,6 +260,7 @@ function boundedMessages(state: BrainState, prompt: string, options: AgentOption
     options.externalTools?.instructions || "",
     lifeSnapshot(state),
     `Sections and subsections: ${JSON.stringify(state.subsections)}.`,
+    state.workspaces?.length ? `Workspaces: ${state.workspaces.map(w => `${w.name} (${w.template}) [workspace:${w.id}]`).join(", ")}.` : "",
     state.noteFolders?.length ? `Note folders: ${state.noteFolders.map(f => `${f.name} [folder:${f.id}]`).join(", ")}.` : "",
     referenced.size ? `Records referenced recently in this conversation (use these IDs for follow-ups like "rename it" or "the second one"):\n${[...referenced].map(([key, title]) => `- ${title} [${key}]`).join("\n")}` : "",
     `## Memory`,
@@ -287,7 +293,9 @@ export class AutonomousBrainAgent {
       ...(external?.definitions || [])];
     const approvals: ApprovalRequest[] = [];
     let untrustedRead = false;
+    const activity = new ActivityTracker(options.onStep);
     const finish = (answer: string, status: AgentExecutionResult["status"] = "complete"): AgentExecutionResult => ({
+      ...(() => { const steps = activity.list(); return steps.length ? { activity: steps } : {}; })(),
       ...(approvals.length ? { approvals } : {}),
       ...(externalDone.length ? { external: externalDone } : {}),
       actionType: actions.length ? "compound" : "query_brain", entityType: actions.length ? "compound" : "query",
@@ -314,10 +322,13 @@ export class AutonomousBrainAgent {
       } else {
         // The chat model cannot see images: have the vision model read them first.
         const visionModel = options.visionModel || getVisionModel();
+        const looking = activity.start("image", images.length > 1 ? `Looking at your ${images.length} images` : "Looking at your image");
         try {
           options.onProgress?.(images.length > 1 ? "Looking at your images…" : "Looking at your image…");
           imageDescription = await describeImages(images, prompt, key, visionModel, signal);
+          activity.finish(looking, { label: images.length > 1 ? `Looked at your ${images.length} images` : "Looked at your image", detail: imageDescription.slice(0, 1500) });
         } catch (err) {
+          activity.fail(looking, errorMessage(err));
           return finish(signal.aborted ? "The request was stopped or timed out. No changes were saved."
             : `I couldn’t read the image with ${visionModel}: ${errorMessage(err)} No changes were saved. You can pick another vision model in Settings.`, signal.aborted ? "cancelled" : "error");
         }
@@ -338,6 +349,7 @@ export class AutonomousBrainAgent {
       ? Object.fromEntries(Object.entries(child).sort(([a], [b]) => a.localeCompare(b))) : child);
     const finalize = async (reason: string) => {
       options.onProgress?.("Writing your answer…");
+      const wrapUp = activity.start("write", "Pulling together what I found");
       // Reintroduce unique retrieved evidence if earlier tool bodies were evicted. Never replay a write.
       let remaining = 60000;
       const available: Array<{ tool: string; result: unknown; stateRevision: number }> = [];
@@ -354,6 +366,7 @@ export class AutonomousBrainAgent {
       ];
       const completion = await queryOpenRouterWithTools(finalMessages, tools, key, model, undefined, "none", signal, { onText: options.onText });
       if (completion.toolCalls?.length || !completion.content?.trim()) throw new Error("The provider did not return an answer when tool calls were disabled. Try another configured model.");
+      activity.finish(wrapUp, { label: "Pulled together what I found" });
       return finish(completion.content, "partial");
     };
     try {
@@ -371,7 +384,13 @@ export class AutonomousBrainAgent {
             messages[i] = { ...messages[i], content: '{"contextOmitted":true,"instruction":"Read evidence again if needed. Successful writes remain saved; do not repeat them."}' };
           }
         }
-        const completion = await queryOpenRouterWithTools(messages, tools, key, model, undefined, "auto", signal, { onText: options.onText });
+        const thinking = activity.start("think", step ? "Thinking about what I found" : "Thinking");
+        const completion = await queryOpenRouterWithTools(messages, tools, key, model, undefined, "auto", signal, {
+          onText: options.onText, onReasoning: text => activity.update(thinking, { detail: text }, true) });
+        // Show the model's reasoning, or the note it wrote before using tools; a pass with neither isn't shown.
+        const thought = activity.get(thinking)?.detail?.trim() || (completion.toolCalls?.length ? completion.content?.trim() : "");
+        if (thought) activity.finish(thinking, { detail: thought, label: `Thought for ${Math.max(1, Math.round((Date.now() - activity.get(thinking)!.startedAt) / 1000))}s` });
+        else activity.hide(thinking);
         if (!completion.toolCalls?.length) {
           if (!completion.content?.trim()) throw new Error("The model returned no answer. Please retry or select another model in Settings.");
           return finish(completion.content);
@@ -382,6 +401,14 @@ export class AutonomousBrainAgent {
         for (const call of completion.toolCalls) {
           signal.throwIfAborted();
           let output: unknown;
+          let preview: Record<string, any> = {};
+          try { preview = JSON.parse(call.function.arguments) || {}; } catch { /* Validation reports bad arguments below. */ }
+          const described = describeCall(call.function.name, preview);
+          const stepId = activity.start(described.kind, described.label);
+          const settle = (result: any) => {
+            if (result && typeof result === "object" && "error" in result) activity.fail(stepId, String(result.error));
+            else activity.finish(stepId, { label: pastTense(described.label), ...describeResult(call.function.name, preview, result) });
+          };
           try {
             if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
             const tool = tools.find(t => t.function.name === call.function.name);
@@ -479,6 +506,7 @@ export class AutonomousBrainAgent {
                   output = { status: "awaiting_approval", saved: false, approvalId: request.id, summary, reason };
                   completedWrites.set(fingerprint, output);
                   roundProgress = true;
+                  settle(output);
                   messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(output) });
                   continue;
                 }
@@ -492,7 +520,7 @@ export class AutonomousBrainAgent {
                 actions.push(mutation);
                 output = { saved: true, action: mutation.action, type: mutation.type, record: mutation.record };
                 completedWrites.set(fingerprint, output);
-                if (!mutation.remove) sources.set(`${mutation.type}:${mutation.record.id}:0`, { id: mutation.record.id, type: mutation.type, title: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", snippet: "Saved during this conversation" });
+                if (!mutation.remove && !["workspace", "folder", "section"].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, { id: mutation.record.id, type: mutation.type, title: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", snippet: "Saved during this conversation" });
               }
             }
           } catch (err) {
@@ -504,6 +532,7 @@ export class AutonomousBrainAgent {
             }
             output = { error: errorMessage(err), saved: false };
           }
+          settle(output);
           messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(output) });
         }
         stagnantRounds = roundProgress ? 0 : stagnantRounds + 1;

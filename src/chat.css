@@ -165,3 +165,50 @@
 .approval-warnings svg { margin-top: 2px; flex-shrink: 0; }
 .approval-preview { margin: 8px 0 0 23px; padding: 10px 12px; max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; color: var(--workspace-ink, #171717); background: var(--workspace-panel, #fff); border: 1px solid var(--workspace-line, #e9e9eb); border-radius: 8px; }
 .approval-countdown { align-self: center; font-weight: 600; color: var(--workspace-ink, #171717); font-variant-numeric: tabular-nums; }
+
+/* The assistant at work: a live status line, and every step behind a disclosure arrow. */
+.agent-activity { margin: 0 0 10px; font-size: 13px; color: var(--workspace-muted); }
+.agent-activity-toggle { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; min-height: 28px; padding: 2px 8px 2px 6px; margin-left: -6px; border-radius: 8px; color: var(--workspace-muted); text-align: left; transition: background-color 150ms var(--ease), color 150ms var(--ease); }
+.agent-activity-toggle:not(:disabled):hover { background: var(--workspace-raised); color: var(--workspace-ink); }
+.agent-activity-toggle:disabled { opacity: 1 !important; cursor: default !important; }
+.agent-activity-toggle > svg:first-child { flex-shrink: 0; }
+.agent-status { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; animation: agent-status-in 260ms var(--ease) both; }
+.agent-shimmer { color: transparent; background: linear-gradient(90deg, var(--workspace-muted) 0%, var(--workspace-muted) 35%, var(--workspace-ink) 50%, var(--workspace-muted) 65%, var(--workspace-muted) 100%); background-size: 250% 100%; -webkit-background-clip: text; background-clip: text; animation: agent-status-in 260ms var(--ease) both, agent-shimmer 2.2s linear infinite; }
+.agent-elapsed, .agent-count { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; color: var(--workspace-muted); font-variant-numeric: tabular-nums; }
+.agent-chevron { flex-shrink: 0; transition: transform 220ms var(--ease); }
+.agent-activity.is-open .agent-chevron { transform: rotate(180deg); }
+.agent-pulse { position: relative; width: 14px; height: 14px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
+.agent-pulse::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--workspace-accent-strong); }
+.agent-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--workspace-accent-strong); animation: agent-ring 1.6s var(--ease) infinite; }
+/* A glimpse of the reasoning as it streams, fading out at the top. */
+.agent-peek { margin: 4px 0 0 22px; max-height: 3.2em; overflow: hidden; display: flex; flex-direction: column-reverse; font-size: 12.5px; line-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--workspace-muted); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 60%); mask-image: linear-gradient(to bottom, transparent, #000 60%); animation: chat-arrive 300ms var(--ease) both; }
+.agent-steps-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 260ms var(--ease); }
+.agent-activity.is-open .agent-steps-wrap { grid-template-rows: 1fr; }
+.agent-steps { min-height: 0; overflow: hidden; margin: 0; padding: 0 0 0 1px; list-style: none; }
+.agent-activity.is-open .agent-steps { padding-top: 6px; }
+.agent-step { position: relative; display: flex; gap: 10px; padding: 0 0 12px; animation: chat-arrive 280ms var(--ease) both; }
+.agent-step:not(:last-child)::before { content: ""; position: absolute; left: 10px; top: 24px; bottom: 2px; width: 1px; background: var(--workspace-line); }
+.agent-step-icon { width: 21px; height: 21px; flex-shrink: 0; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--workspace-raised); border: 1px solid var(--workspace-line); color: var(--workspace-secondary); }
+.agent-step.is-error .agent-step-icon { color: var(--workspace-danger); }
+.agent-step-body { flex: 1; min-width: 0; padding-top: 1px; }
+.agent-step-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: var(--workspace-ink); line-height: 20px; }
+.agent-step-head span { min-width: 0; overflow-wrap: anywhere; }
+.agent-step.is-running .agent-step-head span { color: var(--workspace-secondary); }
+.agent-step-head time { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; color: var(--workspace-muted); }
+.agent-step-detail { margin: 2px 0 0; color: var(--workspace-muted); overflow-wrap: anywhere; }
+.agent-step.is-error .agent-step-detail { color: var(--workspace-danger); }
+.agent-reasoning { margin: 6px 0 0; padding: 8px 10px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.6; color: var(--workspace-secondary); background: var(--workspace-raised); border-radius: 8px; }
+.agent-step-items { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+.agent-step-items li { max-width: 100%; }
+.agent-step-items a, .agent-step-items span { display: inline-block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--workspace-line); background: var(--workspace-panel); color: var(--workspace-secondary); font-size: 12px; line-height: 20px; }
+.agent-step-items a:hover { color: var(--workspace-ink); border-color: var(--workspace-line-strong); }
+.agent-spinner { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--workspace-line-strong); border-top-color: var(--workspace-accent-strong); animation: agent-spin 800ms linear infinite; }
+/* Streaming text: a soft caret trails the newest words. */
+.chat-prose.is-revealing > :last-child::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 4px; border-radius: 50%; vertical-align: middle; background: var(--workspace-accent-strong); animation: chat-breathe 1s ease-in-out infinite; }
+.chat-prose.is-revealing > :last-child:is(pre, table, div:has(table), ul, ol)::after { display: none; }
+@keyframes agent-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
+@keyframes agent-status-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes agent-ring { 0% { transform: scale(.5); opacity: .9; } 100% { transform: scale(1.25); opacity: 0; } }
+@keyframes agent-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .agent-shimmer { color: var(--workspace-secondary); background: none; } }
+.chat-assistant-message.is-continued, .chat-assistant-message.is-continued .agent-step, .chat-assistant-message.is-continued .agent-status { animation: none; }

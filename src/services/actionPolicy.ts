@@ -13,7 +13,12 @@ const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_even
 const MEMORY = new Set(["remember_memory", "update_memory", "forget_memory"]);
 const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete_habit", "create_habit", "create_goal", "update_goal", "log_journal",
   "create_note", "update_note", "create_event", "update_event", "delete_event", "create_tracker_item", "update_tracker_item", "create_course",
-  "set_course_grading", "record_grade", "create_flashcard_deck", "create_quiz"]);
+  "set_course_grading", "record_grade", "create_flashcard_deck", "create_quiz", "delete_tracker_item", "log_practice",
+  "create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section", "rename_subsection", "delete_subsection",
+  "delete_goal", "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
+  "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz"]);
+/** Every tool that changes the user's own data, for the coverage check. */
+export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
 
 /**
  * Unknown tools are treated as the riskiest tier, so a new integration is gated until it is classified.
@@ -68,11 +73,26 @@ const show = (value: unknown) => {
   return text.length > 80 ? `${text.slice(0, 77)}…` : text;
 };
 const recordName = (m: Mutation) => ("name" in m.record ? m.record.name : (m.record as { title?: string }).title) || "Untitled";
-const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document" };
+const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
+  workspace: "workspace", folder: "note folder", section: "section" };
+const SECTION_SUMMARIES: Record<string, (before: string, after: string) => string> = {
+  create_section: (_, a) => `Add section "${a}"`, rename_section: (b, a) => `Rename section "${b}" to "${a}"`, delete_section: b => `Delete section "${b}"`,
+  rename_subsection: b => `Rename a subsection in "${b}"`, delete_subsection: b => `Delete a subsection in "${b}"`,
+};
 
 /** One-line summary and field-level details of exactly what a change will do. */
 export function describeMutation(tool: string, m: Mutation): { summary: string; details: string[] } {
   const noun = NOUNS[m.type] || m.type;
+  if (m.type === "section") {
+    const before = (m.expected || m.record) as unknown as { name: string; subsections: string[] }, after = m.record as unknown as { name: string; subsections: string[] };
+    const details = tool === "delete_section" ? ["Its tasks move to the first remaining section."]
+      : tool === "delete_subsection" ? [`Removes "${before.subsections.find(s => !after.subsections.includes(s))}"; its tasks move to "${after.subsections[0]}".`]
+      : tool === "rename_subsection" ? before.subsections.map((s, i) => s !== after.subsections[i] ? `"${s}" → "${after.subsections[i]}"` : "").filter(Boolean) : [];
+    return { summary: SECTION_SUMMARIES[tool]?.(before.name, after.name) || `Change section "${before.name}"`, details };
+  }
+  if (m.remove && m.type === "workspace") return { summary: `Delete workspace "${recordName(m)}"`, details: ["Removes the workspace with all of its tracker entries, or its courses with their decks, quizzes and grades."] };
+  if (m.remove && m.type === "course") return { summary: `Delete course "${recordName(m)}"`, details: ["Removes the course with its flashcard decks, quizzes and grades. Tasks stay."] };
+  if (m.remove && m.type === "folder") return { summary: `Delete note folder "${recordName(m)}"`, details: ["Its notes and subfolders move up a level; no notes are deleted."] };
   if (m.remove) return { summary: `Delete ${noun} "${recordName(m)}"`, details: ["Removes it from your workspace. You can restore it with Undo in the activity log until you reload."] };
   if (!m.expected) return { summary: `Create ${noun} "${recordName(m)}"`, details: [] };
   const before = m.expected as unknown as Record<string, unknown>, after = m.record as unknown as Record<string, unknown>;

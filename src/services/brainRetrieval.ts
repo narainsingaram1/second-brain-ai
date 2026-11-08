@@ -62,7 +62,7 @@ export function recordProse(type: RecordType, d: any): string {
     case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`,
       d.content || "[The extracted text of this document is not loaded on this device.]");
     case "deck": return lines(`Flashcard deck: ${d.title} (${d.course})`, `${d.cardCount} cards, ${d.cardsDue} due for review today`,
-      ...(Array.isArray(d.cards) ? d.cards.map((c: any) => `Q: ${c.front}\nA: ${c.back}`) : []));
+      ...(Array.isArray(d.cards) ? d.cards.map((c: any, i: number) => `${i + 1}. Q: ${c.front}\nA: ${c.back}`) : []));
     case "quiz": return lines(`Practice quiz: ${d.title} (${d.course})`,
       `${d.questionCount} questions; ${d.attemptCount ? `taken ${d.attemptCount} times, best ${d.bestScore}%, last ${d.lastScore}` : "not taken yet"}`,
       ...(Array.isArray(d.questions) ? d.questions.map((q: any, i: number) => `${i + 1}. ${q.prompt}${q.choices ? ` [${q.choices.join(" | ")}]` : ""} Answer: ${q.answer}`) : []));
