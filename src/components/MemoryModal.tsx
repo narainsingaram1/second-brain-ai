@@ -27,6 +27,8 @@ import {
   type MemoryEntry,
 } from "../services/agentMemory";
 import { previewHistoryMemories } from "../services/memoryHistory";
+import { learnFromAllChats, type LearnerStatus } from "../services/memoryLearning";
+import { linkedRecordTitle, recordCatalog } from "../services/memoryGraph";
 import "../memory.css";
 
 export function MemoryModal({
@@ -35,14 +37,17 @@ export function MemoryModal({
   onChange,
   onOpenSource,
   selectedId,
+  status,
 }: {
   state: BrainState;
   onClose: () => void;
   onChange: (change: MemoryChange) => Promise<AgentMemory>;
   onOpenSource: (conversationId: string) => void;
   selectedId?: string;
+  status?: LearnerStatus;
 }) {
   const memory = normalizeAgentMemory(state.agentMemory);
+  const catalog = recordCatalog(state);
   const [query, setQuery] = useState(""),
     [category, setCategory] = useState("all"),
     [error, setError] = useState(""),
@@ -125,7 +130,7 @@ export function MemoryModal({
     .filter(
       (e) =>
         (category === "all" || e.category === category) &&
-        `${e.topic} ${e.content}`.toLowerCase().includes(query.toLowerCase()),
+        `${e.topic} ${e.content} ${(e.entities || []).join(" ")}`.toLowerCase().includes(query.toLowerCase()),
     )
     .sort(
       (a, b) =>
@@ -209,6 +214,35 @@ export function MemoryModal({
       }
     }
   };
+  /** Reads every saved chat once and saves what it finds; anything can be edited or forgotten afterwards. */
+  const catchUp = async () => {
+    setError("");
+    setBusy(true);
+    setImportNotice("");
+    const abort = new AbortController();
+    controller.current = abort;
+    try {
+      const result = await learnFromAllChats(state, (changes) => onChange({ kind: "batch", changes }), abort.signal, setProgress);
+      setImportNotice(
+        result.reviewed
+          ? `Read ${result.reviewed} messages and added ${result.saved} new ${result.saved === 1 ? "memory" : "memories"}, updating others that were already known.${result.remaining ? ` ${result.remaining} messages are left; run this again to continue.` : ""}`
+          : "Your chats have already been read.",
+      );
+    } catch (e) {
+      if (!abort.signal.aborted) setError(e instanceof Error ? e.message : "Could not read your chats.");
+    } finally {
+      if (controller.current === abort) {
+        controller.current = null;
+        setBusy(false);
+        setProgress("");
+      }
+    }
+  };
+  const jumpTo = (id: string) => {
+    setQuery("");
+    setCategory("all");
+    requestAnimationFrame(() => dialog.current?.querySelector(`[data-memory-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  };
   const saveApproved = async () => {
     setError("");
     setBusy(true);
@@ -291,7 +325,7 @@ export function MemoryModal({
               <span>
                 <strong>Learn automatically</strong>
                 <small>
-                  Clear preferences and durable facts from new chats.
+                  Picks up facts, preferences, projects, people and goals as you chat.
                 </small>
               </span>
               <input
@@ -313,6 +347,15 @@ export function MemoryModal({
             Sensitive details need an explicit request. Credentials are never
             memory. Temporary chats use and learn no saved memory.
           </p>
+          {status?.state === "error" ? (
+            <p className="memory-learning is-error" role="status">
+              Learning paused: {status.error?.replace(/\.?\s*$/, ".")} It will retry with your next message.
+            </p>
+          ) : status?.lastCheckedAt ? (
+            <p className="memory-learning" role="status">
+              {status.state === "learning" ? "Learning from your latest messages…" : `Up to date as of ${new Date(status.lastCheckedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`}
+            </p>
+          ) : null}
           <div className="memory-usage">
             <span>
               {memory.entries.length} / 500 memories · {Math.ceil(bytes / 1024)}{" "}
@@ -433,10 +476,16 @@ export function MemoryModal({
             <section className="memory-history">
               <h3>Learn from past chats</h3>
               <p>
-                Select conversations to analyze. Up to four bounded batches per
-                run; your AI provider may charge for these requests. Review
-                every suggestion before saving.
+                Read every saved chat now and save what it reveals, or pick
+                conversations below and review each suggestion first. Your AI
+                provider may charge a small amount for these requests.
               </p>
+              <div className="memory-action-row">
+                <button type="button" disabled={busy} onClick={() => void catchUp()}>
+                  <Brain size={14} />
+                  Read all chats and save
+                </button>
+              </div>
               <div className="memory-thread-list">
                 {conversationThreads(state)
                   .filter((t) => t.messages.some((m) => m.role === "user"))
@@ -603,13 +652,36 @@ export function MemoryModal({
                 </div>
                 <h3>{entry.topic}</h3>
                 <p>{entry.content}</p>
+                {entry.entities?.length ? (
+                  <ul className="memory-entities" aria-label="Mentions">
+                    {entry.entities.map((name) => (
+                      <li key={name}>
+                        <button type="button" onClick={() => setQuery(name)}>{name}</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <MemoryConnections
+                  entry={entry}
+                  entries={memory.entries}
+                  titleOf={(link) => linkedRecordTitle(link, catalog)}
+                  disabled={busy}
+                  onJump={jumpTo}
+                  onChange={(next) => void change({ kind: "edit", id: entry.id, expectedUpdatedAt: entry.updatedAt, ...next })}
+                />
                 <details>
                   <summary>
                     {entry.sources.length
-                      ? `${entry.sources.length} supporting source${entry.sources.length === 1 ? "" : "s"}`
-                      : "Added by you"}{" "}
+                      ? `${entry.origin === "auto" ? "Learned from" : "From"} ${entry.sources.length} message${entry.sources.length === 1 ? "" : "s"}`
+                      : "Added by you"}
+                    {(entry.mentions || 1) > 1 ? ` · Mentioned ${entry.mentions} times` : ""}{" "}
                     · Updated {new Date(entry.updatedAt).toLocaleDateString()}
                   </summary>
+                  {entry.history?.map((old) => (
+                    <p className="memory-previous" key={old.until}>
+                      Until {new Date(old.until).toLocaleDateString()}: {old.content}
+                    </p>
+                  ))}
                   {entry.sources.map((source, index) => (
                     <blockquote key={`${source.messageId}-${index}`}>
                       <q>{source.excerpt}</q>
@@ -657,5 +729,66 @@ export function MemoryModal({
         </footer>
       </section>
     </div>
+  );
+}
+
+/** What a memory connects to: linked records and other memories, each removable. */
+function MemoryConnections({
+  entry,
+  entries,
+  titleOf,
+  disabled,
+  onJump,
+  onChange,
+}: {
+  entry: MemoryEntry;
+  entries: MemoryEntry[];
+  titleOf: (link: NonNullable<MemoryEntry["records"]>[number]) => string | undefined;
+  disabled: boolean;
+  onJump: (id: string) => void;
+  onChange: (next: { related?: string[]; records?: NonNullable<MemoryEntry["records"]> }) => void;
+}) {
+  const records = (entry.records || []).flatMap((link) => {
+    const title = titleOf(link);
+    return title ? [{ link, title }] : [];
+  });
+  const related = (entry.related || []).flatMap((id) => {
+    const other = entries.find((e) => e.id === id);
+    return other ? [other] : [];
+  });
+  if (!records.length && !related.length) return null;
+  return (
+    <ul className="memory-links" aria-label={`Connected to ${entry.topic}`}>
+      {records.map(({ link, title }) => (
+        <li key={`${link.type}:${link.id}`}>
+          <span>
+            <small>{link.type === "knowledge" ? "note" : link.type}</small> {title}
+          </span>
+          <button
+            type="button"
+            aria-label={`Remove link to ${title}`}
+            disabled={disabled}
+            onClick={() => onChange({ records: entry.records!.filter((r) => r !== link) })}
+          >
+            <X size={11} />
+          </button>
+        </li>
+      ))}
+      {related.map((other) => (
+        <li key={other.id}>
+          <button type="button" className="memory-link-jump" onClick={() => onJump(other.id)}>
+            <small>memory</small> {other.topic}
+          </button>
+          <button
+            type="button"
+            aria-label={`Remove link to ${other.topic}`}
+            disabled={disabled}
+            onClick={() => onChange({ related: entry.related!.filter((id) => id !== other.id) })}
+          >
+            <X size={11} />
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

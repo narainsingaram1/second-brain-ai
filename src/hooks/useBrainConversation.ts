@@ -17,11 +17,10 @@ import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
 import { getVisionModel } from "../services/openrouter";
 import { webToolset } from "../services/webTools";
-import { learnFromTurn } from "../services/memoryHistory";
+import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
 import {
   applyMemoryChange,
   clearMemoryIndex,
-  topicKey,
   normalizeAgentMemory,
   type AgentMemory,
   type MemoryChange,
@@ -47,6 +46,7 @@ export interface BrainConversation {
   setTemporary?: (temporary: boolean) => void;
   messages?: AIMessage[];
   changeMemory?: (change: MemoryChange) => Promise<AgentMemory>;
+  memoryStatus?: LearnerStatus;
 }
 function archiveCurrent(state: BrainState): ConversationThread[] {
   const archived = state.conversations || [];
@@ -67,7 +67,9 @@ export function useBrainConversation(
   const latest = useRef(state);
   latest.current = state;
   const active = useRef<AbortController | null>(null);
-  const learning = useRef<AbortController | null>(null);
+  const learner = useRef<MemoryLearner | null>(null);
+  const changeMemoryRef = useRef<(change: MemoryChange, agentOwned?: boolean) => Promise<AgentMemory>>(null!);
+  const [memoryStatus, setMemoryStatus] = useState<LearnerStatus>({ state: "idle" });
   const generation = useRef(0);
   const [busy, setBusy] = useState(false),
     [progress, setProgress] = useState("");
@@ -86,8 +88,6 @@ export function useBrainConversation(
     generation.current++;
     active.current?.abort();
     active.current = null;
-    learning.current?.abort();
-    learning.current = null;
     clearMemoryIndex();
     setMemoryAccount(state?.userId || "guest");
     setTemporaryState(false);
@@ -96,14 +96,44 @@ export function useBrainConversation(
     setProgress("");
     setDraft(null);
     setActivity([]);
+    setMemoryStatus({ state: "idle" });
+    const background = new MemoryLearner({
+      getState: () => latest.current,
+      commit: (changes) => changeMemoryRef.current({ kind: "batch", changes }, true),
+      onStatus: setMemoryStatus,
+      // Marks the reply to each message that taught something, so the user can see and review it.
+      onLearned: (byMessage) => {
+        const current = latest.current;
+        if (!current) return;
+        const assistantAfter = new Map<string, string[]>();
+        current.chatHistory.forEach((message, index) => {
+          const ids = byMessage.get(message.id), next = current.chatHistory[index + 1];
+          if (ids && next?.role === "assistant") assistantAfter.set(next.id, ids);
+        });
+        if (assistantAfter.size)
+          publish({ ...current, chatHistory: current.chatHistory.map((m) => assistantAfter.has(m.id) ? { ...m, rememberedIds: [...new Set([...(m.rememberedIds || []), ...assistantAfter.get(m.id)!])] } : m) });
+      },
+    });
+    learner.current = background;
+    // Hiding the tab may be the last chance to read what was just said on this device.
+    const flushHidden = () => { if (document.visibilityState === "hidden") void background.flush(); };
+    document.addEventListener("visibilitychange", flushHidden);
     return () => {
       generation.current++;
       active.current?.abort();
-      learning.current?.abort();
+      document.removeEventListener("visibilitychange", flushHidden);
+      background.dispose();
+      learner.current = null;
       clearMemoryIndex();
       setMemoryAccount("");
     };
   }, [state?.userId]);
+  // Picks up anything in the open conversation not yet read, such as turns from before the tab last closed.
+  const openConversation = state?.conversationId, loaded = Boolean(state);
+  useEffect(() => {
+    const current = latest.current;
+    if (loaded && current) learner.current?.enqueue(turnsOf(current.chatHistory.slice(-40), current.conversationId || "current"));
+  }, [loaded, openConversation, state?.userId]);
   const changeMemory = async (
     change: MemoryChange,
     agentOwned = false,
@@ -160,45 +190,7 @@ export function useBrainConversation(
     }
     return saved!;
   };
-  /**
-   * After a reply is shown, the fast model checks the user's message for durable facts and
-   * saves the ones that pass every memory gate, then marks the reply as "Remembered".
-   * Failures are silent: learning is best effort and never blocks or alters the answer.
-   */
-  const learnInBackground = async (user: AIMessage, assistantId: string, reply: string) => {
-    const account = latest.current?.userId, run = generation.current;
-    const isCurrent = () => latest.current?.userId === account && generation.current === run;
-    learning.current?.abort();
-    const controller = new AbortController();
-    learning.current = controller;
-    try {
-      if (!latest.current) return;
-      const changes = await learnFromTurn(latest.current, user, reply, controller.signal);
-      const ids: string[] = [];
-      for (const change of changes) {
-        if (controller.signal.aborted || !isCurrent()) return;
-        try {
-          const saved = await changeMemory(change, true);
-          const entry = saved.entries.find((e) => topicKey(e.topic) === topicKey(change.entry.topic));
-          if (entry) ids.push(entry.id);
-        } catch {
-          /* Forgotten topics, conflicts and limits reject the save; nothing else to do. */
-        }
-      }
-      if (ids.length && isCurrent() && latest.current) {
-        publish({
-          ...latest.current,
-          chatHistory: latest.current.chatHistory.map((m) =>
-            m.id === assistantId ? { ...m, rememberedIds: [...new Set([...(m.rememberedIds || []), ...ids])] } : m,
-          ),
-        });
-      }
-    } catch {
-      /* Provider errors and cancellation leave memory unchanged. */
-    } finally {
-      if (learning.current === controller) learning.current = null;
-    }
-  };
+  changeMemoryRef.current = changeMemory;
   const run: RunConversation = async (prompt, options = {}) => {
     if (active.current)
       throw new Error(
@@ -425,9 +417,9 @@ export function useBrainConversation(
             ...latest.current!,
             chatHistory: [...withDescription(latest.current!.chatHistory), assistant],
           });
-        // The main model already handled memory when it saved something this turn.
-        if (!temporary && !result.rememberedIds?.length && (result.status === "complete" || result.status === "partial"))
-          void learnInBackground(user, assistant.id, result.queryAnswer);
+        // Temporary chats are never read. Everything else joins the background queue, which batches it.
+        if (!temporary && (result.status === "complete" || result.status === "partial"))
+          learner.current?.enqueue([{ message: user, reply: result.queryAnswer, conversationId: initial.conversationId || "current" }]);
       }
       return result;
     } finally {
@@ -530,5 +522,6 @@ export function useBrainConversation(
     setTemporary,
     messages: temporary ? temporaryMessages : state?.chatHistory,
     changeMemory,
+    memoryStatus,
   };
 }

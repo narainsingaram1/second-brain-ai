@@ -79,6 +79,7 @@ export interface AgentOptions {
 export type RunConversation = (prompt: string, options?: AgentOptions) => Promise<AgentExecutionResult>;
 
 const readNames = new Set(READ_TOOLS.map(t => t.function.name));
+const MEMORY_WRITES = ["remember_memory", "update_memory", "forget_memory", "organize_memory"];
 const READ_PROGRESS: Record<string, string> = { list_calendar_events: "Checking your calendar…", search_email: "Reading your email…", read_email: "Reading your email…",
   read_url: "Reading the page…", web_search: "Searching the web…" };
 function errorMessage(err: unknown): string { return err instanceof Error ? err.message : "Unexpected assistant failure"; }
@@ -121,8 +122,9 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 - Grades: course records include grading (weights, scores, current grade, projected final, and the average needed on the remaining work for each letter, already computed — use those numbers rather than redoing the math). When the user describes how a class is weighted, call set_course_grading; when they report a score ("got 42/50 on HW 3", "87 on the midterm"), call record_grade (a bare percentage is score out of maxScore 100). If a course has no grading yet and the user wants to track grades, ask for the breakdown or offer to read it from their syllabus document. For "what do I need on the final", use neededForTarget on that upcoming item when present, and say what assumption it makes (the rest at their current average).
 
 ## Memory
-- Saved memories about the user are context: use them naturally to personalize, without reciting unrelated ones. Current instructions override saved preferences.
-- Durable facts the user mentions in passing are learned automatically in the background after you reply, so do not spend a tool call on them. Call remember_memory/update_memory only when the user explicitly asks you to remember, save or correct something, quoting the user's exact words. For the current message omit messageId. For older messages, find the message ID with search_conversations or recall_conversation. Never save assistant guesses, third-party claims, credentials, temporary requests, or sensitive details unless the user explicitly asks. Forget only when asked. Never claim a memory was saved without saved:true. Memory permission never authorizes changing tasks or notes.
+- The Memory section below holds a profile of the user and the memories most relevant to this message, with the records and other memories each connects to. Let it shape every reply: use their name when natural, match how they like to work, assume what you already know instead of re-asking, and connect the message to their projects, goals, courses and people when that genuinely helps. Don't recite it or announce that you remembered something. Current instructions and live records override saved memories.
+- Use search_memories when the Memory section may not include what you need, such as questions about the user's past or preferences on a topic not shown.
+- Durable facts the user mentions in passing are learned automatically in the background after you reply, so do not spend a tool call on them. Call remember_memory/update_memory only when the user explicitly asks you to remember, save or correct something, quoting the user's exact words. organize_memory pins, unpins, sets expiry and changes connections when the user asks. For the current message omit messageId. For older messages, find the message ID with search_conversations or recall_conversation. Never save assistant guesses, third-party claims, credentials, temporary requests, or sensitive details unless the user explicitly asks. Forget only when asked. Never claim a memory was saved without saved:true. Memory permission never authorizes changing tasks or notes.
 
 ## Images
 - The user can attach images: screenshots (emails, syllabi, assignment pages, calendars, chats, apps, code, errors), photos, charts and graphs, diagrams, slides, whiteboards, handwriting, receipts and documents. Look closely and actually analyze them: read text exactly, interpret charts (type, axes, values, trends, outliers, what it implies), explain diagrams and processes, critique designs, solve problems shown, and answer questions about what is visible. Be specific about what you see; say when something is illegible or uncertain, and never invent details that are not visible.
@@ -289,7 +291,7 @@ export class AutonomousBrainAgent {
     const external = options.externalTools;
     const externalNames = new Set((external?.definitions || []).map(t => t.function.name));
     const externalDone: NonNullable<AgentExecutionResult["external"]> = [];
-    const tools = [...BRAIN_TOOLS.filter(t => memoryAvailable || !["search_memories","remember_memory","update_memory","forget_memory","search_conversations"].includes(t.function.name)),
+    const tools = [...BRAIN_TOOLS.filter(t => memoryAvailable || ![...MEMORY_WRITES, "search_memories", "search_conversations"].includes(t.function.name)),
       ...(external?.definitions || [])];
     const approvals: ApprovalRequest[] = [];
     let untrustedRead = false;
@@ -414,7 +416,7 @@ export class AutonomousBrainAgent {
             const tool = tools.find(t => t.function.name === call.function.name);
             if (!tool) throw new Error("Unsupported tool");
             const args = parseToolArguments(call.function.arguments, tool.function.parameters);
-            if (["remember_memory","update_memory","forget_memory"].includes(call.function.name)) {
+            if (MEMORY_WRITES.includes(call.function.name)) {
               if (!options.commitMemory) throw new Error("Memory writes are unavailable in this session.");
               const latestMemory = options.getMemory ? options.getMemory() : state.agentMemory;
               const memoryState = { ...state, agentMemory: latestMemory };
@@ -525,7 +527,7 @@ export class AutonomousBrainAgent {
             }
           } catch (err) {
             signal.throwIfAborted();
-            if (["remember_memory","update_memory","forget_memory"].includes(call.function.name)) {
+            if (MEMORY_WRITES.includes(call.function.name)) {
               let args: Record<string, any> = {};
               try { args = JSON.parse(call.function.arguments); } catch { /* Invalid JSON has no topic. */ }
               memoryErrors.set(memoryErrorKey(args || {}), errorMessage(err));

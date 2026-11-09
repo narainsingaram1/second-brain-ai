@@ -56,6 +56,8 @@ Tasks > Appearance offers eight coordinated accent palettes, with separate light
 
 ## Agent memory
 
+Apply `supabase/migrations/202611100001_connected_memory.sql` before or with the release that learns continuously. It lets memories hold connections, repeat counts, earlier versions and the person and goal categories. It is additive. Until it is applied, the app still saves memories but drops those fields and files people under facts and goals under projects, so apply it to get connected recall.
+
 Apply `supabase/migrations/202611010002_agent_memory.sql` before publishing a frontend that saves `agentMemory`. It extends the existing revision-checked save function and validates the versioned memory collection (500 entries and 256 KiB, within the existing 2 MiB workspace limit). Existing workspaces without the field remain valid. The migration is additive and does not rewrite stored workspaces.
 
 Memory is available in Workspace settings > Memory and through Remembered indicators in chat. Saved context and automatic learning have separate controls. Ordinary durable user statements may be learned through the existing agent tool loop; sensitive information needs an explicit remember request, and common credential formats are rejected. Memory is fallible context, not a replacement for current record retrieval. Users can inspect source quotes, correct/pin/expire/forget memories, and preview selected past-chat suggestions before approving them. Forgetting retains suppression markers, not the removed memory's content; the original conversation remains in history.
