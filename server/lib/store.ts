@@ -11,6 +11,8 @@ export interface ActionRow {
 }
 export interface SealedRow { ciphertext: string; iv: string; keyVersion: number; hint: string; updatedAt: string }
 export interface ConnectionRow { provider: "google"; accountEmail: string; scopes: string[]; status: "active" | "needs_reconnect"; connectedAt: string; lastUsedAt: string | null; lastError: string | null }
+export interface TelegramLinkRow { linked: boolean; username: string | null; timeZone: string; briefEnabled: boolean; briefHour: number; alertsEnabled: boolean }
+export interface TelegramPrefs { timeZone?: string; briefEnabled?: boolean; briefHour?: number; alertsEnabled?: boolean }
 export interface AuditInput { actor: "user" | "assistant" | "system"; action: string; entityType?: string; entityId?: string; title?: string; actionId?: string; metadata?: Record<string, unknown> }
 
 /** Everything the server reads or writes for one signed-in user. Supabase in production, memory in tests. */
@@ -36,6 +38,10 @@ export interface ServerStore {
   putConnection(row: Omit<ConnectionRow, "connectedAt" | "lastUsedAt" | "lastError">): Promise<void>;
   markConnection(provider: "google", patch: { status?: ConnectionRow["status"]; lastError?: string | null; used?: boolean }): Promise<void>;
   deleteConnection(provider: "google"): Promise<void>;
+  getTelegramLink(): Promise<TelegramLinkRow | null>;
+  beginTelegramLink(codeHash: string, timeZone: string): Promise<void>;
+  setTelegramPrefs(prefs: TelegramPrefs): Promise<void>;
+  deleteTelegramLink(): Promise<void>;
 }
 
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
@@ -130,6 +136,23 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
     async deleteConnection(provider) {
       const { error } = await client.from("connections").delete().eq("user_id", userId).eq("provider", provider);
       if (error) rpcError(error, "Could not remove the connection.");
+    },
+    async getTelegramLink() {
+      const { data, error } = await client.from("telegram_links").select("chat_id,username,time_zone,brief_enabled,brief_hour,alerts_enabled").eq("user_id", userId).maybeSingle();
+      if (error) rpcError(error, "Could not read your Telegram connection.");
+      return data ? { linked: data.chat_id !== null, username: data.username, timeZone: data.time_zone, briefEnabled: data.brief_enabled, briefHour: data.brief_hour, alertsEnabled: data.alerts_enabled } : null;
+    },
+    async beginTelegramLink(codeHash, timeZone) {
+      const { error } = await client.rpc("begin_telegram_link", { p_code_hash: codeHash, p_time_zone: timeZone });
+      if (error) rpcError(error, "Could not start connecting Telegram.");
+    },
+    async setTelegramPrefs(prefs) {
+      const { error } = await client.rpc("set_telegram_prefs", { p_time_zone: prefs.timeZone ?? null, p_brief_enabled: prefs.briefEnabled ?? null, p_brief_hour: prefs.briefHour ?? null, p_alerts_enabled: prefs.alertsEnabled ?? null });
+      if (error) rpcError(error, "Could not save your Telegram settings.");
+    },
+    async deleteTelegramLink() {
+      const { error } = await client.from("telegram_links").delete().eq("user_id", userId);
+      if (error) rpcError(error, "Could not disconnect Telegram.");
     },
     async documentTexts(ids) {
       const texts = new Map<string, string>();

@@ -155,22 +155,12 @@ kbd {
   font-weight: 500;
   letter-spacing: -0.01em;
 }
-/* Flat mark: an iris ring with an ink pupil. */
 .iris-mark {
-  position: relative;
   display: block;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid var(--workspace-ink);
+  width: 28px;
+  height: 28px;
   flex-shrink: 0;
-}
-.iris-mark::after {
-  content: "";
-  position: absolute;
-  inset: 4px;
-  border-radius: 50%;
-  background: var(--workspace-accent-strong);
+  background: url("/iris-logo.png") center / contain no-repeat;
 }
 .icon-control {
   display: inline-flex;

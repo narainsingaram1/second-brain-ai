@@ -9,7 +9,6 @@ import {
   Layers,
   Plus,
   Settings2,
-  MessageSquare,
   Target,
   Briefcase,
   FolderOpen,
@@ -25,6 +24,10 @@ interface SidebarProps {
   onQuickCapture: () => void;
   counts: { tasks: number; notes: number; goals: number };
   workspaces?: Workspace[];
+}
+/** Slightly larger than the line icons, with the extra size taken from its margin so rows stay aligned. */
+function IrisNavIcon(_: { size?: number; strokeWidth?: number }) {
+  return <span className="iris-mark" style={{ width: 20, height: 20, margin: -2 }} aria-hidden="true" />;
 }
 const groups = [
   {
@@ -45,7 +48,7 @@ const groups = [
   },
   {
     label: "Think",
-    items: [{ id: "copilot", label: "Ask Iris", icon: MessageSquare }],
+    items: [{ id: "copilot", label: "Ask Iris", icon: IrisNavIcon }],
   },
 ];
 export function Sidebar({

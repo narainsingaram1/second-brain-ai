@@ -2,6 +2,7 @@ import type { AgentStep, AIMessage } from "../types";
 import type { AgentExecutionResult } from "./agentDispatcher";
 import type { SavedRecord } from "./recordSync";
 import { apiFetch } from "./serverApi";
+import { providerBase } from "./providerTransport";
 import type { PreparedImage } from "../utils/imageInput";
 
 export interface RemoteTurn {
@@ -13,6 +14,8 @@ export interface RemoteTurn {
   temporary?: boolean;
   images?: PreparedImage[];
   timeZone?: string;
+  /** The AI provider address for this turn; defaults to this device's setting. */
+  providerBase?: string;
 }
 export interface RemoteHandlers {
   signal: AbortSignal;
@@ -48,7 +51,7 @@ export async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenera
 
 /** Runs one assistant turn on the server. Saved changes are reported as they happen; the result arrives last. */
 export async function runRemoteTurn(turn: RemoteTurn, handlers: RemoteHandlers): Promise<AgentExecutionResult> {
-  const body = JSON.stringify(turn);
+  const body = JSON.stringify({ ...turn, providerBase: turn.providerBase || providerBase() });
   const response = await apiFetch("/api/agent", { method: "POST", body, signal: handlers.signal });
   if (!response.ok || !response.body) {
     const error = await response.json().catch(() => ({}));

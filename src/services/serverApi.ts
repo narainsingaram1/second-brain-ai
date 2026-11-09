@@ -48,8 +48,8 @@ export async function readUrlOnServer(url: string, offset: number, signal: Abort
   return null;
 }
 
-export interface ServerFeatures { secrets: boolean; agent: boolean; approvals: boolean; google: boolean }
-const NONE: ServerFeatures = { secrets: false, agent: false, approvals: false, google: false };
+export interface ServerFeatures { secrets: boolean; agent: boolean; approvals: boolean; google: boolean; telegram: boolean }
+const NONE: ServerFeatures = { secrets: false, agent: false, approvals: false, google: false, telegram: false };
 let features: Promise<ServerFeatures> | undefined;
 /**
  * What the server offers. Hosts without the API (desktop, static previews) report nothing, and the app
@@ -61,14 +61,14 @@ export function serverFeatures(): Promise<ServerFeatures> {
     .then(async response => {
       if (!response.ok || !(response.headers.get("content-type") || "").includes("application/json")) return NONE;
       const body = await response.json();
-      return { secrets: body.secrets === true, agent: body.agent === true, approvals: body.approvals === true, google: body.google === true };
+      return { secrets: body.secrets === true, agent: body.agent === true, approvals: body.approvals === true, google: body.google === true, telegram: body.telegram === true };
     })
     .catch(() => { features = undefined; return NONE; });
 }
 
 export interface StoredKeyStatus { configured: boolean; hint?: string; updatedAt?: string }
 export const getStoredKey = () => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets").then(r => r.openrouter);
-export const storeKey = (value: string) => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets", { method: "POST", body: JSON.stringify({ name: "openrouter", value }) }).then(r => r.openrouter);
+export const storeKey = (value: string, opts?: { base?: string; model?: string }) => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets", { method: "POST", body: JSON.stringify({ name: "openrouter", value, ...(opts?.base ? { base: opts.base } : {}), ...(opts?.model ? { model: opts.model } : {}) }) }).then(r => r.openrouter);
 export const removeStoredKey = () => apiJson<{ openrouter: StoredKeyStatus }>("/api/secrets?name=openrouter", { method: "DELETE" }).then(r => r.openrouter);
 
 export interface AccountHistoryEntry { id: number; at: string; actor: "user" | "assistant" | "system"; action: string; entity_type: string | null; title: string | null }
@@ -84,6 +84,12 @@ export async function accountHistory(limit = 100): Promise<AccountHistoryEntry[]
 
 export interface GoogleStatus { configured?: boolean; connected: boolean; email?: string; calendar?: boolean; gmail?: boolean; send?: boolean; status?: "active" | "needs_reconnect"; connectedAt?: string; lastError?: string | null }
 export interface GoogleCalendarEvent { id: string; title: string; date: string; endDate?: string; startTime?: string; endTime?: string; allDay: boolean; location?: string; link?: string; attendees: number }
+export interface TelegramStatus { configured: boolean; linked: boolean; username?: string | null; briefEnabled: boolean; briefHour: number; alertsEnabled: boolean }
+export const telegramStatus = () => apiJson<TelegramStatus>("/api/telegram");
+export const startTelegramLink = (timeZone: string) => apiJson<{ url: string }>("/api/telegram", { method: "POST", body: JSON.stringify({ timeZone }) });
+export const updateTelegramPrefs = (prefs: Partial<Pick<TelegramStatus, "briefEnabled" | "briefHour" | "alertsEnabled">> & { timeZone?: string }) => apiJson<TelegramStatus>("/api/telegram", { method: "PATCH", body: JSON.stringify(prefs) });
+export const disconnectTelegram = () => apiJson<TelegramStatus>("/api/telegram", { method: "DELETE" });
+
 export const googleStatus = () => apiJson<GoogleStatus>("/api/google");
 export const disconnectGoogle = () => apiJson<GoogleStatus>("/api/google", { method: "DELETE" });
 

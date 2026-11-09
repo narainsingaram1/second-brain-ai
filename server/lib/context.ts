@@ -1,4 +1,6 @@
+import { waitUntil } from "@vercel/functions";
 import { authenticate } from "./auth";
+import { supabaseAdminStore, type AdminStore } from "./admin";
 import { keyring, openSecret } from "./crypto";
 import { serverEnv } from "./env";
 import { HttpError } from "./http";
@@ -17,6 +19,14 @@ export interface Deps {
   googleFetch?: typeof fetch;
   /** Network access for opening links the user shares; without it the assistant has no web tools. */
   web?: () => WebAccess;
+  /** Telegram bot, or null when not configured. */
+  telegram?(): { token: string; webhookUrl: string } | null;
+  telegramFetch?: typeof fetch;
+  /** Server-only database access for webhooks and scheduled jobs, which arrive without a signed-in user. */
+  admin?(): AdminStore | null;
+  /** Keeps work running after the response has been sent. */
+  background?(work: Promise<unknown>): void;
+  cronSecret?(): string;
 }
 
 export const productionDeps: Deps = {
@@ -31,6 +41,17 @@ export const productionDeps: Deps = {
   },
   googleFetch: (...args) => fetch(...args),
   web: () => serverWebAccess(),
+  telegram: () => {
+    const env = serverEnv();
+    return env.telegramBotToken && env.supabaseServiceRoleKey ? { token: env.telegramBotToken, webhookUrl: env.publicAppUrl ? `${env.publicAppUrl.replace(/\/$/, "")}/api/telegram` : "" } : null;
+  },
+  telegramFetch: (...args) => fetch(...args),
+  admin: () => {
+    const env = serverEnv();
+    return env.supabaseServiceRoleKey ? supabaseAdminStore(env.supabaseUrl, env.supabaseAnonKey, env.supabaseServiceRoleKey) : null;
+  },
+  background: work => waitUntil(work),
+  cronSecret: () => serverEnv().cronSecret,
 };
 
 export async function secretsAvailable(deps: Deps): Promise<boolean> {

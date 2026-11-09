@@ -1,6 +1,6 @@
 import type { AIMessage } from "../../src/types";
 import { productionDeps, providerKey, type Deps } from "../lib/context";
-import { HttpError, readJson, route } from "../lib/http";
+import { HttpError, readJson, route, safeProviderBase } from "../lib/http";
 import { runServerAgent, type AgentEvent, type AgentRequest } from "../lib/serverAgent";
 import { googleSession } from "../lib/google";
 import { validTimeZone } from "../lib/googleApi";
@@ -30,6 +30,7 @@ export function parseAgentRequest(body: Record<string, unknown>): AgentRequest {
     conversationId: text(body.conversationId, 200), model: text(body.model, 200), visionModel: text(body.visionModel, 200),
     temporary: body.temporary === true,
     timeZone: validTimeZone(body.timeZone),
+    providerBase: text(body.providerBase, 300),
   };
 }
 
@@ -42,6 +43,9 @@ export function agentHandlers(deps: Deps = productionDeps) {
     POST: route(async request => {
       const { store } = await deps.caller(request);
       const input = parseAgentRequest(await readJson<Record<string, unknown>>(request, MAX_BODY));
+      const providerBase = input.providerBase ? safeProviderBase(input.providerBase) : undefined;
+      if (input.providerBase && !providerBase) throw new HttpError(400, "The AI provider address is not allowed.");
+      input.providerBase = providerBase;
       const key = await providerKey(deps, store);
       const encoder = new TextEncoder();
       const body = new ReadableStream<Uint8Array>({

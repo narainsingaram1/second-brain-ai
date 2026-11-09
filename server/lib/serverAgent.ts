@@ -2,6 +2,7 @@ import type { AgentStep, AIMessage, BrainState } from "../../src/types";
 import { AutonomousBrainAgent, type AgentExecutionResult, type ExternalToolset } from "../../src/services/agentDispatcher";
 import { applyMutation, mutationRecords, type Mutation } from "../../src/services/brainTools";
 import { applyMemoryChange, normalizeAgentMemory } from "../../src/services/agentMemory";
+import { learnFromTurn } from "../../src/services/memoryLearning";
 import { toolTier } from "../../src/services/actionPolicy";
 import { RecordSync, type SavedRecord } from "../../src/services/recordSync";
 import type { PreparedImage } from "../../src/utils/imageInput";
@@ -36,7 +37,16 @@ export interface AgentRequest {
   images?: PreparedImage[];
   /** The user's IANA time zone, for dates in the prompt and in Google requests. */
   timeZone?: string;
+  /** Keep this conversation on the server, for channels with no browser to hold it. `chatHistory` is added after it. */
+  savedThread?: { id: string; title: string };
+  /** How replies will be shown, when that is not the app. */
+  channelNote?: string;
+  /** The user's AI provider address, validated by the route; OpenRouter's default when absent. */
+  providerBase?: string;
 }
+
+const SAVED_THREAD_CONTEXT = 40;
+const SAVED_THREAD_LIMIT = 200;
 
 export type AgentEvent =
   | { type: "progress"; message: string }
@@ -66,7 +76,9 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
   const state: BrainState = {
     ...stored,
     agentMemory: normalizeAgentMemory(stored.agentMemory),
-    chatHistory: input.chatHistory,
+    chatHistory: input.savedThread
+      ? [...((stored.conversations || []).find(t => t.id === input.savedThread!.id)?.messages.slice(-SAVED_THREAD_CONTEXT) || []), ...input.chatHistory]
+      : input.chatHistory,
     conversationId: input.conversationId,
     openRouterKey: key,
     selectedModel: input.model || stored.selectedModel || "",
@@ -86,10 +98,13 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     images: input.images,
     visionModel: input.visionModel,
     timeZone: input.timeZone,
-    externalTools: combineToolsets(web ? webToolset(web, key, state.selectedModel) : undefined, externalTools),
+    channelNote: input.channelNote,
+    providerBase: input.providerBase,
+    externalTools: combineToolsets(web ? webToolset(web, key, state.selectedModel, input.providerBase) : undefined, externalTools),
     retrieval: {
       documentText: id => texts.get(id),
       embeddingCache: { get: k => store.getEmbedding(k), put: (k, v) => store.putEmbedding(k, v) },
+      providerBase: input.providerBase,
     },
     onProgress: message => emit({ type: "progress", message }),
     onText: text => emit({ type: "text", text }),
@@ -123,4 +138,15 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     },
   });
   emit({ type: "done", result });
+  if (input.savedThread) await finishSavedThread(input.savedThread, result).catch(error => console.error("[agent] saving the conversation failed", error instanceof Error ? error.message : error));
+
+  /** Stores the exchange and learns from it. The reply has already gone out, so a failure here costs nothing visible. */
+  async function finishSavedThread(thread: NonNullable<AgentRequest["savedThread"]>, outcome: AgentExecutionResult) {
+    const existing = (stored.conversations || []).find(t => t.id === thread.id);
+    const reply: AIMessage = { id: crypto.randomUUID(), role: "assistant", content: outcome.queryAnswer, timestamp: new Date().toISOString(), ...(outcome.approvals?.length ? { approvals: outcome.approvals } : {}) };
+    const updated = { id: thread.id, title: thread.title, messages: [...(existing?.messages || []), input.message, reply].slice(-SAVED_THREAD_LIMIT), updatedAt: new Date().toISOString() };
+    await persist({ ...stored, conversations: [updated, ...(stored.conversations || []).filter(t => t.id !== thread.id)] }, "conversation", "memory", thread.title);
+    const changes = await learnFromTurn({ ...stored, agentMemory: normalizeAgentMemory(stored.agentMemory), openRouterKey: key, conversationId: thread.id, chatHistory: [] }, input.message, outcome.queryAnswer, signal, input.providerBase);
+    if (changes.length) await persist({ ...stored, agentMemory: applyMemoryChange(normalizeAgentMemory(stored.agentMemory), { kind: "batch", changes }) }, "memory", "memory", "Memory");
+  }
 }

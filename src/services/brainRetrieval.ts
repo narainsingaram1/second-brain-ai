@@ -22,6 +22,8 @@ export interface RetrievalContext {
   documentText?: (id: string) => string | undefined;
   /** Where passage embeddings are cached. Defaults to this browser's IndexedDB. */
   embeddingCache?: { get(key: string): Promise<number[] | undefined>; put(key: string, vector: number[]): Promise<void> };
+  /** The user's AI provider address, when running outside the browser. */
+  providerBase?: string;
 }
 export interface BrainRecord { id: string; type: RecordType; title: string; date?: string; text: string; index: string; data: Record<string, unknown> }
 export interface Source { id: string; type: string; title: string; snippet: string; offset?: number }
@@ -239,8 +241,8 @@ export async function storeEmbedding(key: string, vector: number[]): Promise<voi
     });
   } catch { /* An unavailable cache does not invalidate retrieved evidence. */ }
 }
-export async function embed(inputs: string[], key: string, signal?: AbortSignal): Promise<number[][]> {
-  const res = await providerFetch("embeddings", key, { model: MODEL, input: inputs }, signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000));
+export async function embed(inputs: string[], key: string, signal?: AbortSignal, base?: string): Promise<number[][]> {
+  const res = await providerFetch("embeddings", key, { model: MODEL, input: inputs }, signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000), base);
   if (!res.ok) throw new Error(`Embedding service failed (HTTP ${res.status})`);
   const body = await res.json();
   const sorted = body.data?.sort((a: { index: number }, b: { index: number }) => a.index - b.index);
@@ -267,7 +269,7 @@ export function clearRetrievalMemory(): void {
 
 type Passage = { source: Source; slot: string; date?: string };
 function passages(state: BrainState, type?: RecordType, ctx?: RetrievalContext): Passage[] {
-  return records(state, type, ctx).flatMap(record => chunks(record).map((source, i) => ({ source, date: record.date, slot: `${state.userId || "guest"}|${MODEL}|${record.type}|${record.id}|${i}` })));
+  return records(state, type, ctx).flatMap(record => chunks(record).map((source, i) => ({ source, date: record.date, slot: `${state.userId || "guest"}|${MODEL}|${ctx?.providerBase ?? ""}|${record.type}|${record.id}|${i}` })));
 }
 const embeddingText = (source: Source) => source.snippet.startsWith(source.title) ? source.snippet : `${source.title}\n${source.snippet}`;
 
@@ -281,7 +283,7 @@ async function passageVectorsFor(state: BrainState, items: Passage[], key: strin
   const entries = await Promise.all(items.map(async ({ source, slot }) => {
     const known = passageVectors.get(slot);
     if (known?.snippet === source.snippet) return known;
-    const entry: { snippet: string; key: string; vector?: number[] } = { snippet: source.snippet, key: await digest(`${state.userId || "guest"}|${MODEL}|${source.title}|${source.snippet}`) };
+    const entry: { snippet: string; key: string; vector?: number[] } = { snippet: source.snippet, key: await digest(`${state.userId || "guest"}|${MODEL}|${ctx?.providerBase ?? ""}|${source.title}|${source.snippet}`) };
     entry.vector = await cache.get(entry.key).catch(() => undefined);
     passageVectors.delete(slot);
     passageVectors.set(slot, entry);
@@ -294,17 +296,17 @@ async function passageVectorsFor(state: BrainState, items: Passage[], key: strin
     signal?.throwIfAborted();
     progress?.(start, missing.length);
     const indices = missing.slice(start, start + 32);
-    const batch = await embed(indices.map(i => embeddingText(items[i].source)), key!, signal);
+    const batch = await embed(indices.map(i => embeddingText(items[i].source)), key!, signal, ctx?.providerBase);
     await Promise.all(indices.map(async (i, j) => { entries[i].vector = batch[j]; await cache.put(entries[i].key, batch[j]).catch(() => {}); }));
   }
   if (missing.length) progress?.(missing.length, missing.length);
   return entries;
 }
-async function queryVector(query: string, key: string, signal?: AbortSignal): Promise<number[]> {
-  const cacheKey = query.trim().toLocaleLowerCase();
+async function queryVector(query: string, key: string, signal?: AbortSignal, base?: string): Promise<number[]> {
+  const cacheKey = `${base ?? ""}|${query.trim().toLocaleLowerCase()}`;
   const known = queryVectors.get(cacheKey);
   if (known) return known;
-  const [vector] = await embed([query], key, signal);
+  const [vector] = await embed([query], key, signal, base);
   queryVectors.set(cacheKey, vector);
   if (queryVectors.size > 200) queryVectors.delete(queryVectors.keys().next().value!);
   return vector;
@@ -321,7 +323,7 @@ export async function rankPassages(state: BrainState, query: string, type: Recor
   let warning: string | undefined;
   try {
     const entries = await passageVectorsFor(state, items, key, signal, (done, total) => progress?.(`Indexing notes: ${Math.min(done + 32, total)} of ${total} passages`), ctx);
-    const q = await queryVector(query, key!, signal);
+    const q = await queryVector(query, key!, signal, ctx?.providerBase);
     neural = entries.map(e => e.vector ? cosine(q, e.vector) : 0);
   } catch (err) {
     signal?.throwIfAborted();

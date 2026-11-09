@@ -211,7 +211,7 @@ function connectBatch(changes: RememberChange[]) {
 }
 
 /** Sends one batch to the fast model and returns validated changes for the caller to commit. */
-export async function learnFromTurns(state: BrainState, turns: LearningTurn[], signal?: AbortSignal): Promise<RememberChange[]> {
+export async function learnFromTurns(state: BrainState, turns: LearningTurn[], signal?: AbortSignal, base?: string): Promise<RememberChange[]> {
   const memory = normalizeAgentMemory(state.agentMemory);
   const key = state.openRouterKey?.trim();
   const usable = turns.filter((turn) => turn.message.role === "user" && usableMessage(turn.message.content)).slice(0, MAX_BATCH_MESSAGES);
@@ -250,6 +250,7 @@ export async function learnFromTurns(state: BrainState, turns: LearningTurn[], s
     { type: "function", function: { name: "propose_memories" } },
     signal,
     { temperature: 0, maxTokens: 1600 },
+    base,
   );
   const call = completion.toolCalls?.find((t) => t.function.name === "propose_memories");
   if (!call) return [];
@@ -273,9 +274,9 @@ export async function learnFromTurns(state: BrainState, turns: LearningTurn[], s
 }
 
 /** One finished turn: kept as a helper for callers that are not queueing. */
-export function learnFromTurn(state: BrainState, message: AIMessage, reply: string, signal?: AbortSignal) {
+export function learnFromTurn(state: BrainState, message: AIMessage, reply: string, signal?: AbortSignal, base?: string) {
   if (message.role !== "user" || !worthLearning(message.content)) return Promise.resolve([] as RememberChange[]);
-  return learnFromTurns(state, [{ message, reply, conversationId: state.conversationId || "current" }], signal);
+  return learnFromTurns(state, [{ message, reply, conversationId: state.conversationId || "current" }], signal, base);
 }
 
 // Which messages have been read, per account and device. A second device re-reading a message is harmless:

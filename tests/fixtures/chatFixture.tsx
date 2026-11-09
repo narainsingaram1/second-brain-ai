@@ -23,6 +23,15 @@ window.fetch = async (_url, init) => {
   const request = JSON.parse(String((init as RequestInit | undefined)?.body || "{}"));
   const lastUser = [...(request.messages || [])].reverse().find((m: { role: string }) => m.role === "user");
   const userText = typeof lastUser?.content === "string" ? lastUser.content : "";
+  const forced = request.tool_choice?.function?.name;
+  const suggestion = (args: unknown) => Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: "fx-suggest", type: "function", function: { name: forced, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] });
+  if (forced === "suggest_follow_ups") return suggestion({ followUps: ["Make it due this Friday", "Move it to SWE Applications", "What else should I update on my profile?"] });
+  if (forced === "suggest_starters") return suggestion({ starters: [
+    { kind: "class", title: "Prep for the CS 2110 lab", detail: "TRAP routines are up next", prompt: "Quiz me on LC-3 TRAP routines from my CS 2110 notes." },
+    { kind: "task", title: "Start the presentation", detail: "Due tomorrow, nothing started", prompt: "Help me outline my project presentation." },
+    { kind: "goal", title: "Pitch the robotics lab", detail: "Your research goal is at 40%", prompt: "Help me prepare a research introduction for the robotics lab." },
+    { kind: "idea", title: "Connect LC-3 to interviews", detail: "Two things you're working on", prompt: "How could what I'm learning about LC-3 help in systems interviews?" },
+  ] });
   if (/delete/i.test(userText)) {
     const answered = (request.messages || []).some((m: { role: string }) => m.role === "tool");
     return answered

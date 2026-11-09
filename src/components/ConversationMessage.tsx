@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { ApprovalCard } from "./ApprovalCard";
-import { Brain, ArrowUpRight, BookmarkPlus, Check, Copy, PenLine } from "lucide-react";
+import { Brain, ArrowUpRight, BookmarkPlus, Check, Copy } from "lucide-react";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "../utils/chatPresentation";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -9,7 +9,7 @@ import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences"
 import { MessageImages } from "./ImageAttachments";
 import { AgentActivity, useSmoothText, wasStreaming } from "./AgentActivity";
 
-export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide }: { message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
+export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp }: { followUps?: { items: string[]; loading: boolean }; onFollowUp?: (text: string) => void; message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
   const [selected, setSelected] = useState<ChatSource | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -32,7 +32,7 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
     {message.content && <div>{message.content}</div>}
   </article>;
   return <article data-message-id={message.id} className={`chat-assistant-message ${streaming ? "is-streaming" : ""} ${continued ? "is-continued" : ""}`} aria-busy={streaming || undefined}>
-    <div className="chat-assistant-avatar"><PenLine size={16} aria-hidden="true" /></div>
+    <div className="chat-assistant-avatar" aria-hidden="true" />
     <div className="chat-answer min-w-0">
       <span className="chat-assistant-name">Iris</span>
       {(streaming || message.activity?.length) && <AgentActivity steps={message.activity || []} live={streaming} writing={!!message.content} continued={continued} />}
@@ -53,6 +53,10 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
         <button type="button" onClick={copy} className="chat-icon-button" aria-label={copied ? "Copied response" : "Copy response"} title={copied ? "Copied" : "Copy response"}>{copied ? <Check size={15} /> : <Copy size={15} />}</button>
         {onSaveNote && <button type="button" onClick={save} disabled={saved} className="chat-icon-button" aria-label={saved ? "Saved to notes" : "Save response as note"} title={saved ? "Saved to notes" : "Save as note"}>{saved ? <Check size={15} /> : <BookmarkPlus size={15} />}</button>}
         {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
+      </div>}
+      {!streaming && followUps?.loading && <div className="chat-follow-ups" aria-hidden="true">{[148, 196, 124].map(width => <span key={width} className="chat-follow-up-placeholder" style={{ width }} />)}</div>}
+      {!streaming && !!followUps?.items.length && <div className="chat-follow-ups" role="group" aria-label="Suggested replies">
+        {followUps.items.map((text, index) => <button type="button" key={text} className="chat-follow-up" style={{ animationDelay: `${index * 50}ms` }} onClick={() => onFollowUp?.(text)}>{text}</button>)}
       </div>}
     </div>
     {selected && <RecordPreview key={`${selected.type}:${selected.id}`} source={selected} state={state} onClose={() => setSelected(null)} />}
