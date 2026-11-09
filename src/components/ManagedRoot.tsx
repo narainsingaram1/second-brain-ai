@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import type { User } from "@supabase/supabase-js";
 import App from "../App";
+import { AppSkeleton } from "./AppSkeleton";
 import { clearRetrievalMemory } from "../services/brainRetrieval";
 import {
   getSupabase,
@@ -170,12 +171,7 @@ export function ManagedRoot() {
   };
 
   if (loading) {
-    return (
-      <div role="status" className="managed-auth-surface min-h-screen flex flex-col items-center justify-center text-slate-700 dark:text-slate-300 gap-3">
-        <RefreshCw className="w-5 h-5 animate-spin text-muted" />
-        <span className="text-xs font-medium">Checking your workspace session…</span>
-      </div>
-    );
+    return <AppSkeleton />;
   }
 
   if (user && mode !== "recovery") {

@@ -885,3 +885,16 @@ kbd {
 }
 .quick-add-button:active { transform: scale(0.98); }
 @media (max-width: 1400px) { .dashboard-task .subtle-tag { display: none; } }
+
+/* Shown while the account and data load. */
+.app-skeleton-bar { display: block; border-radius: 6px; background: var(--workspace-raised); animation: app-skeleton-pulse 1.4s ease-in-out infinite; }
+.app-skeleton-location { width: 64px; height: 16px; }
+.app-skeleton-search { width: min(400px, 40%); height: 36px; margin-inline: auto; border-radius: 8px; }
+.app-skeleton-account { width: 28px; height: 28px; border-radius: 50%; }
+.app-skeleton-title { width: 180px; height: 28px; }
+.app-skeleton-subtitle { width: min(320px, 70%); height: 14px; margin-top: 12px; }
+.app-skeleton-rows { display: grid; gap: 8px; margin-top: 32px; }
+.app-skeleton-row { height: 56px; border-radius: 10px; }
+@keyframes app-skeleton-pulse { 50% { opacity: 0.5; } }
+@media (max-width: 767px) { .app-skeleton-location { display: none; } }
+@media (prefers-reduced-motion: reduce) { .app-skeleton-bar { animation: none; } }

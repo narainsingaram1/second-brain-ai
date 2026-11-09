@@ -40,13 +40,18 @@ import { dropLegacyVault, vectorVault } from "./services/vectorVault";
 import { accessToken, finishGoogleConnect, getStoredKey, serverFeatures } from "./services/serverApi";
 import { isServerHeldKey, SERVER_HELD_KEY, setProviderProxyAuth } from "./services/providerTransport";
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
+import { AppSkeleton } from "./components/AppSkeleton";
+import { rememberedTab, rememberTab, rememberTheme } from "./utils/startupMemory";
 
 export const App: React.FC = () => {
   const [startupError, setStartupError] = useState("");
   const [syncError, setSyncError] = useState("");
   const [state, setState] = useState<BrainState | null>(null);
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
-  const [activeTab, setActiveTab] = useState<string>("home");
+  const [activeTab, setActiveTab] = useState<string>(rememberedTab);
+  useEffect(() => rememberTab(activeTab), [activeTab]);
+  const theme = state?.theme;
+  useEffect(() => { if (theme) rememberTheme(theme); }, [theme]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   useEffect(() => {
@@ -398,18 +403,7 @@ export const App: React.FC = () => {
 
   if (startupError) return <div className="p-8"><p>{startupError}</p><button onClick={() => window.location.reload()}>Retry</button></div>;
 
-  if (!state) {
-    return (
-      <div className="h-screen w-screen flex items-center justify-center bg-white dark:bg-[#0e1015]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 rounded-full border-2 border-slate-900 dark:border-white border-t-transparent animate-spin"></div>
-          <span className="font-mono text-xs font-bold text-slate-400">
-            [synapse] loading...
-          </span>
-        </div>
-      </div>
-    );
-  }
+  if (!state) return <AppSkeleton />;
 
   // Toggle Theme
   const handleToggleTheme = () => {
