@@ -1,0 +1,91 @@
+/* Interactive cards Iris places inside a reply. Quiet chrome; color is reserved for results and the current week. */
+.iris-card { margin: 16px 0; overflow: hidden; border: 1px solid var(--workspace-line); border-radius: 12px; background: var(--workspace-panel); container-type: inline-size; animation: iris-card-in 240ms var(--ease) both; }
+.chat-prose .iris-card h3 { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; color: var(--workspace-ink); }
+.chat-prose .iris-card p { margin: 0; }
+.iris-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 12px 16px; }
+.iris-card-head > span { flex-shrink: 0; font-size: 12px; line-height: 16px; color: var(--workspace-muted); }
+.iris-tabular { font-variant-numeric: tabular-nums; }
+
+.iris-rows { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--workspace-line); }
+.iris-rows li { margin: 0; }
+.iris-rows li + li { border-top: 1px solid var(--workspace-line); }
+.iris-row { position: relative; display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 8px 16px; font-size: 14px; line-height: 20px; text-align: left; color: var(--workspace-ink); cursor: pointer; transition: background-color 150ms var(--ease); }
+.iris-row:hover { background: var(--workspace-hover); }
+.iris-row:has(.iris-input:disabled) { cursor: default; background: transparent; }
+.iris-row-title { flex: 1; min-width: 0; }
+.iris-row-meta { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 12px; line-height: 16px; color: var(--workspace-muted); font-variant-numeric: tabular-nums; }
+.iris-row.is-added .iris-row-title { color: var(--workspace-secondary); }
+.iris-input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: inherit; }
+.iris-tick { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 18px; border: 1px solid var(--workspace-line-strong); border-radius: 6px; color: var(--workspace-panel); transition: background-color 150ms var(--ease), border-color 150ms var(--ease); }
+.iris-tick.is-on { border-color: var(--workspace-ink); background: var(--workspace-ink); }
+.iris-row.is-added .iris-tick.is-on { border-color: var(--workspace-success); background: var(--workspace-success); }
+.iris-input:focus-visible + .iris-tick { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
+
+.iris-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 48px; padding: 8px 8px 8px 16px; border-top: 1px solid var(--workspace-line); }
+.iris-card-foot:has(.iris-done) { padding-right: 16px; }
+.chat-prose .iris-count, .chat-prose .iris-done, .chat-prose .iris-error { font-size: 13px; line-height: 20px; color: var(--workspace-muted); font-variant-numeric: tabular-nums; }
+.chat-prose .iris-done { display: inline-flex; align-items: center; gap: 6px; color: var(--workspace-success); }
+.chat-prose .iris-error { color: var(--workspace-danger); }
+
+.iris-primary, .iris-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 6px; flex-shrink: 0; height: 32px; padding: 0 12px; border-radius: 8px; font-size: 13px; font-weight: 500; line-height: 20px; transition: background-color 150ms var(--ease), border-color 150ms var(--ease), opacity 150ms var(--ease), transform 150ms var(--ease); }
+.iris-primary { color: var(--workspace-panel); background: var(--workspace-ink); }
+.iris-primary:hover:not(:disabled) { opacity: 0.86; }
+.iris-secondary { color: var(--workspace-ink); border: 1px solid var(--workspace-line-strong); }
+.iris-secondary:hover:not(:disabled) { background: var(--workspace-hover); }
+.iris-primary:active:not(:disabled), .iris-secondary:active:not(:disabled) { transform: scale(0.98); }
+.iris-primary:disabled, .iris-secondary:disabled { opacity: 0.4; cursor: default; }
+.iris-card :is(button):focus-visible, .iris-choices button:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: -2px; }
+
+.iris-choices { margin: 16px 0; animation: iris-card-in 240ms var(--ease) both; }
+.chat-prose .iris-choices p { margin: 0 0 8px; font-size: 14px; line-height: 20px; color: var(--workspace-secondary); }
+.iris-choices > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.iris-choices button { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 8px 12px; border: 1px solid var(--workspace-line-strong); border-radius: 10px; font-size: 14px; line-height: 20px; text-align: left; color: var(--workspace-ink); transition: background-color 150ms var(--ease), border-color 150ms var(--ease), opacity 150ms var(--ease); }
+.iris-choices button:hover:not(:disabled) { background: var(--workspace-hover); }
+.iris-choices button:disabled { cursor: default; opacity: 0.45; }
+.iris-choices button.is-picked { opacity: 1; border-color: var(--workspace-ink); }
+
+.iris-progress { display: flex; gap: 4px; padding: 0 16px; }
+.iris-progress span { flex: 1; height: 4px; border-radius: 2px; background: var(--workspace-raised); transition: background-color 150ms var(--ease); }
+.iris-progress .is-right { background: var(--workspace-success); }
+.iris-progress .is-wrong { background: var(--workspace-danger); }
+.iris-quiz-body { padding: 16px; }
+.chat-prose .iris-question { font-size: 15px; line-height: 24px; color: var(--workspace-ink); }
+.iris-options { display: grid; gap: 8px; margin-top: 12px; }
+.iris-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--workspace-line-strong); border-radius: 8px; font-size: 14px; line-height: 20px; text-align: left; color: var(--workspace-ink); transition: background-color 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease); }
+.iris-option svg { flex-shrink: 0; }
+.iris-option:hover:not(:disabled) { background: var(--workspace-hover); }
+.iris-option:disabled { cursor: default; }
+.iris-option:disabled:not(.is-right, .is-wrong) { color: var(--workspace-muted); border-color: var(--workspace-line); }
+.iris-option.is-right { color: var(--workspace-success); border-color: var(--workspace-success); }
+.iris-option.is-wrong { color: var(--workspace-danger); border-color: var(--workspace-danger); }
+.iris-quiz-after { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-top: 12px; }
+.chat-prose .iris-quiz-after p { font-size: 14px; line-height: 20px; color: var(--workspace-secondary); }
+.iris-quiz-after button { margin-left: auto; }
+.iris-quiz-result { padding: 24px 16px 16px; }
+.iris-result-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+
+.chat-prose .iris-score { font-size: 32px; font-weight: 500; line-height: 36px; color: var(--workspace-ink); white-space: nowrap; }
+.iris-score span { margin-left: 2px; font-size: 13px; font-weight: 400; line-height: 20px; color: var(--workspace-muted); }
+
+.iris-chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 16px 16px 0; }
+.chat-prose .iris-chart-head div p { margin-top: 2px; font-size: 12px; line-height: 16px; color: var(--workspace-muted); }
+.iris-bars { display: flex; padding: 16px; }
+.iris-bar { flex: 1; min-width: 0; text-align: center; }
+.iris-bar-track { display: flex; align-items: flex-end; justify-content: center; height: 96px; border-bottom: 1px solid var(--workspace-line-strong); }
+.iris-bar-track span { display: block; width: 24px; border-radius: 4px 4px 0 0; background: var(--workspace-line-strong); }
+.iris-bar.is-current .iris-bar-track span { background: var(--workspace-accent); }
+.iris-bar small { display: block; margin-top: 6px; font-size: 11px; line-height: 16px; color: var(--workspace-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.iris-bar.is-current small { color: var(--workspace-ink); }
+@container (max-width: 440px) { .iris-bar:nth-child(even):not(.is-current) small { visibility: hidden; } }
+
+.iris-skeleton { display: grid; gap: 12px; margin: 16px 0; padding: 16px; border: 1px solid var(--workspace-line); border-radius: 12px; }
+.iris-skeleton span { height: 12px; border-radius: 4px; background: var(--workspace-raised); animation: chat-follow-up-pulse 1.3s ease-in-out infinite; }
+.iris-skeleton span:nth-child(1) { width: 40%; }
+.iris-skeleton span:nth-child(2) { width: 88%; }
+.iris-skeleton span:nth-child(3) { width: 64%; }
+.chat-prose .iris-unavailable { margin: 12px 0; font-size: 13px; line-height: 20px; color: var(--workspace-muted); }
+
+.chat-prose.is-revealing > .iris-card:last-child::after, .chat-prose.is-revealing > .iris-skeleton:last-child::after, .chat-prose.is-revealing > .iris-choices:last-child::after { display: none; }
+.chat-assistant-message.is-continued .iris-card, .chat-assistant-message.is-continued .iris-choices { animation: none; }
+@keyframes iris-card-in { from { opacity: 0; transform: translateY(4px); } }
+@media (prefers-reduced-motion: reduce) { .iris-card, .iris-choices, .iris-skeleton span { animation: none; } }

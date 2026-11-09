@@ -6,6 +6,8 @@ interface MarkdownViewProps {
   renderReference?: (type: string, id: string, before: string) => React.ReactNode;
   className?: string;
   onToggleCheckbox?: (lineIndex: number, newChecked: boolean) => void;
+  /** Custom rendering for a fenced block. Return undefined to show it as code. `block` is its order among all fences. */
+  renderFence?: (language: string, code: string, complete: boolean, block: number) => React.ReactNode | undefined;
 }
 
 export const MarkdownView: React.FC<MarkdownViewProps> = ({
@@ -13,6 +15,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
   className = "",
   onToggleCheckbox,
   renderReference,
+  renderFence,
 }) => {
   const [copiedBlock, setCopiedBlock] = useState<number | null>(null);
 
@@ -101,6 +104,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
   let codeBlockLanguage = "";
   let codeBlockLines: string[] = [];
   let codeBlockStartIdx = 0;
+  let fenceCount = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -111,6 +115,14 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
         // Close code block
         const fullCode = codeBlockLines.join("\n");
         const blockId = codeBlockStartIdx;
+        const custom = renderFence?.(codeBlockLanguage, fullCode, true, fenceCount++);
+        if (custom !== undefined) {
+          renderedElements.push(<React.Fragment key={`code-${blockId}`}>{custom}</React.Fragment>);
+          inCodeBlock = false;
+          codeBlockLanguage = "";
+          codeBlockLines = [];
+          continue;
+        }
         renderedElements.push(
           <div
             key={`code-${blockId}`}
@@ -332,7 +344,11 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
   }
 
   // Handle unclosed code block if file ends inside code block
-  if (inCodeBlock && codeBlockLines.length > 0) {
+  const unclosed = inCodeBlock ? renderFence?.(codeBlockLanguage, codeBlockLines.join("\n"), false, fenceCount) : undefined;
+  if (unclosed !== undefined) {
+    // Keyed like the finished block, so the placeholder is replaced in place when the fence closes.
+    renderedElements.push(<React.Fragment key={`code-${codeBlockStartIdx}`}>{unclosed}</React.Fragment>);
+  } else if (inCodeBlock && codeBlockLines.length > 0) {
     const fullCode = codeBlockLines.join("\n");
     renderedElements.push(
       <div

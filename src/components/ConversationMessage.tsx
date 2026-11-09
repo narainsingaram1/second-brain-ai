@@ -8,8 +8,17 @@ import { MarkdownView } from "./MarkdownView";
 import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences";
 import { MessageImages } from "./ImageAttachments";
 import { AgentActivity, useSmoothText, wasStreaming } from "./AgentActivity";
+import { IrisCard } from "./IrisCard";
+import { IRIS_UI_FENCE, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
 
-export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp }: { followUps?: { items: string[]; loading: boolean }; onFollowUp?: (text: string) => void; message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
+/** How interactive cards in a reply reach the conversation. */
+export interface CardHandlers {
+  busy: boolean;
+  addTasks: (messageId: string, block: number, spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => Promise<void>;
+  setState: (messageId: string, block: number, next: IrisCardState) => void;
+}
+
+export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp, cards }: { cards?: CardHandlers; followUps?: { items: string[]; loading: boolean }; onFollowUp?: (text: string) => void; message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
   const [selected, setSelected] = useState<ChatSource | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -36,7 +45,13 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
     <div className="chat-answer min-w-0">
       <span className="chat-assistant-name">Iris</span>
       {(streaming || message.activity?.length) && <AgentActivity steps={message.activity || []} live={streaming} writing={!!message.content} continued={continued} />}
-      {shown && <MarkdownView className={`chat-prose ${streaming || shown.length < message.content.length ? "is-revealing" : ""}`} content={shown} renderReference={(type, id, before) => {
+      {shown && <MarkdownView className={`chat-prose ${streaming || shown.length < message.content.length ? "is-revealing" : ""}`} content={shown} renderFence={(language, code, complete, block) => language !== IRIS_UI_FENCE ? undefined : <IrisCard code={code} complete={complete} state={state} saved={message.cardState?.[block]} actions={{
+        interactive: !streaming && !cards?.busy,
+        onReply: onFollowUp,
+        onAddTasks: cards ? (spec, indexes) => cards.addTasks(message.id, block, spec, indexes) : undefined,
+        onChange: cards ? next => cards.setState(message.id, block, next) : undefined,
+        onOpenTask: (id, title) => setSelected({ type: "task", id, title }),
+      }} />} renderReference={(type, id, before) => {
         const source = message.sources?.find(s => s.type === type && s.id === id) || { type, id, title: referenceTitle(type, id, message.sources, state) };
         const title = referenceTitle(type, id, message.sources, state);
         const repeatsTitle = before.replace(/[*`_]/g, "").trimEnd().toLocaleLowerCase().endsWith(title.toLocaleLowerCase());

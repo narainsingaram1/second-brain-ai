@@ -9,6 +9,8 @@ import {
   type AgentExecutionResult,
 } from "../services/agentDispatcher";
 import { applyMutation, mutationRecords, type Mutation } from "../services/brainTools";
+import { prepareChecklistTasks } from "../services/irisCards";
+import type { IrisCardState, IrisUiSpec } from "../utils/irisUi";
 import { persistBrainState } from "../services/storage";
 import { adoptServerChanges, usesRecordStorage } from "../services/cloudSync";
 import { isServerHeldKey } from "../services/providerTransport";
@@ -34,6 +36,9 @@ import {
 export interface BrainConversation {
   run: RunConversation;
   decideApproval: (messageId: string, approvalId: string, decision: "approve" | "reject") => Promise<void>;
+  /** Creates the checklist rows the user ticked on an interactive card. */
+  addCardTasks: (messageId: string, block: number, spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => Promise<void>;
+  setCardState: (messageId: string, block: number, next: IrisCardState) => void;
   busy: boolean;
   progress: string;
   /** The reply as it streams in, under the ID the finished message will keep. */
@@ -530,9 +535,38 @@ export function useBrainConversation(
     publish({ ...applyMutation(current, mutation), auditLog: [audit, ...(current.auditLog || [])].slice(0, 100) });
     setApproval(messageId, approvalId, { status: "executed", mutation: undefined });
   };
+  const withCardState = (messages: AIMessage[], messageId: string, block: number, change: (card: IrisCardState) => IrisCardState) =>
+    messages.map(m => m.id !== messageId ? m : { ...m, cardState: { ...m.cardState, [block]: change(m.cardState?.[block] || {}) } });
+  const setCardState = (messageId: string, block: number, next: IrisCardState) => {
+    if (tempLatest.current.some(m => m.id === messageId)) { tempLatest.current = withCardState(tempLatest.current, messageId, block, () => next); setTemporaryMessages(tempLatest.current); return; }
+    const current = latest.current;
+    if (current) publish({ ...current, chatHistory: withCardState(current.chatHistory, messageId, block, () => next) });
+  };
+  const addCardTasks = async (messageId: string, block: number, spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => {
+    const current = latest.current;
+    if (!current) throw new Error("Workspace is loading.");
+    const message = [...tempLatest.current, ...current.chatHistory].find(m => m.id === messageId);
+    const already = message?.cardState?.[block]?.added || {};
+    const { mutations, added } = prepareChecklistTasks(current, spec, indexes.filter(index => already[index] === undefined));
+    if (!mutations.length) return;
+    const mark = (card: IrisCardState) => ({ ...card, added: { ...card.added, ...added } });
+    const apply = (base: BrainState): BrainState => {
+      const next = mutations.reduce(applyMutation, base);
+      const audits = mutations.map(mutation => ({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }), action: mutation.action, entityType: mutation.type,
+        entityTitle: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Task", canUndo: true }));
+      return { ...next, chatHistory: withCardState(next.chatHistory, messageId, block, mark), auditLog: [...audits, ...(next.auditLog || [])].slice(0, 100) };
+    };
+    await persistBrainState(() => apply(latest.current!), current.userId, () => {
+      onBeforeMutation(latest.current!);
+      publish(apply(latest.current!));
+      if (tempLatest.current.some(m => m.id === messageId)) { tempLatest.current = withCardState(tempLatest.current, messageId, block, mark); setTemporaryMessages(tempLatest.current); }
+    });
+  };
   return {
     run,
     decideApproval,
+    addCardTasks,
+    setCardState,
     busy,
     progress,
     activity,

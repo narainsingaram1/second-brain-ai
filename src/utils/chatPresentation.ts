@@ -1,4 +1,5 @@
 import { AIMessage, BrainState } from "../types";
+import { plainIrisUi } from "./irisUi";
 
 export type ChatSource = NonNullable<AIMessage["sources"]>[number];
 export const REFERENCE_PATTERN = /\[(task|goal|habit|journal|knowledge|event|tracker|course|document|deck|quiz):([^\]\n]+)\]/g;
@@ -25,7 +26,7 @@ export function referenceTitle(type: string, id: string, sources?: AIMessage["so
   return sources?.find(s => s.type === type && s.id === id)?.title || `Unavailable ${type === "knowledge" ? "note" : type}`;
 }
 export function readableMessage(message: Pick<AIMessage, "content" | "sources">, state?: BrainState | null): string {
-  return message.content.replace(REFERENCE_PATTERN, (_, type: string, id: string) => referenceTitle(type, id, message.sources, state));
+  return plainIrisUi(message.content).replace(REFERENCE_PATTERN, (_, type: string, id: string) => referenceTitle(type, id, message.sources, state));
 }
 export function conversationTitle(messages: AIMessage[]): string {
   const first = messages.find(m => m.role === "user");

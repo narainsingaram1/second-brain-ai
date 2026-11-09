@@ -3,6 +3,7 @@ import { getManagedSession, getSupabase } from "./managedAuth";
 import type { BrainState } from "../types";
 import type { RecordCollection, StoredRecord } from "./brainRecords";
 import { PreferencesConflict, type RecordTransport } from "./recordSync";
+import { legacyMemoryRecord, type AgentMemory } from "./agentMemory";
 
 export async function readManagedBrain(knownRevision?: number) {
   const session = await getManagedSession();
@@ -17,11 +18,26 @@ export async function readManagedBrain(knownRevision?: number) {
   if (error) throw new Error("Could not load cloud records. Try again.");
   return { user, state: data?.state as Partial<BrainState> | null, revision: Number(data?.revision || 0) };
 }
-export async function writeManagedBrain(state: unknown, revision: number, ownerId: string) {
-  const { data, error } = await getSupabase().rpc("save_brain", { p_state: state, p_revision: revision, p_owner_id: ownerId });
+export async function writeManagedBrain(state: unknown, revision: number, ownerId: string, client: SupabaseClient<any> = getSupabase()) {
+  let { data, error } = await client.rpc("save_brain", { p_state: state, p_revision: revision, p_owner_id: ownerId });
+  // Older snapshot databases reject connected-memory fields. Only use the compatibility shape when
+  // the database confirms that the original memory fails validation and the legacy shape passes.
+  // The failed write is atomic: retry with the same owner and revision, without mutating local memory.
+  if (error?.code === "22023" && /invalid agent memory/i.test(error.message) && state && typeof state === "object" && "agentMemory" in state) {
+    const memory = state.agentMemory as AgentMemory;
+    const original = await client.rpc("valid_agent_memory", { m: memory });
+    if (!original.error && original.data === false) {
+      const legacy = legacyMemoryRecord(memory);
+      const compatible = await client.rpc("valid_agent_memory", { m: legacy });
+      if (!compatible.error && compatible.data === true) {
+        ({ data, error } = await client.rpc("save_brain", { p_state: { ...state, agentMemory: legacy }, p_revision: revision, p_owner_id: ownerId }));
+      }
+    }
+  }
   if (error?.code === "40001") throw new Error("Another device saved changes. Export your work, then reload before editing again.");
   if (error?.code === "42501") throw new Error("Your account changed. Reload and sign in again before saving.");
-  if (error) throw new Error(error.code === "22023" ? "This backup is invalid or exceeds the 2 MB cloud limit." : "Cloud save failed. Keep this tab open and retry.");
+  if (error?.code === "22023" && /invalid agent memory/i.test(error.message)) throw new Error("Cloud memory validation failed. The database may need a memory update or memory may be full.");
+  if (error) throw new Error(error.code === "22023" ? "Cloud save rejected: invalid workspace data or the 2 MB snapshot limit. Export your work before reloading." : "Cloud save failed. Keep this tab open and retry.");
   return { revision: Number(data) };
 }
 

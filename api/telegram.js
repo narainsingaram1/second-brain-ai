@@ -4343,7 +4343,7 @@ function trackerDate(item) {
 	if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
 	if (typeof item.fields.lastPractice === "string") return item.fields.lastPractice;
 }
-const list$1 = (items) => Array.isArray(items) ? items.filter((x) => typeof x === "string" && x.trim()).join(", ") : "";
+const list$2 = (items) => Array.isArray(items) ? items.filter((x) => typeof x === "string" && x.trim()).join(", ") : "";
 const checklist = (items) => Array.isArray(items) ? items.map((x) => x && typeof x.title === "string" ? `[${x.completed ? "x" : " "}] ${x.title}` : "").filter(Boolean).join("; ") : "";
 /** Notes may be stored as HTML from the editor; index the readable text only. */
 function plain(text) {
@@ -4358,19 +4358,19 @@ const lines = (...parts) => parts.filter(Boolean).join("\n");
 */
 function recordProse(type, d) {
 	switch (type) {
-		case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
+		case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
 		case "goal": return lines(`Goal: ${d.title}`, `${d.sector} goal, ${d.timeframe}, ${d.status}, ${d.progress ?? 0}% done${d.targetDate ? `, target ${d.targetDate}` : ""}`, d.metrics && `Metric: ${d.metrics}`, d.why && `Why: ${d.why}`, d.description && `Details: ${d.description}`, checklist(d.milestones) && `Milestones: ${checklist(d.milestones)}`);
 		case "habit": return lines(`Habit: ${d.name}`, `${d.frequency}${d.timeOfDay ? `, ${d.timeOfDay}` : ""}, ${d.streak}-day streak (best ${d.bestStreak})`, d.description && `Details: ${d.description}`);
-		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$1(d.wins) && `Wins: ${list$1(d.wins)}`, list$1(d.challenges) && `Challenges: ${list$1(d.challenges)}`, plain(d.content), list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
-		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
-		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$1(d.attendees) && `With: ${list$1(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
-		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$1(d.documentNames) && `Materials: ${list$1(d.documentNames)}`, list$1(d.folderNames) && `Folders: ${list$1(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
+		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$2(d.wins) && `Wins: ${list$2(d.wins)}`, list$2(d.challenges) && `Challenges: ${list$2(d.challenges)}`, plain(d.content), list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
+		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
+		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$2(d.attendees) && `With: ${list$2(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
+		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$2(d.documentNames) && `Materials: ${list$2(d.documentNames)}`, list$2(d.folderNames) && `Folders: ${list$2(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
 		case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`, d.content || "[The extracted text of this document is not loaded on this device.]");
 		case "deck": return lines(`Flashcard deck: ${d.title} (${d.course})`, `${d.cardCount} cards, ${d.cardsDue} due for review today`, ...Array.isArray(d.cards) ? d.cards.map((c, i) => `${i + 1}. Q: ${c.front}\nA: ${c.back}`) : []);
 		case "quiz": return lines(`Practice quiz: ${d.title} (${d.course})`, `${d.questionCount} questions; ${d.attemptCount ? `taken ${d.attemptCount} times, best ${d.bestScore}%, last ${d.lastScore}` : "not taken yet"}`, ...Array.isArray(d.questions) ? d.questions.map((q, i) => `${i + 1}. ${q.prompt}${q.choices ? ` [${q.choices.join(" | ")}]` : ""} Answer: ${q.answer}`) : []);
 		case "tracker": {
 			const fields = Object.entries(d.fields || {}).filter(([, v]) => typeof v === "string" && v.trim() && !/^https?:/i.test(v) || typeof v === "number").map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
-			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.notes && `Notes: ${d.notes}`);
+			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.notes && `Notes: ${d.notes}`);
 		}
 	}
 }
@@ -6218,7 +6218,7 @@ function validate(value, schema, path = "arguments") {
 		if (typeof value === "string" && (!value.trim() || value.length > 1e5)) throw new Error(`${path} must be nonempty and at most 100000 characters`);
 	}
 }
-function validDate(value) {
+function validDate$1(value) {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || (/* @__PURE__ */ new Date(`${value}T12:00:00Z`)).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
 }
 const MUTATION_COLLECTIONS = {
@@ -6538,8 +6538,8 @@ async function executeRead(name, args, state, key, signal, progress, ctx) {
 			}]
 		};
 	}
-	if (args.dateFrom) validDate(args.dateFrom);
-	if (args.dateTo) validDate(args.dateTo);
+	if (args.dateFrom) validDate$1(args.dateFrom);
+	if (args.dateTo) validDate$1(args.dateTo);
 	if (args.dateFrom && args.dateTo && args.dateFrom > args.dateTo) throw new Error("dateFrom must be before dateTo");
 	const matches = all.filter((r) => r.type === args.type && (!args.dateFrom || !!r.date && r.date >= args.dateFrom) && (!args.dateTo || !!r.date && r.date <= args.dateTo) && (!args.section || r.data.section === args.section || r.data.sector === args.section || r.data.domain === args.section) && (!args.text || r.text.toLocaleLowerCase().includes(args.text.toLocaleLowerCase())) && (!args.status || (args.status === "pending" ? r.type === "task" ? r.data.status !== "completed" : r.data.status !== "achieved" : r.data.status === args.status))).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || String(a.data.startTime || a.data.dueTime || "24:00").localeCompare(String(b.data.startTime || b.data.dueTime || "24:00")) || a.id.localeCompare(b.id));
 	const page = args.countOnly ? [] : matches.slice(offset, offset + 40);
@@ -6640,7 +6640,7 @@ function prepareMutation(name, args, state) {
 		"dueDate",
 		"newDueDate",
 		"targetDate"
-	]) if (args[field]) validDate(args[field]);
+	]) if (args[field]) validDate$1(args[field]);
 	const id = crypto.randomUUID();
 	switch (name) {
 		case "create_task": {
@@ -6766,7 +6766,7 @@ function prepareMutation(name, args, state) {
 		case "create_event": {
 			const kind = args.kind || "event";
 			if (!EVENT_KINDS.some((k) => k.id === kind)) throw new Error("Unknown event kind.");
-			validDate(args.date);
+			validDate$1(args.date);
 			for (const field of ["startTime", "endTime"]) if (args[field] !== void 0 && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
 			if (args.endTime && !args.startTime) throw new Error("An end time needs a startTime.");
 			if (args.endTime && args.endTime <= args.startTime) throw new Error("endTime must be after startTime.");
@@ -6809,7 +6809,7 @@ function prepareMutation(name, args, state) {
 				"appendNotes"
 			].some((k) => args[k] !== void 0)) throw new Error("Supply at least one field to update.");
 			if (args.kind && !EVENT_KINDS.some((k) => k.id === args.kind)) throw new Error("Unknown event kind.");
-			if (args.newDate) validDate(args.newDate);
+			if (args.newDate) validDate$1(args.newDate);
 			for (const field of ["newStartTime", "newEndTime"]) if (args[field] !== void 0 && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
 			const link = args.link ? safeEventLink(args.link) : void 0;
 			if (args.link && !link) throw new Error("Links must be full http:// or https:// URLs.");
@@ -7038,7 +7038,7 @@ function prepareMutation(name, args, state) {
 		case "log_practice": {
 			const item = findTracker(state, args.trackerId);
 			if (item.kind !== "leetcode") throw new Error("Only practice problems can be logged; update the application's stage instead.");
-			if (args.date) validDate(args.date);
+			if (args.date) validDate$1(args.date);
 			return {
 				type: "tracker",
 				action: name,
@@ -7118,7 +7118,7 @@ function prepareMutation(name, args, state) {
 			if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
 			const grading = course.grading;
 			if (!grading?.categories.length) throw new Error("This course has no grading set up. Ask the user how it is weighted (or read the syllabus) and call set_course_grading first.");
-			if (args.date) validDate(args.date);
+			if (args.date) validDate$1(args.date);
 			if (args.score !== void 0 && !(args.score >= 0)) throw new Error("score must be zero or more.");
 			if (args.maxScore !== void 0 && !(args.maxScore > 0)) throw new Error("maxScore must be more than zero.");
 			const category = args.category ? findCategory(grading, args.category) : void 0;
@@ -7365,7 +7365,7 @@ function prepareMutation(name, args, state) {
 			const h = findIn(state.habits, args.habitId, "Habit");
 			const { habitId: _h, ...changes } = args;
 			if (!Object.keys(changes).length) throw new Error("Supply at least one field to update.");
-			if (args.unmarkDate) validDate(args.unmarkDate);
+			if (args.unmarkDate) validDate$1(args.unmarkDate);
 			const newName = args.newName?.trim();
 			if (newName && state.habits.some((x) => x.id !== h.id && sameName(x.name, newName))) throw new Error("A habit with this name already exists.");
 			const history = { ...h.history };
@@ -7793,7 +7793,7 @@ function describeMutation(tool, m) {
 		details
 	};
 }
-const list = (value) => Array.isArray(value) ? value.map(String) : typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : [];
+const list$1 = (value) => Array.isArray(value) ? value.map(String) : typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : [];
 const clock = (time) => {
 	const [h, m] = String(time).split(":").map(Number);
 	return Number.isFinite(h) ? `${h % 12 || 12}:${String(m || 0).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}` : "";
@@ -7801,7 +7801,7 @@ const clock = (time) => {
 /** Summary and details for a proposed action outside Synapse, as shown on its approval card. */
 function describeExternal(tool, args) {
 	if (tool === "create_calendar_event") {
-		const guests = list(args.attendees);
+		const guests = list$1(args.attendees);
 		const when = args.startTime ? `${args.date} ${clock(args.startTime)}–${clock(args.endTime)}` : `${args.date} (all day)`;
 		return {
 			summary: `Create event "${String(args.title || "Untitled")}" on ${when}${guests.length ? `, invites ${guests.length} ${guests.length === 1 ? "person" : "people"}` : ""}`,
@@ -7809,7 +7809,7 @@ function describeExternal(tool, args) {
 		};
 	}
 	if (tool === "create_email_draft") {
-		const to = list(args.to);
+		const to = list$1(args.to);
 		const body = String(args.body || "");
 		return {
 			summary: `Save a draft${to.length ? ` to ${to.join(", ")}` : " reply"}${args.subject ? `: "${args.subject}"` : ""}`,
@@ -7866,11 +7866,19 @@ const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and p
 - Do not repeat writes that already succeeded. Report partial completion honestly.
 - Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
 
+## Interactive cards
+You can place an interactive card in a reply by writing a fenced code block with the language iris-ui containing one JSON object. It appears to the user as a real control, so never mention JSON, code or the card format.
+- Use a card only when the user will act on or explore the result. Ordinary answers, advice and conversation stay as text. At most one card per reply, with at least a sentence of text before it. Do not repeat the card's contents in the text.
+- checklist, for proposing several new tasks, such as turning a plan or a list of deadlines into tasks: {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]}. Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added.
+- choices, for a quick question with a few clear answers; the tapped option is sent as the user's reply: {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]}. 2 to 6 short options.
+- quiz, for practice with two or more questions (grounded in the user's materials when the subject is theirs): {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]}. answer is the 0-based index of the correct option. Up to 10 questions.
+- chart, for how a habit is going over time: {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8}. The numbers come from the user's real history, so use the exact ID and do not restate figures you haven't seen. Weeks is 4 to 12.
+
 ## Studying
 - Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
 - For questions about class material, search_records (type document narrows it) and ground your explanation in the user's own materials, citing [document:ID]. Use their notation and terminology. If their materials don't cover something, say so and then answer from general knowledge.
 - "Make flashcards/a quiz on X": find the course and relevant documents, read them, then call create_flashcard_deck or create_quiz with items grounded in that text and sourceDocumentId set. Default to about 15 cards or 8 questions unless asked. Tell the user it is ready in their course's Flashcards or Quizzes tab.
-- When quizzing the user in chat, ask one question at a time and wait for their answer. Weak spots show up in quiz attempts (missed questions) and cards due; use them to suggest what to review.
+- When quizzing the user in chat, prefer a quiz card; for a single question or free-response practice, ask one question at a time and wait for their answer. Weak spots show up in quiz attempts (missed questions) and cards due; use them to suggest what to review.
 - A course's code is also its task subsection under Academic, so assignments for a course are tasks with that subsection.
 - Grades: course records include grading (weights, scores, current grade, projected final, and the average needed on the remaining work for each letter, already computed — use those numbers rather than redoing the math). When the user describes how a class is weighted, call set_course_grading; when they report a score ("got 42/50 on HW 3", "87 on the midterm"), call record_grade (a bare percentage is score out of maxScore 100). If a course has no grading yet and the user wants to track grades, ask for the breakdown or offer to read it from their syllabus document. For "what do I need on the final", use neededForTarget on that upcoming item when present, and say what assumption it makes (the rest at their current average).
 
@@ -8955,6 +8963,124 @@ async function runServerAgent(store, key, input, emit, signal, externalTools, we
 		}, "memory", "memory", "Memory");
 	}
 }
+const PRIORITIES = [
+	"urgent",
+	"high",
+	"medium",
+	"low"
+];
+const text = (value, max) => {
+	if (typeof value !== "string") return void 0;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.slice(0, max) : void 0;
+};
+const list = (value, max) => Array.isArray(value) ? value.slice(0, max) : [];
+const texts = (value, max, length) => list(value, max).map((v) => text(v, length)).filter((v) => !!v);
+const validDate = (value) => {
+	const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : void 0;
+	return date && !Number.isNaN((/* @__PURE__ */ new Date(`${date}T12:00:00`)).getTime()) ? date : void 0;
+};
+const validTime = (value) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : void 0;
+function checklistItem(raw) {
+	const title = text(raw?.title, 160);
+	if (!title) return void 0;
+	const dueDate = validDate(raw.dueDate), dueTime = dueDate ? validTime(raw.dueTime) : void 0;
+	const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
+	return {
+		title,
+		...dueDate ? { dueDate } : {},
+		...dueTime ? { dueTime } : {},
+		...PRIORITIES.includes(raw.priority) ? { priority: raw.priority } : {},
+		...section ? { section } : {},
+		...subsection ? { subsection } : {}
+	};
+}
+function quizQuestion(raw) {
+	const question = text(raw?.question, 400), options = texts(raw?.options, 6, 200);
+	if (!question || options.length < 2 || !Number.isInteger(raw.answer) || raw.answer < 0 || raw.answer >= options.length) return void 0;
+	const why = text(raw.why, 400);
+	return {
+		question,
+		options,
+		answer: raw.answer,
+		...why ? { why } : {}
+	};
+}
+/** The model's output is untrusted: returns a clean spec, or null when the block can't be shown. */
+function parseIrisUi(code) {
+	let raw;
+	try {
+		raw = JSON.parse(code);
+	} catch {
+		return null;
+	}
+	switch (raw?.type) {
+		case "checklist": {
+			const title = text(raw.title, 120), items = list(raw.items, 12).map(checklistItem).filter((i) => !!i);
+			if (!title || !items.length) return null;
+			const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
+			return {
+				type: "checklist",
+				title,
+				...section ? { section } : {},
+				...subsection ? { subsection } : {},
+				items
+			};
+		}
+		case "choices": {
+			const options = [...new Set(texts(raw.options, 6, 80))], question = text(raw.question, 200);
+			return options.length >= 2 ? {
+				type: "choices",
+				...question ? { question } : {},
+				options
+			} : null;
+		}
+		case "quiz": {
+			const title = text(raw.title, 120), questions = list(raw.questions, 10).map(quizQuestion).filter((q) => !!q);
+			return title && questions.length ? {
+				type: "quiz",
+				title,
+				questions
+			} : null;
+		}
+		case "chart": {
+			const habitId = text(raw.habitId, 120);
+			if (!habitId) return null;
+			return {
+				type: "chart",
+				habitId,
+				weeks: Number.isInteger(raw.weeks) ? Math.min(12, Math.max(4, raw.weeks)) : 8
+			};
+		}
+		default: return null;
+	}
+}
+function describe$1(spec) {
+	switch (spec.type) {
+		case "checklist": return [spec.title, ...spec.items.map((i) => `- ${i.title}${i.dueDate ? ` (${i.dueDate})` : ""}`)].join("\n");
+		case "choices": return [...spec.question ? [spec.question] : [], ...spec.options.map((o) => `- ${o}`)].join("\n");
+		case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map((o) => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
+		case "chart": return "";
+	}
+}
+/** Replaces card blocks with readable text, for anywhere that can't show a card (copy, notes, Telegram). */
+function plainIrisUi(content) {
+	if (!content.includes(`\`\`\`iris-ui`)) return content;
+	const output = [];
+	let block = null;
+	const flush = () => {
+		const spec = block ? parseIrisUi(block.join("\n")) : null;
+		if (spec) output.push(describe$1(spec));
+		block = null;
+	};
+	for (const line of content.split("\n")) if (block) {
+		if (line.trim() === "```") flush();
+		else block.push(line);
+	} else if (line.trim() === `\`\`\`iris-ui`) block = [];
+	else output.push(line);
+	block = null;
+	return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 // server/routes/actions.ts
 /** JSON with object keys sorted, so records compare equal regardless of how the database ordered them. */
 const canonical = (value) => JSON.stringify(value, (_, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
@@ -9057,7 +9183,7 @@ const TELEGRAM_THREAD = {
 const MESSAGES_PER_HOUR = 60;
 const TURN_TIMEOUT_MS = 28e4;
 const RECENT_NOTIFICATION_MS = 432e5;
-const CHANNEL_NOTE = "This conversation is over Telegram. Reply like a text message: short, usually under 80 words, plain text with no headings, tables or markdown. Do not include record IDs. Say plainly what you changed.";
+const CHANNEL_NOTE = "This conversation is over Telegram. Reply like a text message: short, usually under 80 words, plain text with no headings, tables, markdown or interactive cards. Do not include record IDs. Say plainly what you changed.";
 const NOT_LINKED = "This chat isn't connected to a Synapse account. Open Synapse, go to Settings, and choose Connect Telegram.";
 const HELP = "Text me like you would in Synapse: \"add a task to finish the lab by Friday at 5\", \"what's due this week?\", \"mark the essay done\".\n\n/stop pauses reminders\n/resume turns them back on";
 /** Handles one update from Telegram. Only private chats, and only from the person who owns the chat. */
@@ -9156,7 +9282,7 @@ async function converse(deps, telegram, admin, account, incoming, text) {
 	}
 }
 async function deliver(telegram, store, chatId, result) {
-	await telegram.send(chatId, plainText(result.queryAnswer));
+	await telegram.send(chatId, plainText(plainIrisUi(result.queryAnswer)));
 	for (const approval of result.approvals || []) await askApproval(telegram, store, chatId, approval);
 }
 const approvalText = (a) => [

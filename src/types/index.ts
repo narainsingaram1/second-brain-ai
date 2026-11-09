@@ -332,6 +332,16 @@ export interface AIMessage {
   external?: Array<{ tool: string; summary: string; link?: string }>;
   /** What the assistant did to produce this reply, step by step. */
   activity?: AgentStep[];
+  /** What the user has done with each interactive card in this reply, by the card's order in the text. */
+  cardState?: Record<number, IrisCardState>;
+}
+
+/** Progress on one interactive card, kept with the message so it survives a reload. */
+export interface IrisCardState {
+  /** Checklist rows already turned into tasks: row index to task ID. */
+  added?: Record<number, string>;
+  picked?: string;
+  answers?: number[];
 }
 
 /**
