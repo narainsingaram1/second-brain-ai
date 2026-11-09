@@ -15,5 +15,13 @@ export function serverEnv() {
     googleClientSecret: env.GOOGLE_CLIENT_SECRET || "",
     /** Optional fixed redirect URI; otherwise `<request origin>/connect/google`. */
     googleRedirectUri: env.GOOGLE_REDIRECT_URI || "",
+    /** Bot token from @BotFather. Telegram features stay off without it and the service role key. */
+    telegramBotToken: env.TELEGRAM_BOT_TOKEN || "",
+    /** Server only. Finds which account a Telegram chat belongs to and starts a short session as that user. */
+    supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || "",
+    /** Bearer token the scheduler must present to run reminders. */
+    cronSecret: env.CRON_SECRET || "",
+    /** Public origin Telegram posts to; Vercel supplies its production domain automatically. */
+    publicAppUrl: env.PUBLIC_APP_URL || (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : ""),
   };
 }

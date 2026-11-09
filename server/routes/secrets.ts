@@ -1,7 +1,7 @@
 import { testOpenRouterKey } from "../../src/services/openrouter";
 import { productionDeps, secretsAvailable, type Deps } from "../lib/context";
 import { sealSecret } from "../lib/crypto";
-import { HttpError, json, readJson, route } from "../lib/http";
+import { HttpError, json, readJson, route, safeProviderBase } from "../lib/http";
 
 const NAMES = new Set(["openrouter"]);
 
@@ -9,7 +9,7 @@ const NAMES = new Set(["openrouter"]);
  * Stores provider credentials encrypted on the server. The browser can add, replace or remove a key and
  * see its last four characters; it can never read the key back.
  */
-export function secretsHandlers(deps: Deps = productionDeps, validate: (key: string) => Promise<{ success: boolean; message: string }> = testOpenRouterKey) {
+export function secretsHandlers(deps: Deps = productionDeps, validate: (key: string, opts?: { base?: string; model?: string }) => Promise<{ success: boolean; message: string }> = (key, opts) => testOpenRouterKey(key, opts?.model, opts?.base)) {
   const requireStorage = async () => {
     if (!await secretsAvailable(deps)) throw new HttpError(503, "Secure key storage is not set up on this server yet.");
   };
@@ -22,12 +22,16 @@ export function secretsHandlers(deps: Deps = productionDeps, validate: (key: str
     POST: route(async request => {
       await requireStorage();
       const { userId, store } = await deps.caller(request);
-      const body = await readJson<{ name?: unknown; value?: unknown }>(request, 10_000);
+      const body = await readJson<{ name?: unknown; value?: unknown; base?: unknown; model?: unknown }>(request, 10_000);
       const name = typeof body.name === "string" ? body.name : "";
       const value = typeof body.value === "string" ? body.value.trim() : "";
       if (!NAMES.has(name)) throw new HttpError(400, "Unknown credential.");
       if (value.length < 20 || value.length > 300 || /\s/.test(value)) throw new HttpError(400, "That does not look like a valid API key.");
-      const check = await validate(value);
+      const baseParam = typeof body.base === "string" ? body.base.trim() : "";
+      const base = baseParam ? safeProviderBase(baseParam) : undefined;
+      if (baseParam && !base) throw new HttpError(400, "The AI provider address is not allowed.");
+      const model = typeof body.model === "string" && body.model.length > 0 && body.model.length <= 200 ? body.model : undefined;
+      const check = await validate(value, { base, model });
       if (!check.success) throw new HttpError(400, `The provider rejected this key: ${check.message}`);
       const sealed = await sealSecret(deps.secretsKey(), userId, name, value);
       await store.putSecret(name, { ...sealed, hint: value.slice(-4) });

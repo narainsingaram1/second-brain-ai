@@ -2,8 +2,10 @@ import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useEffect, useState } from "react";
 import { ServerKeyField } from "./ServerKeyField";
 import { ConnectionsPanel } from "./ConnectionsPanel";
+import { TelegramPanel } from "./TelegramPanel";
 import { serverFeatures } from "../services/serverApi";
 import { DEFAULT_MODEL, DEFAULT_VISION_MODEL, getVisionModel, OPENROUTER_MODELS, setVisionModel, testOpenRouterKey, VISION_MODELS } from "../services/openrouter";
+import { DEFAULT_PROVIDER_BASE, normalizeProviderBase, providerBase, setProviderBase } from "../services/providerTransport";
 import {
   Key,
   Brain,
@@ -18,6 +20,7 @@ import {
   ShieldCheck,
   RefreshCw,
   Cpu,
+  Globe,
 } from "lucide-react";
 
 interface OpenRouterSettingsModalProps {
@@ -58,10 +61,13 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   );
   const [customModelInput, setCustomModelInput] = useState(useCustomModel ? selectedModel : "");
   const [visionInput, setVisionInput] = useState(getVisionModel);
+  // The AI provider address for this device; empty means OpenRouter's default.
+  const [apiBaseInput, setApiBaseInput] = useState("");
   // Hosted accounts keep the provider key encrypted on the server when the server supports it.
   const [serverKeys, setServerKeys] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
-  useEffect(() => { if (isOpen) serverFeatures().then(f => { setServerKeys(f.secrets); setGoogleAvailable(f.google); }); }, [isOpen]);
+  const [telegramAvailable, setTelegramAvailable] = useState(false);
+  useEffect(() => { if (isOpen) serverFeatures().then(f => { setServerKeys(f.secrets); setGoogleAvailable(f.google); setTelegramAvailable(f.telegram); }); }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -74,12 +80,14 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
     setUseCustomModel(isCustom);
     setCustomModelInput(isCustom ? selectedModel : "");
     setVisionInput(getVisionModel());
+    setApiBaseInput(providerBase());
     setTestResult(null);
   }, [isOpen, openRouterKey, selectedModel]);
 
   const modelToSave = useCustomModel ? customModelInput.trim() : modelInput;
   const isModelValid = /^[^\s/]+\/[^\s]+$/.test(modelToSave);
   const isVisionValid = /^[^\s/]+\/[^\s]+$/.test(visionInput.trim());
+  const apiBaseValid = apiBaseInput.trim() === "" || (() => { try { const url = new URL(apiBaseInput.trim()); return url.protocol === "http:" || url.protocol === "https:"; } catch { return false; } })();
 
   if (!isOpen) return null;
 
@@ -87,7 +95,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
     setTesting(true);
     setTestResult(null);
     try {
-      const res = await testOpenRouterKey(keyInput);
+      const res = await testOpenRouterKey(keyInput, isModelValid ? modelToSave : undefined, apiBaseInput.trim() || undefined);
       setTestResult(res);
       if (res.success) {
       }
@@ -99,7 +107,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   };
 
   const handleSave = () => {
-    if (!isModelValid || !isVisionValid) return;
+    if (!isModelValid || !isVisionValid || !apiBaseValid) return;
+    setProviderBase(apiBaseInput);
     if (!serverKeys) onSaveKey(keyInput.trim());
     onSelectModel(modelToSave);
     setVisionModel(visionInput.trim());
@@ -133,7 +142,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
         {/* Modal Body */}
         <div className="p-6 space-y-6 overflow-y-auto max-h-[500px]">
           {/* API Key Input Section */}
-          {serverKeys ? <ServerKeyField localKey={openRouterKey} onUseKey={onSaveKey} /> : <div className="space-y-2">
+          {serverKeys ? <ServerKeyField localKey={openRouterKey} onUseKey={onSaveKey} base={normalizeProviderBase(apiBaseInput)} model={isModelValid ? modelToSave : undefined} /> : <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-[var(--workspace-success)]" />
@@ -203,7 +212,43 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </p>
           </div>}
 
+          {/* API address */}
+          <section className="p-3.5 rounded-2xl border border-line space-y-2" aria-labelledby="api-address-heading">
+            <h4 id="api-address-heading" className="text-xs font-bold text-ink flex items-center gap-1.5">
+              <Globe className="w-4 h-4 text-muted" />
+              API address
+            </h4>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-normal">
+              Where Synapse sends AI requests. Leave empty to use OpenRouter. Any OpenAI-compatible server works, for example
+              <code className="font-mono text-slate-600 dark:text-slate-300"> https://hai.mehapps.com </code>, as long as it serves
+              <code className="font-mono text-slate-600 dark:text-slate-300"> /chat/completions</code>, <code className="font-mono text-slate-600 dark:text-slate-300"> /embeddings</code> and <code className="font-mono text-slate-600 dark:text-slate-300"> /models</code> there. Saved on this device.
+            </p>
+            <label htmlFor="api-address" className="sr-only">AI provider address</label>
+            <input
+              id="api-address"
+              type="url"
+              value={apiBaseInput}
+              placeholder={DEFAULT_PROVIDER_BASE}
+              autoComplete="off"
+              spellCheck={false}
+              aria-invalid={!apiBaseValid}
+              onChange={(event) => { setApiBaseInput(event.target.value); setSaveSuccess(false); }}
+              className="w-full bg-raised text-xs font-mono text-ink px-4 py-3 rounded-2xl border border-line focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {apiBaseInput.trim() && apiBaseInput.trim().toLowerCase() !== DEFAULT_PROVIDER_BASE.toLowerCase() && (
+              <div className="flex flex-wrap items-center gap-2">
+                <button type="button" onClick={() => { setApiBaseInput(""); setSaveSuccess(false); }}
+                  className="text-[11px] font-bold px-2.5 py-1 rounded-full border border-line text-slate-600 dark:text-slate-300 hover:border-slate-300">
+                  Use OpenRouter instead
+                </button>
+                <span className="text-[11px] text-slate-400">All AI calls on this device will use {normalizeProviderBase(apiBaseInput)}</span>
+              </div>
+            )}
+            {!apiBaseValid && <p role="alert" className="text-[11px] text-rose-600 dark:text-slate-400">Enter a full http:// or https:// address.</p>}
+          </section>
+
           {googleAvailable && <ConnectionsPanel />}
+          {telegramAvailable && <TelegramPanel />}
 
           {onAskBeforeChanges && <label className="flex items-start gap-3 rounded-2xl border border-line p-3.5 cursor-pointer">
             <input type="checkbox" className="mt-0.5" checked={askBeforeChanges} onChange={e => onAskBeforeChanges(e.target.checked)} />
@@ -394,7 +439,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             </button>
             <button
               onClick={handleSave}
-              disabled={!isModelValid || !isVisionValid}
+              disabled={!isModelValid || !isVisionValid || !apiBaseValid}
               className="flex items-center gap-1.5 px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Save className="w-3.5 h-3.5" />

@@ -6,7 +6,7 @@ export function healthHandlers(deps: Deps = productionDeps) {
   return {
     GET: route(async () => {
       const secure = await secretsAvailable(deps);
-      return json({ ok: true, secrets: secure, agent: secure, approvals: secure, google: secure && !!deps.google?.() });
+      return json({ ok: true, secrets: secure, agent: secure, approvals: secure, google: secure && !!deps.google?.(), telegram: secure && !!deps.telegram?.() });
     }),
   };
 }

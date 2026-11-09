@@ -70,6 +70,15 @@ test('secrets route stores keys encrypted, never returns them, and the AI proxy 
     assert.equal(upstreamCalls[0].url, 'https://openrouter.ai/api/v1/chat/completions');
     assert.equal(upstreamCalls[0].auth, 'Bearer sk-or-v1-a-perfectly-good-key-WXYZ');
 
+    // A public custom provider address is honored; a private one is refused.
+    const custom = await ai.POST(new Request(`http://app/api/ai?endpoint=chat%2Fcompletions&base=https%3A%2F%2Fhai.mehapps.com`, { method: 'POST', body: JSON.stringify({ model: 'm', messages: [] }) }));
+    assert.equal(custom.status, 200);
+    assert.equal(upstreamCalls[1].url, 'https://hai.mehapps.com/chat/completions');
+    const privateBase = await ai.POST(new Request(`http://app/api/ai?endpoint=chat%2Fcompletions&base=http%3A%2F%2F127.0.0.1`, { method: 'POST', body: JSON.stringify({ model: 'm', messages: [] }) }));
+    assert.equal(privateBase.status, 400);
+    assert.match((await privateBase.json()).error, /AI provider address/);
+    assert.equal(upstreamCalls.length, 2, 'the refused address never reaches an upstream');
+
     // Another account has no key, and cannot use this one.
     caller = other; await asUser(other);
     const noKey = await ai.POST(aiReq('embeddings', { model: 'openai/text-embedding-3-small', input: ['x'] }));
@@ -83,7 +92,7 @@ test('secrets route stores keys encrypted, never returns them, and the AI proxy 
     // Without a server key, storage reports unavailable instead of storing plaintext.
     const unconfigured = { ...deps, secretsKey: () => '' };
     assert.equal((await secretsHandlers(unconfigured, async () => ({ success: true })).POST(req('POST', { name: 'openrouter', value: 'sk-or-v1-a-perfectly-good-key-WXYZ' }))).status, 503);
-    assert.deepEqual(await (await healthHandlers(unconfigured).GET(new Request('http://app/api/health'))).json(), { ok: true, secrets: false, agent: false, approvals: false, google: false });
+    assert.deepEqual(await (await healthHandlers(unconfigured).GET(new Request('http://app/api/health'))).json(), { ok: true, secrets: false, agent: false, approvals: false, google: false, telegram: false });
   } finally { await db.close(); }
 });
 
@@ -100,6 +109,20 @@ test('browser requests use the server proxy when the key is held there', async (
   ]);
   setProviderProxyAuth(null);
   await assert.rejects(providerFetch('chat/completions', SERVER_HELD_KEY, {}), /Sign in again/);
+});
+
+test('providerFetch honors an explicit provider address in both key modes', async () => {
+  const { providerFetch, setProviderProxyAuth, SERVER_HELD_KEY } = await load('/src/services/providerTransport.ts');
+  const calls = [];
+  globalThis.fetch = async (url, init) => { calls.push({ url, auth: init.headers.Authorization }); return Response.json({}); };
+  await providerFetch('embeddings', 'sk-or-v1-local', { model: 'm' }, undefined, 'https://hai.mehapps.com');
+  setProviderProxyAuth(async () => 'user-access-token');
+  await providerFetch('chat/completions', SERVER_HELD_KEY, { model: 'm' }, undefined, 'https://hai.mehapps.com');
+  assert.deepEqual(calls, [
+    { url: 'https://hai.mehapps.com/embeddings', auth: 'Bearer sk-or-v1-local' },
+    { url: '/api/ai?endpoint=chat%2Fcompletions&base=https%3A%2F%2Fhai.mehapps.com', auth: 'Bearer user-access-token' },
+  ]);
+  setProviderProxyAuth(null);
 });
 
 test('deployed API bundles match the server source', async () => {

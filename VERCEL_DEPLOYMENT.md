@@ -162,3 +162,30 @@ Mail and calendar content is fetched live for each request and is not stored by 
 ### Browser fixture
 
 `npm exec vite -- --config tests/fixtures/vite.config.ts` and open `http://127.0.0.1:1423/tests/fixtures/connections.html` to see the Connections panel, Google events in the calendar, and an approval card for an event with guests. It uses synthetic data and intercepted `/api` responses.
+
+## Telegram
+
+Text the assistant from Telegram and get reminders there. Hosted accounts only.
+
+1. In Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, and copy the token.
+2. Apply `supabase/migrations/202611110001_telegram.sql`.
+3. In Vercel, set these server variables (never with a `VITE_` prefix), then redeploy:
+   - `TELEGRAM_BOT_TOKEN`: the token from BotFather.
+   - `SUPABASE_SERVICE_ROLE_KEY`: from Supabase, Project Settings > API. It lets the server find which account a chat belongs to and open a short session as that user. Everything the assistant does then runs as that user under row-level security.
+   - `CRON_SECRET`: a long random value (`openssl rand -hex 32`).
+   - `PUBLIC_APP_URL` (optional): only if Telegram should use a domain other than the Vercel production domain.
+4. In the app, open Settings and choose **Connect Telegram**. This registers the webhook and opens the bot.
+5. Schedule reminders. Enable the `pg_cron` and `pg_net` extensions in Supabase (Database > Extensions), then run this once in the SQL editor with your domain and `CRON_SECRET`:
+
+```sql
+select cron.schedule('synapse-reminders', '*/15 * * * *', $$
+  select net.http_get(
+    url := 'https://YOUR-DOMAIN/api/notifications',
+    headers := jsonb_build_object('Authorization', 'Bearer YOUR-CRON-SECRET')
+  );
+$$);
+```
+
+This uses Supabase rather than `crons` in `vercel.json` because Vercel's Hobby plan rejects schedules that run more than once a day.
+
+Reminders are plain rules over tasks and events, so they use no AI credits. Deletions and other gated changes get Approve and Reject buttons. Sending email or inviting guests must still be approved in the app, where the full message and undo window are shown.

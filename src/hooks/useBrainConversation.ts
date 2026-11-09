@@ -18,6 +18,7 @@ import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../servic
 import { getVisionModel } from "../services/openrouter";
 import { webToolset } from "../services/webTools";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
+import { generateFollowUps } from "../services/chatSuggestions";
 import {
   applyMemoryChange,
   clearMemoryIndex,
@@ -39,6 +40,8 @@ export interface BrainConversation {
   draft: { id: string; content: string } | null;
   /** What the assistant is doing right now, step by step, while a reply is in progress. */
   activity: AgentStep[];
+  /** Suggested next messages for the newest answer. */
+  followUps?: { messageId: string; items: string[]; loading: boolean } | null;
   stop: () => void;
   startNew: () => void;
   resume: (id: string) => void;
@@ -75,6 +78,10 @@ export function useBrainConversation(
     [progress, setProgress] = useState("");
   const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
   const [activity, setActivity] = useState<AgentStep[]>([]);
+  // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
+  const [followUps, setFollowUps] = useState<{ messageId: string; items: string[]; loading: boolean } | null>(null);
+  const followUpRequest = useRef<AbortController | null>(null);
+  const clearFollowUps = () => { followUpRequest.current?.abort(); followUpRequest.current = null; setFollowUps(null); };
   const [temporary, setTemporaryState] = useState(false),
     [temporaryMessages, setTemporaryMessages] = useState<AIMessage[]>([]);
   const tempLatest = useRef(temporaryMessages);
@@ -96,6 +103,7 @@ export function useBrainConversation(
     setProgress("");
     setDraft(null);
     setActivity([]);
+    clearFollowUps();
     setMemoryStatus({ state: "idle" });
     const background = new MemoryLearner({
       getState: () => latest.current,
@@ -202,6 +210,7 @@ export function useBrainConversation(
     const controller = new AbortController();
     active.current = controller;
     setBusy(true);
+    clearFollowUps();
     const signal = options.signal
       ? AbortSignal.any([options.signal, controller.signal])
       : controller.signal;
@@ -420,6 +429,17 @@ export function useBrainConversation(
         // Temporary chats are never read. Everything else joins the background queue, which batches it.
         if (!temporary && (result.status === "complete" || result.status === "partial"))
           learner.current?.enqueue([{ message: user, reply: result.queryAnswer, conversationId: initial.conversationId || "current" }]);
+        // Anything waiting on approval already has its next step on screen.
+        if ((result.status === "complete" || result.status === "partial") && !result.approvals?.length && initial.openRouterKey?.trim()) {
+          const request = new AbortController();
+          followUpRequest.current = request;
+          setFollowUps({ messageId: assistantId, items: [], loading: true });
+          const changes = result.actions.map(m => `${m.action}: ${"name" in m.record ? m.record.name : m.record.title || "note"}`);
+          const earlierQuestions = initial.chatHistory.filter(m => m.role === "user").map(m => m.content);
+          generateFollowUps(initial, { question: prompt, answer: result.queryAnswer, earlierQuestions, changes }, AbortSignal.any([request.signal, AbortSignal.timeout(15_000)]))
+            .catch(() => [] as string[])
+            .then(items => { if (followUpRequest.current === request) setFollowUps({ messageId: assistantId, items, loading: false }); });
+        }
       }
       return result;
     } finally {
@@ -436,6 +456,7 @@ export function useBrainConversation(
   };
   const switchConversation = (id?: string) => {
     if (active.current || !latest.current) return;
+    clearFollowUps();
     if (temporary && !id) {
       tempId.current = crypto.randomUUID();
       tempLatest.current = [];
@@ -456,6 +477,7 @@ export function useBrainConversation(
   };
   const setTemporary = (value: boolean) => {
     if (active.current) return;
+    clearFollowUps();
     generation.current++;
     tempId.current = crypto.randomUUID();
     tempLatest.current = [];
@@ -515,6 +537,7 @@ export function useBrainConversation(
     progress,
     activity,
     draft,
+    followUps,
     stop: () => active.current?.abort(),
     startNew: () => switchConversation(),
     resume: (id: string) => switchConversation(id),

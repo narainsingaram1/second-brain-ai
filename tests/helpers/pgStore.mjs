@@ -74,6 +74,13 @@ export function pgStore(db, userId, PreferencesConflict, HttpError) {
       if (patch.used) await db.query('update public.connections set last_used_at = now() where provider = $1', [provider]);
     },
     async deleteConnection(provider) { await db.query('delete from public.connections where provider = $1', [provider]); },
+    async getTelegramLink() {
+      const r = await one('select * from public.telegram_links');
+      return r ? { linked: r.chat_id !== null, username: r.username, timeZone: r.time_zone, briefEnabled: r.brief_enabled, briefHour: r.brief_hour, alertsEnabled: r.alerts_enabled } : null;
+    },
+    async beginTelegramLink(hash, zone) { await db.query('select public.begin_telegram_link($1, $2)', [hash, zone]); },
+    async setTelegramPrefs(p) { await db.query('select public.set_telegram_prefs($1, $2, $3, $4)', [p.timeZone ?? null, p.briefEnabled ?? null, p.briefHour ?? null, p.alertsEnabled ?? null]); },
+    async deleteTelegramLink() { await db.query('delete from public.telegram_links'); },
     async documentTexts(ids) { return new Map((await db.query('select id, content from public.study_documents where id = any($1)', [ids])).rows.map(r => [r.id, r.content])); },
   };
 }
