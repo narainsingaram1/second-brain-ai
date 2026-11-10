@@ -6,6 +6,7 @@ import { googleSession } from "./google";
 import { googleToolset } from "./googleTools";
 import { HttpError } from "./http";
 import { runServerAgent } from "./serverAgent";
+import { plainIrisUi } from "../../src/utils/irisUi";
 import type { ServerStore } from "./store";
 import { plainText, sha256Hex, type TelegramClient } from "./telegram";
 import { executeApproved } from "../routes/actions";
@@ -22,7 +23,7 @@ export const TELEGRAM_THREAD = { id: "telegram", title: "Telegram" };
 const MESSAGES_PER_HOUR = 60;
 const TURN_TIMEOUT_MS = 280_000;
 const RECENT_NOTIFICATION_MS = 12 * 3_600_000;
-const CHANNEL_NOTE = "This conversation is over Telegram. Reply like a text message: short, usually under 80 words, plain text with no headings, tables or markdown. Do not include record IDs. Say plainly what you changed.";
+const CHANNEL_NOTE = "This conversation is over Telegram. Reply like a text message: short, usually under 80 words, plain text with no headings, tables, markdown or interactive cards. Do not include record IDs. Say plainly what you changed.";
 const NOT_LINKED = "This chat isn't connected to a Synapse account. Open Synapse, go to Settings, and choose Connect Telegram.";
 const HELP = "Text me like you would in Synapse: \"add a task to finish the lab by Friday at 5\", \"what's due this week?\", \"mark the essay done\".\n\n/stop pauses reminders\n/resume turns them back on";
 
@@ -103,7 +104,7 @@ async function converse(deps: Deps, telegram: TelegramClient, admin: AdminStore,
 }
 
 async function deliver(telegram: TelegramClient, store: ServerStore, chatId: number, result: AgentExecutionResult) {
-  await telegram.send(chatId, plainText(result.queryAnswer));
+  await telegram.send(chatId, plainText(plainIrisUi(result.queryAnswer)));
   for (const approval of result.approvals || []) await askApproval(telegram, store, chatId, approval);
 }
 

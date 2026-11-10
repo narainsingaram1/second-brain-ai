@@ -1,4 +1,4 @@
-import { Search, Moon, Sun, Bell, ChevronDown } from "lucide-react";
+import { Search, Moon, Sun, Bell } from "lucide-react";
 import { AuthSession } from "../types";
 interface TopHeaderProps {
   onOpenGlobalSearch: () => void;
@@ -47,8 +47,8 @@ export function TopHeader({
         onClick={onOpenGlobalSearch}
         aria-label="Search workspace"
       >
-        <Search size={16} strokeWidth={1.5} />
-        <span>Search</span>
+        <Search size={15} strokeWidth={1.5} className="shrink-0" />
+        <span>Search anything...</span>
         <kbd>⌘K</kbd>
       </button>
       <div className="header-actions">
@@ -62,7 +62,7 @@ export function TopHeader({
             theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
           }
         >
-          {theme === "dark" ? <Sun size={16} strokeWidth={1.5} /> : <Moon size={16} strokeWidth={1.5} />}
+          {theme === "dark" ? <Sun size={17} strokeWidth={1.5} /> : <Moon size={17} strokeWidth={1.5} />}
         </button>
         <button
           className="icon-control"
@@ -70,16 +70,15 @@ export function TopHeader({
           aria-label="Activity history"
           title="Activity history"
         >
-          <Bell size={16} strokeWidth={1.5} />
+          <Bell size={17} strokeWidth={1.5} />
         </button>
-        <span className="header-divider" />
         <button
-          className="account-control"
+          className="account-avatar-btn"
           onClick={onOpenAuth}
           aria-label="Account settings"
+          title="Account settings"
         >
           <span>{initials}</span>
-          <ChevronDown size={14} strokeWidth={1.5} />
         </button>
       </div>
     </header>

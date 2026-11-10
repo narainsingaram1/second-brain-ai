@@ -2352,6 +2352,7 @@ const RECORD_COLLECTIONS = [
 	"events",
 	"trackerItems",
 	"workspaces",
+	"healthDays",
 	"noteFolders",
 	"conversations",
 	"study.courses",
@@ -3047,6 +3048,28 @@ function supabaseStore(userId, client) {
 			const { error } = await client.from("telegram_links").delete().eq("user_id", userId);
 			if (error) rpcError(error, "Could not disconnect Telegram.");
 		},
+		async getHealthSync() {
+			const { data, error } = await client.from("health_sync_tokens").select("hint,created_at,last_sync_at,last_sync_days,last_sync_source").eq("user_id", userId).maybeSingle();
+			if (error) rpcError(error, "Could not read your health sync settings.");
+			return data ? {
+				hint: data.hint,
+				createdAt: data.created_at,
+				lastSyncAt: data.last_sync_at,
+				lastSyncDays: data.last_sync_days,
+				lastSyncSource: data.last_sync_source
+			} : null;
+		},
+		async setHealthSyncToken(tokenHash, hint) {
+			const { error } = await client.rpc("set_health_sync_token", {
+				p_token_hash: tokenHash,
+				p_hint: hint
+			});
+			if (error) rpcError(error, "Could not create a sync token.");
+		},
+		async deleteHealthSync() {
+			const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
+			if (error) rpcError(error, "Could not turn off health sync.");
+		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
 			for (let i = 0; i < ids.length; i += 50) {
@@ -3147,6 +3170,29 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 		},
 		async pruneNotifications(beforeIso) {
 			check(await admin.from("telegram_notifications").delete().lt("sent_at", beforeIso), "prune notifications");
+		},
+		async healthAccount(tokenHash) {
+			const { data } = check(await admin.from("health_sync_tokens").select("user_id").eq("token_hash", tokenHash).maybeSingle(), "check the sync token");
+			return data?.user_id ?? null;
+		},
+		async healthDays(userId, ids) {
+			const rows = [];
+			for (let i = 0; i < ids.length; i += 100) {
+				const { data } = check(await admin.from("brain_records").select("id,data,revision").eq("user_id", userId).eq("collection", "healthDays").eq("deleted", false).in("id", ids.slice(i, i + 100)), "read health days");
+				rows.push(...(data || []).map((r) => ({
+					id: r.id,
+					data: r.data,
+					revision: Number(r.revision)
+				})));
+			}
+			return rows;
+		},
+		async markHealthSync(userId, days, source) {
+			check(await admin.from("health_sync_tokens").update({
+				last_sync_at: (/* @__PURE__ */ new Date()).toISOString(),
+				last_sync_days: days,
+				last_sync_source: source.slice(0, 80)
+			}).eq("user_id", userId), "record the sync");
 		},
 		async session(userId) {
 			const found = await admin.auth.admin.getUserById(userId);
@@ -3301,9 +3347,9 @@ async function providerKey(deps, store) {
 // server/lib/googleApi.ts
 const CAL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE$1 = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-function addDays$1(date, days) {
+function addDays$2(date, days) {
 	const d = /* @__PURE__ */ new Date(`${date}T12:00:00Z`);
 	d.setUTCDate(d.getUTCDate() + days);
 	return d.toISOString().slice(0, 10);
@@ -3319,11 +3365,11 @@ function validTimeZone(zone) {
 }
 /** Events on the primary calendar between two local dates (inclusive), in the given time zone. */
 async function listEvents(google, from, to, timeZone, max = 250) {
-	if (!DATE.test(from) || !DATE.test(to) || to < from) throw new HttpError(400, "Use a valid date range (YYYY-MM-DD).");
+	if (!DATE$1.test(from) || !DATE$1.test(to) || to < from) throw new HttpError(400, "Use a valid date range (YYYY-MM-DD).");
 	if (Date.parse(to) - Date.parse(from) > 53568e5) throw new HttpError(400, "Ask for at most two months of events at once.");
 	const params = new URLSearchParams({
-		timeMin: `${addDays$1(from, -1)}T00:00:00Z`,
-		timeMax: `${addDays$1(to, 2)}T00:00:00Z`,
+		timeMin: `${addDays$2(from, -1)}T00:00:00Z`,
+		timeMax: `${addDays$2(to, 2)}T00:00:00Z`,
 		singleEvents: "true",
 		orderBy: "startTime",
 		timeZone,
@@ -3343,7 +3389,7 @@ async function listEvents(google, from, to, timeZone, max = 250) {
 			...typeof e.htmlLink === "string" && e.htmlLink.startsWith("https://") ? { link: e.htmlLink } : {}
 		};
 		if (allDay) {
-			const last = addDays$1(String(end), -1);
+			const last = addDays$2(String(end), -1);
 			if (last > event.date) event.endDate = last;
 		} else {
 			event.startTime = start.slice(11, 16);
@@ -3360,7 +3406,7 @@ function validateNewEvent(args, timeZone) {
 	const startTime = args.startTime === void 0 ? void 0 : String(args.startTime);
 	const endTime = args.endTime === void 0 ? void 0 : String(args.endTime);
 	if (!title || title.length > 300) throw new Error("Give the event a title (up to 300 characters).");
-	if (!DATE.test(date)) throw new Error("Use a date in YYYY-MM-DD.");
+	if (!DATE$1.test(date)) throw new Error("Use a date in YYYY-MM-DD.");
 	if (startTime && !TIME.test(startTime) || endTime && !TIME.test(endTime)) throw new Error("Use 24-hour HH:MM times.");
 	if (!!startTime !== !!endTime) throw new Error("Give both a start and an end time, or neither for an all-day event.");
 	if (startTime && endTime && endTime <= startTime) throw new Error("The end time must be after the start time.");
@@ -3388,7 +3434,7 @@ async function createEvent(google, event) {
 		location: event.location,
 		description: event.description,
 		start: when(event.startTime),
-		end: event.endTime ? when(event.endTime) : { date: addDays$1(event.date, 1) },
+		end: event.endTime ? when(event.endTime) : { date: addDays$2(event.date, 1) },
 		...event.attendees ? { attendees: event.attendees.map((email) => ({ email })) } : {}
 	};
 	const created = await google.json(`${CAL}?sendUpdates=${event.attendees ? "all" : "none"}`, {
@@ -4280,6 +4326,367 @@ const sessionImages = /* @__PURE__ */ new Map();
 function sessionImage(id) {
 	return sessionImages.get(id);
 }
+// src/utils/health.ts
+const HEALTH_METRICS = [
+	{
+		key: "steps",
+		label: "Steps",
+		unit: "steps",
+		agg: "sum",
+		min: 0,
+		max: 15e4,
+		decimals: 0,
+		hae: ["step_count"],
+		description: "Steps walked."
+	},
+	{
+		key: "activeKcal",
+		label: "Active energy",
+		unit: "kcal",
+		agg: "sum",
+		min: 0,
+		max: 1e4,
+		decimals: 0,
+		hae: ["active_energy"],
+		description: "Active calories burned."
+	},
+	{
+		key: "basalKcal",
+		label: "Resting energy",
+		unit: "kcal",
+		agg: "sum",
+		min: 0,
+		max: 6e3,
+		decimals: 0,
+		hae: ["basal_energy_burned"],
+		description: "Resting calories burned."
+	},
+	{
+		key: "exerciseMin",
+		label: "Exercise",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1440,
+		decimals: 0,
+		hae: ["apple_exercise_time"],
+		description: "Apple Watch exercise minutes."
+	},
+	{
+		key: "standHours",
+		label: "Stand hours",
+		unit: "h",
+		agg: "sum",
+		min: 0,
+		max: 24,
+		decimals: 0,
+		hae: ["apple_stand_hour"],
+		description: "Hours with at least a minute of standing."
+	},
+	{
+		key: "distanceKm",
+		label: "Walking + running",
+		unit: "km",
+		agg: "sum",
+		min: 0,
+		max: 300,
+		decimals: 1,
+		hae: ["walking_running_distance"],
+		description: "Walking and running distance in km."
+	},
+	{
+		key: "flights",
+		label: "Flights climbed",
+		unit: "floors",
+		agg: "sum",
+		min: 0,
+		max: 500,
+		decimals: 0,
+		hae: ["flights_climbed"],
+		description: "Flights of stairs climbed."
+	},
+	{
+		key: "daylightMin",
+		label: "Time in daylight",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1440,
+		decimals: 0,
+		hae: ["time_in_daylight"],
+		description: "Minutes spent in daylight."
+	},
+	{
+		key: "restingHr",
+		label: "Resting heart rate",
+		unit: "bpm",
+		agg: "avg",
+		min: 25,
+		max: 150,
+		decimals: 0,
+		hae: ["resting_heart_rate"],
+		description: "Resting heart rate in beats per minute."
+	},
+	{
+		key: "hrv",
+		label: "HRV",
+		unit: "ms",
+		agg: "avg",
+		min: 3,
+		max: 300,
+		decimals: 0,
+		hae: ["heart_rate_variability"],
+		description: "Heart rate variability (SDNN) in milliseconds."
+	},
+	{
+		key: "walkingHr",
+		label: "Walking heart rate",
+		unit: "bpm",
+		agg: "avg",
+		min: 40,
+		max: 200,
+		decimals: 0,
+		hae: ["walking_heart_rate_average"],
+		description: "Average heart rate while walking."
+	},
+	{
+		key: "maxHr",
+		label: "Highest heart rate",
+		unit: "bpm",
+		agg: "max",
+		min: 60,
+		max: 230,
+		decimals: 0,
+		hae: [],
+		description: "Highest heart rate recorded that day."
+	},
+	{
+		key: "respRate",
+		label: "Respiratory rate",
+		unit: "br/min",
+		agg: "avg",
+		min: 5,
+		max: 40,
+		decimals: 1,
+		hae: ["respiratory_rate"],
+		description: "Breaths per minute, measured during sleep."
+	},
+	{
+		key: "spo2",
+		label: "Blood oxygen",
+		unit: "%",
+		agg: "avg",
+		min: 70,
+		max: 100,
+		decimals: 0,
+		hae: ["blood_oxygen_saturation"],
+		description: "Blood oxygen saturation in percent."
+	},
+	{
+		key: "wristTempC",
+		label: "Sleeping wrist temperature",
+		unit: "°C",
+		agg: "avg",
+		min: 25,
+		max: 42,
+		decimals: 2,
+		hae: ["apple_sleeping_wrist_temperature"],
+		description: "Wrist temperature during sleep in °C."
+	},
+	{
+		key: "vo2max",
+		label: "Cardio fitness (VO₂ max)",
+		unit: "ml/kg/min",
+		agg: "last",
+		min: 10,
+		max: 95,
+		decimals: 1,
+		hae: ["vo2_max"],
+		description: "Estimated VO2 max."
+	},
+	{
+		key: "weightKg",
+		label: "Weight",
+		unit: "kg",
+		agg: "last",
+		min: 20,
+		max: 400,
+		decimals: 1,
+		hae: ["weight_body_mass"],
+		description: "Body weight in kg."
+	},
+	{
+		key: "bodyFatPct",
+		label: "Body fat",
+		unit: "%",
+		agg: "last",
+		min: 2,
+		max: 70,
+		decimals: 1,
+		hae: ["body_fat_percentage"],
+		description: "Body fat percentage."
+	},
+	{
+		key: "sleepMin",
+		label: "Sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1200,
+		decimals: 0,
+		hae: [],
+		description: "Minutes asleep in the night that ended this morning."
+	},
+	{
+		key: "inBedMin",
+		label: "Time in bed",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1440,
+		decimals: 0,
+		hae: [],
+		description: "Minutes in bed."
+	},
+	{
+		key: "deepMin",
+		label: "Deep sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 600,
+		decimals: 0,
+		hae: [],
+		description: "Minutes of deep sleep."
+	},
+	{
+		key: "remMin",
+		label: "REM sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 600,
+		decimals: 0,
+		hae: [],
+		description: "Minutes of REM sleep."
+	},
+	{
+		key: "coreMin",
+		label: "Core sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1e3,
+		decimals: 0,
+		hae: [],
+		description: "Minutes of core (light) sleep."
+	},
+	{
+		key: "awakeMin",
+		label: "Awake in bed",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 600,
+		decimals: 0,
+		hae: [],
+		description: "Minutes awake during the night."
+	}
+];
+const HEALTH_METRIC_KEYS = HEALTH_METRICS.map((m) => m.key);
+const METRIC_BY_KEY = new Map(HEALTH_METRICS.map((m) => [m.key, m]));
+const healthMetric = (key) => METRIC_BY_KEY.get(key);
+const healthDayId = (date) => `health-${date}`;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+const isHealthDate = (value) => {
+	if (typeof value !== "string" || !DATE.test(value)) return false;
+	const time = Date.parse(`${value}T12:00:00Z`);
+	return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
+};
+/** A value rounded to the metric's precision, or undefined when it is not a plausible reading. */
+function cleanMetric(key, value) {
+	const def = METRIC_BY_KEY.get(key);
+	const n = typeof value === "string" && value.trim() ? Number(value) : value;
+	if (!def || typeof n !== "number" || !Number.isFinite(n) || n < def.min || n > def.max) return void 0;
+	const f = 10 ** def.decimals;
+	return Math.round(n * f) / f;
+}
+function cleanTags(value) {
+	if (!Array.isArray(value)) return [];
+	const seen = /* @__PURE__ */ new Set();
+	const tags = [];
+	for (const raw of value) {
+		if (typeof raw !== "string") continue;
+		const tag = raw.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 40);
+		if (tag && !seen.has(tag)) {
+			seen.add(tag);
+			tags.push(tag);
+		}
+		if (tags.length >= 20) break;
+	}
+	return tags;
+}
+function cleanWorkout(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const w = value;
+	const minutes = typeof w.minutes === "number" && Number.isFinite(w.minutes) ? Math.round(w.minutes) : NaN;
+	if (typeof w.start !== "string" || !LOCAL_TIME.test(w.start) || !(minutes > 0 && minutes <= 1440)) return void 0;
+	const num = (v, lo, hi, d = 0) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10 ** d) / 10 ** d : void 0;
+	const workout = {
+		id: typeof w.id === "string" && w.id ? w.id.slice(0, 120) : `${w.start}|${String(w.type || "")}`,
+		type: typeof w.type === "string" && w.type.trim() ? w.type.trim().slice(0, 60) : "Workout",
+		start: w.start,
+		minutes
+	};
+	const energy = num(w.energyKcal, 0, 1e4), distance = num(w.distanceKm, 0, 500, 2), avg = num(w.avgHr, 30, 230), max = num(w.maxHr, 30, 240);
+	if (energy !== void 0) workout.energyKcal = energy;
+	if (distance !== void 0) workout.distanceKm = distance;
+	if (avg !== void 0) workout.avgHr = avg;
+	if (max !== void 0) workout.maxHr = max;
+	return workout;
+}
+/** A stored or received day in canonical shape, or undefined if it is not a usable day. */
+function normalizeHealthDay(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const d = value;
+	if (!isHealthDate(d.date)) return void 0;
+	const metrics = {};
+	const raw = d.metrics && typeof d.metrics === "object" ? d.metrics : {};
+	for (const key of HEALTH_METRIC_KEYS) {
+		const v = cleanMetric(key, raw[key]);
+		if (v !== void 0) metrics[key] = v;
+	}
+	const day = {
+		id: healthDayId(d.date),
+		date: d.date,
+		metrics,
+		updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : (/* @__PURE__ */ new Date()).toISOString()
+	};
+	if (typeof d.sleepStart === "string" && LOCAL_TIME.test(d.sleepStart)) day.sleepStart = d.sleepStart;
+	if (typeof d.sleepEnd === "string" && LOCAL_TIME.test(d.sleepEnd)) day.sleepEnd = d.sleepEnd;
+	const workouts = Array.isArray(d.workouts) ? d.workouts.map(cleanWorkout).filter((w) => !!w).slice(0, 30) : [];
+	if (workouts.length) day.workouts = workouts;
+	const tags = cleanTags(d.tags);
+	if (tags.length) day.tags = tags;
+	if (typeof d.note === "string" && d.note.trim()) day.note = d.note.trim().slice(0, 2e3);
+	if (typeof d.source === "string" && d.source.trim()) day.source = d.source.trim().slice(0, 80);
+	return day;
+}
+new Map(HEALTH_METRICS.flatMap((m) => m.hae.map((name) => [name, m.key])));
+function normalizeHealthProfile(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const p = value;
+	const int = (v, lo, hi) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : void 0;
+	const profile = {};
+	const sleep = int(p.sleepGoalMin, 240, 720), steps = int(p.stepGoal, 1e3, 5e4), maxHr = int(p.maxHr, 120, 230), born = int(p.birthYear, 1900, 2030);
+	if (sleep !== void 0) profile.sleepGoalMin = sleep;
+	if (steps !== void 0) profile.stepGoal = steps;
+	if (maxHr !== void 0) profile.maxHr = maxHr;
+	if (born !== void 0) profile.birthYear = born;
+	if (p.sex === "female" || p.sex === "male") profile.sex = p.sex;
+	return Object.keys(profile).length ? profile : void 0;
+}
 // src/utils/events.ts
 const EVENT_KINDS = [
 	{
@@ -4343,7 +4750,7 @@ function trackerDate(item) {
 	if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
 	if (typeof item.fields.lastPractice === "string") return item.fields.lastPractice;
 }
-const list$1 = (items) => Array.isArray(items) ? items.filter((x) => typeof x === "string" && x.trim()).join(", ") : "";
+const list$2 = (items) => Array.isArray(items) ? items.filter((x) => typeof x === "string" && x.trim()).join(", ") : "";
 const checklist = (items) => Array.isArray(items) ? items.map((x) => x && typeof x.title === "string" ? `[${x.completed ? "x" : " "}] ${x.title}` : "").filter(Boolean).join("; ") : "";
 /** Notes may be stored as HTML from the editor; index the readable text only. */
 function plain(text) {
@@ -4358,19 +4765,26 @@ const lines = (...parts) => parts.filter(Boolean).join("\n");
 */
 function recordProse(type, d) {
 	switch (type) {
-		case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
+		case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
 		case "goal": return lines(`Goal: ${d.title}`, `${d.sector} goal, ${d.timeframe}, ${d.status}, ${d.progress ?? 0}% done${d.targetDate ? `, target ${d.targetDate}` : ""}`, d.metrics && `Metric: ${d.metrics}`, d.why && `Why: ${d.why}`, d.description && `Details: ${d.description}`, checklist(d.milestones) && `Milestones: ${checklist(d.milestones)}`);
 		case "habit": return lines(`Habit: ${d.name}`, `${d.frequency}${d.timeOfDay ? `, ${d.timeOfDay}` : ""}, ${d.streak}-day streak (best ${d.bestStreak})`, d.description && `Details: ${d.description}`);
-		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$1(d.wins) && `Wins: ${list$1(d.wins)}`, list$1(d.challenges) && `Challenges: ${list$1(d.challenges)}`, plain(d.content), list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
-		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
-		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$1(d.attendees) && `With: ${list$1(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
-		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$1(d.documentNames) && `Materials: ${list$1(d.documentNames)}`, list$1(d.folderNames) && `Folders: ${list$1(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
+		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$2(d.wins) && `Wins: ${list$2(d.wins)}`, list$2(d.challenges) && `Challenges: ${list$2(d.challenges)}`, plain(d.content), list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
+		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
+		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$2(d.attendees) && `With: ${list$2(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
+		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$2(d.documentNames) && `Materials: ${list$2(d.documentNames)}`, list$2(d.folderNames) && `Folders: ${list$2(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
 		case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`, d.content || "[The extracted text of this document is not loaded on this device.]");
 		case "deck": return lines(`Flashcard deck: ${d.title} (${d.course})`, `${d.cardCount} cards, ${d.cardsDue} due for review today`, ...Array.isArray(d.cards) ? d.cards.map((c, i) => `${i + 1}. Q: ${c.front}\nA: ${c.back}`) : []);
 		case "quiz": return lines(`Practice quiz: ${d.title} (${d.course})`, `${d.questionCount} questions; ${d.attemptCount ? `taken ${d.attemptCount} times, best ${d.bestScore}%, last ${d.lastScore}` : "not taken yet"}`, ...Array.isArray(d.questions) ? d.questions.map((q, i) => `${i + 1}. ${q.prompt}${q.choices ? ` [${q.choices.join(" | ")}]` : ""} Answer: ${q.answer}`) : []);
+		case "health": {
+			const metrics = Object.entries(d.metrics || {}).map(([k, v]) => {
+				const m = healthMetric(k);
+				return m ? `${m.label}: ${v} ${m.unit}` : "";
+			}).filter(Boolean);
+			return lines(`Health on ${d.date}`, ...metrics, d.sleepStart && d.sleepEnd && `Slept ${d.sleepStart.slice(11)} to ${d.sleepEnd.slice(11)}`, Array.isArray(d.workouts) && d.workouts.length > 0 && `Workouts: ${d.workouts.map((w) => `${w.type} ${w.minutes} min${w.avgHr ? ` avg ${w.avgHr} bpm` : ""}`).join("; ")}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.note && `Note: ${d.note}`);
+		}
 		case "tracker": {
 			const fields = Object.entries(d.fields || {}).filter(([, v]) => typeof v === "string" && v.trim() && !/^https?:/i.test(v) || typeof v === "number").map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
-			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.notes && `Notes: ${d.notes}`);
+			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.notes && `Notes: ${d.notes}`);
 		}
 	}
 }
@@ -4510,6 +4924,13 @@ function records(state, type, ctx) {
 		...(state.events || []).map((data) => ({
 			type: "event",
 			title: data.title,
+			date: data.date,
+			data,
+			source: data
+		})),
+		...(state.healthDays || []).map((data) => ({
+			type: "health",
+			title: `Health ${data.date}`,
 			date: data.date,
 			data,
 			source: data
@@ -5145,6 +5566,511 @@ function readTrackerFields(kind, args) {
 	}
 	return out;
 }
+// src/utils/healthMetrics.ts
+const BASELINE_DAYS = 28;
+const MIN_BASELINE = 7;
+const addDays$1 = (date, days) => {
+	const d = /* @__PURE__ */ new Date(`${date}T12:00:00Z`);
+	d.setUTCDate(d.getUTCDate() + days);
+	return d.toISOString().slice(0, 10);
+};
+const daysBetween = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+const round = (v, d = 0) => Math.round(v * 10 ** d) / 10 ** d;
+function stats(xs) {
+	if (xs.length < MIN_BASELINE) return void 0;
+	const m = mean(xs);
+	return {
+		mean: m,
+		sd: Math.sqrt(xs.reduce((a, x) => a + (x - m) ** 2, 0) / (xs.length - 1)),
+		n: xs.length
+	};
+}
+const clock$1 = (minutes) => {
+	const m = (Math.round(minutes) % 1440 + 1440) % 1440;
+	const h = Math.floor(m / 60), mm = m % 60;
+	return `${h % 12 || 12}:${String(mm).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+};
+const minutesOf = (stamp) => Number(stamp.slice(11, 13)) * 60 + Number(stamp.slice(14, 16));
+/** Bedtimes after midnight count as late, not early: 1 AM is 25:00. */
+const bedMinutes = (stamp) => {
+	const m = minutesOf(stamp);
+	return m < 1080 ? m + 1440 : m;
+};
+function localToday(now = /* @__PURE__ */ new Date()) {
+	return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+/** Maximum heart rate: the user's own number, else the highest seen in a year of workouts, else from age. */
+function maxHeartRate(days, profile, today) {
+	if (profile?.maxHr) return {
+		value: profile.maxHr,
+		source: "your setting"
+	};
+	const since = addDays$1(today, -365);
+	let seen = 0;
+	for (const d of days) {
+		if (d.date < since) continue;
+		seen = Math.max(seen, d.metrics.maxHr || 0, ...(d.workouts || []).map((w) => w.maxHr || 0));
+	}
+	if (seen >= 150) return {
+		value: seen,
+		source: "highest in your workouts this year"
+	};
+	if (profile?.birthYear) return {
+		value: Math.round(208 - .7 * (Number(today.slice(0, 4)) - profile.birthYear)),
+		source: "estimated from age"
+	};
+	return {
+		value: 190,
+		source: "default (add your age or max HR)"
+	};
+}
+/** Banister TRIMP for one workout; falls back to a moderate-effort estimate without heart rate. */
+function workoutLoad(minutes, avgHr, restHr, maxHr, sex) {
+	if (!avgHr || maxHr <= restHr) return minutes * .84;
+	const hrr = clamp((avgHr - restHr) / (maxHr - restHr), 0, 1);
+	const [a, k] = sex === "female" ? [.86, 1.67] : [.64, 1.92];
+	return minutes * hrr * a * Math.exp(k * hrr);
+}
+function computeHealth(input, profile, today = localToday()) {
+	const days = [...input].filter((d) => d.date <= today).sort((a, b) => a.date.localeCompare(b.date));
+	const byDate = new Map(days.map((d) => [d.date, d]));
+	const goalMin = profile?.sleepGoalMin || 480;
+	const stepGoal = profile?.stepGoal || 8e3;
+	const max = maxHeartRate(days, profile, today);
+	const empty = {
+		today,
+		dayCount: 0,
+		series: [],
+		sleep: {
+			goalMin,
+			debtMin: 0
+		},
+		steps: {
+			goal: stepGoal,
+			streak: 0
+		},
+		trends: [],
+		strain: [],
+		tagEffects: [],
+		baselines: {},
+		training: {
+			fatigue: 0,
+			fitness: 0,
+			form: 0,
+			weekLoad: 0,
+			maxHr: max.value,
+			maxHrSource: max.source,
+			estimated: false
+		}
+	};
+	if (!days.length) return empty;
+	const first = days[0].date;
+	const span = daysBetween(first, today);
+	const dates = Array.from({ length: span + 1 }, (_, i) => addDays$1(first, i));
+	const value = (date, key) => byDate.get(date)?.metrics[key];
+	const window = (date, key, transform = (v) => v) => {
+		const xs = [];
+		for (let i = 1; i <= BASELINE_DAYS; i++) {
+			const v = value(addDays$1(date, -i), key);
+			if (v !== void 0) xs.push(transform(v));
+		}
+		return xs;
+	};
+	const atlK = 1 - Math.exp(-1 / 7), ctlK = 1 - Math.exp(-1 / 42);
+	let fatigue = 0, fitness = 0, estimated = false;
+	const loads = /* @__PURE__ */ new Map();
+	const series = [];
+	const recoveryByDate = /* @__PURE__ */ new Map();
+	for (const date of dates) {
+		const day = byDate.get(date);
+		const restBase = stats(window(date, "restingHr"));
+		const rest = day?.metrics.restingHr ?? restBase?.mean ?? 60;
+		let load = 0;
+		if (day?.workouts?.length) for (const w of day.workouts) {
+			load += workoutLoad(w.minutes, w.avgHr, rest, max.value, profile?.sex);
+			if (!w.avgHr) estimated = true;
+		}
+		else if (day?.metrics.exerciseMin) {
+			load = day.metrics.exerciseMin * .84;
+			estimated = true;
+		}
+		loads.set(date, load);
+		fatigue += (load - fatigue) * atlK;
+		fitness += (load - fitness) * ctlK;
+		const recovery = day ? recoveryFor(date, day, window, goalMin) : void 0;
+		if (recovery) recoveryByDate.set(date, recovery);
+		series.push({
+			date,
+			recovery: recovery?.score,
+			load: round(load),
+			fatigue: round(fatigue, 1),
+			fitness: round(fitness, 1),
+			sleepMin: day?.metrics.sleepMin,
+			hrv: day?.metrics.hrv,
+			restingHr: day?.metrics.restingHr,
+			steps: day?.metrics.steps
+		});
+	}
+	const latest = days[days.length - 1];
+	const recovery = recoveryByDate.get(today) || (daysBetween(latest.date, today) <= 1 ? recoveryByDate.get(latest.date) : void 0);
+	const ratio = fitness >= 5 ? fatigue / fitness : void 0;
+	const zone = ratio === void 0 ? void 0 : ratio < .8 ? "Detraining" : ratio <= 1.3 ? "Productive" : ratio <= 1.5 ? "High" : "Spike";
+	let weekLoad = 0;
+	for (let i = 0; i < 7; i++) weekLoad += loads.get(addDays$1(today, -i)) || 0;
+	let debt = 0;
+	for (let i = 0; i < 14; i++) {
+		const s = value(addDays$1(today, -i), "sleepMin");
+		if (s !== void 0) debt += .85 ** i * (goalMin - s);
+	}
+	const last7Sleep = Array.from({ length: 7 }, (_, i) => value(addDays$1(today, -i), "sleepMin")).filter((v) => v !== void 0);
+	const nights = Array.from({ length: 14 }, (_, i) => byDate.get(addDays$1(today, -i))).filter((d) => !!d?.sleepStart && !!d.sleepEnd);
+	let regularity;
+	if (nights.length >= 5) {
+		const beds = nights.map((n) => bedMinutes(n.sleepStart)), wakes = nights.map((n) => minutesOf(n.sleepEnd));
+		const sd = (xs) => Math.sqrt(xs.reduce((a, x) => a + (x - mean(xs)) ** 2, 0) / (xs.length - 1));
+		const bedSd = sd(beds), wakeSd = sd(wakes);
+		regularity = {
+			score: clamp(Math.round(100 - (bedSd + wakeSd) / 2 * .8), 0, 100),
+			bedtimeSdMin: Math.round(bedSd),
+			wakeSdMin: Math.round(wakeSd),
+			avgBedtime: clock$1(mean(beds)),
+			avgWake: clock$1(mean(wakes)),
+			nights: nights.length
+		};
+	}
+	const stepsToday = value(today, "steps");
+	let streak = 0;
+	for (let i = stepsToday !== void 0 && stepsToday >= stepGoal ? 0 : 1;; i++) {
+		const s = value(addDays$1(today, -i), "steps");
+		if (s === void 0 || s < stepGoal) break;
+		streak++;
+	}
+	const steps7 = Array.from({ length: 7 }, (_, i) => value(addDays$1(today, -i - 1), "steps")).filter((v) => v !== void 0);
+	const baselines = {};
+	const lnHrv = stats(window(today, "hrv", Math.log));
+	if (lnHrv) baselines.hrv = {
+		mean: round(Math.exp(lnHrv.mean)),
+		sd: round(lnHrv.sd, 3),
+		n: lnHrv.n
+	};
+	for (const key of [
+		"restingHr",
+		"respRate",
+		"wristTempC",
+		"sleepMin"
+	]) {
+		const b = stats(window(today, key));
+		if (b) baselines[key] = {
+			mean: round(b.mean, 2),
+			sd: round(b.sd, 2),
+			n: b.n
+		};
+	}
+	return {
+		today,
+		dayCount: days.length,
+		latest,
+		lastSyncAt: days.reduce((m, d) => d.source && d.source !== "manual" && (!m || d.updatedAt > m) ? d.updatedAt : m, void 0),
+		recovery,
+		series: series.slice(-90),
+		sleep: {
+			lastNightMin: value(today, "sleepMin"),
+			avg7Min: last7Sleep.length ? Math.round(mean(last7Sleep)) : void 0,
+			goalMin,
+			debtMin: Math.max(0, Math.round(debt)),
+			regularity
+		},
+		training: {
+			fatigue: round(fatigue, 1),
+			fitness: round(fitness, 1),
+			form: round(fitness - fatigue, 1),
+			ratio: ratio === void 0 ? void 0 : round(ratio, 2),
+			zone,
+			weekLoad: Math.round(weekLoad),
+			maxHr: max.value,
+			maxHrSource: max.source,
+			estimated
+		},
+		steps: {
+			today: stepsToday,
+			goal: stepGoal,
+			avg7: steps7.length ? Math.round(mean(steps7)) : void 0,
+			streak
+		},
+		trends: trends(today, value),
+		vo2: vo2Trend(days, today),
+		strain: strainSignals(today, byDate.get(today) || (daysBetween(latest.date, today) <= 1 ? latest : void 0), window),
+		tagEffects: tagEffects(days, recoveryByDate),
+		baselines
+	};
+}
+function recoveryFor(date, day, window, goalMin) {
+	const parts = [];
+	const hrvBase = stats(window(date, "hrv", Math.log));
+	if (day.metrics.hrv && hrvBase) {
+		const z = clamp((Math.log(day.metrics.hrv) - hrvBase.mean) / Math.max(hrvBase.sd, .05), -3, 3);
+		parts.push({
+			key: "hrv",
+			label: "HRV",
+			weight: .45,
+			z,
+			good: z >= 0,
+			detail: `${day.metrics.hrv} ms vs your usual ${Math.round(Math.exp(hrvBase.mean))} ms`
+		});
+	}
+	const rhrBase = stats(window(date, "restingHr"));
+	if (day.metrics.restingHr && rhrBase) {
+		const z = clamp((day.metrics.restingHr - rhrBase.mean) / Math.max(rhrBase.sd, 1), -3, 3);
+		parts.push({
+			key: "restingHr",
+			label: "Resting HR",
+			weight: .3,
+			z: -z,
+			good: z <= 0,
+			detail: `${day.metrics.restingHr} bpm vs your usual ${Math.round(rhrBase.mean)} bpm`
+		});
+	}
+	if (!parts.length) return void 0;
+	if (day.metrics.sleepMin !== void 0) {
+		const ratio = day.metrics.sleepMin / goalMin;
+		const z = clamp((ratio - 1) / .15, -3, 1);
+		parts.push({
+			key: "sleep",
+			label: "Sleep",
+			weight: .25,
+			z,
+			good: ratio >= .9,
+			detail: `${hm(day.metrics.sleepMin)} of your ${hm(goalMin)} goal`
+		});
+	}
+	let raw = parts.reduce((a, p) => a + p.weight * p.z, 0) / parts.reduce((a, p) => a + p.weight, 0);
+	const respBase = stats(window(date, "respRate"));
+	if (day.metrics.respRate && respBase) {
+		const z = (day.metrics.respRate - respBase.mean) / Math.max(respBase.sd, .3);
+		if (z > 1) {
+			raw -= .5 * (z - 1);
+			parts.push({
+				key: "respRate",
+				label: "Breathing rate",
+				weight: 0,
+				z: -z,
+				good: false,
+				detail: `${day.metrics.respRate} br/min, above your usual ${round(respBase.mean, 1)}`
+			});
+		}
+	}
+	const score = Math.round(100 / (1 + Math.exp(-(1.3 * raw + .4))));
+	return {
+		date,
+		score,
+		label: score >= 70 ? "Primed" : score >= 45 ? "Normal" : score >= 30 ? "Strained" : "Take it easy",
+		components: parts.map(({ weight: _w, ...p }) => ({
+			...p,
+			z: round(p.z, 2)
+		}))
+	};
+}
+const hm = (minutes) => `${Math.floor(minutes / 60)}h ${String(Math.round(minutes % 60)).padStart(2, "0")}m`;
+const TREND_KEYS = [
+	{
+		key: "restingHr",
+		higherIsBetter: false
+	},
+	{
+		key: "hrv",
+		higherIsBetter: true
+	},
+	{
+		key: "sleepMin",
+		higherIsBetter: true
+	},
+	{
+		key: "steps",
+		higherIsBetter: true
+	},
+	{
+		key: "exerciseMin",
+		higherIsBetter: true
+	},
+	{
+		key: "activeKcal",
+		higherIsBetter: true
+	},
+	{
+		key: "respRate",
+		higherIsBetter: false
+	},
+	{
+		key: "daylightMin",
+		higherIsBetter: true
+	},
+	{ key: "weightKg" }
+];
+function trends(today, value) {
+	const out = [];
+	for (const { key, higherIsBetter } of TREND_KEYS) {
+		const recent = [], base = [];
+		for (let i = 0; i < 35; i++) {
+			const v = value(addDays$1(today, -i), key);
+			if (v !== void 0) (i < 7 ? recent : base).push(v);
+		}
+		if (recent.length < 3 || base.length < 7) continue;
+		const r = mean(recent), b = mean(base);
+		if (!b) continue;
+		const changePct = round((r - b) / b * 100, 1);
+		const def = healthMetric(key);
+		out.push({
+			key,
+			label: def.label,
+			unit: def.unit,
+			recent: round(r, def.decimals),
+			baseline: round(b, def.decimals),
+			changePct,
+			decimals: def.decimals,
+			better: higherIsBetter === void 0 || Math.abs(changePct) < 2 ? void 0 : changePct > 0 === higherIsBetter
+		});
+	}
+	return out;
+}
+function vo2Trend(days, today) {
+	const points = days.filter((d) => d.metrics.vo2max !== void 0 && d.date >= addDays$1(today, -120)).map((d) => ({
+		x: daysBetween(today, d.date),
+		y: d.metrics.vo2max
+	}));
+	const all = days.filter((d) => d.metrics.vo2max !== void 0);
+	if (!all.length) return void 0;
+	const latest = all[all.length - 1].metrics.vo2max;
+	if (points.length < 3 || points[points.length - 1].x - points[0].x < 14) return { latest };
+	const mx = mean(points.map((p) => p.x)), my = mean(points.map((p) => p.y));
+	const slope = points.reduce((a, p) => a + (p.x - mx) * (p.y - my), 0) / points.reduce((a, p) => a + (p.x - mx) ** 2, 0);
+	return {
+		latest,
+		perMonth: round(slope * 30, 2)
+	};
+}
+function strainSignals(today, day, window) {
+	if (!day) return [];
+	const out = [];
+	const z = (key, floor, t) => {
+		const b = stats(window(day.date, key, t));
+		const v = day.metrics[key];
+		return b && v !== void 0 ? {
+			z: ((t ? t(v) : v) - b.mean) / Math.max(b.sd, floor),
+			b
+		} : void 0;
+	};
+	const hrv = z("hrv", .05, Math.log), rhr = z("restingHr", 1), resp = z("respRate", .3), temp = z("wristTempC", .1);
+	if (hrv && rhr && hrv.z <= -1 && rhr.z >= 1) out.push("HRV is down and resting heart rate is up at the same time, a common sign your body is fighting something or under-recovered.");
+	else if (rhr && rhr.z >= 2) out.push(`Resting heart rate is well above your usual (${day.metrics.restingHr} vs ${Math.round(rhr.b.mean)} bpm).`);
+	if (resp && resp.z >= 2) out.push(`Breathing rate during sleep is higher than usual (${day.metrics.respRate} vs ${round(resp.b.mean, 1)} br/min).`);
+	if (temp && day.metrics.wristTempC - temp.b.mean >= .5) out.push(`Sleeping wrist temperature is ${round(day.metrics.wristTempC - temp.b.mean, 1)} °C above your baseline.`);
+	return day.date === today || out.length ? out : [];
+}
+const EFFECT_KEYS = [
+	{
+		key: "hrv",
+		label: "HRV",
+		higher: true
+	},
+	{
+		key: "restingHr",
+		label: "Resting HR",
+		higher: false
+	},
+	{
+		key: "sleepMin",
+		label: "Sleep",
+		higher: true
+	},
+	{
+		key: "recovery",
+		label: "Recovery",
+		higher: true
+	}
+];
+function tagEffects(days, recovery) {
+	const tagged = /* @__PURE__ */ new Map();
+	for (const d of days) for (const t of d.tags || []) {
+		let s = tagged.get(t);
+		if (!s) tagged.set(t, s = /* @__PURE__ */ new Set());
+		s.add(d.date);
+	}
+	const byDate = new Map(days.map((d) => [d.date, d]));
+	const morning = (date, key) => key === "recovery" ? recovery.get(date)?.score : byDate.get(date)?.metrics[key];
+	const out = [];
+	for (const [tag, dates] of tagged) {
+		if (dates.size < 3) continue;
+		const effects = [];
+		for (const { key, label, higher } of EFFECT_KEYS) {
+			const after = [], other = [];
+			for (const d of days) {
+				const v = morning(d.date, key);
+				if (v === void 0) continue;
+				(dates.has(addDays$1(d.date, -1)) ? after : other).push(v);
+			}
+			if (after.length < 3 || other.length < 7) continue;
+			const a = mean(after), o = mean(other);
+			if (!o) continue;
+			const diffPct = round((a - o) / o * 100, 1);
+			if (Math.abs(diffPct) < 3) continue;
+			effects.push({
+				key,
+				label,
+				tagged: round(a, 1),
+				other: round(o, 1),
+				diffPct,
+				better: diffPct > 0 === higher
+			});
+		}
+		if (effects.length) out.push({
+			tag,
+			days: dates.size,
+			effects: effects.sort((x, y) => Math.abs(y.diffPct) - Math.abs(x.diffPct))
+		});
+	}
+	return out.sort((a, b) => Math.abs(b.effects[0].diffPct) - Math.abs(a.effects[0].diffPct));
+}
+/** A compact, readable summary for the assistant. */
+function healthSummaryForAssistant(days, profile, today = localToday()) {
+	const h = computeHealth(days, profile, today);
+	if (!h.dayCount) return {
+		available: false,
+		message: "No Apple Health data yet. Import an Apple Health export (Health app → profile → Export All Health Data) in the Health workspace."
+	};
+	return {
+		available: true,
+		today,
+		daysOfData: h.dayCount,
+		latestDay: h.latest?.date,
+		lastImportAt: h.lastSyncAt,
+		...h.latest && h.latest.date < today ? { dataNote: `Data ends ${h.latest.date}; newer days need a fresh Apple Health export.` } : {},
+		recovery: h.recovery ? {
+			score: h.recovery.score,
+			label: h.recovery.label,
+			date: h.recovery.date,
+			why: h.recovery.components.map((c) => `${c.label}: ${c.detail}`)
+		} : "Needs at least 7 days of HRV or resting heart rate.",
+		sleep: {
+			lastNight: h.sleep.lastNightMin !== void 0 ? hm(h.sleep.lastNightMin) : void 0,
+			average7: h.sleep.avg7Min !== void 0 ? hm(h.sleep.avg7Min) : void 0,
+			goal: hm(h.sleep.goalMin),
+			debt: hm(h.sleep.debtMin),
+			regularity: h.sleep.regularity
+		},
+		training: {
+			...h.training,
+			guide: "fatigue = 7-day load, fitness = 42-day load, ratio 0.8-1.3 is the productive range, above 1.5 is a spike"
+		},
+		steps: h.steps,
+		trends: h.trends.map((t) => `${t.label}: ${t.recent} ${t.unit} over the last 7 days vs ${t.baseline} before (${t.changePct > 0 ? "+" : ""}${t.changePct}%)`),
+		vo2max: h.vo2,
+		strainSignals: h.strain,
+		tagEffects: h.tagEffects.map((t) => `After "${t.tag}" days (${t.days}): ${t.effects.map((e) => `${e.label} ${e.diffPct > 0 ? "+" : ""}${e.diffPct}%`).join(", ")}`),
+		note: "Personal patterns from wearable data, not medical advice. Correlations from tags are not proof of cause."
+	};
+}
 // src/utils/taskState.ts
 /**
 * Normalizes a Task to ensure a single, consistent source of truth.
@@ -5624,14 +6550,104 @@ const COLORS = [
 	"amber",
 	"rose"
 ];
+const healthMetricProps = () => Object.fromEntries(HEALTH_METRICS.map((m) => [m.key, {
+	type: "number",
+	minimum: m.min,
+	maximum: m.max,
+	description: `${m.description} (${m.unit})`
+}]));
+const localStamp = d_("Local time 'YYYY-MM-DD HH:mm'.");
 const MANAGE_TOOLS = [
-	fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes) or blank (a page of notes).", {
+	...[
+		fn("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (sleep, steps, weight, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Apple Watch data comes from Apple Health exports the user imports in the Health workspace; use this for what the user reports.", {
+			date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."),
+			...healthMetricProps(),
+			sleepStart: localStamp,
+			sleepEnd: localStamp,
+			tags: {
+				type: "array",
+				items: s_,
+				maxItems: 10,
+				description: "Short lowercase tags to add."
+			},
+			note: d_("Text added to the day's note.")
+		}, ["date"]),
+		fn("update_health_day", "Correct a health day: change or clear metrics, add or remove tags, rewrite its note.", {
+			date: d_("YYYY-MM-DD of an existing health day."),
+			...healthMetricProps(),
+			sleepStart: localStamp,
+			sleepEnd: localStamp,
+			clearMetrics: {
+				type: "array",
+				items: {
+					type: "string",
+					enum: HEALTH_METRICS.map((m) => m.key)
+				},
+				description: "Metrics to remove (bad readings)."
+			},
+			addTags: {
+				type: "array",
+				items: s_,
+				maxItems: 10
+			},
+			removeTags: {
+				type: "array",
+				items: s_,
+				maxItems: 20
+			},
+			replaceNote: d_("New full note; empty string clears it.")
+		}, ["date"]),
+		fn("delete_health_day", "Delete everything stored for one health day. Only when the user explicitly asks.", { date: d_("YYYY-MM-DD.") }, ["date"]),
+		fn("update_health_profile", "Change the personal targets health metrics are measured against: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting).", {
+			workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
+			sleepGoalHours: {
+				type: "number",
+				minimum: 4,
+				maximum: 12
+			},
+			stepGoal: {
+				type: "integer",
+				minimum: 1e3,
+				maximum: 5e4
+			},
+			maxHr: {
+				type: "integer",
+				minimum: 120,
+				maximum: 230
+			},
+			birthYear: {
+				type: "integer",
+				minimum: 1900,
+				maximum: 2030
+			},
+			sex: {
+				type: "string",
+				enum: ["female", "male"]
+			},
+			clear: {
+				type: "array",
+				items: {
+					type: "string",
+					enum: [
+						"sleepGoalHours",
+						"stepGoal",
+						"maxHr",
+						"birthYear",
+						"sex"
+					]
+				},
+				description: "Targets to reset to the default."
+			}
+		}, [])
+	],
+	fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
 		name: s_,
 		template: {
 			type: "string",
 			enum: [
 				"career",
 				"academic",
+				"health",
 				"blank"
 			]
 		},
@@ -6073,7 +7089,8 @@ const recordTypes = [
 	"course",
 	"document",
 	"deck",
-	"quiz"
+	"quiz",
+	"health"
 ];
 const str = { type: "string" };
 const date = {
@@ -6106,7 +7123,11 @@ function tool(name, description, properties, required = []) {
 	};
 }
 const READ_TOOLS = [
-	tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt).", {
+	tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", { date: {
+		type: "string",
+		description: "Optional YYYY-MM-DD to evaluate as 'today'."
+	} }),
+	tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
 		type: typeSchema,
 		dateFrom: date,
 		dateTo: date,
@@ -6218,8 +7239,17 @@ function validate(value, schema, path = "arguments") {
 		if (typeof value === "string" && (!value.trim() || value.length > 1e5)) throw new Error(`${path} must be nonempty and at most 100000 characters`);
 	}
 }
-function validDate(value) {
+function validDate$1(value) {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || (/* @__PURE__ */ new Date(`${value}T12:00:00Z`)).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
+}
+/** A task section as one record: its name and subsections. Its ID is its name before the change. */
+/** A record's display name for activity logs and chat summaries. */
+function recordTitle$1(record, fallback) {
+	const r = record;
+	if (typeof r.name === "string" && r.name) return r.name;
+	if (typeof r.title === "string" && r.title) return r.title;
+	if (typeof r.id === "string" && r.id.startsWith("health-")) return `Health ${String(r.date)}`;
+	return fallback;
 }
 const MUTATION_COLLECTIONS = {
 	task: "tasks",
@@ -6228,7 +7258,8 @@ const MUTATION_COLLECTIONS = {
 	journal: "journalEntries",
 	knowledge: "knowledgeItems",
 	tracker: "trackerItems",
-	event: "events"
+	event: "events",
+	health: "healthDays"
 };
 const STUDY_COLLECTIONS = {
 	course: "courses",
@@ -6459,6 +7490,14 @@ async function executeRead(name, args, state, key, signal, progress, ctx) {
 		output: searchConversations(state, args.query, args.offset || 0),
 		sources: []
 	};
+	if (name === "health_summary") {
+		if (args.date !== void 0) validDate$1(args.date);
+		const profile = (state.workspaces || []).find((w) => w.template === "health")?.health;
+		return {
+			output: healthSummaryForAssistant(state.healthDays || [], profile, args.date || getLocalDateString()),
+			sources: []
+		};
+	}
 	const all = name === "recall_conversation" || name === "search_records" ? [] : records(state, args.type, ctx);
 	const offset = args.offset || 0;
 	if (name === "recall_conversation") {
@@ -6538,8 +7577,8 @@ async function executeRead(name, args, state, key, signal, progress, ctx) {
 			}]
 		};
 	}
-	if (args.dateFrom) validDate(args.dateFrom);
-	if (args.dateTo) validDate(args.dateTo);
+	if (args.dateFrom) validDate$1(args.dateFrom);
+	if (args.dateTo) validDate$1(args.dateTo);
 	if (args.dateFrom && args.dateTo && args.dateFrom > args.dateTo) throw new Error("dateFrom must be before dateTo");
 	const matches = all.filter((r) => r.type === args.type && (!args.dateFrom || !!r.date && r.date >= args.dateFrom) && (!args.dateTo || !!r.date && r.date <= args.dateTo) && (!args.section || r.data.section === args.section || r.data.sector === args.section || r.data.domain === args.section) && (!args.text || r.text.toLocaleLowerCase().includes(args.text.toLocaleLowerCase())) && (!args.status || (args.status === "pending" ? r.type === "task" ? r.data.status !== "completed" : r.data.status !== "achieved" : r.data.status === args.status))).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || String(a.data.startTime || a.data.dueTime || "24:00").localeCompare(String(b.data.startTime || b.data.dueTime || "24:00")) || a.id.localeCompare(b.id));
 	const page = args.countOnly ? [] : matches.slice(offset, offset + 40);
@@ -6640,7 +7679,7 @@ function prepareMutation(name, args, state) {
 		"dueDate",
 		"newDueDate",
 		"targetDate"
-	]) if (args[field]) validDate(args[field]);
+	]) if (args[field]) validDate$1(args[field]);
 	const id = crypto.randomUUID();
 	switch (name) {
 		case "create_task": {
@@ -6766,7 +7805,7 @@ function prepareMutation(name, args, state) {
 		case "create_event": {
 			const kind = args.kind || "event";
 			if (!EVENT_KINDS.some((k) => k.id === kind)) throw new Error("Unknown event kind.");
-			validDate(args.date);
+			validDate$1(args.date);
 			for (const field of ["startTime", "endTime"]) if (args[field] !== void 0 && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
 			if (args.endTime && !args.startTime) throw new Error("An end time needs a startTime.");
 			if (args.endTime && args.endTime <= args.startTime) throw new Error("endTime must be after startTime.");
@@ -6809,7 +7848,7 @@ function prepareMutation(name, args, state) {
 				"appendNotes"
 			].some((k) => args[k] !== void 0)) throw new Error("Supply at least one field to update.");
 			if (args.kind && !EVENT_KINDS.some((k) => k.id === args.kind)) throw new Error("Unknown event kind.");
-			if (args.newDate) validDate(args.newDate);
+			if (args.newDate) validDate$1(args.newDate);
 			for (const field of ["newStartTime", "newEndTime"]) if (args[field] !== void 0 && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
 			const link = args.link ? safeEventLink(args.link) : void 0;
 			if (args.link && !link) throw new Error("Links must be full http:// or https:// URLs.");
@@ -7038,7 +8077,7 @@ function prepareMutation(name, args, state) {
 		case "log_practice": {
 			const item = findTracker(state, args.trackerId);
 			if (item.kind !== "leetcode") throw new Error("Only practice problems can be logged; update the application's stage instead.");
-			if (args.date) validDate(args.date);
+			if (args.date) validDate$1(args.date);
 			return {
 				type: "tracker",
 				action: name,
@@ -7118,7 +8157,7 @@ function prepareMutation(name, args, state) {
 			if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
 			const grading = course.grading;
 			if (!grading?.categories.length) throw new Error("This course has no grading set up. Ask the user how it is weighted (or read the syllabus) and call set_course_grading first.");
-			if (args.date) validDate(args.date);
+			if (args.date) validDate$1(args.date);
 			if (args.score !== void 0 && !(args.score >= 0)) throw new Error("score must be zero or more.");
 			if (args.maxScore !== void 0 && !(args.maxScore > 0)) throw new Error("maxScore must be more than zero.");
 			const category = args.category ? findCategory(grading, args.category) : void 0;
@@ -7243,7 +8282,7 @@ function prepareMutation(name, args, state) {
 					name: workspaceName,
 					description: args.description?.trim() || "",
 					template: args.template,
-					color: args.color || (args.template === "academic" ? "blue" : "purple"),
+					color: args.color || (args.template === "academic" ? "blue" : args.template === "health" ? "rose" : "purple"),
 					notes: "",
 					createdAt: (/* @__PURE__ */ new Date()).toISOString()
 				}
@@ -7365,7 +8404,7 @@ function prepareMutation(name, args, state) {
 			const h = findIn(state.habits, args.habitId, "Habit");
 			const { habitId: _h, ...changes } = args;
 			if (!Object.keys(changes).length) throw new Error("Supply at least one field to update.");
-			if (args.unmarkDate) validDate(args.unmarkDate);
+			if (args.unmarkDate) validDate$1(args.unmarkDate);
 			const newName = args.newName?.trim();
 			if (newName && state.habits.some((x) => x.id !== h.id && sameName(x.name, newName))) throw new Error("A habit with this name already exists.");
 			const history = { ...h.history };
@@ -7599,11 +8638,110 @@ function prepareMutation(name, args, state) {
 				remove: true
 			};
 		}
+		case "log_health_day":
+		case "update_health_day": {
+			if (!isHealthDate(args.date)) throw new Error("date must be YYYY-MM-DD.");
+			const existing = (state.healthDays || []).find((d) => d.date === args.date);
+			if (name === "update_health_day" && !existing) throw new Error("No health data for that date. Use log_health_day to add it.");
+			const day = existing ? {
+				...existing,
+				metrics: { ...existing.metrics }
+			} : {
+				id: healthDayId(args.date),
+				date: args.date,
+				metrics: {},
+				source: "manual",
+				updatedAt: ""
+			};
+			let touched = false;
+			for (const m of HEALTH_METRICS) {
+				if (args[m.key] === void 0) continue;
+				const v = cleanMetric(m.key, args[m.key]);
+				if (v === void 0) throw new Error(`${m.label} must be between ${m.min} and ${m.max} ${m.unit}.`);
+				day.metrics[m.key] = v;
+				touched = true;
+			}
+			for (const key of args.clearMetrics || []) if (key in day.metrics) {
+				delete day.metrics[key];
+				touched = true;
+			}
+			for (const key of ["sleepStart", "sleepEnd"]) {
+				if (args[key] === void 0) continue;
+				if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(args[key])) throw new Error(`${key} must be 'YYYY-MM-DD HH:mm'.`);
+				day[key] = args[key];
+				touched = true;
+			}
+			const remove = new Set(cleanTags(args.removeTags || []));
+			const tags = cleanTags([
+				...(day.tags || []).filter((t) => !remove.has(t)),
+				...args.tags || [],
+				...args.addTags || []
+			]);
+			if (JSON.stringify(tags) !== JSON.stringify(day.tags || [])) {
+				day.tags = tags;
+				touched = true;
+			}
+			if (typeof args.note === "string" && args.note.trim()) {
+				day.note = [day.note, args.note.trim()].filter(Boolean).join("\n");
+				touched = true;
+			}
+			if (typeof args.replaceNote === "string") {
+				day.note = args.replaceNote.trim();
+				touched = true;
+			}
+			if (!touched) throw new Error("Give at least one metric, sleep time, tag or note to record.");
+			day.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+			return {
+				type: "health",
+				action: name,
+				record: normalizeHealthDay(day),
+				...existing ? { expected: existing } : {}
+			};
+		}
+		case "delete_health_day": {
+			if (!isHealthDate(args.date)) throw new Error("date must be YYYY-MM-DD.");
+			const d = (state.healthDays || []).find((x) => x.date === args.date);
+			if (!d) throw new Error("No health data for that date.");
+			return {
+				type: "health",
+				action: name,
+				expected: d,
+				record: d,
+				remove: true
+			};
+		}
+		case "update_health_profile": {
+			const health = (state.workspaces || []).filter((w) => w.template === "health");
+			const w = args.workspaceId ? findIn(health, args.workspaceId, "Health workspace") : health[0];
+			if (!w) throw new Error("There is no Health workspace yet. Create one with create_workspace (template health) first.");
+			const next = { ...w.health || {} };
+			if (args.sleepGoalHours !== void 0) next.sleepGoalMin = Math.round(args.sleepGoalHours * 60);
+			for (const key of [
+				"stepGoal",
+				"maxHr",
+				"birthYear",
+				"sex"
+			]) if (args[key] !== void 0) next[key] = args[key];
+			for (const key of args.clear || []) delete next[key === "sleepGoalHours" ? "sleepGoalMin" : key];
+			const clean = normalizeHealthProfile(next);
+			if (JSON.stringify(clean || {}) === JSON.stringify(w.health || {})) throw new Error("Nothing to change: give a new target or one to clear.");
+			const { health: _old, ...rest } = w;
+			return {
+				type: "workspace",
+				action: name,
+				expected: w,
+				record: clean ? {
+					...rest,
+					health: clean
+				} : rest
+			};
+		}
 		default: throw new Error(`Unknown mutation ${name}`);
 	}
 }
 // src/services/actionPolicy.ts
 const READ = /* @__PURE__ */ new Set([
+	"health_summary",
 	"query_records",
 	"read_record",
 	"read_records",
@@ -7670,7 +8808,11 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"update_flashcard_deck",
 	"delete_flashcard_deck",
 	"update_quiz",
-	"delete_quiz"
+	"delete_quiz",
+	"log_health_day",
+	"update_health_day",
+	"delete_health_day",
+	"update_health_profile"
 ]);
 /**
 * Unknown tools are treated as the riskiest tier, so a new integration is gated until it is classified.
@@ -7725,7 +8867,7 @@ const show = (value) => {
 	const text = typeof value === "string" ? value : JSON.stringify(value);
 	return text.length > 80 ? `${text.slice(0, 77)}…` : text;
 };
-const recordName = (m) => ("name" in m.record ? m.record.name : m.record.title) || "Untitled";
+const recordName = (m) => ("name" in m.record ? m.record.name : m.record.title) || m.record.date || "Untitled";
 const NOUNS = {
 	task: "task",
 	goal: "goal",
@@ -7734,6 +8876,7 @@ const NOUNS = {
 	knowledge: "note",
 	tracker: "tracker entry",
 	event: "event",
+	health: "health day",
 	course: "course",
 	deck: "flashcard deck",
 	quiz: "quiz",
@@ -7786,14 +8929,14 @@ function describeMutation(tool, m) {
 		...after
 	}).filter((key) => key !== "updatedAt" && key !== "createdAt" && JSON.stringify(before[key]) !== JSON.stringify(after[key])).map((key) => `${LABELS[key] || key}: ${show(before[key])} → ${show(after[key])}`);
 	return {
-		summary: `${tool === "record_grade" ? "Record a grade in" : tool === "set_course_grading" ? "Change grading for" : "Update"} ${noun} "${recordName({
+		summary: `${tool === "record_grade" ? "Record a grade in" : tool === "set_course_grading" ? "Change grading for" : tool === "update_health_profile" ? "Change health targets in" : "Update"} ${noun} "${recordName({
 			...m,
 			record: m.expected
 		})}"`,
 		details
 	};
 }
-const list = (value) => Array.isArray(value) ? value.map(String) : typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : [];
+const list$1 = (value) => Array.isArray(value) ? value.map(String) : typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : [];
 const clock = (time) => {
 	const [h, m] = String(time).split(":").map(Number);
 	return Number.isFinite(h) ? `${h % 12 || 12}:${String(m || 0).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}` : "";
@@ -7801,7 +8944,7 @@ const clock = (time) => {
 /** Summary and details for a proposed action outside Synapse, as shown on its approval card. */
 function describeExternal(tool, args) {
 	if (tool === "create_calendar_event") {
-		const guests = list(args.attendees);
+		const guests = list$1(args.attendees);
 		const when = args.startTime ? `${args.date} ${clock(args.startTime)}–${clock(args.endTime)}` : `${args.date} (all day)`;
 		return {
 			summary: `Create event "${String(args.title || "Untitled")}" on ${when}${guests.length ? `, invites ${guests.length} ${guests.length === 1 ? "person" : "people"}` : ""}`,
@@ -7809,7 +8952,7 @@ function describeExternal(tool, args) {
 		};
 	}
 	if (tool === "create_email_draft") {
-		const to = list(args.to);
+		const to = list$1(args.to);
 		const body = String(args.body || "");
 		return {
 			summary: `Save a draft${to.length ? ` to ${to.join(", ")}` : " reply"}${args.subject ? `: "${args.subject}"` : ""}`,
@@ -7866,11 +9009,19 @@ const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and p
 - Do not repeat writes that already succeeded. Report partial completion honestly.
 - Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
 
+## Interactive cards
+You can place an interactive card in a reply by writing a fenced code block with the language iris-ui containing one JSON object. It appears to the user as a real control, so never mention JSON, code or the card format.
+- Use a card only when the user will act on or explore the result. Ordinary answers, advice and conversation stay as text. At most one card per reply, with at least a sentence of text before it. Do not repeat the card's contents in the text.
+- checklist, for proposing several new tasks, such as turning a plan or a list of deadlines into tasks: {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]}. Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added.
+- choices, for a quick question with a few clear answers; the tapped option is sent as the user's reply: {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]}. 2 to 6 short options.
+- quiz, for practice with two or more questions (grounded in the user's materials when the subject is theirs): {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]}. answer is the 0-based index of the correct option. Up to 10 questions.
+- chart, for how a habit is going over time: {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8}. The numbers come from the user's real history, so use the exact ID and do not restate figures you haven't seen. Weeks is 4 to 12.
+
 ## Studying
 - Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
 - For questions about class material, search_records (type document narrows it) and ground your explanation in the user's own materials, citing [document:ID]. Use their notation and terminology. If their materials don't cover something, say so and then answer from general knowledge.
 - "Make flashcards/a quiz on X": find the course and relevant documents, read them, then call create_flashcard_deck or create_quiz with items grounded in that text and sourceDocumentId set. Default to about 15 cards or 8 questions unless asked. Tell the user it is ready in their course's Flashcards or Quizzes tab.
-- When quizzing the user in chat, ask one question at a time and wait for their answer. Weak spots show up in quiz attempts (missed questions) and cards due; use them to suggest what to review.
+- When quizzing the user in chat, prefer a quiz card; for a single question or free-response practice, ask one question at a time and wait for their answer. Weak spots show up in quiz attempts (missed questions) and cards due; use them to suggest what to review.
 - A course's code is also its task subsection under Academic, so assignments for a course are tasks with that subsection.
 - Grades: course records include grading (weights, scores, current grade, projected final, and the average needed on the remaining work for each letter, already computed — use those numbers rather than redoing the math). When the user describes how a class is weighted, call set_course_grading; when they report a score ("got 42/50 on HW 3", "87 on the midterm"), call record_grade (a bare percentage is score out of maxScore 100). If a course has no grading yet and the user wants to track grades, ask for the breakdown or offer to read it from their syllabus document. For "what do I need on the final", use neededForTarget on that upcoming item when present, and say what assumption it makes (the rest at their current average).
 
@@ -8442,7 +9593,7 @@ var AutonomousBrainAgent = class {
 								].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, {
 									id: mutation.record.id,
 									type: mutation.type,
-									title: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note",
+									title: recordTitle$1(mutation.record, "Note"),
 									snippet: "Saved during this conversation"
 								});
 							}
@@ -8955,6 +10106,124 @@ async function runServerAgent(store, key, input, emit, signal, externalTools, we
 		}, "memory", "memory", "Memory");
 	}
 }
+const PRIORITIES = [
+	"urgent",
+	"high",
+	"medium",
+	"low"
+];
+const text = (value, max) => {
+	if (typeof value !== "string") return void 0;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.slice(0, max) : void 0;
+};
+const list = (value, max) => Array.isArray(value) ? value.slice(0, max) : [];
+const texts = (value, max, length) => list(value, max).map((v) => text(v, length)).filter((v) => !!v);
+const validDate = (value) => {
+	const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : void 0;
+	return date && !Number.isNaN((/* @__PURE__ */ new Date(`${date}T12:00:00`)).getTime()) ? date : void 0;
+};
+const validTime = (value) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : void 0;
+function checklistItem(raw) {
+	const title = text(raw?.title, 160);
+	if (!title) return void 0;
+	const dueDate = validDate(raw.dueDate), dueTime = dueDate ? validTime(raw.dueTime) : void 0;
+	const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
+	return {
+		title,
+		...dueDate ? { dueDate } : {},
+		...dueTime ? { dueTime } : {},
+		...PRIORITIES.includes(raw.priority) ? { priority: raw.priority } : {},
+		...section ? { section } : {},
+		...subsection ? { subsection } : {}
+	};
+}
+function quizQuestion(raw) {
+	const question = text(raw?.question, 400), options = texts(raw?.options, 6, 200);
+	if (!question || options.length < 2 || !Number.isInteger(raw.answer) || raw.answer < 0 || raw.answer >= options.length) return void 0;
+	const why = text(raw.why, 400);
+	return {
+		question,
+		options,
+		answer: raw.answer,
+		...why ? { why } : {}
+	};
+}
+/** The model's output is untrusted: returns a clean spec, or null when the block can't be shown. */
+function parseIrisUi(code) {
+	let raw;
+	try {
+		raw = JSON.parse(code);
+	} catch {
+		return null;
+	}
+	switch (raw?.type) {
+		case "checklist": {
+			const title = text(raw.title, 120), items = list(raw.items, 12).map(checklistItem).filter((i) => !!i);
+			if (!title || !items.length) return null;
+			const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
+			return {
+				type: "checklist",
+				title,
+				...section ? { section } : {},
+				...subsection ? { subsection } : {},
+				items
+			};
+		}
+		case "choices": {
+			const options = [...new Set(texts(raw.options, 6, 80))], question = text(raw.question, 200);
+			return options.length >= 2 ? {
+				type: "choices",
+				...question ? { question } : {},
+				options
+			} : null;
+		}
+		case "quiz": {
+			const title = text(raw.title, 120), questions = list(raw.questions, 10).map(quizQuestion).filter((q) => !!q);
+			return title && questions.length ? {
+				type: "quiz",
+				title,
+				questions
+			} : null;
+		}
+		case "chart": {
+			const habitId = text(raw.habitId, 120);
+			if (!habitId) return null;
+			return {
+				type: "chart",
+				habitId,
+				weeks: Number.isInteger(raw.weeks) ? Math.min(12, Math.max(4, raw.weeks)) : 8
+			};
+		}
+		default: return null;
+	}
+}
+function describe$1(spec) {
+	switch (spec.type) {
+		case "checklist": return [spec.title, ...spec.items.map((i) => `- ${i.title}${i.dueDate ? ` (${i.dueDate})` : ""}`)].join("\n");
+		case "choices": return [...spec.question ? [spec.question] : [], ...spec.options.map((o) => `- ${o}`)].join("\n");
+		case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map((o) => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
+		case "chart": return "";
+	}
+}
+/** Replaces card blocks with readable text, for anywhere that can't show a card (copy, notes, Telegram). */
+function plainIrisUi(content) {
+	if (!content.includes(`\`\`\`iris-ui`)) return content;
+	const output = [];
+	let block = null;
+	const flush = () => {
+		const spec = block ? parseIrisUi(block.join("\n")) : null;
+		if (spec) output.push(describe$1(spec));
+		block = null;
+	};
+	for (const line of content.split("\n")) if (block) {
+		if (line.trim() === "```") flush();
+		else block.push(line);
+	} else if (line.trim() === `\`\`\`iris-ui`) block = [];
+	else output.push(line);
+	block = null;
+	return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
 // server/routes/actions.ts
 /** JSON with object keys sorted, so records compare equal regardless of how the database ordered them. */
 const canonical = (value) => JSON.stringify(value, (_, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
@@ -9057,7 +10326,7 @@ const TELEGRAM_THREAD = {
 const MESSAGES_PER_HOUR = 60;
 const TURN_TIMEOUT_MS = 28e4;
 const RECENT_NOTIFICATION_MS = 432e5;
-const CHANNEL_NOTE = "This conversation is over Telegram. Reply like a text message: short, usually under 80 words, plain text with no headings, tables or markdown. Do not include record IDs. Say plainly what you changed.";
+const CHANNEL_NOTE = "This conversation is over Telegram. Reply like a text message: short, usually under 80 words, plain text with no headings, tables, markdown or interactive cards. Do not include record IDs. Say plainly what you changed.";
 const NOT_LINKED = "This chat isn't connected to a Synapse account. Open Synapse, go to Settings, and choose Connect Telegram.";
 const HELP = "Text me like you would in Synapse: \"add a task to finish the lab by Friday at 5\", \"what's due this week?\", \"mark the essay done\".\n\n/stop pauses reminders\n/resume turns them back on";
 /** Handles one update from Telegram. Only private chats, and only from the person who owns the chat. */
@@ -9156,7 +10425,7 @@ async function converse(deps, telegram, admin, account, incoming, text) {
 	}
 }
 async function deliver(telegram, store, chatId, result) {
-	await telegram.send(chatId, plainText(result.queryAnswer));
+	await telegram.send(chatId, plainText(plainIrisUi(result.queryAnswer)));
 	for (const approval of result.approvals || []) await askApproval(telegram, store, chatId, approval);
 }
 const approvalText = (a) => [

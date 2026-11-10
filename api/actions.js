@@ -510,6 +510,366 @@ function legacyMemoryRecord(data) {
 		})
 	};
 }
+// src/utils/health.ts
+const HEALTH_METRICS = [
+	{
+		key: "steps",
+		label: "Steps",
+		unit: "steps",
+		agg: "sum",
+		min: 0,
+		max: 15e4,
+		decimals: 0,
+		hae: ["step_count"],
+		description: "Steps walked."
+	},
+	{
+		key: "activeKcal",
+		label: "Active energy",
+		unit: "kcal",
+		agg: "sum",
+		min: 0,
+		max: 1e4,
+		decimals: 0,
+		hae: ["active_energy"],
+		description: "Active calories burned."
+	},
+	{
+		key: "basalKcal",
+		label: "Resting energy",
+		unit: "kcal",
+		agg: "sum",
+		min: 0,
+		max: 6e3,
+		decimals: 0,
+		hae: ["basal_energy_burned"],
+		description: "Resting calories burned."
+	},
+	{
+		key: "exerciseMin",
+		label: "Exercise",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1440,
+		decimals: 0,
+		hae: ["apple_exercise_time"],
+		description: "Apple Watch exercise minutes."
+	},
+	{
+		key: "standHours",
+		label: "Stand hours",
+		unit: "h",
+		agg: "sum",
+		min: 0,
+		max: 24,
+		decimals: 0,
+		hae: ["apple_stand_hour"],
+		description: "Hours with at least a minute of standing."
+	},
+	{
+		key: "distanceKm",
+		label: "Walking + running",
+		unit: "km",
+		agg: "sum",
+		min: 0,
+		max: 300,
+		decimals: 1,
+		hae: ["walking_running_distance"],
+		description: "Walking and running distance in km."
+	},
+	{
+		key: "flights",
+		label: "Flights climbed",
+		unit: "floors",
+		agg: "sum",
+		min: 0,
+		max: 500,
+		decimals: 0,
+		hae: ["flights_climbed"],
+		description: "Flights of stairs climbed."
+	},
+	{
+		key: "daylightMin",
+		label: "Time in daylight",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1440,
+		decimals: 0,
+		hae: ["time_in_daylight"],
+		description: "Minutes spent in daylight."
+	},
+	{
+		key: "restingHr",
+		label: "Resting heart rate",
+		unit: "bpm",
+		agg: "avg",
+		min: 25,
+		max: 150,
+		decimals: 0,
+		hae: ["resting_heart_rate"],
+		description: "Resting heart rate in beats per minute."
+	},
+	{
+		key: "hrv",
+		label: "HRV",
+		unit: "ms",
+		agg: "avg",
+		min: 3,
+		max: 300,
+		decimals: 0,
+		hae: ["heart_rate_variability"],
+		description: "Heart rate variability (SDNN) in milliseconds."
+	},
+	{
+		key: "walkingHr",
+		label: "Walking heart rate",
+		unit: "bpm",
+		agg: "avg",
+		min: 40,
+		max: 200,
+		decimals: 0,
+		hae: ["walking_heart_rate_average"],
+		description: "Average heart rate while walking."
+	},
+	{
+		key: "maxHr",
+		label: "Highest heart rate",
+		unit: "bpm",
+		agg: "max",
+		min: 60,
+		max: 230,
+		decimals: 0,
+		hae: [],
+		description: "Highest heart rate recorded that day."
+	},
+	{
+		key: "respRate",
+		label: "Respiratory rate",
+		unit: "br/min",
+		agg: "avg",
+		min: 5,
+		max: 40,
+		decimals: 1,
+		hae: ["respiratory_rate"],
+		description: "Breaths per minute, measured during sleep."
+	},
+	{
+		key: "spo2",
+		label: "Blood oxygen",
+		unit: "%",
+		agg: "avg",
+		min: 70,
+		max: 100,
+		decimals: 0,
+		hae: ["blood_oxygen_saturation"],
+		description: "Blood oxygen saturation in percent."
+	},
+	{
+		key: "wristTempC",
+		label: "Sleeping wrist temperature",
+		unit: "°C",
+		agg: "avg",
+		min: 25,
+		max: 42,
+		decimals: 2,
+		hae: ["apple_sleeping_wrist_temperature"],
+		description: "Wrist temperature during sleep in °C."
+	},
+	{
+		key: "vo2max",
+		label: "Cardio fitness (VO₂ max)",
+		unit: "ml/kg/min",
+		agg: "last",
+		min: 10,
+		max: 95,
+		decimals: 1,
+		hae: ["vo2_max"],
+		description: "Estimated VO2 max."
+	},
+	{
+		key: "weightKg",
+		label: "Weight",
+		unit: "kg",
+		agg: "last",
+		min: 20,
+		max: 400,
+		decimals: 1,
+		hae: ["weight_body_mass"],
+		description: "Body weight in kg."
+	},
+	{
+		key: "bodyFatPct",
+		label: "Body fat",
+		unit: "%",
+		agg: "last",
+		min: 2,
+		max: 70,
+		decimals: 1,
+		hae: ["body_fat_percentage"],
+		description: "Body fat percentage."
+	},
+	{
+		key: "sleepMin",
+		label: "Sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1200,
+		decimals: 0,
+		hae: [],
+		description: "Minutes asleep in the night that ended this morning."
+	},
+	{
+		key: "inBedMin",
+		label: "Time in bed",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1440,
+		decimals: 0,
+		hae: [],
+		description: "Minutes in bed."
+	},
+	{
+		key: "deepMin",
+		label: "Deep sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 600,
+		decimals: 0,
+		hae: [],
+		description: "Minutes of deep sleep."
+	},
+	{
+		key: "remMin",
+		label: "REM sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 600,
+		decimals: 0,
+		hae: [],
+		description: "Minutes of REM sleep."
+	},
+	{
+		key: "coreMin",
+		label: "Core sleep",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 1e3,
+		decimals: 0,
+		hae: [],
+		description: "Minutes of core (light) sleep."
+	},
+	{
+		key: "awakeMin",
+		label: "Awake in bed",
+		unit: "min",
+		agg: "sum",
+		min: 0,
+		max: 600,
+		decimals: 0,
+		hae: [],
+		description: "Minutes awake during the night."
+	}
+];
+const HEALTH_METRIC_KEYS = HEALTH_METRICS.map((m) => m.key);
+const METRIC_BY_KEY = new Map(HEALTH_METRICS.map((m) => [m.key, m]));
+const healthDayId = (date) => `health-${date}`;
+const DATE$1 = /^\d{4}-\d{2}-\d{2}$/;
+const LOCAL_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
+const isHealthDate = (value) => {
+	if (typeof value !== "string" || !DATE$1.test(value)) return false;
+	const time = Date.parse(`${value}T12:00:00Z`);
+	return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
+};
+/** A value rounded to the metric's precision, or undefined when it is not a plausible reading. */
+function cleanMetric(key, value) {
+	const def = METRIC_BY_KEY.get(key);
+	const n = typeof value === "string" && value.trim() ? Number(value) : value;
+	if (!def || typeof n !== "number" || !Number.isFinite(n) || n < def.min || n > def.max) return void 0;
+	const f = 10 ** def.decimals;
+	return Math.round(n * f) / f;
+}
+function cleanTags(value) {
+	if (!Array.isArray(value)) return [];
+	const seen = /* @__PURE__ */ new Set();
+	const tags = [];
+	for (const raw of value) {
+		if (typeof raw !== "string") continue;
+		const tag = raw.trim().toLowerCase().replace(/\s+/g, " ").slice(0, 40);
+		if (tag && !seen.has(tag)) {
+			seen.add(tag);
+			tags.push(tag);
+		}
+		if (tags.length >= 20) break;
+	}
+	return tags;
+}
+function cleanWorkout(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const w = value;
+	const minutes = typeof w.minutes === "number" && Number.isFinite(w.minutes) ? Math.round(w.minutes) : NaN;
+	if (typeof w.start !== "string" || !LOCAL_TIME.test(w.start) || !(minutes > 0 && minutes <= 1440)) return void 0;
+	const num = (v, lo, hi, d = 0) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10 ** d) / 10 ** d : void 0;
+	const workout = {
+		id: typeof w.id === "string" && w.id ? w.id.slice(0, 120) : `${w.start}|${String(w.type || "")}`,
+		type: typeof w.type === "string" && w.type.trim() ? w.type.trim().slice(0, 60) : "Workout",
+		start: w.start,
+		minutes
+	};
+	const energy = num(w.energyKcal, 0, 1e4), distance = num(w.distanceKm, 0, 500, 2), avg = num(w.avgHr, 30, 230), max = num(w.maxHr, 30, 240);
+	if (energy !== void 0) workout.energyKcal = energy;
+	if (distance !== void 0) workout.distanceKm = distance;
+	if (avg !== void 0) workout.avgHr = avg;
+	if (max !== void 0) workout.maxHr = max;
+	return workout;
+}
+/** A stored or received day in canonical shape, or undefined if it is not a usable day. */
+function normalizeHealthDay(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const d = value;
+	if (!isHealthDate(d.date)) return void 0;
+	const metrics = {};
+	const raw = d.metrics && typeof d.metrics === "object" ? d.metrics : {};
+	for (const key of HEALTH_METRIC_KEYS) {
+		const v = cleanMetric(key, raw[key]);
+		if (v !== void 0) metrics[key] = v;
+	}
+	const day = {
+		id: healthDayId(d.date),
+		date: d.date,
+		metrics,
+		updatedAt: typeof d.updatedAt === "string" ? d.updatedAt : (/* @__PURE__ */ new Date()).toISOString()
+	};
+	if (typeof d.sleepStart === "string" && LOCAL_TIME.test(d.sleepStart)) day.sleepStart = d.sleepStart;
+	if (typeof d.sleepEnd === "string" && LOCAL_TIME.test(d.sleepEnd)) day.sleepEnd = d.sleepEnd;
+	const workouts = Array.isArray(d.workouts) ? d.workouts.map(cleanWorkout).filter((w) => !!w).slice(0, 30) : [];
+	if (workouts.length) day.workouts = workouts;
+	const tags = cleanTags(d.tags);
+	if (tags.length) day.tags = tags;
+	if (typeof d.note === "string" && d.note.trim()) day.note = d.note.trim().slice(0, 2e3);
+	if (typeof d.source === "string" && d.source.trim()) day.source = d.source.trim().slice(0, 80);
+	return day;
+}
+new Map(HEALTH_METRICS.flatMap((m) => m.hae.map((name) => [name, m.key])));
+function normalizeHealthProfile(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const p = value;
+	const int = (v, lo, hi) => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi ? v : void 0;
+	const profile = {};
+	const sleep = int(p.sleepGoalMin, 240, 720), steps = int(p.stepGoal, 1e3, 5e4), maxHr = int(p.maxHr, 120, 230), born = int(p.birthYear, 1900, 2030);
+	if (sleep !== void 0) profile.sleepGoalMin = sleep;
+	if (steps !== void 0) profile.stepGoal = steps;
+	if (maxHr !== void 0) profile.maxHr = maxHr;
+	if (born !== void 0) profile.birthYear = born;
+	if (p.sex === "female" || p.sex === "male") profile.sex = p.sex;
+	return Object.keys(profile).length ? profile : void 0;
+}
 // src/utils/events.ts
 const EVENT_KINDS = [
 	{
@@ -1237,14 +1597,104 @@ const COLORS = [
 	"amber",
 	"rose"
 ];
+const healthMetricProps = () => Object.fromEntries(HEALTH_METRICS.map((m) => [m.key, {
+	type: "number",
+	minimum: m.min,
+	maximum: m.max,
+	description: `${m.description} (${m.unit})`
+}]));
+const localStamp = d_("Local time 'YYYY-MM-DD HH:mm'.");
 const MANAGE_TOOLS = [
-	fn$2("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes) or blank (a page of notes).", {
+	...[
+		fn$2("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (sleep, steps, weight, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Apple Watch data comes from Apple Health exports the user imports in the Health workspace; use this for what the user reports.", {
+			date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."),
+			...healthMetricProps(),
+			sleepStart: localStamp,
+			sleepEnd: localStamp,
+			tags: {
+				type: "array",
+				items: s_,
+				maxItems: 10,
+				description: "Short lowercase tags to add."
+			},
+			note: d_("Text added to the day's note.")
+		}, ["date"]),
+		fn$2("update_health_day", "Correct a health day: change or clear metrics, add or remove tags, rewrite its note.", {
+			date: d_("YYYY-MM-DD of an existing health day."),
+			...healthMetricProps(),
+			sleepStart: localStamp,
+			sleepEnd: localStamp,
+			clearMetrics: {
+				type: "array",
+				items: {
+					type: "string",
+					enum: HEALTH_METRICS.map((m) => m.key)
+				},
+				description: "Metrics to remove (bad readings)."
+			},
+			addTags: {
+				type: "array",
+				items: s_,
+				maxItems: 10
+			},
+			removeTags: {
+				type: "array",
+				items: s_,
+				maxItems: 20
+			},
+			replaceNote: d_("New full note; empty string clears it.")
+		}, ["date"]),
+		fn$2("delete_health_day", "Delete everything stored for one health day. Only when the user explicitly asks.", { date: d_("YYYY-MM-DD.") }, ["date"]),
+		fn$2("update_health_profile", "Change the personal targets health metrics are measured against: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting).", {
+			workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
+			sleepGoalHours: {
+				type: "number",
+				minimum: 4,
+				maximum: 12
+			},
+			stepGoal: {
+				type: "integer",
+				minimum: 1e3,
+				maximum: 5e4
+			},
+			maxHr: {
+				type: "integer",
+				minimum: 120,
+				maximum: 230
+			},
+			birthYear: {
+				type: "integer",
+				minimum: 1900,
+				maximum: 2030
+			},
+			sex: {
+				type: "string",
+				enum: ["female", "male"]
+			},
+			clear: {
+				type: "array",
+				items: {
+					type: "string",
+					enum: [
+						"sleepGoalHours",
+						"stepGoal",
+						"maxHr",
+						"birthYear",
+						"sex"
+					]
+				},
+				description: "Targets to reset to the default."
+			}
+		}, [])
+	],
+	fn$2("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
 		name: s_,
 		template: {
 			type: "string",
 			enum: [
 				"career",
 				"academic",
+				"health",
 				"blank"
 			]
 		},
@@ -1686,7 +2136,8 @@ const recordTypes = [
 	"course",
 	"document",
 	"deck",
-	"quiz"
+	"quiz",
+	"health"
 ];
 const str = { type: "string" };
 const date$1 = {
@@ -1719,7 +2170,11 @@ function tool(name, description, properties, required = []) {
 	};
 }
 const READ_TOOLS = [
-	tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt).", {
+	tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", { date: {
+		type: "string",
+		description: "Optional YYYY-MM-DD to evaluate as 'today'."
+	} }),
+	tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
 		type: typeSchema,
 		dateFrom: date$1,
 		dateTo: date$1,
@@ -1794,7 +2249,8 @@ const MUTATION_COLLECTIONS = {
 	journal: "journalEntries",
 	knowledge: "knowledgeItems",
 	tracker: "trackerItems",
-	event: "events"
+	event: "events",
+	health: "healthDays"
 };
 const STUDY_COLLECTIONS = {
 	course: "courses",
@@ -2634,7 +3090,7 @@ function prepareMutation(name, args, state) {
 					name: workspaceName,
 					description: args.description?.trim() || "",
 					template: args.template,
-					color: args.color || (args.template === "academic" ? "blue" : "purple"),
+					color: args.color || (args.template === "academic" ? "blue" : args.template === "health" ? "rose" : "purple"),
 					notes: "",
 					createdAt: (/* @__PURE__ */ new Date()).toISOString()
 				}
@@ -2990,11 +3446,110 @@ function prepareMutation(name, args, state) {
 				remove: true
 			};
 		}
+		case "log_health_day":
+		case "update_health_day": {
+			if (!isHealthDate(args.date)) throw new Error("date must be YYYY-MM-DD.");
+			const existing = (state.healthDays || []).find((d) => d.date === args.date);
+			if (name === "update_health_day" && !existing) throw new Error("No health data for that date. Use log_health_day to add it.");
+			const day = existing ? {
+				...existing,
+				metrics: { ...existing.metrics }
+			} : {
+				id: healthDayId(args.date),
+				date: args.date,
+				metrics: {},
+				source: "manual",
+				updatedAt: ""
+			};
+			let touched = false;
+			for (const m of HEALTH_METRICS) {
+				if (args[m.key] === void 0) continue;
+				const v = cleanMetric(m.key, args[m.key]);
+				if (v === void 0) throw new Error(`${m.label} must be between ${m.min} and ${m.max} ${m.unit}.`);
+				day.metrics[m.key] = v;
+				touched = true;
+			}
+			for (const key of args.clearMetrics || []) if (key in day.metrics) {
+				delete day.metrics[key];
+				touched = true;
+			}
+			for (const key of ["sleepStart", "sleepEnd"]) {
+				if (args[key] === void 0) continue;
+				if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(args[key])) throw new Error(`${key} must be 'YYYY-MM-DD HH:mm'.`);
+				day[key] = args[key];
+				touched = true;
+			}
+			const remove = new Set(cleanTags(args.removeTags || []));
+			const tags = cleanTags([
+				...(day.tags || []).filter((t) => !remove.has(t)),
+				...args.tags || [],
+				...args.addTags || []
+			]);
+			if (JSON.stringify(tags) !== JSON.stringify(day.tags || [])) {
+				day.tags = tags;
+				touched = true;
+			}
+			if (typeof args.note === "string" && args.note.trim()) {
+				day.note = [day.note, args.note.trim()].filter(Boolean).join("\n");
+				touched = true;
+			}
+			if (typeof args.replaceNote === "string") {
+				day.note = args.replaceNote.trim();
+				touched = true;
+			}
+			if (!touched) throw new Error("Give at least one metric, sleep time, tag or note to record.");
+			day.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+			return {
+				type: "health",
+				action: name,
+				record: normalizeHealthDay(day),
+				...existing ? { expected: existing } : {}
+			};
+		}
+		case "delete_health_day": {
+			if (!isHealthDate(args.date)) throw new Error("date must be YYYY-MM-DD.");
+			const d = (state.healthDays || []).find((x) => x.date === args.date);
+			if (!d) throw new Error("No health data for that date.");
+			return {
+				type: "health",
+				action: name,
+				expected: d,
+				record: d,
+				remove: true
+			};
+		}
+		case "update_health_profile": {
+			const health = (state.workspaces || []).filter((w) => w.template === "health");
+			const w = args.workspaceId ? findIn(health, args.workspaceId, "Health workspace") : health[0];
+			if (!w) throw new Error("There is no Health workspace yet. Create one with create_workspace (template health) first.");
+			const next = { ...w.health || {} };
+			if (args.sleepGoalHours !== void 0) next.sleepGoalMin = Math.round(args.sleepGoalHours * 60);
+			for (const key of [
+				"stepGoal",
+				"maxHr",
+				"birthYear",
+				"sex"
+			]) if (args[key] !== void 0) next[key] = args[key];
+			for (const key of args.clear || []) delete next[key === "sleepGoalHours" ? "sleepGoalMin" : key];
+			const clean = normalizeHealthProfile(next);
+			if (JSON.stringify(clean || {}) === JSON.stringify(w.health || {})) throw new Error("Nothing to change: give a new target or one to clear.");
+			const { health: _old, ...rest } = w;
+			return {
+				type: "workspace",
+				action: name,
+				expected: w,
+				record: clean ? {
+					...rest,
+					health: clean
+				} : rest
+			};
+		}
 		default: throw new Error(`Unknown mutation ${name}`);
 	}
 }
 // src/services/actionPolicy.ts
 const READ = /* @__PURE__ */ new Set([
+	"health_summary",
 	"query_records",
 	"read_record",
 	"read_records",
@@ -3061,7 +3616,11 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"update_flashcard_deck",
 	"delete_flashcard_deck",
 	"update_quiz",
-	"delete_quiz"
+	"delete_quiz",
+	"log_health_day",
+	"update_health_day",
+	"delete_health_day",
+	"update_health_profile"
 ]);
 /**
 * Unknown tools are treated as the riskiest tier, so a new integration is gated until it is classified.
@@ -3239,6 +3798,7 @@ const RECORD_COLLECTIONS = [
 	"events",
 	"trackerItems",
 	"workspaces",
+	"healthDays",
 	"noteFolders",
 	"conversations",
 	"study.courses",
@@ -3934,6 +4494,28 @@ function supabaseStore(userId, client) {
 			const { error } = await client.from("telegram_links").delete().eq("user_id", userId);
 			if (error) rpcError(error, "Could not disconnect Telegram.");
 		},
+		async getHealthSync() {
+			const { data, error } = await client.from("health_sync_tokens").select("hint,created_at,last_sync_at,last_sync_days,last_sync_source").eq("user_id", userId).maybeSingle();
+			if (error) rpcError(error, "Could not read your health sync settings.");
+			return data ? {
+				hint: data.hint,
+				createdAt: data.created_at,
+				lastSyncAt: data.last_sync_at,
+				lastSyncDays: data.last_sync_days,
+				lastSyncSource: data.last_sync_source
+			} : null;
+		},
+		async setHealthSyncToken(tokenHash, hint) {
+			const { error } = await client.rpc("set_health_sync_token", {
+				p_token_hash: tokenHash,
+				p_hint: hint
+			});
+			if (error) rpcError(error, "Could not create a sync token.");
+		},
+		async deleteHealthSync() {
+			const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
+			if (error) rpcError(error, "Could not turn off health sync.");
+		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
 			for (let i = 0; i < ids.length; i += 50) {
@@ -4034,6 +4616,29 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 		},
 		async pruneNotifications(beforeIso) {
 			check(await admin.from("telegram_notifications").delete().lt("sent_at", beforeIso), "prune notifications");
+		},
+		async healthAccount(tokenHash) {
+			const { data } = check(await admin.from("health_sync_tokens").select("user_id").eq("token_hash", tokenHash).maybeSingle(), "check the sync token");
+			return data?.user_id ?? null;
+		},
+		async healthDays(userId, ids) {
+			const rows = [];
+			for (let i = 0; i < ids.length; i += 100) {
+				const { data } = check(await admin.from("brain_records").select("id,data,revision").eq("user_id", userId).eq("collection", "healthDays").eq("deleted", false).in("id", ids.slice(i, i + 100)), "read health days");
+				rows.push(...(data || []).map((r) => ({
+					id: r.id,
+					data: r.data,
+					revision: Number(r.revision)
+				})));
+			}
+			return rows;
+		},
+		async markHealthSync(userId, days, source) {
+			check(await admin.from("health_sync_tokens").update({
+				last_sync_at: (/* @__PURE__ */ new Date()).toISOString(),
+				last_sync_days: days,
+				last_sync_source: source.slice(0, 80)
+			}).eq("user_id", userId), "record the sync");
 		},
 		async session(userId) {
 			const found = await admin.auth.admin.getUserById(userId);

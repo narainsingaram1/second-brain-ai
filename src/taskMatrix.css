@@ -18,9 +18,11 @@
   transition: background-color 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease), transform 120ms var(--ease);
 }
 .task-workspace button:focus-visible,
-.task-editor button:focus-visible,
+.task-editor button:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
+.task-workspace input:focus,
+.task-editor input:focus,
 .task-workspace input:focus-visible,
-.task-editor input:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
+.task-editor input:focus-visible { outline: none !important; }
 .task-workspace button:active,
 .task-editor button:active { transform: scale(0.98); }
 .task-page-header {

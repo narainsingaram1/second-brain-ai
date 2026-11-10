@@ -13,6 +13,7 @@ import {
   Flame,
   FolderOpen,
   GraduationCap,
+  HeartPulse,
   LayoutGrid,
   List,
   MoreHorizontal,
@@ -46,6 +47,7 @@ import {
 import { getLocalDateString } from "../utils/habitStreaks";
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import { AcademicWorkspace } from "./academic/AcademicWorkspace";
+import { HealthWorkspace } from "./health/HealthWorkspace";
 import type { TaskActions } from "./academic/TasksPanel";
 import { studyOf } from "../utils/study";
 import { deleteDocumentTexts } from "../services/studyDocuments";
@@ -80,7 +82,9 @@ const templateLabel = (template: Workspace["template"]) =>
     ? "Career workspace"
     : template === "academic"
       ? "Academic workspace"
-      : "Personal workspace";
+      : template === "health"
+        ? "Health workspace"
+        : "Personal workspace";
 function WorkspaceIcon({ workspace }: { workspace: Workspace }) {
   return (
     <span className={`ws-icon ws-color-${workspace.color}`}>
@@ -88,6 +92,8 @@ function WorkspaceIcon({ workspace }: { workspace: Workspace }) {
         <Briefcase size={22} />
       ) : workspace.template === "academic" ? (
         <GraduationCap size={22} />
+      ) : workspace.template === "health" ? (
+        <HeartPulse size={22} />
       ) : (
         <FolderOpen size={22} />
       )}
@@ -290,7 +296,9 @@ export function WorkspacesView({
                     <span>
                       {space.template === "academic"
                         ? `${studyOf(state).courses.filter((c) => c.workspaceId === space.id).length} courses`
-                        : `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`}
+                        : space.template === "health"
+                          ? `${(state.healthDays || []).length} days of data`
+                          : `${entries.length} ${entries.length === 1 ? "entry" : "entries"}`}
                     </span>
                   </div>
                 </button>
@@ -362,7 +370,9 @@ export function WorkspacesView({
               [
                 workspace.template === "academic"
                   ? { id: "overview", label: "Courses", icon: GraduationCap }
-                  : { id: "overview", label: "Overview", icon: LayoutGrid },
+                  : workspace.template === "health"
+                    ? { id: "overview", label: "Health", icon: HeartPulse }
+                    : { id: "overview", label: "Overview", icon: LayoutGrid },
                 ...(workspace.template === "career"
                   ? [
                       { id: "leetcode", label: "LeetCode", icon: Code2 },
@@ -408,8 +418,12 @@ export function WorkspacesView({
                 taskActions={taskActions}
               />
             )}
+            {panel === "overview" && workspace.template === "health" && (
+              <HealthWorkspace state={state} workspace={workspace} onChange={onChange} onAsk={onAsk} />
+            )}
             {panel === "overview" &&
               workspace.template !== "academic" &&
+              workspace.template !== "health" &&
               (workspace.template === "career" ? (
                 <>
                   <div className="ws-stats">
@@ -1225,6 +1239,7 @@ function WorkspaceEditor({
             color,
             notes: workspace?.notes || "",
             createdAt: workspace?.createdAt || new Date().toISOString(),
+            ...(workspace?.health ? { health: workspace.health } : {}),
           });
         }}
       >
@@ -1296,6 +1311,16 @@ function WorkspaceEditor({
                   <strong>Academic</strong>
                   <span>Courses, materials, flashcards & quizzes</span>
                   {template === "academic" && <Check size={15} />}
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={template === "health"}
+                  onClick={() => setTemplate("health")}
+                >
+                  <HeartPulse size={20} />
+                  <strong>Health</strong>
+                  <span>Apple Watch recovery, sleep & training</span>
+                  {template === "health" && <Check size={15} />}
                 </button>
                 <button
                   type="button"

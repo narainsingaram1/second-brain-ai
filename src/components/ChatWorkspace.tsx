@@ -1,6 +1,6 @@
 import "../memory.css";
 import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Briefcase, CalendarDays, CheckSquare, Clock3, Flame, GraduationCap, Lightbulb, Mail, MessageCircle, Mic, MicOff, Plus, RefreshCw, Settings2, PenLine, Square, Target, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, Paperclip, Plus, RefreshCw, SlidersHorizontal, Square, Target, type LucideIcon } from "lucide-react";
 import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
@@ -8,7 +8,7 @@ import { conversationTitle, isNearBottom } from "../utils/chatPresentation";
 import { ConversationMessage } from "./ConversationMessage";
 import { useConversationStarters } from "../hooks/useConversationStarters";
 import type { StarterKind } from "../services/chatSuggestions";
-import { AttachButton, AttachmentTray, useImageAttachments } from "./ImageAttachments";
+import { AttachmentTray, useImageAttachments } from "./ImageAttachments";
 
 interface ChatWorkspaceProps {
   conversation: BrainConversation;
@@ -143,9 +143,75 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
           <AttachmentTray images={attachments.images} processing={attachments.processing} onRemove={attachments.remove} />
           <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} onPaste={attachments.onPaste} aria-label="Message Iris" placeholder={attachments.images.length ? "Ask about the image, or send to analyze / add as tasks…" : active ? "Ask a follow-up…" : "Ask about your tasks, notes or courses"} />
           <div className="chat-composer-toolbar">
-            <div className="flex items-center gap-2 min-w-0"><PenLine size={14} className="text-muted shrink-0" /><span className="chat-model" title={state?.selectedModel}>{state?.selectedModel?.split("/").pop() || "Iris"}</span>{onOpenSettings && <button type="button" className="chat-icon-button" onClick={onOpenSettings} aria-label="Configure AI provider"><Settings2 size={15} /></button>}</div>
-            <div className="flex items-center gap-1.5"><AttachButton onClick={attachments.openPicker} disabled={conversation.busy} />{conversation.setTemporary && <button type="button" className="chat-temporary" disabled={conversation.busy} aria-label="Temporary chat" aria-pressed={conversation.temporary || false} onClick={() => conversation.setTemporary?.(!conversation.temporary)} title="Temporary chats do not use saved memory or save their transcript">{conversation.temporary ? "Temporary on" : "Temporary"}</button>}<button type="button" onClick={dictate} className={`chat-icon-button ${recording ? "text-red-500" : ""}`} aria-label={recording ? "Stop dictation" : "Voice input"} aria-pressed={recording}>{recording ? <MicOff size={17} /> : <Mic size={17} />}</button>
-              {conversation.busy ? <button type="button" onClick={conversation.stop} className="chat-send is-stop" aria-label="Stop response"><Square size={13} fill="currentColor" /></button> : <button type="submit" className="chat-send" disabled={(!input.trim() && !attachments.images.length) || attachments.processing} aria-label="Send message"><ArrowUp size={19} /></button>}
+            <div className="flex items-center gap-1.5 min-w-0">
+              <button
+                type="button"
+                className="chat-icon-button"
+                onClick={attachments.openPicker}
+                disabled={conversation.busy}
+                aria-label="Attach file"
+                title="Attach file"
+              >
+                <Paperclip size={17} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                className="chat-model-pill"
+                onClick={onOpenSettings}
+                title={state?.selectedModel || "nemotron-3-nano-omni-30b-a3b-instruct"}
+              >
+                <Box size={13} className="text-zinc-500 shrink-0" strokeWidth={1.8} />
+                <span className="chat-model-name truncate">
+                  {state?.selectedModel?.split("/").pop() || "nemotron-3-nano-omni-30b-a3b-rea..."}
+                </span>
+                <ChevronDown size={12} className="text-zinc-400 shrink-0" />
+              </button>
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  className="chat-icon-button"
+                  onClick={onOpenSettings}
+                  aria-label="Configure AI parameters"
+                  title="Configure AI parameters"
+                >
+                  <SlidersHorizontal size={15} strokeWidth={1.8} />
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                className="chat-icon-button"
+                onClick={attachments.openPicker}
+                disabled={conversation.busy}
+                aria-label="Attach images"
+                title="Attach images"
+              >
+                <ImageIcon size={17} strokeWidth={1.8} />
+              </button>
+              <button
+                type="button"
+                onClick={dictate}
+                className={`chat-icon-button ${recording ? "text-red-500" : ""}`}
+                aria-label={recording ? "Stop dictation" : "Voice input"}
+                aria-pressed={recording}
+              >
+                {recording ? <MicOff size={17} strokeWidth={1.8} /> : <Mic size={17} strokeWidth={1.8} />}
+              </button>
+              {conversation.busy ? (
+                <button type="button" onClick={conversation.stop} className="chat-send is-stop" aria-label="Stop response">
+                  <Square size={13} fill="currentColor" />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="chat-send"
+                  disabled={(!input.trim() && !attachments.images.length) || attachments.processing}
+                  aria-label="Send message"
+                >
+                  <ArrowUp size={18} strokeWidth={2.4} />
+                </button>
+              )}
             </div>
           </div>
         </form>
@@ -155,8 +221,21 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   );
   return <section className={`chat-workspace ${active ? "is-conversation" : "is-welcome"} ${compact ? "is-compact" : ""}`} aria-label="AI conversation">
     {active && <header className="chat-toolbar">
-      <div className="min-w-0"><h1 className="truncate text-sm font-semibold" title={title}>{title}</h1><p className="text-[11px] text-slate-400 mt-0.5">{conversation.temporary ? "Temporary · memory off · transcript not saved" : "Iris"}</p></div>
-      <div className="flex items-center gap-2 shrink-0"><button type="button" onClick={conversation.startNew} disabled={conversation.busy} className="chat-new-button" aria-label="New chat"><Plus size={15} /><span>New chat</span></button>{onOpenSettings && <button type="button" onClick={onOpenSettings} className="chat-icon-button" aria-label="AI settings"><Settings2 size={17} /></button>}</div>
+      <div className="min-w-0">
+        <h1 className="chat-thread-title truncate" title={title}>{title}</h1>
+        <p className="chat-thread-sub">{conversation.temporary ? "Temporary · memory off · transcript not saved" : "Iris"}</p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button type="button" onClick={conversation.startNew} disabled={conversation.busy} className="chat-new-button" aria-label="New chat">
+          <Plus size={14} strokeWidth={2} />
+          <span>New chat</span>
+        </button>
+        {onOpenSettings && (
+          <button type="button" onClick={onOpenSettings} className="chat-icon-button" aria-label="AI settings" title="AI settings">
+            <SlidersHorizontal size={16} strokeWidth={1.8} />
+          </button>
+        )}
+      </div>
     </header>}
     <div className="chat-message-region">
       <div ref={viewport} className="chat-scroll" data-testid="chat-scroll" tabIndex={0} aria-label={active ? "Conversation messages" : "Welcome"}
@@ -164,7 +243,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
         onScroll={event => { const element = event.currentTarget; const near = isNearBottom(element.scrollHeight, element.scrollTop, element.clientHeight); if (scrollingToBottom.current && !near) return; scrollingToBottom.current = false; pinned.current = near; setShowJump(!near); }}>
         <div ref={content} className={active ? "chat-transcript" : "chat-welcome-content"}>
           {active ? <>
-            {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} followUps={message.id === last?.id && !conversation.busy && conversation.followUps?.messageId === message.id ? conversation.followUps : undefined} onFollowUp={text => void send(text)} />)}
+            {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} followUps={message.id === last?.id && !conversation.busy && conversation.followUps?.messageId === message.id ? conversation.followUps : undefined} onFollowUp={text => void send(text)} cards={{ busy: conversation.busy, addTasks: conversation.addCardTasks, setState: conversation.setCardState }} />)}
             {/* The reply in progress: live steps first, then its text as it streams in. One stable element for the whole turn. */}
             {conversation.busy && last?.role === "user" && <ConversationMessage key="live-turn" state={state} streaming
               message={{ id: draft?.id || "live-turn", role: "assistant", content: draft?.content || "", timestamp: "", activity: conversation.activity }} />}
@@ -191,7 +270,12 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
           </div>}
         </div>
       </div>
-      {active && showJump && <button type="button" className="chat-jump" onClick={() => bottom(true)} aria-label="Jump to latest message"><ArrowDown size={15} />Latest</button>}
+      {active && showJump && (
+        <button type="button" className="chat-jump" onClick={() => bottom(true)} aria-label="Jump to latest message">
+          <ArrowDown size={13} strokeWidth={2} />
+          <span>Latest</span>
+        </button>
+      )}
     </div>
     {active && composer}
   </section>;

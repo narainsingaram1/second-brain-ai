@@ -41,10 +41,51 @@ export interface Workspace {
   id: string;
   name: string;
   description: string;
-  template: 'career' | 'academic' | 'blank';
+  template: 'career' | 'academic' | 'health' | 'blank';
   color: WorkspaceColor;
   notes: string;
   createdAt: string;
+  /** Health workspaces only: personal targets the health metrics are measured against. */
+  health?: HealthProfile;
+}
+
+/** Personal numbers the health metrics use. Every field is optional; sensible defaults fill the gaps. */
+export interface HealthProfile {
+  sleepGoalMin?: number;
+  stepGoal?: number;
+  /** Measured or known maximum heart rate. Otherwise estimated from workouts or age. */
+  maxHr?: number;
+  birthYear?: number;
+  /** Only used to pick the training-load (TRIMP) weighting. */
+  sex?: 'female' | 'male';
+}
+
+export interface HealthWorkout {
+  id: string;
+  type: string;
+  /** Local time, "YYYY-MM-DD HH:mm". */
+  start: string;
+  minutes: number;
+  energyKcal?: number;
+  distanceKm?: number;
+  avgHr?: number;
+  maxHr?: number;
+}
+
+/** One calendar day of Apple Health data (id "health-YYYY-MM-DD"), plus the user's own tags and note. */
+export interface HealthDay {
+  id: string;
+  date: string;
+  /** Daily values keyed by HEALTH_METRICS keys, in the units listed there. */
+  metrics: Record<string, number>;
+  /** Local times of the night that ended this morning, "YYYY-MM-DD HH:mm". */
+  sleepStart?: string;
+  sleepEnd?: string;
+  workouts?: HealthWorkout[];
+  tags?: string[];
+  note?: string;
+  source?: string;
+  updatedAt: string;
 }
 
 /** A class the user is taking. Lives inside an academic workspace. */
@@ -332,6 +373,16 @@ export interface AIMessage {
   external?: Array<{ tool: string; summary: string; link?: string }>;
   /** What the assistant did to produce this reply, step by step. */
   activity?: AgentStep[];
+  /** What the user has done with each interactive card in this reply, by the card's order in the text. */
+  cardState?: Record<number, IrisCardState>;
+}
+
+/** Progress on one interactive card, kept with the message so it survives a reload. */
+export interface IrisCardState {
+  /** Checklist rows already turned into tasks: row index to task ID. */
+  added?: Record<number, string>;
+  picked?: string;
+  answers?: number[];
 }
 
 /**
@@ -384,7 +435,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'workspace' | 'folder';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workspace' | 'folder';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -433,6 +484,7 @@ export interface BrainState {
   knowledgeItems: KnowledgeItem[];
   trackerItems: TrackerItem[];
   events?: CalendarEvent[];
+  healthDays?: HealthDay[];
   workspaces?: Workspace[];
   study?: StudyState;
   noteFolders?: NoteFolder[];

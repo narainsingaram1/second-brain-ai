@@ -413,6 +413,28 @@ function supabaseStore(userId, client) {
 			const { error } = await client.from("telegram_links").delete().eq("user_id", userId);
 			if (error) rpcError(error, "Could not disconnect Telegram.");
 		},
+		async getHealthSync() {
+			const { data, error } = await client.from("health_sync_tokens").select("hint,created_at,last_sync_at,last_sync_days,last_sync_source").eq("user_id", userId).maybeSingle();
+			if (error) rpcError(error, "Could not read your health sync settings.");
+			return data ? {
+				hint: data.hint,
+				createdAt: data.created_at,
+				lastSyncAt: data.last_sync_at,
+				lastSyncDays: data.last_sync_days,
+				lastSyncSource: data.last_sync_source
+			} : null;
+		},
+		async setHealthSyncToken(tokenHash, hint) {
+			const { error } = await client.rpc("set_health_sync_token", {
+				p_token_hash: tokenHash,
+				p_hint: hint
+			});
+			if (error) rpcError(error, "Could not create a sync token.");
+		},
+		async deleteHealthSync() {
+			const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
+			if (error) rpcError(error, "Could not turn off health sync.");
+		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
 			for (let i = 0; i < ids.length; i += 50) {
@@ -513,6 +535,29 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 		},
 		async pruneNotifications(beforeIso) {
 			check(await admin.from("telegram_notifications").delete().lt("sent_at", beforeIso), "prune notifications");
+		},
+		async healthAccount(tokenHash) {
+			const { data } = check(await admin.from("health_sync_tokens").select("user_id").eq("token_hash", tokenHash).maybeSingle(), "check the sync token");
+			return data?.user_id ?? null;
+		},
+		async healthDays(userId, ids) {
+			const rows = [];
+			for (let i = 0; i < ids.length; i += 100) {
+				const { data } = check(await admin.from("brain_records").select("id,data,revision").eq("user_id", userId).eq("collection", "healthDays").eq("deleted", false).in("id", ids.slice(i, i + 100)), "read health days");
+				rows.push(...(data || []).map((r) => ({
+					id: r.id,
+					data: r.data,
+					revision: Number(r.revision)
+				})));
+			}
+			return rows;
+		},
+		async markHealthSync(userId, days, source) {
+			check(await admin.from("health_sync_tokens").update({
+				last_sync_at: (/* @__PURE__ */ new Date()).toISOString(),
+				last_sync_days: days,
+				last_sync_source: source.slice(0, 80)
+			}).eq("user_id", userId), "record the sync");
 		},
 		async session(userId) {
 			const found = await admin.auth.admin.getUserById(userId);
