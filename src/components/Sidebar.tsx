@@ -13,6 +13,7 @@ import {
   Briefcase,
   FolderOpen,
   GraduationCap,
+  HeartPulse,
   MessageSquare,
 } from "lucide-react";
 import type { Workspace } from "../types";
@@ -128,7 +129,7 @@ export function Sidebar({
         <div className="nav-group">
           {!collapsed && <div className="sidebar-workspace-label"><p className="nav-label">Workspaces</p><button onClick={() => setActiveTab("workspace-new")} aria-label="Create workspace" title="Create workspace"><Plus size={14} /></button></div>}
           <button onClick={() => setActiveTab("workspaces")} aria-current={activeTab === "workspaces" || activeTab === "workspace-new" ? "page" : undefined} title="All workspaces"><Layers size={16} strokeWidth={1.5} />{!collapsed && <span>All workspaces</span>}</button>
-          {workspaces.map(workspace => <button key={workspace.id} onClick={() => setActiveTab(`workspace:${workspace.id}`)} aria-current={activeTab === `workspace:${workspace.id}` ? "page" : undefined} title={workspace.name}><span className={`workspace-nav-dot ws-color-${workspace.color}`}>{workspace.template === "career" ? <Briefcase size={16} strokeWidth={1.5} /> : workspace.template === "academic" ? <GraduationCap size={16} strokeWidth={1.5} /> : <FolderOpen size={16} strokeWidth={1.5} />}</span>{!collapsed && <span className="workspace-nav-name">{workspace.name}</span>}</button>)}
+          {workspaces.map(workspace => <button key={workspace.id} onClick={() => setActiveTab(`workspace:${workspace.id}`)} aria-current={activeTab === `workspace:${workspace.id}` ? "page" : undefined} title={workspace.name}><span className={`workspace-nav-dot ws-color-${workspace.color}`}>{workspace.template === "career" ? <Briefcase size={16} strokeWidth={1.5} /> : workspace.template === "academic" ? <GraduationCap size={16} strokeWidth={1.5} /> : workspace.template === "health" ? <HeartPulse size={16} strokeWidth={1.5} /> : <FolderOpen size={16} strokeWidth={1.5} />}</span>{!collapsed && <span className="workspace-nav-name">{workspace.name}</span>}</button>)}
           {!collapsed && <button className="workspace-nav-add" onClick={() => setActiveTab("workspace-new")}><Plus size={16} strokeWidth={1.5} /><span>New workspace</span></button>}
         </div>
       </nav>

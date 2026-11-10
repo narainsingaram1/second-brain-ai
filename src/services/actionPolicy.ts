@@ -6,7 +6,7 @@ import type { Mutation } from "./brainTools";
  */
 export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible";
 
-const READ = new Set(["query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
+const READ = new Set(["health_summary", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
   "list_calendar_events", "search_email", "read_email", "read_url", "web_search"]);
 /** Actions outside Synapse that can be undone there (a draft is not sent; an event without guests notifies no one). */
 const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_event"]);
@@ -16,7 +16,8 @@ const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete
   "set_course_grading", "record_grade", "create_flashcard_deck", "create_quiz", "delete_tracker_item", "log_practice",
   "create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section", "rename_subsection", "delete_subsection",
   "delete_goal", "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
-  "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz"]);
+  "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz",
+  "log_health_day", "update_health_day", "delete_health_day", "update_health_profile"]);
 /** Every tool that changes the user's own data, for the coverage check. */
 export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
 
@@ -72,8 +73,8 @@ const show = (value: unknown) => {
   const text = typeof value === "string" ? value : JSON.stringify(value);
   return text.length > 80 ? `${text.slice(0, 77)}…` : text;
 };
-const recordName = (m: Mutation) => ("name" in m.record ? m.record.name : (m.record as { title?: string }).title) || "Untitled";
-const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
+const recordName = (m: Mutation) => ("name" in m.record ? m.record.name : (m.record as { title?: string }).title) || (m.record as { date?: string }).date || "Untitled";
+const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", health: "health day", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
   workspace: "workspace", folder: "note folder", section: "section" };
 const SECTION_SUMMARIES: Record<string, (before: string, after: string) => string> = {
   create_section: (_, a) => `Add section "${a}"`, rename_section: (b, a) => `Rename section "${b}" to "${a}"`, delete_section: b => `Delete section "${b}"`,
@@ -99,7 +100,7 @@ export function describeMutation(tool: string, m: Mutation): { summary: string; 
   const details = Object.keys({ ...before, ...after })
     .filter(key => key !== "updatedAt" && key !== "createdAt" && JSON.stringify(before[key]) !== JSON.stringify(after[key]))
     .map(key => `${LABELS[key] || key}: ${show(before[key])} → ${show(after[key])}`);
-  const verb = tool === "record_grade" ? "Record a grade in" : tool === "set_course_grading" ? "Change grading for" : "Update";
+  const verb = tool === "record_grade" ? "Record a grade in" : tool === "set_course_grading" ? "Change grading for" : tool === "update_health_profile" ? "Change health targets in" : "Update";
   return { summary: `${verb} ${noun} "${recordName({ ...m, record: m.expected } as Mutation)}"`, details };
 }
 

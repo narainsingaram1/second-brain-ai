@@ -25,6 +25,7 @@ const COVERAGE = {
   events: { create: 'create_event', update: 'update_event', delete: 'delete_event' },
   trackerItems: { create: 'create_tracker_item', update: 'update_tracker_item', delete: 'delete_tracker_item' },
   workspaces: { create: 'create_workspace', update: 'update_workspace', delete: 'delete_workspace' },
+  healthDays: { create: 'log_health_day', update: 'update_health_day', delete: 'delete_health_day' },
   noteFolders: { create: 'create_note_folder', update: 'update_note_folder', delete: 'delete_note_folder' },
   sections: { create: 'create_section', update: 'rename_section', delete: 'delete_section' },
   subsections: { create: 'create_section', update: 'rename_subsection', delete: 'delete_subsection' },

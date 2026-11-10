@@ -4,7 +4,7 @@ import { ActivityTracker, describeCall, describeResult, pastTense } from "./agen
 import { BrainState, Task } from "../types";
 import { describeImages, getVisionModel, modelSupportsImages, OpenRouterContentPart, OpenRouterMessage, queryOpenRouterWithTools, type OpenRouterTool } from "./openrouter";
 import { PreparedImage, sessionImage } from "../utils/imageInput";
-import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, parseToolArguments } from "./brainTools";
+import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, READ_TOOLS, parseToolArguments, recordTitle } from "./brainTools";
 import { Source, type RetrievalContext } from "./brainRetrieval";
 import { approvalReason, describeExternal, describeMutation, readsUntrustedContent, toolTier } from "./actionPolicy";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -535,7 +535,7 @@ export class AutonomousBrainAgent {
                 actions.push(mutation);
                 output = { saved: true, action: mutation.action, type: mutation.type, record: mutation.record };
                 completedWrites.set(fingerprint, output);
-                if (!mutation.remove && !["workspace", "folder", "section"].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, { id: mutation.record.id, type: mutation.type, title: "name" in mutation.record ? mutation.record.name : mutation.record.title || "Note", snippet: "Saved during this conversation" });
+                if (!mutation.remove && !["workspace", "folder", "section"].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, { id: mutation.record.id, type: mutation.type, title: recordTitle(mutation.record, "Note"), snippet: "Saved during this conversation" });
               }
             }
           } catch (err) {

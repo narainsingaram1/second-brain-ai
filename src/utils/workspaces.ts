@@ -7,6 +7,7 @@ import type {
 } from "../types";
 import { getLocalDateString } from "./habitStreaks";
 import { removeWorkspaceCourses } from "./study";
+import { normalizeHealthProfile } from "./health";
 
 export const CAREER_WORKSPACE_ID = "workspace-career";
 export const WORKSPACE_COLORS: WorkspaceColor[] = [
@@ -65,8 +66,8 @@ export function normalizeWorkspaces(value: unknown): Workspace[] {
         description:
           typeof item.description === "string" ? item.description : "",
         template:
-          item.template === "career" || item.template === "academic"
-            ? (item.template as "career" | "academic")
+          item.template === "career" || item.template === "academic" || item.template === "health"
+            ? (item.template as "career" | "academic" | "health")
             : ("blank" as const),
         color: WORKSPACE_COLORS.includes(item.color)
           ? (item.color as WorkspaceColor)
@@ -76,6 +77,9 @@ export function normalizeWorkspaces(value: unknown): Workspace[] {
           typeof item.createdAt === "string"
             ? item.createdAt
             : new Date().toISOString(),
+        ...(item.template === "health" && normalizeHealthProfile(item.health)
+          ? { health: normalizeHealthProfile(item.health) }
+          : {}),
       },
     ];
   });

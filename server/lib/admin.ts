@@ -25,6 +25,11 @@ export interface AdminStore {
   countNotifications(userId: string, sinceIso: string): Promise<number>;
   pruneNotifications(beforeIso: string): Promise<void>;
   session(userId: string): Promise<UserSession>;
+  /** The account a phone sync token belongs to, or null. */
+  healthAccount(tokenHash: string): Promise<string | null>;
+  /** Stored health days with their revisions, for merging a sync into them. */
+  healthDays(userId: string, ids: string[]): Promise<Array<{ id: string; data: Record<string, unknown>; revision: number }>>;
+  markHealthSync(userId: string, days: number, source: string): Promise<void>;
 }
 
 const LINK_COLUMNS = "user_id,chat_id,time_zone,brief_enabled,brief_hour,alerts_enabled";
@@ -85,6 +90,21 @@ export function supabaseAdminStore(url: string, anonKey: string, serviceKey: str
     },
     async pruneNotifications(beforeIso) {
       check(await admin.from("telegram_notifications").delete().lt("sent_at", beforeIso), "prune notifications");
+    },
+    async healthAccount(tokenHash) {
+      const { data } = check(await admin.from("health_sync_tokens").select("user_id").eq("token_hash", tokenHash).maybeSingle(), "check the sync token");
+      return (data?.user_id as string | undefined) ?? null;
+    },
+    async healthDays(userId, ids) {
+      const rows: Array<{ id: string; data: Record<string, unknown>; revision: number }> = [];
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data } = check(await admin.from("brain_records").select("id,data,revision").eq("user_id", userId).eq("collection", "healthDays").eq("deleted", false).in("id", ids.slice(i, i + 100)), "read health days");
+        rows.push(...(data || []).map(r => ({ id: r.id as string, data: r.data as Record<string, unknown>, revision: Number(r.revision) })));
+      }
+      return rows;
+    },
+    async markHealthSync(userId, days, source) {
+      check(await admin.from("health_sync_tokens").update({ last_sync_at: new Date().toISOString(), last_sync_days: days, last_sync_source: source.slice(0, 80) }).eq("user_id", userId), "record the sync");
     },
     async session(userId) {
       const found = await admin.auth.admin.getUserById(userId);

@@ -81,6 +81,12 @@ export function pgStore(db, userId, PreferencesConflict, HttpError) {
     async beginTelegramLink(hash, zone) { await db.query('select public.begin_telegram_link($1, $2)', [hash, zone]); },
     async setTelegramPrefs(p) { await db.query('select public.set_telegram_prefs($1, $2, $3, $4)', [p.timeZone ?? null, p.briefEnabled ?? null, p.briefHour ?? null, p.alertsEnabled ?? null]); },
     async deleteTelegramLink() { await db.query('delete from public.telegram_links'); },
+    async getHealthSync() {
+      const r = await one('select hint, created_at, last_sync_at, last_sync_days, last_sync_source from public.health_sync_tokens');
+      return r ? { hint: r.hint, createdAt: String(r.created_at), lastSyncAt: r.last_sync_at && String(r.last_sync_at), lastSyncDays: r.last_sync_days, lastSyncSource: r.last_sync_source } : null;
+    },
+    async setHealthSyncToken(hash, hint) { await db.query('select public.set_health_sync_token($1, $2)', [hash, hint]); },
+    async deleteHealthSync() { await db.query('delete from public.health_sync_tokens'); },
     async documentTexts(ids) { return new Map((await db.query('select id, content from public.study_documents where id = any($1)', [ids])).rows.map(r => [r.id, r.content])); },
   };
 }

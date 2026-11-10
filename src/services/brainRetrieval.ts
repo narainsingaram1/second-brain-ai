@@ -1,4 +1,5 @@
 import { BrainState, TrackerItem } from "../types";
+import { healthMetric } from "../utils/health";
 import { eventTimeLabel, formatTime } from "../utils/events";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { bestScore, courseLabel, courseTasks, dueCards, studyOf } from "../utils/study";
@@ -6,7 +7,7 @@ import { gradingForAssistant } from "../utils/grades";
 import { cachedDocumentText } from "./studyDocuments";
 import { providerFetch } from "./providerTransport";
 
-export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz";
+export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health";
 
 function trackerDate(item: TrackerItem): string | undefined {
   if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
@@ -68,6 +69,12 @@ export function recordProse(type: RecordType, d: any): string {
     case "quiz": return lines(`Practice quiz: ${d.title} (${d.course})`,
       `${d.questionCount} questions; ${d.attemptCount ? `taken ${d.attemptCount} times, best ${d.bestScore}%, last ${d.lastScore}` : "not taken yet"}`,
       ...(Array.isArray(d.questions) ? d.questions.map((q: any, i: number) => `${i + 1}. ${q.prompt}${q.choices ? ` [${q.choices.join(" | ")}]` : ""} Answer: ${q.answer}`) : []));
+    case "health": {
+      const metrics = Object.entries(d.metrics || {}).map(([k, v]) => { const m = healthMetric(k); return m ? `${m.label}: ${v} ${m.unit}` : ""; }).filter(Boolean);
+      return lines(`Health on ${d.date}`, ...metrics, d.sleepStart && d.sleepEnd && `Slept ${d.sleepStart.slice(11)} to ${d.sleepEnd.slice(11)}`,
+        Array.isArray(d.workouts) && d.workouts.length > 0 && `Workouts: ${d.workouts.map((w: any) => `${w.type} ${w.minutes} min${w.avgHr ? ` avg ${w.avgHr} bpm` : ""}`).join("; ")}`,
+        list(d.tags) && `Tags: ${list(d.tags)}`, d.note && `Note: ${d.note}`);
+    }
     case "tracker": {
       const fields = Object.entries(d.fields || {}).filter(([, v]) => (typeof v === "string" && v.trim() && !/^https?:/i.test(v)) || typeof v === "number")
         .map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
@@ -121,6 +128,7 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
     ...state.journalEntries.map(data => ({ type: "journal" as const, title: data.title, date: data.date, data, source: data as unknown })),
     ...state.knowledgeItems.map(data => ({ type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data, source: data as unknown })),
     ...(state.events || []).map(data => ({ type: "event" as const, title: data.title, date: data.date, data, source: data as unknown })),
+    ...(state.healthDays || []).map(data => ({ type: "health" as const, title: `Health ${data.date}`, date: data.date, data, source: data as unknown })),
     ...(state.trackerItems || []).map(data => ({
       type: "tracker" as const,
       title: data.title,

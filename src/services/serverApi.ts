@@ -138,3 +138,13 @@ export function googleEvents(from: string, to: string, refresh = false): Promise
   return pending;
 }
 export const clearGoogleEventCache = () => eventCache.clear();
+
+export interface HealthSyncStatus {
+  available: boolean; endpoint: string; connected: boolean; hint?: string; createdAt?: string;
+  lastSyncAt?: string | null; lastSyncDays?: number | null; lastSyncSource?: string | null;
+  /** Only in the response that created it; never retrievable again. */
+  token?: string;
+}
+export const healthSyncStatus = () => apiJson<HealthSyncStatus>("/api/healthsync");
+export const createHealthSyncToken = () => apiJson<HealthSyncStatus>("/api/healthsync", { method: "POST", body: "{}" });
+export const revokeHealthSync = () => apiJson<HealthSyncStatus>("/api/healthsync", { method: "DELETE" });

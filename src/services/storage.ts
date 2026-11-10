@@ -1,4 +1,5 @@
 import { normalizeAgentMemory } from "./agentMemory";
+import { normalizeHealthDays } from "../utils/health";
 import { normalizeTaskAppearance } from "../utils/taskAppearance";
 import { normalizeWorkspaces, normalizeTrackerItems } from "../utils/workspaces";
 import { normalizeEvents } from "../utils/events";
@@ -708,6 +709,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     knowledgeItems,
     trackerItems: normalizeTrackerItems(storedState.trackerItems),
     events: normalizeEvents(storedState.events),
+    healthDays: normalizeHealthDays(storedState.healthDays),
     workspaces: normalizeWorkspaces(storedState.workspaces),
     study: normalizeStudy(storedState.study),
     noteFolders,

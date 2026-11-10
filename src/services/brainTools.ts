@@ -2,6 +2,8 @@ import { MEMORY_TOOLS, readMemories } from "./memoryTools";
 import { conversationThreads, searchConversations } from "./agentMemory";
 import { OpenRouterTool } from "./openrouter";
 import { readTrackerFields, trackerFieldProperties, TRACKER_FIELD_KEYS } from "../utils/trackerFields";
+import { cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, isHealthDate, normalizeHealthDay, normalizeHealthProfile } from "../utils/health";
+import { healthSummaryForAssistant } from "../utils/healthMetrics";
 const s_ = { type: "string" };
 const d_ = (description: string) => ({ type: "string", description });
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[]): OpenRouterTool =>
@@ -144,9 +146,31 @@ const STUDY_TOOLS: OpenRouterTool[] = [
   }, ["courseId", "title", "questions"]),
 ];
 const COLORS = ["purple", "blue", "green", "amber", "rose"];
+const healthMetricProps = () => Object.fromEntries(HEALTH_METRICS.map(m => [m.key, { type: "number", minimum: m.min, maximum: m.max, description: `${m.description} (${m.unit})` }]));
+const localStamp = d_("Local time 'YYYY-MM-DD HH:mm'.");
+const HEALTH_TOOLS: OpenRouterTool[] = [
+  fn("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (sleep, steps, weight, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Apple Watch data comes from Apple Health exports the user imports in the Health workspace; use this for what the user reports.", {
+    date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."), ...healthMetricProps(), sleepStart: localStamp, sleepEnd: localStamp,
+    tags: { type: "array", items: s_, maxItems: 10, description: "Short lowercase tags to add." }, note: d_("Text added to the day's note."),
+  }, ["date"]),
+  fn("update_health_day", "Correct a health day: change or clear metrics, add or remove tags, rewrite its note.", {
+    date: d_("YYYY-MM-DD of an existing health day."), ...healthMetricProps(), sleepStart: localStamp, sleepEnd: localStamp,
+    clearMetrics: { type: "array", items: { type: "string", enum: HEALTH_METRICS.map(m => m.key) }, description: "Metrics to remove (bad readings)." },
+    addTags: { type: "array", items: s_, maxItems: 10 }, removeTags: { type: "array", items: s_, maxItems: 20 },
+    replaceNote: d_("New full note; empty string clears it."),
+  }, ["date"]),
+  fn("delete_health_day", "Delete everything stored for one health day. Only when the user explicitly asks.", { date: d_("YYYY-MM-DD.") }, ["date"]),
+  fn("update_health_profile", "Change the personal targets health metrics are measured against: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting).", {
+    workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
+    sleepGoalHours: { type: "number", minimum: 4, maximum: 12 }, stepGoal: { type: "integer", minimum: 1000, maximum: 50000 },
+    maxHr: { type: "integer", minimum: 120, maximum: 230 }, birthYear: { type: "integer", minimum: 1900, maximum: 2030 }, sex: { type: "string", enum: ["female", "male"] },
+    clear: { type: "array", items: { type: "string", enum: ["sleepGoalHours", "stepGoal", "maxHr", "birthYear", "sex"] }, description: "Targets to reset to the default." },
+  }, []),
+];
 const MANAGE_TOOLS: OpenRouterTool[] = [
-  fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes) or blank (a page of notes).", {
-    name: s_, template: { type: "string", enum: ["career", "academic", "blank"] }, description: s_, color: { type: "string", enum: COLORS },
+  ...HEALTH_TOOLS,
+  fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
+    name: s_, template: { type: "string", enum: ["career", "academic", "health", "blank"] }, description: s_, color: { type: "string", enum: COLORS },
   }, ["name", "template"]),
   fn("update_workspace", "Rename a workspace or change its description, color or notes.", {
     workspaceId: s_, newName: s_, description: s_, color: { type: "string", enum: COLORS },
@@ -432,7 +456,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
     ];
 
 
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder } from "../types";
+import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder } from "../types";
 import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
 import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
 import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
@@ -441,7 +465,7 @@ import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, logSolve, PROBLEM_STAGES, removeWorkspace, safeTrackerUrl, WORKSPACE_COLORS } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source, type RetrievalContext } from "./brainRetrieval";
 
-const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz"];
+const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -450,7 +474,10 @@ function tool(name: string, description: string, properties: Record<string, unkn
   return { type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false } } };
 }
 export const READ_TOOLS = [
-  tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt).", {
+  tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", {
+    date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
+  }),
+  tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
     type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold", "applied", "screening", "onsite", "offer", "rejected", "done", "review"] },
     section: { type: "string", description: "Task section, goal sector, or course code/name for course, document, deck and quiz records." }, text: str,
     offset: cursorSchema, countOnly: { type: "boolean" },
@@ -524,8 +551,16 @@ function validDate(value: string): void {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || new Date(`${value}T12:00:00Z`).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
 }
 /** A task section as one record: its name and subsections. Its ID is its name before the change. */
+/** A record's display name for activity logs and chat summaries. */
+export function recordTitle(record: object, fallback: string): string {
+  const r = record as { name?: unknown; title?: unknown; date?: unknown; id?: unknown };
+  if (typeof r.name === "string" && r.name) return r.name;
+  if (typeof r.title === "string" && r.title) return r.title;
+  if (typeof r.id === "string" && r.id.startsWith("health-")) return `Health ${String(r.date)}`;
+  return fallback;
+}
 export interface SectionRecord { id: string; name: string; subsections: string[] }
-type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | SectionRecord;
+type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | SectionRecord;
 /** Everything the assistant can change: searchable records plus workspaces, note folders and task sections. */
 export type MutationType = RecordType | "workspace" | "folder" | "section";
 export interface Mutation {
@@ -537,7 +572,7 @@ export interface Mutation {
   /** Removes the record instead of inserting or replacing it. */
   remove?: boolean;
 }
-export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events" } as const;
+export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays" } as const;
 const STUDY_COLLECTIONS = { course: "courses", document: "documents", deck: "decks", quiz: "quizzes" } as const;
 export const ACADEMIC_WORKSPACE_ID = "workspace-academic";
 /** The live records a mutation of this type targets, wherever they are stored. */
@@ -663,6 +698,11 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
 export async function executeRead(name: string, args: any, state: BrainState, key: string, signal?: AbortSignal, progress?: (s: string) => void, ctx?: RetrievalContext): Promise<{ output: unknown; sources: Source[] }> {
   if (name === "search_memories") return { output: await readMemories(state,args,key,signal), sources: [] };
   if (name === "search_conversations") return { output: searchConversations(state,args.query,args.offset || 0), sources: [] };
+  if (name === "health_summary") {
+    if (args.date !== undefined) validDate(args.date);
+    const profile = (state.workspaces || []).find(w => w.template === "health")?.health;
+    return { output: healthSummaryForAssistant(state.healthDays || [], profile, args.date || getLocalDateString()), sources: [] };
+  }
   const all = name === "recall_conversation" || name === "search_records" ? [] : records(state, args.type, ctx);
   const offset = args.offset || 0;
   if (name === "recall_conversation") {
@@ -1018,7 +1058,7 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const workspaceName = groupName(args.name, "Workspace").slice(0, 80);
       if ((state.workspaces || []).some(w => sameName(w.name, workspaceName))) throw new Error("A workspace with this name already exists.");
       return { type: "workspace", action: name, record: { id, name: workspaceName, description: args.description?.trim() || "", template: args.template,
-        color: args.color || (args.template === "academic" ? "blue" : "purple"), notes: "", createdAt: new Date().toISOString() } };
+        color: args.color || (args.template === "academic" ? "blue" : args.template === "health" ? "rose" : "purple"), notes: "", createdAt: new Date().toISOString() } };
     }
     case "update_workspace": {
       const w = findIn(state.workspaces, args.workspaceId, "Workspace");
@@ -1156,6 +1196,53 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
         sourceDocIds: [...new Set([...quiz.sourceDocIds, ...added.map(q => q.sourceDocId).filter((x): x is string => !!x)])] } };
     }
     case "delete_quiz": { const q = findIn(studyOf(state).quizzes, args.quizId, "Quiz"); return { type: "quiz", action: name, expected: q, record: q, remove: true }; }
+    case "log_health_day": case "update_health_day": {
+      if (!isHealthDate(args.date)) throw new Error("date must be YYYY-MM-DD.");
+      const existing = (state.healthDays || []).find(d => d.date === args.date);
+      if (name === "update_health_day" && !existing) throw new Error("No health data for that date. Use log_health_day to add it.");
+      const day: HealthDay = existing ? { ...existing, metrics: { ...existing.metrics } } : { id: healthDayId(args.date), date: args.date, metrics: {}, source: "manual", updatedAt: "" };
+      let touched = false;
+      for (const m of HEALTH_METRICS) {
+        if (args[m.key] === undefined) continue;
+        const v = cleanMetric(m.key, args[m.key]);
+        if (v === undefined) throw new Error(`${m.label} must be between ${m.min} and ${m.max} ${m.unit}.`);
+        day.metrics[m.key] = v; touched = true;
+      }
+      for (const key of args.clearMetrics || []) { if (key in day.metrics) { delete day.metrics[key]; touched = true; } }
+      for (const key of ["sleepStart", "sleepEnd"] as const) {
+        if (args[key] === undefined) continue;
+        if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(args[key])) throw new Error(`${key} must be 'YYYY-MM-DD HH:mm'.`);
+        day[key] = args[key]; touched = true;
+      }
+      const remove = new Set(cleanTags(args.removeTags || []));
+      const tags = cleanTags([...(day.tags || []).filter(t => !remove.has(t)), ...(args.tags || []), ...(args.addTags || [])]);
+      if (JSON.stringify(tags) !== JSON.stringify(day.tags || [])) { day.tags = tags; touched = true; }
+      if (typeof args.note === "string" && args.note.trim()) { day.note = [day.note, args.note.trim()].filter(Boolean).join("\n"); touched = true; }
+      if (typeof args.replaceNote === "string") { day.note = args.replaceNote.trim(); touched = true; }
+      if (!touched) throw new Error("Give at least one metric, sleep time, tag or note to record.");
+      day.updatedAt = new Date().toISOString();
+      const record = normalizeHealthDay(day)!;
+      return { type: "health", action: name, record, ...(existing ? { expected: existing } : {}) };
+    }
+    case "delete_health_day": {
+      if (!isHealthDate(args.date)) throw new Error("date must be YYYY-MM-DD.");
+      const d = (state.healthDays || []).find(x => x.date === args.date);
+      if (!d) throw new Error("No health data for that date.");
+      return { type: "health", action: name, expected: d, record: d, remove: true };
+    }
+    case "update_health_profile": {
+      const health = (state.workspaces || []).filter(w => w.template === "health");
+      const w = args.workspaceId ? findIn(health, args.workspaceId, "Health workspace") : health[0];
+      if (!w) throw new Error("There is no Health workspace yet. Create one with create_workspace (template health) first.");
+      const next: HealthProfile = { ...(w.health || {}) };
+      if (args.sleepGoalHours !== undefined) next.sleepGoalMin = Math.round(args.sleepGoalHours * 60);
+      for (const key of ["stepGoal", "maxHr", "birthYear", "sex"] as const) if (args[key] !== undefined) (next as Record<string, unknown>)[key] = args[key];
+      for (const key of args.clear || []) delete (next as Record<string, unknown>)[key === "sleepGoalHours" ? "sleepGoalMin" : key];
+      const clean = normalizeHealthProfile(next);
+      if (JSON.stringify(clean || {}) === JSON.stringify(w.health || {})) throw new Error("Nothing to change: give a new target or one to clear.");
+      const { health: _old, ...rest } = w;
+      return { type: "workspace", action: name, expected: w, record: clean ? { ...rest, health: clean } : rest };
+    }
     default: throw new Error(`Unknown mutation ${name}`);
   }
 }

@@ -5,7 +5,7 @@ import type { BrainState, StudyState } from "../types";
  * server agent, so both read and write records the same way. Pure: no I/O.
  */
 export const RECORD_COLLECTIONS = [
-  "tasks", "goals", "habits", "journalEntries", "knowledgeItems", "events", "trackerItems", "workspaces",
+  "tasks", "goals", "habits", "journalEntries", "knowledgeItems", "events", "trackerItems", "workspaces", "healthDays",
   "noteFolders", "conversations", "study.courses", "study.folders", "study.documents", "study.decks", "study.quizzes", "memory",
 ] as const;
 export type RecordCollection = typeof RECORD_COLLECTIONS[number];

@@ -13,6 +13,7 @@ export interface SealedRow { ciphertext: string; iv: string; keyVersion: number;
 export interface ConnectionRow { provider: "google"; accountEmail: string; scopes: string[]; status: "active" | "needs_reconnect"; connectedAt: string; lastUsedAt: string | null; lastError: string | null }
 export interface TelegramLinkRow { linked: boolean; username: string | null; timeZone: string; briefEnabled: boolean; briefHour: number; alertsEnabled: boolean }
 export interface TelegramPrefs { timeZone?: string; briefEnabled?: boolean; briefHour?: number; alertsEnabled?: boolean }
+export interface HealthSyncRow { hint: string; createdAt: string; lastSyncAt: string | null; lastSyncDays: number | null; lastSyncSource: string | null }
 export interface AuditInput { actor: "user" | "assistant" | "system"; action: string; entityType?: string; entityId?: string; title?: string; actionId?: string; metadata?: Record<string, unknown> }
 
 /** Everything the server reads or writes for one signed-in user. Supabase in production, memory in tests. */
@@ -42,6 +43,10 @@ export interface ServerStore {
   beginTelegramLink(codeHash: string, timeZone: string): Promise<void>;
   setTelegramPrefs(prefs: TelegramPrefs): Promise<void>;
   deleteTelegramLink(): Promise<void>;
+  getHealthSync(): Promise<HealthSyncRow | null>;
+  /** Replaces the account's phone sync token (only its hash is stored). */
+  setHealthSyncToken(tokenHash: string, hint: string): Promise<void>;
+  deleteHealthSync(): Promise<void>;
 }
 
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
@@ -153,6 +158,19 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
     async deleteTelegramLink() {
       const { error } = await client.from("telegram_links").delete().eq("user_id", userId);
       if (error) rpcError(error, "Could not disconnect Telegram.");
+    },
+    async getHealthSync() {
+      const { data, error } = await client.from("health_sync_tokens").select("hint,created_at,last_sync_at,last_sync_days,last_sync_source").eq("user_id", userId).maybeSingle();
+      if (error) rpcError(error, "Could not read your health sync settings.");
+      return data ? { hint: data.hint, createdAt: data.created_at, lastSyncAt: data.last_sync_at, lastSyncDays: data.last_sync_days, lastSyncSource: data.last_sync_source } : null;
+    },
+    async setHealthSyncToken(tokenHash, hint) {
+      const { error } = await client.rpc("set_health_sync_token", { p_token_hash: tokenHash, p_hint: hint });
+      if (error) rpcError(error, "Could not create a sync token.");
+    },
+    async deleteHealthSync() {
+      const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
+      if (error) rpcError(error, "Could not turn off health sync.");
     },
     async documentTexts(ids) {
       const texts = new Map<string, string>();
