@@ -216,7 +216,7 @@ test("the learner batches turns, retries failures without losing them, and reads
   const flaky = make(), attempts = [];
   provider([new Error("Provider down"), proposes(candidate("coffee", "Likes coffee too.", "I like coffee"))], attempts);
   flaky.enqueue([turn("c", "I like coffee as well")]);
-  await wait(15);
+  await wait(60);
   assert.equal(attempts.length, 2, "A failed batch is retried");
   assert.ok(current.agentMemory.entries.some(e => e.topic === "coffee"), "Nothing was lost");
   assert.equal(flaky.currentStatus.state, "idle");

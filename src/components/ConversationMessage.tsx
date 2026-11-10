@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ApprovalCard } from "./ApprovalCard";
+import { ActionPreviewCard } from "./ActionPreviewCard";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -121,6 +122,13 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
         <Check size={13} aria-hidden="true" />{item.link ? <a href={item.link} target="_blank" rel="noreferrer">{item.summary}<ArrowUpRight size={12} aria-hidden="true" /></a> : item.summary}
       </li>)}</ul> : null}
       {!streaming && message.approvals?.map(approval => <ApprovalCard key={approval.id} approval={approval} onDecide={onDecide ? decision => onDecide(approval.id, decision) : undefined} />)}
+      {!streaming && message.actions?.length ? (
+        <ActionPreviewCard
+          actions={message.actions}
+          state={state}
+          onOpenRecord={(type, id, title) => setSelected({ type, id, title })}
+        />
+      ) : null}
       {!streaming && <SourceReferences sources={message.sources} state={state} onSelect={setSelected} />}
       {!streaming && (followUps?.items.length || followUps?.loading) ? (
         <div className="chat-follow-ups-section">
