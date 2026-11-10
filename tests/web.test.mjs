@@ -38,6 +38,35 @@ test('pages become readable text: title, main content, no scripts or navigation'
   assert.doesNotMatch(page.text, /steal|Home \| About|© 2026/);
 });
 
+test('JavaScript-rendered pages are read from the data they embed (job boards like Ashby and Workday)', async () => {
+  const posting = { '@context': 'https://schema.org/', '@type': 'JobPosting', title: 'Applied AI Engineer Intern',
+    description: `<h2>About us</h2><p>${'We build things. '.repeat(20)}</p><ul><li>Python</li></ul>`, datePosted: '2026-11-06',
+    hiringOrganization: { '@type': 'Organization', name: 'Parspec', logo: 'https://x/logo.png' },
+    jobLocation: { '@type': 'Place', address: { '@type': 'PostalAddress', addressLocality: 'San Mateo', addressRegion: 'California' } } };
+  const spa = `<html><head><title>Applied AI Engineer Intern @ Parspec</title><script type="application/ld+json">${JSON.stringify(posting)}</script>
+    <script type="application/ld+json">{"@type":"BreadcrumbList","itemListElement":[]}</script></head>
+    <body><noscript></noscript><div id="root"><div class="spinner"></div></div><script src="/app.js"></script></body></html>`;
+  const page = web.htmlToText(spa);
+  assert.match(page.text, /Title: Applied AI Engineer Intern/);
+  assert.match(page.text, /Hiring Organization: Parspec/);
+  assert.match(page.text, /Job Location: San Mateo, California/);
+  assert.match(page.text, /## About us/);
+  assert.match(page.text, /- Python/);
+  assert.doesNotMatch(page.text, /logo\.png|BreadcrumbList/);
+
+  const next = web.htmlToText(`<title>Post</title><div id="__next"></div><script id="__NEXT_DATA__" type="application/json">${JSON.stringify({ props: { pageProps: { post: { body: '<p>' + 'Embedded article body text. '.repeat(10) + '</p>', slug: 'a' } } } })}</script>`);
+  assert.match(next.text, /Embedded article body text/);
+  assert.doesNotMatch(next.text, /slug/);
+
+  let headers;
+  const a = access({ 'https://jobs.example.com/x': () => html('<title>Only a title</title><div id="root"></div>') }, {});
+  const real = a.fetch;
+  a.fetch = async (url, init) => { headers = init.headers; return real(url, init); };
+  const titled = await web.readUrl('https://jobs.example.com/x', 0, a, signal());
+  assert.equal(titled.text, 'Only a title', 'an empty JS shell still returns what the page says it is');
+  assert.doesNotMatch(headers.Accept, /json/, 'listing JSON makes some sites (Workday) answer with a JSON stub');
+});
+
 test('read_url returns long pages in chunks, marked untrusted', async () => {
   const long = 'word '.repeat(5000);
   const a = access({ 'https://example.com/post': () => html(`<title>Post</title><p>${long}</p><p>THE END</p>`) });

@@ -108,8 +108,69 @@ function decodeEntities(text) {
 		return ENTITIES[code.toLowerCase()] ?? whole;
 	});
 }
+const LD_SKIP = /^(@context|@id|logo|image|thumbnailUrl|sameAs|potentialAction|breadcrumb|mainEntityOfPage|isPartOf|inLanguage|identifier|url|directApply)$/i;
+const LD_NOISE = /^(BreadcrumbList|WebSite|WebPage|SearchAction|SiteNavigationElement|ImageObject|Organization)$/i;
+const label = (key) => key === "@type" ? "Type" : key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, (c) => c.toUpperCase());
+const fieldText = (value) => /<[a-z][^>]*>/i.test(value) ? htmlToText(value, false).text : decodeEntities(value).replace(/\s+/g, " ").trim();
+/** Schema.org data as readable lines: labelled fields at the top, nested values (places, salaries, employers) compacted. */
+function ldToText(value, depth = 0) {
+	if (value == null || depth > 5) return "";
+	if (typeof value === "string") return fieldText(value);
+	if (typeof value === "number" || typeof value === "boolean") return String(value);
+	if (Array.isArray(value)) return value.map((v) => ldToText(v, depth + 1)).filter(Boolean).join(depth ? ", " : "\n\n");
+	if (typeof value !== "object") return "";
+	const entries = Object.entries(value).filter(([k]) => !LD_SKIP.test(k));
+	if (depth) {
+		const name = value.name;
+		if (typeof name === "string" && name.trim()) return fieldText(name);
+		return entries.filter(([k]) => k !== "@type").map(([, v]) => ldToText(v, depth + 1)).filter(Boolean).join(", ");
+	}
+	return entries.map(([k, v]) => {
+		const t = ldToText(v, depth + 1);
+		return !t ? "" : t.includes("\n") ? `${label(k)}:\n${t}` : `${label(k)}: ${t}`;
+	}).filter(Boolean).join("\n");
+}
+/** Long text values (descriptions, bodies) found anywhere in an app's embedded state, in order and without repeats. */
+function stateStrings(value, out, seen, depth = 0) {
+	if (depth > 40 || out.length > 200) return;
+	if (typeof value === "string") {
+		if ((/<(p|li|br|h[1-6]|div|ul|strong)\b/i.test(value) || value.length >= 80 && /\s/.test(value) && !/^(https?:|data:|\{|\[)/.test(value)) && !seen.has(value)) {
+			seen.add(value);
+			const text = fieldText(value);
+			if (text.length >= 40) out.push(text);
+		}
+	} else if (Array.isArray(value)) value.forEach((v) => stateStrings(v, out, seen, depth + 1));
+	else if (value && typeof value === "object") Object.values(value).forEach((v) => stateStrings(v, out, seen, depth + 1));
+}
+/**
+* Text that JavaScript-rendered pages (job boards, shops, many modern sites) carry in their HTML even when the
+* visible body is just a loading spinner: schema.org JSON-LD first, then framework state such as __NEXT_DATA__.
+*/
+function embeddedText(html) {
+	const objects = [];
+	for (const m of html.matchAll(/<script\b[^>]*type=["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script\s*>/gi)) try {
+		const data = JSON.parse(m[1].trim());
+		const flat = (v) => Array.isArray(v) ? v.flatMap(flat) : v && typeof v === "object" && Array.isArray(v["@graph"]) ? flat(v["@graph"]) : [v];
+		objects.push(...flat(data).filter((o) => o && typeof o === "object" && !LD_NOISE.test(String(o["@type"] ?? ""))));
+	} catch {}
+	const ld = objects.map((o) => ldToText(o)).filter(Boolean).join("\n\n");
+	if (ld.length >= 200) return ld;
+	const out = [];
+	const seen = /* @__PURE__ */ new Set();
+	const parse = (json) => {
+		try {
+			stateStrings(JSON.parse(json), out, seen);
+		} catch {}
+	};
+	for (const m of html.matchAll(/<script\b[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script\s*>/gi)) parse(m[1].trim());
+	for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
+		const assign = m[1].match(/^\s*(?:window\.|self\.|var |let |const )?[\w$.[\]"']+\s*=\s*(\{[\s\S]*\}|\[[\s\S]*\])\s*;?\s*$/);
+		if (assign) parse(assign[1]);
+	}
+	return [ld, out.join("\n\n")].filter(Boolean).join("\n\n").slice(0, 2e5);
+}
 /** Readable text from an HTML page: title, description, and the main content as plain text with light structure. */
-function htmlToText(html) {
+function htmlToText(html, withEmbedded = true) {
 	const meta = (name) => html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]*content=["']([^"']*)["']`, "i"))?.[1] || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:name|property)=["']${name}["']`, "i"))?.[1] || "";
 	const title = decodeEntities((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || meta("og:title")).replace(/\s+/g, " ").trim());
 	const description = decodeEntities((meta("description") || meta("og:description")).trim());
@@ -117,10 +178,19 @@ function htmlToText(html) {
 	const main = body.match(/<(article|main)\b[^>]*>([\s\S]*)<\/\1\s*>/i)?.[2];
 	if (main && main.replace(/<[^>]+>/g, "").trim().length > 400) body = main;
 	else body = body.replace(/<(nav|footer|aside)\b[\s\S]*?<\/\1\s*>/gi, " ");
+	const text = decodeEntities(body.replace(/<h([1-6])\b[^>]*>/gi, (_, n) => `\n\n${"#".repeat(Math.min(Number(n), 3))} `).replace(/<li\b[^>]*>/gi, "\n- ").replace(/<(br|hr)\b[^>]*>/gi, "\n").replace(/<\/(p|div|section|article|li|h[1-6]|tr|table|ul|ol|blockquote|pre|header|figure|dd|dt)\s*>/gi, "\n").replace(/<(td|th)\b[^>]*>/gi, " | ").replace(/<[^>]+>/g, "")).replace(/[ \t\f\v ]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+	if (withEmbedded && text.length < 500) {
+		const embedded = embeddedText(html);
+		if (embedded.length > text.length) return {
+			title,
+			description,
+			text: text ? `${text}\n\n${embedded}` : embedded
+		};
+	}
 	return {
 		title,
 		description,
-		text: decodeEntities(body.replace(/<h([1-6])\b[^>]*>/gi, (_, n) => `\n\n${"#".repeat(Math.min(Number(n), 3))} `).replace(/<li\b[^>]*>/gi, "\n- ").replace(/<(br|hr)\b[^>]*>/gi, "\n").replace(/<\/(p|div|section|article|li|h[1-6]|tr|table|ul|ol|blockquote|pre|header|figure|dd|dt)\s*>/gi, "\n").replace(/<(td|th)\b[^>]*>/gi, " | ").replace(/<[^>]+>/g, "")).replace(/[ \t\f\v ]+/g, " ").replace(/ *\n */g, "\n").replace(/\n{3,}/g, "\n\n").trim()
+		text
 	};
 }
 async function readCapped(response) {
@@ -168,8 +238,9 @@ async function readUrl(raw, offset, access, signal) {
 				signal: timeout,
 				redirect: access.manualRedirects ? "manual" : "follow",
 				headers: {
-					Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.8,*/*;q=0.5",
-					"User-Agent": "Mozilla/5.0 (compatible; SynapseAssistant/1.0; link preview)"
+					Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+					"Accept-Language": "en-US,en;q=0.9",
+					"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 SynapseAssistant/1.0"
 				}
 			});
 		} catch (error) {
@@ -193,6 +264,7 @@ async function readUrl(raw, offset, access, signal) {
 		description: "",
 		text: raw_.trim()
 	};
+	if (!page.text && (page.title || page.description)) page.text = [...new Set([page.title, page.description].filter(Boolean))].join("\n\n");
 	if (!page.text) throw new Error("The page has no readable text. It may load its content with JavaScript or need a sign-in.");
 	const start = Math.max(0, Math.min(offset || 0, page.text.length));
 	const text = page.text.slice(start, start + CHUNK);
