@@ -33,12 +33,14 @@ import { MessageImages } from "./ImageAttachments";
 import { AgentActivity, useSmoothText, wasStreaming } from "./AgentActivity";
 import { IrisCard } from "./IrisCard";
 import { IRIS_UI_FENCE, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
+import type { CardChange } from "../services/irisCards";
 
 /** How interactive cards in a reply reach the conversation. */
 export interface CardHandlers {
   busy: boolean;
   addTasks: (messageId: string, block: number, spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => Promise<void>;
   setState: (messageId: string, block: number, next: IrisCardState) => void;
+  change: (changes: CardChange[]) => Promise<void>;
 }
 
 function getFollowUpIcon(text: string, index: number): LucideIcon {
@@ -107,7 +109,8 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
         onReply: onFollowUp,
         onAddTasks: cards ? (spec, indexes) => cards.addTasks(message.id, block, spec, indexes) : undefined,
         onChange: cards ? next => cards.setState(message.id, block, next) : undefined,
-        onOpenTask: (id, title) => setSelected({ type: "task", id, title }),
+        onChangeRecords: cards?.change,
+        onOpenRecord: (type, id, title) => setSelected({ type, id, title }),
       }} />} renderReference={(type, id, before) => {
         const source = message.sources?.find(s => s.type === type && s.id === id) || { type, id, title: referenceTitle(type, id, message.sources, state) };
         const title = referenceTitle(type, id, message.sources, state);
@@ -124,7 +127,7 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
           <div className="chat-follow-ups-divider" />
           <div className="chat-follow-ups-header">
             <CheckSquare size={16} strokeWidth={1.8} />
-            <span>Next Steps / Questions you might have</span>
+            <span>Follow-Ups</span>
           </div>
           <div className="chat-follow-ups-list" role="group" aria-label="Next steps and questions you might have">
             {followUps?.loading ? (

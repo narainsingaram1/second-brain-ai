@@ -3570,6 +3570,10 @@ function describeCall(name, args) {
 			kind: "email",
 			label: "Drafting an email"
 		};
+		case "show_card": return {
+			kind: "records",
+			label: "Preparing a card"
+		};
 		case "send_email":
 		case "send_draft": return {
 			kind: "email",
@@ -4055,7 +4059,7 @@ function trackerDate(item) {
 	if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
 	if (typeof item.fields.lastPractice === "string") return item.fields.lastPractice;
 }
-const list$1 = (items) => Array.isArray(items) ? items.filter((x) => typeof x === "string" && x.trim()).join(", ") : "";
+const list$2 = (items) => Array.isArray(items) ? items.filter((x) => typeof x === "string" && x.trim()).join(", ") : "";
 const checklist = (items) => Array.isArray(items) ? items.map((x) => x && typeof x.title === "string" ? `[${x.completed ? "x" : " "}] ${x.title}` : "").filter(Boolean).join("; ") : "";
 /** Notes may be stored as HTML from the editor; index the readable text only. */
 function plain(text) {
@@ -4070,13 +4074,13 @@ const lines = (...parts) => parts.filter(Boolean).join("\n");
 */
 function recordProse(type, d) {
 	switch (type) {
-		case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
+		case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
 		case "goal": return lines(`Goal: ${d.title}`, `${d.sector} goal, ${d.timeframe}, ${d.status}, ${d.progress ?? 0}% done${d.targetDate ? `, target ${d.targetDate}` : ""}`, d.metrics && `Metric: ${d.metrics}`, d.why && `Why: ${d.why}`, d.description && `Details: ${d.description}`, checklist(d.milestones) && `Milestones: ${checklist(d.milestones)}`);
 		case "habit": return lines(`Habit: ${d.name}`, `${d.frequency}${d.timeOfDay ? `, ${d.timeOfDay}` : ""}, ${d.streak}-day streak (best ${d.bestStreak})`, d.description && `Details: ${d.description}`);
-		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$1(d.wins) && `Wins: ${list$1(d.wins)}`, list$1(d.challenges) && `Challenges: ${list$1(d.challenges)}`, plain(d.content), list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
-		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
-		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$1(d.attendees) && `With: ${list$1(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
-		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$1(d.documentNames) && `Materials: ${list$1(d.documentNames)}`, list$1(d.folderNames) && `Folders: ${list$1(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
+		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$2(d.wins) && `Wins: ${list$2(d.wins)}`, list$2(d.challenges) && `Challenges: ${list$2(d.challenges)}`, plain(d.content), list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
+		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
+		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$2(d.attendees) && `With: ${list$2(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
+		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$2(d.documentNames) && `Materials: ${list$2(d.documentNames)}`, list$2(d.folderNames) && `Folders: ${list$2(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
 		case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`, d.content || "[The extracted text of this document is not loaded on this device.]");
 		case "deck": return lines(`Flashcard deck: ${d.title} (${d.course})`, `${d.cardCount} cards, ${d.cardsDue} due for review today`, ...Array.isArray(d.cards) ? d.cards.map((c, i) => `${i + 1}. Q: ${c.front}\nA: ${c.back}`) : []);
 		case "quiz": return lines(`Practice quiz: ${d.title} (${d.course})`, `${d.questionCount} questions; ${d.attemptCount ? `taken ${d.attemptCount} times, best ${d.bestScore}%, last ${d.lastScore}` : "not taken yet"}`, ...Array.isArray(d.questions) ? d.questions.map((q, i) => `${i + 1}. ${q.prompt}${q.choices ? ` [${q.choices.join(" | ")}]` : ""} Answer: ${q.answer}`) : []);
@@ -4085,11 +4089,11 @@ function recordProse(type, d) {
 				const m = healthMetric(k);
 				return m ? `${m.label}: ${v} ${m.unit}` : "";
 			}).filter(Boolean);
-			return lines(`Health on ${d.date}`, ...metrics, d.sleepStart && d.sleepEnd && `Slept ${d.sleepStart.slice(11)} to ${d.sleepEnd.slice(11)}`, Array.isArray(d.workouts) && d.workouts.length > 0 && `Workouts: ${d.workouts.map((w) => `${w.type} ${w.minutes} min${w.avgHr ? ` avg ${w.avgHr} bpm` : ""}`).join("; ")}`, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.note && `Note: ${d.note}`);
+			return lines(`Health on ${d.date}`, ...metrics, d.sleepStart && d.sleepEnd && `Slept ${d.sleepStart.slice(11)} to ${d.sleepEnd.slice(11)}`, Array.isArray(d.workouts) && d.workouts.length > 0 && `Workouts: ${d.workouts.map((w) => `${w.type} ${w.minutes} min${w.avgHr ? ` avg ${w.avgHr} bpm` : ""}`).join("; ")}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.note && `Note: ${d.note}`);
 		}
 		case "tracker": {
 			const fields = Object.entries(d.fields || {}).filter(([, v]) => typeof v === "string" && v.trim() && !/^https?:/i.test(v) || typeof v === "number").map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
-			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$1(d.tags) && `Tags: ${list$1(d.tags)}`, d.notes && `Notes: ${d.notes}`);
+			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.notes && `Notes: ${d.notes}`);
 		}
 	}
 }
@@ -6544,7 +6548,7 @@ function validate(value, schema, path = "arguments") {
 		if (typeof value === "string" && (!value.trim() || value.length > 1e5)) throw new Error(`${path} must be nonempty and at most 100000 characters`);
 	}
 }
-function validDate(value) {
+function validDate$1(value) {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || (/* @__PURE__ */ new Date(`${value}T12:00:00Z`)).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
 }
 /** A task section as one record: its name and subsections. Its ID is its name before the change. */
@@ -6796,7 +6800,7 @@ async function executeRead(name, args, state, key, signal, progress, ctx) {
 		sources: []
 	};
 	if (name === "health_summary") {
-		if (args.date !== void 0) validDate(args.date);
+		if (args.date !== void 0) validDate$1(args.date);
 		const profile = (state.workspaces || []).find((w) => w.template === "health")?.health;
 		return {
 			output: healthSummaryForAssistant(state.healthDays || [], profile, args.date || getLocalDateString()),
@@ -6882,8 +6886,8 @@ async function executeRead(name, args, state, key, signal, progress, ctx) {
 			}]
 		};
 	}
-	if (args.dateFrom) validDate(args.dateFrom);
-	if (args.dateTo) validDate(args.dateTo);
+	if (args.dateFrom) validDate$1(args.dateFrom);
+	if (args.dateTo) validDate$1(args.dateTo);
 	if (args.dateFrom && args.dateTo && args.dateFrom > args.dateTo) throw new Error("dateFrom must be before dateTo");
 	const matches = all.filter((r) => r.type === args.type && (!args.dateFrom || !!r.date && r.date >= args.dateFrom) && (!args.dateTo || !!r.date && r.date <= args.dateTo) && (!args.section || r.data.section === args.section || r.data.sector === args.section || r.data.domain === args.section) && (!args.text || r.text.toLocaleLowerCase().includes(args.text.toLocaleLowerCase())) && (!args.status || (args.status === "pending" ? r.type === "task" ? r.data.status !== "completed" : r.data.status !== "achieved" : r.data.status === args.status))).sort((a, b) => (a.date || "9999").localeCompare(b.date || "9999") || String(a.data.startTime || a.data.dueTime || "24:00").localeCompare(String(b.data.startTime || b.data.dueTime || "24:00")) || a.id.localeCompare(b.id));
 	const page = args.countOnly ? [] : matches.slice(offset, offset + 40);
@@ -6984,7 +6988,7 @@ function prepareMutation(name, args, state) {
 		"dueDate",
 		"newDueDate",
 		"targetDate"
-	]) if (args[field]) validDate(args[field]);
+	]) if (args[field]) validDate$1(args[field]);
 	const id = crypto.randomUUID();
 	switch (name) {
 		case "create_task": {
@@ -7110,7 +7114,7 @@ function prepareMutation(name, args, state) {
 		case "create_event": {
 			const kind = args.kind || "event";
 			if (!EVENT_KINDS.some((k) => k.id === kind)) throw new Error("Unknown event kind.");
-			validDate(args.date);
+			validDate$1(args.date);
 			for (const field of ["startTime", "endTime"]) if (args[field] !== void 0 && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
 			if (args.endTime && !args.startTime) throw new Error("An end time needs a startTime.");
 			if (args.endTime && args.endTime <= args.startTime) throw new Error("endTime must be after startTime.");
@@ -7153,7 +7157,7 @@ function prepareMutation(name, args, state) {
 				"appendNotes"
 			].some((k) => args[k] !== void 0)) throw new Error("Supply at least one field to update.");
 			if (args.kind && !EVENT_KINDS.some((k) => k.id === args.kind)) throw new Error("Unknown event kind.");
-			if (args.newDate) validDate(args.newDate);
+			if (args.newDate) validDate$1(args.newDate);
 			for (const field of ["newStartTime", "newEndTime"]) if (args[field] !== void 0 && !isValidTime(args[field])) throw new Error(`${field} must be 24-hour HH:MM.`);
 			const link = args.link ? safeEventLink(args.link) : void 0;
 			if (args.link && !link) throw new Error("Links must be full http:// or https:// URLs.");
@@ -7382,7 +7386,7 @@ function prepareMutation(name, args, state) {
 		case "log_practice": {
 			const item = findTracker(state, args.trackerId);
 			if (item.kind !== "leetcode") throw new Error("Only practice problems can be logged; update the application's stage instead.");
-			if (args.date) validDate(args.date);
+			if (args.date) validDate$1(args.date);
 			return {
 				type: "tracker",
 				action: name,
@@ -7462,7 +7466,7 @@ function prepareMutation(name, args, state) {
 			if (!course) throw new Error("Course ID not found. Query course records; do not guess IDs.");
 			const grading = course.grading;
 			if (!grading?.categories.length) throw new Error("This course has no grading set up. Ask the user how it is weighted (or read the syllabus) and call set_course_grading first.");
-			if (args.date) validDate(args.date);
+			if (args.date) validDate$1(args.date);
 			if (args.score !== void 0 && !(args.score >= 0)) throw new Error("score must be zero or more.");
 			if (args.maxScore !== void 0 && !(args.maxScore > 0)) throw new Error("maxScore must be more than zero.");
 			const category = args.category ? findCategory(grading, args.category) : void 0;
@@ -7709,7 +7713,7 @@ function prepareMutation(name, args, state) {
 			const h = findIn(state.habits, args.habitId, "Habit");
 			const { habitId: _h, ...changes } = args;
 			if (!Object.keys(changes).length) throw new Error("Supply at least one field to update.");
-			if (args.unmarkDate) validDate(args.unmarkDate);
+			if (args.unmarkDate) validDate$1(args.unmarkDate);
 			const newName = args.newName?.trim();
 			if (newName && state.habits.some((x) => x.id !== h.id && sameName(x.name, newName))) throw new Error("A habit with this name already exists.");
 			const history = { ...h.history };
@@ -8241,7 +8245,7 @@ function describeMutation(tool, m) {
 		details
 	};
 }
-const list = (value) => Array.isArray(value) ? value.map(String) : typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : [];
+const list$1 = (value) => Array.isArray(value) ? value.map(String) : typeof value === "string" ? value.split(",").map((v) => v.trim()).filter(Boolean) : [];
 const clock = (time) => {
 	const [h, m] = String(time).split(":").map(Number);
 	return Number.isFinite(h) ? `${h % 12 || 12}:${String(m || 0).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}` : "";
@@ -8249,7 +8253,7 @@ const clock = (time) => {
 /** Summary and details for a proposed action outside Synapse, as shown on its approval card. */
 function describeExternal(tool, args) {
 	if (tool === "create_calendar_event") {
-		const guests = list(args.attendees);
+		const guests = list$1(args.attendees);
 		const when = args.startTime ? `${args.date} ${clock(args.startTime)}–${clock(args.endTime)}` : `${args.date} (all day)`;
 		return {
 			summary: `Create event "${String(args.title || "Untitled")}" on ${when}${guests.length ? `, invites ${guests.length} ${guests.length === 1 ? "person" : "people"}` : ""}`,
@@ -8257,7 +8261,7 @@ function describeExternal(tool, args) {
 		};
 	}
 	if (tool === "create_email_draft") {
-		const to = list(args.to);
+		const to = list$1(args.to);
 		const body = String(args.body || "");
 		return {
 			summary: `Save a draft${to.length ? ` to ${to.join(", ")}` : " reply"}${args.subject ? `: "${args.subject}"` : ""}`,
@@ -8269,7 +8273,246 @@ function describeExternal(tool, args) {
 		details: Object.entries(args).slice(0, 6).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`.slice(0, 160))
 	};
 }
+// src/utils/irisUi.ts
+/** Language tag of the fenced block in which the model describes an interactive card. */
+const IRIS_UI_FENCE = "iris-ui";
+const PRIORITIES = [
+	"urgent",
+	"high",
+	"medium",
+	"low"
+];
+const text = (value, max) => {
+	if (typeof value !== "string") return void 0;
+	const trimmed = value.trim();
+	return trimmed ? trimmed.slice(0, max) : void 0;
+};
+const list = (value, max) => Array.isArray(value) ? value.slice(0, max) : [];
+const texts = (value, max, length) => list(value, max).map((v) => text(v, length)).filter((v) => !!v);
+const validDate = (value) => {
+	const date = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : void 0;
+	return date && !Number.isNaN((/* @__PURE__ */ new Date(`${date}T12:00:00`)).getTime()) ? date : void 0;
+};
+const validTime = (value) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : void 0;
+const REF_TYPES = [
+	"task",
+	"goal",
+	"habit",
+	"event",
+	"knowledge",
+	"tracker",
+	"course",
+	"document",
+	"deck",
+	"quiz"
+];
+/** "task:ID" → a reference the card resolves against live records. */
+function recordRef(value) {
+	const match = typeof value === "string" ? /^([a-z]+):(\S{1,120})$/.exec(value.trim()) : null;
+	return match && REF_TYPES.includes(match[1]) ? {
+		type: match[1],
+		id: match[2]
+	} : void 0;
+}
+const optional = (key, value) => value ? { [key]: value } : {};
+function checklistItem(raw) {
+	const title = text(raw?.title, 160);
+	if (!title) return void 0;
+	const dueDate = validDate(raw.dueDate), dueTime = dueDate ? validTime(raw.dueTime) : void 0;
+	const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
+	return {
+		title,
+		...dueDate ? { dueDate } : {},
+		...dueTime ? { dueTime } : {},
+		...PRIORITIES.includes(raw.priority) ? { priority: raw.priority } : {},
+		...section ? { section } : {},
+		...subsection ? { subsection } : {}
+	};
+}
+function quizQuestion(raw) {
+	const question = text(raw?.question, 400), options = texts(raw?.options, 6, 200);
+	if (!question || options.length < 2 || !Number.isInteger(raw.answer) || raw.answer < 0 || raw.answer >= options.length) return void 0;
+	const why = text(raw.why, 400);
+	return {
+		question,
+		options,
+		answer: raw.answer,
+		...why ? { why } : {}
+	};
+}
+/** The model's output is untrusted: returns a clean spec, or null when the block can't be shown. */
+function parseIrisUi(code) {
+	let raw;
+	try {
+		raw = JSON.parse(code);
+	} catch {
+		return null;
+	}
+	const title = text(raw?.title, 120);
+	switch (raw?.type) {
+		case "records": {
+			const items = list(raw.items, 12).map((item) => {
+				const ref = recordRef(item?.ref);
+				return ref ? {
+					ref,
+					...optional("note", text(item.note, 200))
+				} : void 0;
+			}).filter((i) => !!i);
+			return items.length ? {
+				type: "records",
+				...optional("title", title),
+				items
+			} : null;
+		}
+		case "stats": {
+			const items = list(raw.items, 4).map((item) => {
+				const label = text(item?.label, 40), value = text(typeof item?.value === "number" ? String(item.value) : item?.value, 24);
+				return label && value ? {
+					label,
+					value,
+					...optional("detail", text(item.detail, 60))
+				} : void 0;
+			}).filter((i) => !!i);
+			return items.length >= 2 ? {
+				type: "stats",
+				items
+			} : null;
+		}
+		case "schedule": {
+			const items = list(raw.items, 16).map((item) => {
+				const itemTitle = text(item?.title, 120);
+				if (!itemTitle) return void 0;
+				const time = validTime(item.time), end = time ? validTime(item.end) : void 0, ref = recordRef(item.ref);
+				return {
+					title: itemTitle,
+					...optional("time", time),
+					...optional("end", end),
+					...optional("note", text(item.note, 200)),
+					...ref ? { ref } : {}
+				};
+			}).filter((i) => !!i);
+			return items.length ? {
+				type: "schedule",
+				...optional("title", title),
+				items
+			} : null;
+		}
+		case "compare": {
+			const options = list(raw.options, 3).map((option) => {
+				const optionTitle = text(option?.title, 80);
+				return optionTitle ? {
+					title: optionTitle,
+					...optional("summary", text(option.summary, 200)),
+					pros: texts(option.pros, 5, 120),
+					cons: texts(option.cons, 5, 120)
+				} : void 0;
+			}).filter((i) => !!i);
+			if (options.length < 2) return null;
+			const recommended = Number.isInteger(raw.recommended) && raw.recommended >= 0 && raw.recommended < options.length ? raw.recommended : void 0;
+			return {
+				type: "compare",
+				...optional("title", title),
+				...recommended !== void 0 ? { recommended } : {},
+				options
+			};
+		}
+		case "steps": {
+			const items = list(raw.items, 12).map((item) => {
+				const stepTitle = text(item?.title, 160);
+				return stepTitle ? {
+					title: stepTitle,
+					...optional("detail", text(item.detail, 300))
+				} : void 0;
+			}).filter((i) => !!i);
+			return title && items.length ? {
+				type: "steps",
+				title,
+				items
+			} : null;
+		}
+		case "checklist": {
+			const items = list(raw.items, 12).map(checklistItem).filter((i) => !!i);
+			if (!title || !items.length) return null;
+			const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
+			return {
+				type: "checklist",
+				title,
+				...section ? { section } : {},
+				...subsection ? { subsection } : {},
+				items
+			};
+		}
+		case "choices": {
+			const options = [...new Set(texts(raw.options, 6, 80))], question = text(raw.question, 200);
+			return options.length >= 2 ? {
+				type: "choices",
+				...question ? { question } : {},
+				options
+			} : null;
+		}
+		case "quiz": {
+			const questions = list(raw.questions, 10).map(quizQuestion).filter((q) => !!q);
+			return title && questions.length ? {
+				type: "quiz",
+				title,
+				questions
+			} : null;
+		}
+		case "chart": {
+			const habitId = text(raw.habitId, 120);
+			if (!habitId) return null;
+			return {
+				type: "chart",
+				habitId,
+				weeks: Number.isInteger(raw.weeks) ? Math.min(12, Math.max(4, raw.weeks)) : 8
+			};
+		}
+		default: return null;
+	}
+}
+// src/utils/chatPresentation.ts
+function findRecord(state, type, id) {
+	if (!state) return void 0;
+	switch (type) {
+		case "task": return state.tasks.find((r) => r.id === id);
+		case "goal": return state.goals.find((r) => r.id === id);
+		case "habit": return state.habits.find((r) => r.id === id);
+		case "journal": return state.journalEntries.find((r) => r.id === id);
+		case "knowledge": return state.knowledgeItems.find((r) => r.id === id);
+		case "event": return state.events?.find((r) => r.id === id);
+		case "tracker": return state.trackerItems?.find((r) => r.id === id);
+		case "course": return state.study?.courses.find((r) => r.id === id);
+		case "document": return state.study?.documents.find((r) => r.id === id);
+		case "deck": return state.study?.decks.find((r) => r.id === id);
+		case "quiz": return state.study?.quizzes.find((r) => r.id === id);
+		default: return;
+	}
+}
 // src/services/agentDispatcher.ts
+/** Cards are shown through a real tool: models call tools far more reliably than they follow a text format. */
+const SHOW_CARD = {
+	type: "function",
+	function: {
+		name: "show_card",
+		description: "Show an interactive card below your reply (see Visual answers). Call it before writing the reply text; the card appears after your text.",
+		parameters: {
+			type: "object",
+			properties: { card: {
+				type: "string",
+				description: "The card as one JSON object, e.g. {\"type\":\"records\",\"title\":\"Focus today\",\"items\":[{\"ref\":\"task:ID\",\"note\":\"Start here\"}]}"
+			} },
+			required: ["card"]
+		}
+	}
+};
+/** Checks a card the model asked to show; the error tells the model exactly what to fix. */
+function checkCard(raw, state) {
+	const spec = parseIrisUi(raw);
+	if (!spec) throw new Error("That card isn't valid. Pass one JSON object whose type is records, stats, schedule, compare, steps, checklist, choices, quiz or chart, with the fields shown in Visual answers. Record refs look like task:ID.");
+	if (spec.type === "records" && !spec.items.some((item) => findRecord(state, item.ref.type, item.ref.id))) throw new Error("None of those record IDs exist. Use exact IDs from the snapshot or a tool result.");
+	if (spec.type === "chart" && !state.habits.some((h) => h.id === spec.habitId)) throw new Error("No habit has that ID. Use the exact habit ID.");
+	return JSON.stringify(JSON.parse(raw));
+}
 const readNames = new Set(READ_TOOLS.map((t) => t.function.name));
 const MEMORY_WRITES = [
 	"remember_memory",
@@ -8314,13 +8557,21 @@ const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and p
 - Do not repeat writes that already succeeded. Report partial completion honestly.
 - Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
 
-## Interactive cards
-You can place an interactive card in a reply by writing a fenced code block with the language iris-ui containing one JSON object. It appears to the user as a real control, so never mention JSON, code or the card format.
-- Use a card only when the user will act on or explore the result. Ordinary answers, advice and conversation stay as text. At most one card per reply, with at least a sentence of text before it. Do not repeat the card's contents in the text.
-- checklist, for proposing several new tasks, such as turning a plan or a list of deadlines into tasks: {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]}. Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added.
-- choices, for a quick question with a few clear answers; the tapped option is sent as the user's reply: {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]}. 2 to 6 short options.
-- quiz, for practice with two or more questions (grounded in the user's materials when the subject is theirs): {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]}. answer is the 0-based index of the correct option. Up to 10 questions.
-- chart, for how a habit is going over time: {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8}. The numbers come from the user's real history, so use the exact ID and do not restate figures you haven't seen. Weeks is 4 to 12.
+## Visual answers
+Show interactive cards by calling show_card with the card as one JSON object, then write your reply; cards appear below your text in the order you showed them. Your answers are visual first: whenever an answer has structure (the user's records, figures, a plan or schedule, options to weigh, steps to follow, a quick choice, practice), put that structure in a card and keep the text to one or two sentences of framing and your real insight: what matters, why, what to do first. Plain text alone is only for conversation, feelings, explaining ideas and one-line answers.
+- Up to two cards per reply. Never repeat a card's contents in the text, and never mention JSON, code or cards.
+- In cards, point at records with "type:ID" refs using exact IDs from the snapshot or tool results. Cards show each record's live title, dates and status, so do not restate those; a note says only what you add (why it matters, what to do).
+- Pick the card that fits:
+  - records: the user's existing tasks, goals, habits, events or notes, whenever you'd otherwise list them: what to focus on, what's due or overdue, progress, the records a question is about. Tasks can be ticked off and habits marked done right in the card. {"type":"records","title":"Focus today","items":[{"ref":"task:ID","note":"Worth 15%, start here"},{"ref":"habit:ID"}]} Up to 12; title and note optional, notes short.
+  - stats: 2 to 4 key figures, e.g. for "how am I doing?". Only numbers from the snapshot or tool results. {"type":"stats","items":[{"label":"Due this week","value":"5","detail":"2 high priority"}]}
+  - schedule: a timed plan for a day or a study session. {"type":"schedule","title":"Tuesday","items":[{"time":"09:00","end":"10:30","title":"CS 2110 homework","ref":"task:ID","note":"Problems 1 to 4"}]} 24-hour HH:MM; ref and note optional.
+  - compare: two or three options the user is choosing between. The tapped option is sent as their reply. {"type":"compare","recommended":0,"options":[{"title":"Stripe application","summary":"Closes Friday","pros":["Deadline is firm"],"cons":["Takes a full evening"]}]} recommended (0-based) only when you have a view.
+  - steps: an ordered how-to, study plan or process the user works through and ticks off. {"type":"steps","title":"Prep for the midterm","items":[{"title":"Redo quiz 3","detail":"Focus on recursion"}]} Up to 12.
+  - checklist: proposing new tasks, such as turning a plan or a list of deadlines into tasks. {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]} Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added. When the user plainly asks you to add specific tasks, call create_task instead.
+  - choices: a clarifying or next-step question with a few clear answers; the tapped option is sent as the user's reply. {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]} 2 to 6 short options. Use it instead of ending with a question the user would answer with one of a few phrases.
+  - quiz: practice with two or more questions, grounded in the user's materials when the subject is theirs. {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]} answer is the 0-based index of the correct option. Up to 10 questions.
+  - chart: how a habit is going over time. {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8} The numbers come from the habit's real history. Weeks is 4 to 12.
+- Example. User: "what should I focus on today?" Call show_card with a records card with the two to four tasks that matter today, each with a short note, optionally a choices card offering to plan the time or start with the first one, then reply with one sentence on the real priority and why.
 
 ## Studying
 - Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
@@ -8527,11 +8778,16 @@ var AutonomousBrainAgent = class {
 		const external = options.externalTools;
 		const externalNames = new Set((external?.definitions || []).map((t) => t.function.name));
 		const externalDone = [];
-		const tools = [...BRAIN_TOOLS.filter((t) => memoryAvailable || ![
-			...MEMORY_WRITES,
-			"search_memories",
-			"search_conversations"
-		].includes(t.function.name)), ...external?.definitions || []];
+		const tools = [
+			...BRAIN_TOOLS.filter((t) => memoryAvailable || ![
+				...MEMORY_WRITES,
+				"search_memories",
+				"search_conversations"
+			].includes(t.function.name)),
+			...external?.definitions || [],
+			SHOW_CARD
+		];
+		const cards = [];
 		const approvals = [];
 		let untrustedRead = false;
 		const activity = new ActivityTracker(options.onStep);
@@ -8546,7 +8802,7 @@ var AutonomousBrainAgent = class {
 			entityType: actions.length ? "compound" : "query",
 			headline: status === "complete" || status === "partial" ? "Synapse" : status === "cancelled" ? "Stopped" : "Assistant unavailable",
 			explanation: actions.length ? `${actions.length} change${actions.length === 1 ? "" : "s"} saved` : memoryWrites ? `${memoryWrites} memory change${memoryWrites === 1 ? "" : "s"} saved` : status === "complete" ? "" : "No changes saved",
-			queryAnswer: answer,
+			queryAnswer: cards.length && (status === "complete" || status === "partial") ? [answer.trim(), ...cards.map((card) => `\`\`\`${IRIS_UI_FENCE}\n${card}\n\`\`\``)].join("\n\n") : answer,
 			actions,
 			citations: [...sources.values()],
 			status,
@@ -8686,7 +8942,14 @@ var AutonomousBrainAgent = class {
 						const tool = tools.find((t) => t.function.name === call.function.name);
 						if (!tool) throw new Error("Unsupported tool");
 						const args = parseToolArguments(call.function.arguments, tool.function.parameters);
-						if (MEMORY_WRITES.includes(call.function.name)) {
+						if (call.function.name === SHOW_CARD.function.name) {
+							if (cards.length >= 2) throw new Error("Two cards are already shown. Write the reply now.");
+							cards.push(checkCard(args.card, state));
+							output = {
+								shown: true,
+								next: "The card appears below your reply. Now write the reply: a sentence or two of framing and insight, without repeating the card's contents or mentioning the card."
+							};
+						} else if (MEMORY_WRITES.includes(call.function.name)) {
 							if (!options.commitMemory) throw new Error("Memory writes are unavailable in this session.");
 							const latestMemory = options.getMemory ? options.getMemory() : state.agentMemory;
 							const memoryState = {

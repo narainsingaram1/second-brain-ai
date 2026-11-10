@@ -93,6 +93,20 @@ test('actual PostgreSQL enforces owner isolation, RPC-only writes, revision conf
     await assert.rejects(save(2, owner, {}), error => error.code === '22023');
     await assert.rejects(save(-1), error => error.code === '22023');
     await assert.rejects(save(2, owner, { ...state, selectedModel: 'x'.repeat(2097152) }), error => error.code === '22023');
+    // Upgrade a snapshot-only database in place; removing the table check alone is insufficient.
+    await db.exec('reset role');
+    const uncapMigration = await readFile(new URL('../supabase/migrations/202611130001_remove_snapshot_limit.sql', import.meta.url), 'utf8');
+    await db.exec(uncapMigration);
+    await db.exec(uncapMigration); // Safe to reapply, including without the preferences RPC.
+    await asUser(owner);
+    await db.exec('begin');
+    try {
+      const large = { ...state, knowledgeItems: [{ ...workspace.knowledgeItems[0], content: 'x'.repeat(3 * 1024 * 1024) }] };
+      assert.equal((await save(2, owner, large)).rows[0].revision, 3);
+      assert.deepEqual((await db.query('select state from public.brains')).rows[0].state.knowledgeItems, large.knowledgeItems);
+    } finally { await db.exec('rollback'); }
+    await assert.rejects(save(2, owner, {}), error => error.code === '22023');
+    await assert.rejects(save(1), error => error.code === '40001');
     for (const sql of ["update public.brains set revision = 99", "delete from public.brains", `insert into public.brains (user_id,state,revision) values ('${other}','{}',1)`]) {
       await assert.rejects(db.query(sql), error => error.code === '42501');
     }

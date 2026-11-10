@@ -8,6 +8,22 @@ import { applyMutation, BRAIN_TOOLS, executeRead, Mutation, prepareMutation, REA
 import { Source, type RetrievalContext } from "./brainRetrieval";
 import { approvalReason, describeExternal, describeMutation, readsUntrustedContent, toolTier } from "./actionPolicy";
 import { getLocalDateString } from "../utils/habitStreaks";
+import { IRIS_UI_FENCE, parseIrisUi } from "../utils/irisUi";
+import { findRecord } from "../utils/chatPresentation";
+
+/** Cards are shown through a real tool: models call tools far more reliably than they follow a text format. */
+const SHOW_CARD: OpenRouterTool = { type: "function", function: { name: "show_card",
+  description: "Show an interactive card below your reply (see Visual answers). Call it before writing the reply text; the card appears after your text.",
+  parameters: { type: "object", properties: { card: { type: "string", description: 'The card as one JSON object, e.g. {"type":"records","title":"Focus today","items":[{"ref":"task:ID","note":"Start here"}]}' } }, required: ["card"] } } };
+/** Checks a card the model asked to show; the error tells the model exactly what to fix. */
+function checkCard(raw: string, state: BrainState): string {
+  const spec = parseIrisUi(raw);
+  if (!spec) throw new Error("That card isn't valid. Pass one JSON object whose type is records, stats, schedule, compare, steps, checklist, choices, quiz or chart, with the fields shown in Visual answers. Record refs look like task:ID.");
+  if (spec.type === "records" && !spec.items.some(item => findRecord(state, item.ref.type, item.ref.id)))
+    throw new Error("None of those record IDs exist. Use exact IDs from the snapshot or a tool result.");
+  if (spec.type === "chart" && !state.habits.some(h => h.id === spec.habitId)) throw new Error("No habit has that ID. Use the exact habit ID.");
+  return JSON.stringify(JSON.parse(raw)); // One line, in the same format the renderer reads.
+}
 import { eventTimeLabel, formatTime, sortEvents, taskSortKey } from "../utils/events";
 import { bestScore, courseLabel, dueCards, studyOf } from "../utils/study";
 
@@ -117,13 +133,21 @@ export const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partne
 - Do not repeat writes that already succeeded. Report partial completion honestly.
 - Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
 
-## Interactive cards
-You can place an interactive card in a reply by writing a fenced code block with the language iris-ui containing one JSON object. It appears to the user as a real control, so never mention JSON, code or the card format.
-- Use a card only when the user will act on or explore the result. Ordinary answers, advice and conversation stay as text. At most one card per reply, with at least a sentence of text before it. Do not repeat the card's contents in the text.
-- checklist, for proposing several new tasks, such as turning a plan or a list of deadlines into tasks: {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]}. Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added.
-- choices, for a quick question with a few clear answers; the tapped option is sent as the user's reply: {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]}. 2 to 6 short options.
-- quiz, for practice with two or more questions (grounded in the user's materials when the subject is theirs): {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]}. answer is the 0-based index of the correct option. Up to 10 questions.
-- chart, for how a habit is going over time: {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8}. The numbers come from the user's real history, so use the exact ID and do not restate figures you haven't seen. Weeks is 4 to 12.
+## Visual answers
+Show interactive cards by calling show_card with the card as one JSON object, then write your reply; cards appear below your text in the order you showed them. Your answers are visual first: whenever an answer has structure (the user's records, figures, a plan or schedule, options to weigh, steps to follow, a quick choice, practice), put that structure in a card and keep the text to one or two sentences of framing and your real insight: what matters, why, what to do first. Plain text alone is only for conversation, feelings, explaining ideas and one-line answers.
+- Up to two cards per reply. Never repeat a card's contents in the text, and never mention JSON, code or cards.
+- In cards, point at records with "type:ID" refs using exact IDs from the snapshot or tool results. Cards show each record's live title, dates and status, so do not restate those; a note says only what you add (why it matters, what to do).
+- Pick the card that fits:
+  - records: the user's existing tasks, goals, habits, events or notes, whenever you'd otherwise list them: what to focus on, what's due or overdue, progress, the records a question is about. Tasks can be ticked off and habits marked done right in the card. {"type":"records","title":"Focus today","items":[{"ref":"task:ID","note":"Worth 15%, start here"},{"ref":"habit:ID"}]} Up to 12; title and note optional, notes short.
+  - stats: 2 to 4 key figures, e.g. for "how am I doing?". Only numbers from the snapshot or tool results. {"type":"stats","items":[{"label":"Due this week","value":"5","detail":"2 high priority"}]}
+  - schedule: a timed plan for a day or a study session. {"type":"schedule","title":"Tuesday","items":[{"time":"09:00","end":"10:30","title":"CS 2110 homework","ref":"task:ID","note":"Problems 1 to 4"}]} 24-hour HH:MM; ref and note optional.
+  - compare: two or three options the user is choosing between. The tapped option is sent as their reply. {"type":"compare","recommended":0,"options":[{"title":"Stripe application","summary":"Closes Friday","pros":["Deadline is firm"],"cons":["Takes a full evening"]}]} recommended (0-based) only when you have a view.
+  - steps: an ordered how-to, study plan or process the user works through and ticks off. {"type":"steps","title":"Prep for the midterm","items":[{"title":"Redo quiz 3","detail":"Focus on recursion"}]} Up to 12.
+  - checklist: proposing new tasks, such as turning a plan or a list of deadlines into tasks. {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]} Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added. When the user plainly asks you to add specific tasks, call create_task instead.
+  - choices: a clarifying or next-step question with a few clear answers; the tapped option is sent as the user's reply. {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]} 2 to 6 short options. Use it instead of ending with a question the user would answer with one of a few phrases.
+  - quiz: practice with two or more questions, grounded in the user's materials when the subject is theirs. {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]} answer is the 0-based index of the correct option. Up to 10 questions.
+  - chart: how a habit is going over time. {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8} The numbers come from the habit's real history. Weeks is 4 to 12.
+- Example. User: "what should I focus on today?" Call show_card with a records card with the two to four tasks that matter today, each with a short note, optionally a choices card offering to plan the time or start with the first one, then reply with one sentence on the real priority and why.
 
 ## Studying
 - Courses, uploaded course documents (lecture slides, notes, readings, homework; full text with "Page N"/"Slide N" headings), flashcard decks and practice quizzes are records of types course, document, deck and quiz.
@@ -305,7 +329,8 @@ export class AutonomousBrainAgent {
     const externalNames = new Set((external?.definitions || []).map(t => t.function.name));
     const externalDone: NonNullable<AgentExecutionResult["external"]> = [];
     const tools = [...BRAIN_TOOLS.filter(t => memoryAvailable || ![...MEMORY_WRITES, "search_memories", "search_conversations"].includes(t.function.name)),
-      ...(external?.definitions || [])];
+      ...(external?.definitions || []), SHOW_CARD];
+    const cards: string[] = [];
     const approvals: ApprovalRequest[] = [];
     let untrustedRead = false;
     const activity = new ActivityTracker(options.onStep);
@@ -316,7 +341,7 @@ export class AutonomousBrainAgent {
       actionType: actions.length ? "compound" : "query_brain", entityType: actions.length ? "compound" : "query",
       headline: status === "complete" || status === "partial" ? "Synapse" : status === "cancelled" ? "Stopped" : "Assistant unavailable",
       explanation: actions.length ? `${actions.length} change${actions.length === 1 ? "" : "s"} saved` : memoryWrites ? `${memoryWrites} memory change${memoryWrites === 1 ? "" : "s"} saved` : status === "complete" ? "" : "No changes saved",
-      queryAnswer: answer, actions, citations: [...sources.values()], status, rememberedIds, ...(memoryErrors.size ? { memoryNotice: [...new Set(memoryErrors.values())].join(" ") } : {}),
+      queryAnswer: cards.length && (status === "complete" || status === "partial") ? [answer.trim(), ...cards.map(card => `\`\`\`${IRIS_UI_FENCE}\n${card}\n\`\`\``)].join("\n\n") : answer, actions, citations: [...sources.values()], status, rememberedIds, ...(memoryErrors.size ? { memoryNotice: [...new Set(memoryErrors.values())].join(" ") } : {}),
       ...(imageDescription ? { imageDescription } : {}),
     });
     if (!key.trim()) return finish("Connect an AI provider in Settings to start a conversation. Your records have not been changed.", "error");
@@ -429,7 +454,11 @@ export class AutonomousBrainAgent {
             const tool = tools.find(t => t.function.name === call.function.name);
             if (!tool) throw new Error("Unsupported tool");
             const args = parseToolArguments(call.function.arguments, tool.function.parameters);
-            if (MEMORY_WRITES.includes(call.function.name)) {
+            if (call.function.name === SHOW_CARD.function.name) {
+              if (cards.length >= 2) throw new Error("Two cards are already shown. Write the reply now.");
+              cards.push(checkCard(args.card, state));
+              output = { shown: true, next: "The card appears below your reply. Now write the reply: a sentence or two of framing and insight, without repeating the card's contents or mentioning the card." };
+            } else if (MEMORY_WRITES.includes(call.function.name)) {
               if (!options.commitMemory) throw new Error("Memory writes are unavailable in this session.");
               const latestMemory = options.getMemory ? options.getMemory() : state.agentMemory;
               const memoryState = { ...state, agentMemory: latestMemory };

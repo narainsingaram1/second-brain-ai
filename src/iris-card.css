@@ -89,3 +89,52 @@
 .chat-assistant-message.is-continued .iris-card, .chat-assistant-message.is-continued .iris-choices { animation: none; }
 @keyframes iris-card-in { from { opacity: 0; transform: translateY(4px); } }
 @media (prefers-reduced-motion: reduce) { .iris-card, .iris-choices, .iris-skeleton span { animation: none; } }
+
+/* Rows that hold their own controls: live records, schedules and steps. */
+.iris-rows.is-flush { border-top: 0; }
+.iris-row.is-static { cursor: default; }
+.iris-row.is-static:hover { background: transparent; }
+.iris-row.is-top { align-items: flex-start; }
+.iris-row.is-top > .iris-tick-button, .iris-row.is-top > .iris-lead { margin-top: 1px; }
+.iris-row-main { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; padding: 0; text-align: left; color: inherit; background: none; border: 0; font: inherit; }
+button.iris-row-main { cursor: pointer; }
+button.iris-row-main:hover .iris-row-title { text-decoration: underline; text-decoration-color: var(--workspace-line-strong); text-underline-offset: 3px; }
+.iris-row-note { font-size: 13px; line-height: 20px; color: var(--workspace-muted); }
+.iris-row.is-done .iris-row-title { color: var(--workspace-muted); text-decoration: line-through; text-decoration-color: var(--workspace-line-strong); }
+.iris-lead { display: grid; place-items: center; flex-shrink: 0; width: 18px; height: 20px; color: var(--workspace-muted); }
+.iris-tick-button { display: grid; place-items: center; flex-shrink: 0; margin: -6px; padding: 6px; border-radius: 8px; }
+.iris-tick-button:hover:not(:disabled) .iris-tick:not(.is-on) { border-color: var(--workspace-ink); }
+.iris-tick-button:disabled { cursor: default; }
+.iris-tick-button:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: -2px; }
+.iris-meter { display: inline-block; width: 48px; height: 4px; margin-right: 4px; overflow: hidden; border-radius: 2px; background: var(--workspace-raised); }
+.iris-meter span { display: block; height: 100%; border-radius: 2px; background: var(--workspace-ink); }
+
+.iris-time { flex-shrink: 0; width: 72px; font-size: 13px; line-height: 20px; color: var(--workspace-ink); }
+.iris-time small { display: block; font-size: 12px; line-height: 16px; color: var(--workspace-muted); }
+
+.iris-step-number { display: grid; place-items: center; flex-shrink: 0; width: 20px; height: 20px; border: 1px solid var(--workspace-line-strong); border-radius: 50%; font-size: 11px; line-height: 1; color: var(--workspace-secondary); transition: background-color 150ms var(--ease), border-color 150ms var(--ease), color 150ms var(--ease); }
+.iris-row.is-done .iris-step-number { border-color: var(--workspace-ink); background: var(--workspace-ink); color: var(--workspace-panel); }
+.iris-row:disabled { cursor: default; }
+
+.chat-prose .iris-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 1px; margin: 0; background: var(--workspace-line); }
+.iris-stats > div { padding: 16px; background: var(--workspace-panel); }
+.chat-prose .iris-stats dt { font-size: 12px; line-height: 16px; color: var(--workspace-muted); }
+.chat-prose .iris-stats dd { margin: 0; }
+.chat-prose .iris-stat-value { margin-top: 4px; font-size: 24px; font-weight: 500; line-height: 32px; color: var(--workspace-ink); }
+.chat-prose .iris-stat-detail { font-size: 12px; line-height: 16px; color: var(--workspace-secondary); }
+
+.iris-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1px; border-top: 1px solid var(--workspace-line); background: var(--workspace-line); }
+.iris-compare.is-flush { border-top: 0; }
+.iris-compare-option { display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--workspace-panel); }
+.iris-compare-option.is-recommended { background: var(--workspace-tint); }
+.iris-compare-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.chat-prose .iris-compare-head h4 { margin: 0; font-size: 14px; font-weight: 500; line-height: 20px; color: var(--workspace-ink); }
+.iris-compare-head span { flex-shrink: 0; font-size: 12px; line-height: 16px; color: var(--workspace-accent-strong); }
+.dark .iris-compare-head span { color: var(--workspace-accent); }
+.chat-prose .iris-compare-summary { font-size: 13px; line-height: 20px; color: var(--workspace-secondary); }
+.chat-prose .iris-points { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.chat-prose .iris-points li { display: flex; gap: 8px; margin: 0; font-size: 13px; line-height: 20px; color: var(--workspace-ink); }
+.iris-points svg { flex-shrink: 0; margin-top: 3px; }
+.iris-points .is-pro { color: var(--workspace-success); }
+.iris-points .is-con { color: var(--workspace-muted); }
+.iris-compare-option > button { align-self: flex-start; margin-top: auto; }

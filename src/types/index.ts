@@ -383,6 +383,8 @@ export interface IrisCardState {
   added?: Record<number, string>;
   picked?: string;
   answers?: number[];
+  /** Steps the user has ticked off. */
+  done?: number[];
 }
 
 /**

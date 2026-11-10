@@ -1,6 +1,6 @@
 import type { AIMessage, ConversationThread } from "../types";
 
-/** Archived chats live inside the synced workspace, whose cloud copy is limited to 2 MB. */
+/** Bound archived chats to keep loading and serialization costs manageable. */
 export const MAX_ARCHIVED_CONVERSATIONS = 60;
 export const ARCHIVE_CHAR_BUDGET = 700_000;
 const MAX_SOURCES_PER_MESSAGE = 40;
@@ -13,7 +13,7 @@ function compactMessage(message: AIMessage): AIMessage {
 
 /**
  * Keeps the most recent archived conversations within a count and size budget so the
- * workspace stays well under the cloud save limit. Newest threads are kept first.
+ * workspace stays responsive. Newest threads are kept first.
  */
 export function boundConversations(threads: ConversationThread[] | undefined): ConversationThread[] {
   if (!threads?.length) return [];

@@ -89,6 +89,7 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
     case "search_email": return { kind: "email", label: `Searching your email for ${quote(args.query)}` };
     case "read_email": return { kind: "email", label: "Reading an email" };
     case "create_email_draft": return { kind: "email", label: "Drafting an email" };
+    case "show_card": return { kind: "records", label: "Preparing a card" };
     case "send_email": case "send_draft": return { kind: "email", label: "Preparing an email to send" };
   }
   const [verb, ...rest] = name.split("_");
