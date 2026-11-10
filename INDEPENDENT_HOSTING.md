@@ -41,7 +41,7 @@ Supabase's built-in sender is for testing and is not suitable for public signup.
 
 - The database grants signed-in users only a read policy for their own UUID. No anonymous access or direct client writes are granted.
 - The save RPC derives the owner from the verified JWT and checks the expected owner, validates the snapshot, strips non-workspace fields, and rejects stale revisions atomically.
-- Cloud snapshots are capped at 2 MiB and preserve IDs. Simultaneous edits from different devices can conflict; they are not automatically merged.
+- Cloud snapshots preserve IDs. Apply `supabase/migrations/202611130001_remove_snapshot_limit.sql` to remove the old aggregate 2 MiB cap; provider quotas and per-record limits still apply. Simultaneous edits from different devices can conflict; they are not automatically merged.
 - Idle sync checks a revision before retrieving records. Cloud errors preserve visible work and show a status message. Export before reloading after a conflict.
 - Hosted workspace records are not copied to the legacy global localStorage/IndexedDB snapshot. AI keys remain account-scoped on each device; enter one separately per account/device.
 - The older semantic vault uses per-account memory in this mode, clears on sign-out, and discards old in-flight indexing after an account switch.

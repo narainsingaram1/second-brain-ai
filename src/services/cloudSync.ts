@@ -91,8 +91,7 @@ export async function saveCloud(state: BrainState) {
   if (text === saved) return;
   dirty = true;
   pending++;
-  // The cloud rejects workspaces over 2 MB; warn well before that point.
-  report(new TextEncoder().encode(text).length > 1_700_000 ? "Saving… (workspace is near the 2 MB cloud limit)" : "Saving…");
+  report("Saving…");
   try {
     const data = await request("PUT", { revision, state: payload, ownerId });
     if (runGeneration !== generation) throw new Error("Account changed during save. Reload before editing.");

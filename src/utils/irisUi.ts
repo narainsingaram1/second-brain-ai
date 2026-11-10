@@ -8,7 +8,14 @@ export const IRIS_UI_FENCE = "iris-ui";
 
 export interface ChecklistItem { title: string; dueDate?: string; dueTime?: string; priority?: Task["priority"]; section?: string; subsection?: string }
 export interface QuizQuestion { question: string; options: string[]; answer: number; why?: string }
+export interface RecordRef { type: string; id: string }
+export interface CompareOption { title: string; summary?: string; pros: string[]; cons: string[] }
 export type IrisUiSpec =
+  | { type: "records"; title?: string; items: Array<{ ref: RecordRef; note?: string }> }
+  | { type: "stats"; items: Array<{ label: string; value: string; detail?: string }> }
+  | { type: "schedule"; title?: string; items: Array<{ title: string; time?: string; end?: string; note?: string; ref?: RecordRef }> }
+  | { type: "compare"; title?: string; recommended?: number; options: CompareOption[] }
+  | { type: "steps"; title: string; items: Array<{ title: string; detail?: string }> }
   | { type: "checklist"; title: string; section?: string; subsection?: string; items: ChecklistItem[] }
   | { type: "choices"; question?: string; options: string[] }
   | { type: "quiz"; title: string; questions: QuizQuestion[] }
@@ -27,6 +34,14 @@ const validDate = (value: unknown) => {
   return date && !Number.isNaN(new Date(`${date}T12:00:00`).getTime()) ? date : undefined;
 };
 const validTime = (value: unknown) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : undefined;
+
+const REF_TYPES = ["task", "goal", "habit", "event", "knowledge", "tracker", "course", "document", "deck", "quiz"];
+/** "task:ID" → a reference the card resolves against live records. */
+function recordRef(value: unknown): RecordRef | undefined {
+  const match = typeof value === "string" ? /^([a-z]+):(\S{1,120})$/.exec(value.trim()) : null;
+  return match && REF_TYPES.includes(match[1]) ? { type: match[1], id: match[2] } : undefined;
+}
+const optional = <K extends string>(key: K, value: string | undefined) => (value ? { [key]: value } : {}) as Partial<Record<K, string>>;
 
 function checklistItem(raw: any): ChecklistItem | undefined {
   const title = text(raw?.title, 160);
@@ -47,9 +62,49 @@ function quizQuestion(raw: any): QuizQuestion | undefined {
 export function parseIrisUi(code: string): IrisUiSpec | null {
   let raw: any;
   try { raw = JSON.parse(code); } catch { return null; }
+  const title = text(raw?.title, 120);
   switch (raw?.type) {
+    case "records": {
+      const items = list(raw.items, 12).map((item: any) => {
+        const ref = recordRef(item?.ref);
+        return ref ? { ref, ...optional("note", text(item.note, 200)) } : undefined;
+      }).filter(<T,>(i: T | undefined): i is T => !!i);
+      return items.length ? { type: "records", ...optional("title", title), items } : null;
+    }
+    case "stats": {
+      const items = list(raw.items, 4).map((item: any) => {
+        const label = text(item?.label, 40), value = text(typeof item?.value === "number" ? String(item.value) : item?.value, 24);
+        return label && value ? { label, value, ...optional("detail", text(item.detail, 60)) } : undefined;
+      }).filter(<T,>(i: T | undefined): i is T => !!i);
+      return items.length >= 2 ? { type: "stats", items } : null;
+    }
+    case "schedule": {
+      const items = list(raw.items, 16).map((item: any) => {
+        const itemTitle = text(item?.title, 120);
+        if (!itemTitle) return undefined;
+        const time = validTime(item.time), end = time ? validTime(item.end) : undefined, ref = recordRef(item.ref);
+        return { title: itemTitle, ...optional("time", time), ...optional("end", end), ...optional("note", text(item.note, 200)), ...(ref ? { ref } : {}) };
+      }).filter(<T,>(i: T | undefined): i is T => !!i);
+      return items.length ? { type: "schedule", ...optional("title", title), items } : null;
+    }
+    case "compare": {
+      const options = list(raw.options, 3).map((option: any) => {
+        const optionTitle = text(option?.title, 80);
+        return optionTitle ? { title: optionTitle, ...optional("summary", text(option.summary, 200)), pros: texts(option.pros, 5, 120), cons: texts(option.cons, 5, 120) } : undefined;
+      }).filter(<T,>(i: T | undefined): i is T => !!i);
+      if (options.length < 2) return null;
+      const recommended = Number.isInteger(raw.recommended) && raw.recommended >= 0 && raw.recommended < options.length ? raw.recommended : undefined;
+      return { type: "compare", ...optional("title", title), ...(recommended !== undefined ? { recommended } : {}), options };
+    }
+    case "steps": {
+      const items = list(raw.items, 12).map((item: any) => {
+        const stepTitle = text(item?.title, 160);
+        return stepTitle ? { title: stepTitle, ...optional("detail", text(item.detail, 300)) } : undefined;
+      }).filter(<T,>(i: T | undefined): i is T => !!i);
+      return title && items.length ? { type: "steps", title, items } : null;
+    }
     case "checklist": {
-      const title = text(raw.title, 120), items = list(raw.items, 12).map(checklistItem).filter((i): i is ChecklistItem => !!i);
+      const items = list(raw.items, 12).map(checklistItem).filter((i): i is ChecklistItem => !!i);
       if (!title || !items.length) return null;
       const section = text(raw.section, 60), subsection = text(raw.subsection, 60);
       return { type: "checklist", title, ...(section ? { section } : {}), ...(subsection ? { subsection } : {}), items };
@@ -59,7 +114,7 @@ export function parseIrisUi(code: string): IrisUiSpec | null {
       return options.length >= 2 ? { type: "choices", ...(question ? { question } : {}), options } : null;
     }
     case "quiz": {
-      const title = text(raw.title, 120), questions = list(raw.questions, 10).map(quizQuestion).filter((q): q is QuizQuestion => !!q);
+      const questions = list(raw.questions, 10).map(quizQuestion).filter((q): q is QuizQuestion => !!q);
       return title && questions.length ? { type: "quiz", title, questions } : null;
     }
     case "chart": {
@@ -71,8 +126,17 @@ export function parseIrisUi(code: string): IrisUiSpec | null {
   }
 }
 
+const cite = (ref: RecordRef) => `[${ref.type}:${ref.id}]`;
+const timeRange = (time?: string, end?: string) => time ? `${time}${end ? `–${end}` : ""} ` : "";
 function describe(spec: IrisUiSpec): string {
+  const heading = "title" in spec && spec.title ? [spec.title] : [];
   switch (spec.type) {
+    case "records": return [...heading, ...spec.items.map(i => `- ${cite(i.ref)}${i.note ? ` — ${i.note}` : ""}`)].join("\n");
+    case "stats": return spec.items.map(i => `- ${i.label}: ${i.value}${i.detail ? ` (${i.detail})` : ""}`).join("\n");
+    case "schedule": return [...heading, ...spec.items.map(i => `- ${timeRange(i.time, i.end)}${i.title}${i.note ? ` — ${i.note}` : ""}`)].join("\n");
+    case "compare": return [...heading, ...spec.options.map((o, i) => [`${o.title}${i === spec.recommended ? " (recommended)" : ""}${o.summary ? `: ${o.summary}` : ""}`,
+      ...o.pros.map(p => `  + ${p}`), ...o.cons.map(c => `  - ${c}`)].join("\n"))].join("\n");
+    case "steps": return [...heading, ...spec.items.map((i, n) => `${n + 1}. ${i.title}${i.detail ? ` — ${i.detail}` : ""}`)].join("\n");
     case "checklist": return [spec.title, ...spec.items.map(i => `- ${i.title}${i.dueDate ? ` (${i.dueDate})` : ""}`)].join("\n");
     case "choices": return [...(spec.question ? [spec.question] : []), ...spec.options.map(o => `- ${o}`)].join("\n");
     case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map(o => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");

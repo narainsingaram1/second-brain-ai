@@ -1,7 +1,11 @@
 import "../iris-card.css";
 import { useState, type ReactNode } from "react";
-import { ArrowRight, ArrowUpRight, Check, RotateCcw, X } from "lucide-react";
-import type { BrainState } from "../types";
+import { ArrowRight, ArrowUpRight, Check, Minus, Plus, RotateCcw, X } from "lucide-react";
+import type { BrainState, CalendarEvent, Goal, Habit, Task } from "../types";
+import type { CardChange } from "../services/irisCards";
+import { findRecord, referenceTitle } from "../utils/chatPresentation";
+import { getLocalDateString } from "../utils/habitStreaks";
+import { RecordIcon } from "./SourceReferences";
 import { habitWeeklyTarget, habitWeeks, parseIrisUi, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
 
 export interface IrisCardActions {
@@ -10,17 +14,22 @@ export interface IrisCardActions {
   onReply?: (text: string) => void;
   onAddTasks?: (spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => Promise<void>;
   onChange?: (next: IrisCardState) => void;
-  onOpenTask?: (id: string, title: string) => void;
+  onChangeRecords?: (changes: CardChange[]) => Promise<void>;
+  onOpenRecord?: (type: string, id: string, title: string) => void;
 }
 interface CardProps<T> { spec: T; saved: IrisCardState; actions: IrisCardActions }
 
+const clock = (time: string) => {
+  const [hours, minutes] = time.split(":").map(Number);
+  return new Date(2000, 0, 1, hours, minutes).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+};
 const dueLabel = (date?: string, time?: string) => {
   if (!date) return "";
   const day = new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
-  if (!time) return day;
-  const [hours, minutes] = time.split(":").map(Number);
-  return `${day}, ${new Date(2000, 0, 1, hours, minutes).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
+  return time ? `${day}, ${clock(time)}` : day;
 };
+const loud = (priority?: string) => priority === "urgent" || priority === "high" ? priority[0].toUpperCase() + priority.slice(1) : "";
+type Spec<T extends IrisUiSpec["type"]> = Extract<IrisUiSpec, { type: T }>;
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 function Checklist({ spec, saved, actions }: CardProps<Extract<IrisUiSpec, { type: "checklist" }>>) {
@@ -51,7 +60,7 @@ function Checklist({ spec, saved, actions }: CardProps<Extract<IrisUiSpec, { typ
       const meta = [dueLabel(item.dueDate, item.dueTime), item.priority === "urgent" || item.priority === "high" ? item.priority[0].toUpperCase() + item.priority.slice(1) : ""].filter(Boolean).join(" · ");
       const taskId = added[index];
       if (taskId !== undefined) return <li key={index}>
-        <button type="button" className="iris-row is-added" onClick={() => actions.onOpenTask?.(taskId, item.title)} aria-label={`Open task: ${item.title}`}>
+        <button type="button" className="iris-row is-added" onClick={() => actions.onOpenRecord?.("task", taskId, item.title)} aria-label={`Open task: ${item.title}`}>
           <span className="iris-tick is-on" aria-hidden="true"><Check size={12} strokeWidth={2.5} /></span>
           <span className="iris-row-title">{item.title}</span>
           <span className="iris-row-meta">{meta}<ArrowUpRight size={12} aria-hidden="true" /></span>
@@ -147,6 +156,122 @@ function HabitChart({ spec, state }: { spec: Extract<IrisUiSpec, { type: "chart"
   </section>;
 }
 
+/** The user's own records, read live: titles, dates and status are never the model's words. */
+function Records({ spec, state, actions }: { spec: Spec<"records">; state?: BrainState | null; actions: IrisCardActions }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const rows = spec.items.map(item => ({ ...item, record: findRecord(state, item.ref.type, item.ref.id) })).filter(row => row.record);
+  if (!rows.length) return <Unavailable />;
+  const today = getLocalDateString();
+  const canAct = actions.interactive && !!actions.onChangeRecords;
+  const change = async (key: string, next: CardChange) => {
+    if (!actions.onChangeRecords || busy) return;
+    setBusy(key);
+    setError("");
+    try { await actions.onChangeRecords([next]); }
+    catch (err) { setError(err instanceof Error ? err.message : "That change wasn’t saved. Try again."); }
+    finally { setBusy(null); }
+  };
+  const tick = (key: string, label: string, done: boolean, next: CardChange | null) =>
+    <button type="button" role="checkbox" aria-checked={done} aria-label={label} className="iris-tick-button" disabled={!canAct || !next || busy === key} onClick={() => next && change(key, next)}>
+      <span className={`iris-tick ${done ? "is-on" : ""}`} aria-hidden="true">{done && <Check size={12} strokeWidth={2.5} />}</span>
+    </button>;
+  return <section className="iris-card" aria-label={spec.title || "Your records"}>
+    {spec.title && <header className="iris-card-head"><h3>{spec.title}</h3></header>}
+    <ul className={`iris-rows ${spec.title ? "" : "is-flush"}`}>{rows.map(({ ref, note, record }) => {
+      const key = `${ref.type}:${ref.id}`, title = referenceTitle(ref.type, ref.id, undefined, state);
+      let lead: ReactNode = <span className="iris-lead"><RecordIcon type={ref.type} className="h-4 w-4" /></span>, meta: ReactNode = null, done = false;
+      if (ref.type === "task") {
+        const task = record as Task;
+        done = task.status === "completed";
+        lead = tick(key, done ? `Mark ${title} not done` : `Mark ${title} done`, done, { tool: "update_task", args: { taskId: task.id, status: done ? "not_started" : "completed" } });
+        meta = done ? "Done" : [dueLabel(task.dueDate, task.dueTime), loud(task.priority)].filter(Boolean).join(" · ");
+      } else if (ref.type === "habit") {
+        const habit = record as Habit;
+        done = !!habit.history?.[today];
+        lead = tick(key, done ? `${title} done today` : `Mark ${title} done today`, done, done ? null : { tool: "complete_habit", args: { habitId: habit.id } });
+        meta = `${habit.streak}-day streak`;
+      } else if (ref.type === "goal") {
+        const progress = Math.max(0, Math.min(100, (record as Goal).progress || 0));
+        meta = <><span className="iris-meter" aria-hidden="true"><span style={{ width: `${progress}%` }} /></span>{progress}%</>;
+      } else if (ref.type === "event") {
+        const event = record as CalendarEvent;
+        meta = dueLabel(event.date, event.startTime);
+      }
+      return <li key={key}><div className={`iris-row is-static ${done ? "is-done" : ""}`}>
+        {lead}
+        <button type="button" className="iris-row-main" onClick={() => actions.onOpenRecord?.(ref.type, ref.id, title)}>
+          <span className="iris-row-title">{title}</span>{note && <span className="iris-row-note">{note}</span>}
+        </button>
+        {meta && <span className="iris-row-meta">{meta}</span>}
+      </div></li>;
+    })}</ul>
+    {error && <footer className="iris-card-foot"><p role="alert" className="iris-error">{error}</p></footer>}
+  </section>;
+}
+
+function Stats({ spec }: { spec: Spec<"stats"> }) {
+  return <section className="iris-card" aria-label="Key figures">
+    <dl className="iris-stats">{spec.items.map(item => <div key={item.label}>
+      <dt>{item.label}</dt><dd className="iris-stat-value iris-tabular">{item.value}</dd>{item.detail && <dd className="iris-stat-detail">{item.detail}</dd>}
+    </div>)}</dl>
+  </section>;
+}
+
+function Schedule({ spec, state, actions }: { spec: Spec<"schedule">; state?: BrainState | null; actions: IrisCardActions }) {
+  return <section className="iris-card" aria-label={spec.title || "Schedule"}>
+    {spec.title && <header className="iris-card-head"><h3>{spec.title}</h3></header>}
+    <ol className={`iris-rows ${spec.title ? "" : "is-flush"}`}>{spec.items.map((item, index) => {
+      const linked = item.ref && findRecord(state, item.ref.type, item.ref.id) ? item.ref : undefined;
+      const body = <><span className="iris-row-title">{item.title}</span>{item.note && <span className="iris-row-note">{item.note}</span>}</>;
+      return <li key={index}><div className="iris-row is-static is-top">
+        <span className="iris-time iris-tabular">{item.time ? clock(item.time) : "Any time"}{item.end && <small>{clock(item.end)}</small>}</span>
+        {linked ? <button type="button" className="iris-row-main" onClick={() => actions.onOpenRecord?.(linked.type, linked.id, referenceTitle(linked.type, linked.id, undefined, state))}>{body}</button>
+          : <span className="iris-row-main">{body}</span>}
+      </div></li>;
+    })}</ol>
+  </section>;
+}
+
+function Compare({ spec, saved, actions }: CardProps<Spec<"compare">>) {
+  const pick = (title: string) => { actions.onChange?.({ picked: title }); actions.onReply?.(`Let’s go with ${title}.`); };
+  return <section className="iris-card" aria-label={spec.title || "Options"}>
+    {spec.title && <header className="iris-card-head"><h3>{spec.title}</h3></header>}
+    <div className={`iris-compare ${spec.title ? "" : "is-flush"}`}>{spec.options.map((option, index) => {
+      const recommended = index === spec.recommended, chosen = saved.picked === option.title;
+      return <div key={option.title} className={`iris-compare-option ${recommended ? "is-recommended" : ""}`}>
+        <div className="iris-compare-head"><h4>{option.title}</h4>{recommended && <span>Recommended</span>}</div>
+        {option.summary && <p className="iris-compare-summary">{option.summary}</p>}
+        {(option.pros.length > 0 || option.cons.length > 0) && <ul className="iris-points">
+          {option.pros.map(point => <li key={`+${point}`}><Plus size={14} className="is-pro" aria-label="For" />{point}</li>)}
+          {option.cons.map(point => <li key={`-${point}`}><Minus size={14} className="is-con" aria-label="Against" />{point}</li>)}
+        </ul>}
+        <button type="button" className={recommended ? "iris-primary" : "iris-secondary"} disabled={!actions.interactive || !!saved.picked || !actions.onReply} onClick={() => pick(option.title)}>
+          {chosen ? <><Check size={14} aria-hidden="true" />Chosen</> : "Go with this"}
+        </button>
+      </div>;
+    })}</div>
+  </section>;
+}
+
+function Steps({ spec, saved, actions }: CardProps<Spec<"steps">>) {
+  const done = new Set(saved.done || []);
+  const toggle = (index: number) => {
+    const next = new Set(done);
+    if (!next.delete(index)) next.add(index);
+    actions.onChange?.({ ...saved, done: [...next].sort((a, b) => a - b) });
+  };
+  return <section className="iris-card" aria-label={spec.title}>
+    <header className="iris-card-head"><h3>{spec.title}</h3><span className="iris-tabular">{done.size} of {spec.items.length} done</span></header>
+    <ol className="iris-rows">{spec.items.map((step, index) => <li key={index}>
+      <button type="button" className={`iris-row is-top ${done.has(index) ? "is-done" : ""}`} aria-pressed={done.has(index)} disabled={!actions.interactive || !actions.onChange} onClick={() => toggle(index)}>
+        <span className="iris-step-number iris-tabular" aria-hidden="true">{done.has(index) ? <Check size={12} strokeWidth={2.5} /> : index + 1}</span>
+        <span className="iris-row-main"><span className="iris-row-title">{step.title}</span>{step.detail && <span className="iris-row-note">{step.detail}</span>}</span>
+      </button>
+    </li>)}</ol>
+  </section>;
+}
+
 const Unavailable = () => <p className="iris-unavailable">This card couldn’t be displayed</p>;
 
 /** Renders one card from the model's description, using only the components defined here. */
@@ -156,6 +281,11 @@ export function IrisCard({ code, complete, state, saved, actions }: { code: stri
   if (!spec) return <Unavailable />;
   const cardProps = { saved: saved || {}, actions };
   const cards: Record<IrisUiSpec["type"], () => ReactNode> = {
+    records: () => <Records spec={spec as never} state={state} actions={actions} />,
+    stats: () => <Stats spec={spec as never} />,
+    schedule: () => <Schedule spec={spec as never} state={state} actions={actions} />,
+    compare: () => <Compare spec={spec as never} {...cardProps} />,
+    steps: () => <Steps spec={spec as never} {...cardProps} />,
     checklist: () => <Checklist spec={spec as never} {...cardProps} />,
     choices: () => <Choices spec={spec as never} {...cardProps} />,
     quiz: () => <Quiz spec={spec as never} {...cardProps} />,

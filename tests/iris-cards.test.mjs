@@ -7,10 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 const server = await createServer({ cacheDir: '/tmp/synapse-iris-cards-cache', configFile: false, plugins: [react()], server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const { parseIrisUi, plainIrisUi, habitWeeks } = await server.ssrLoadModule('/src/utils/irisUi.ts');
-const { prepareChecklistTasks } = await server.ssrLoadModule('/src/services/irisCards.ts');
+const { prepareChecklistTasks, prepareCardChanges } = await server.ssrLoadModule('/src/services/irisCards.ts');
 const { ConversationMessage } = await server.ssrLoadModule('/src/components/ConversationMessage.tsx');
 const { readableMessage } = await server.ssrLoadModule('/src/utils/chatPresentation.ts');
-const { SYNAPSE_INSTRUCTIONS } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+const { SYNAPSE_INSTRUCTIONS, AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
 
 const checklist = { type: 'checklist', title: 'This week', section: 'Academic', items: [{ title: 'Review chapter 4', dueDate: '2026-11-11', priority: 'high' }, { title: 'Practice quiz' }] };
 const fenced = spec => '```iris-ui\n' + JSON.stringify(spec) + '\n```';
@@ -75,7 +75,7 @@ test('charts use the habit record, and a wrong ID shows no invented numbers', ()
   assert.match(render(fenced(spec), { state: state() }), /couldn’t be displayed/);
 });
 test('the assistant is told about each card and that checklists only propose', () => {
-  for (const type of ['checklist', 'choices', 'quiz', 'chart']) assert.ok(SYNAPSE_INSTRUCTIONS.includes(`"type":"${type}"`), type);
+  for (const type of ['records', 'stats', 'schedule', 'compare', 'steps', 'checklist', 'choices', 'quiz', 'chart']) assert.ok(SYNAPSE_INSTRUCTIONS.includes(`"type":"${type}"`), type);
   assert.match(SYNAPSE_INSTRUCTIONS, /do not also call create_task/);
 });
 test('pressing Add saves the tasks, records them on the card, and a repeat press adds nothing', async () => {
@@ -97,5 +97,59 @@ test('pressing Add saves the tasks, records them on the card, and a repeat press
   await conversation.addCardTasks('m1', 0, spec, [1]);
   assert.equal(saved.tasks.length, 1, 'no duplicate on a repeat press');
   conversation.setCardState('m1', 1, { picked: 'Exam prep' });
+  await conversation.changeFromCard([{ tool: 'update_task', args: { taskId: saved.tasks[0].id, status: 'completed' } }]);
+  assert.equal(saved.tasks[0].status, 'completed');
   assert.equal(saved.chatHistory[0].cardState[1].picked, 'Exam prep');
+});
+
+test('new cards parse strictly and fall back to readable text', () => {
+  assert.deepEqual(parseIrisUi(JSON.stringify({ type: 'records', items: [{ ref: 'task:t1', note: 'Start here' }, { ref: 'secret:x' }, { ref: 'task:' }] })).items, [{ ref: { type: 'task', id: 't1' }, note: 'Start here' }]);
+  assert.equal(parseIrisUi(JSON.stringify({ type: 'stats', items: [{ label: 'Due', value: 5 }] })), null, 'one figure is not a stats card');
+  assert.equal(parseIrisUi(JSON.stringify({ type: 'compare', options: [{ title: 'Only' }] })), null);
+  assert.equal(parseIrisUi(JSON.stringify({ type: 'compare', recommended: 7, options: [{ title: 'A' }, { title: 'B' }] })).recommended, undefined);
+  assert.deepEqual(parseIrisUi(JSON.stringify({ type: 'schedule', items: [{ title: 'Gym', time: '7am', end: '08:00' }] })).items, [{ title: 'Gym' }]);
+  const plain = readableMessage({ content: fenced({ type: 'records', items: [{ ref: 'task:task-1', note: 'First' }] }) + '\n' + fenced({ type: 'stats', items: [{ label: 'Due', value: '5' }, { label: 'Done', value: '2' }] }) },
+    { ...state(), tasks: [{ id: 'task-1', title: 'Problem set', section: 'Academic', dueDate: '', priority: 'medium', status: 'not_started', completed: false }] });
+  assert.match(plain, /- Problem set — First/); assert.match(plain, /- Due: 5/);
+});
+test('records cards show live record details, never the model\'s, and skip unknown IDs', () => {
+  const live = { ...state(), tasks: [{ id: 't1', title: 'Real title', section: 'Academic', dueDate: '2026-11-12', priority: 'high', status: 'not_started', completed: false }],
+    goals: [{ id: 'g1', title: 'Internship', progress: 40, status: 'in_progress', milestones: [] }] };
+  const html = render(fenced({ type: 'records', title: 'Focus', items: [{ ref: 'task:t1', note: 'Worth 15%' }, { ref: 'goal:g1' }, { ref: 'task:gone' }] }), { state: live });
+  assert.match(html, /Real title/); assert.match(html, /Worth 15%/); assert.match(html, /40%/); assert.match(html, /Mark Real title done/);
+  assert.equal((html.match(/<li/g) || []).length, 2);
+});
+test('cards can only tick tasks and mark habits, through the normal validation', () => {
+  const live = { ...state(), tasks: [{ id: 't1', title: 'T', section: 'Academic', dueDate: '', priority: 'low', status: 'not_started', completed: false }],
+    habits: [{ id: 'h1', name: 'Run', frequency: 'daily', streak: 0, bestStreak: 0, history: {} }] };
+  const [done, habit] = prepareCardChanges(live, [{ tool: 'update_task', args: { taskId: 't1', status: 'completed' } }, { tool: 'complete_habit', args: { habitId: 'h1' } }]);
+  assert.equal(done.record.status, 'completed'); assert.equal(Object.values(habit.record.history).includes(true), true);
+  assert.throws(() => prepareCardChanges(live, [{ tool: 'delete_task', args: { taskId: 't1' } }]), /can.t make that change/);
+  assert.throws(() => prepareCardChanges(live, [{ tool: 'update_task', args: { taskId: 't1', status: 'in_progress', newTitle: 'x' } }]), /can.t make that change/);
+});
+test('compare, steps and schedule render their content', () => {
+  const compare = render(fenced({ type: 'compare', recommended: 1, options: [{ title: 'Homework', pros: ['Due first'] }, { title: 'Stripe', cons: ['Long'] }] }));
+  assert.match(compare, /Recommended/); assert.match(compare, /Go with this/); assert.match(compare, /Due first/);
+  const steps = render(fenced({ type: 'steps', title: 'Midterm', items: [{ title: 'Redo quiz 3' }, { title: 'Read ch 5' }] }), { message: { cardState: { 0: { done: [0] } } } });
+  assert.match(steps, /1 of 2 done/);
+  assert.match(render(fenced({ type: 'schedule', items: [{ title: 'Gym', time: '07:00', end: '08:00' }] })), /Gym/);
+});
+
+test('the model shows cards with a real tool; bad cards come back as fixable errors and good ones follow the reply', async () => {
+  const call = (args) => ({ id: crypto.randomUUID(), type: 'function', function: { name: 'show_card', arguments: JSON.stringify(args) } });
+  const reply = (content, tool_calls) => ({ choices: [{ finish_reason: tool_calls ? 'tool_calls' : 'stop', message: { content, tool_calls } }] });
+  const queue = [reply(null, [call({ card: JSON.stringify({ type: 'records', items: [{ ref: 'task:missing' }] }) })]),
+    reply(null, [call({ card: JSON.stringify({ type: 'records', title: 'Focus today', items: [{ ref: 'task:t1', note: 'Start here' }] }) })]),
+    reply('Homework first: it is due tonight.')];
+  const requests = [];
+  const original = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return Response.json(queue.shift()); };
+  try {
+    const live = { ...state(), userId: 'test', openRouterKey: 'test-key', selectedModel: 'test/model', tasks: [{ id: 't1', title: 'Homework 6', section: 'Academic', dueDate: '2026-11-10', priority: 'high', status: 'not_started', completed: false }] };
+    const result = await AutonomousBrainAgent.execute('what should I focus on today?', live, 'test-key', 'test/model');
+    assert.ok(requests[0].tools.some(t => t.function.name === 'show_card'));
+    assert.match(requests[1].messages.at(-1).content, /None of those record IDs exist/);
+    assert.match(result.queryAnswer, /^Homework first: it is due tonight\.\n\n```iris-ui\n\{"type":"records"/);
+    assert.match(render(result.queryAnswer, { state: live }), /Start here/);
+  } finally { globalThis.fetch = original; }
 });

@@ -28,7 +28,7 @@ Never put a Supabase secret/service-role key, SMTP password, Google client secre
 
 Tasks, goals and milestones, habits/history, journal entries, notes and folders, chat history and archived conversations, sections, preferences, daily brief, and audit log are stored in the signed-in user's cloud snapshot. Account access is enforced by database row-level security and the save RPC. There is no hosted guest mode.
 
-Settings > Workspace & Sync shows Saving, Synced, or a failure, alongside export, import, and sign-out controls. Failed saves offer Retry save; export data before closing or reloading after a failure. Conflicts require export and reload; Retry does not overwrite another device's newer version. Snapshots have a 2 MiB limit, so storage is not unlimited. API keys are device-local and excluded from cloud snapshots and exports.
+Settings > Workspace & Sync shows Saving, Synced, or a failure, alongside export, import, and sign-out controls. Failed saves offer Retry save; export data before closing or reloading after a failure. Conflicts require export and reload; Retry does not overwrite another device's newer version. Apply `supabase/migrations/202611130001_remove_snapshot_limit.sql` to remove the aggregate 2 MiB snapshot cap from existing databases. Provider quotas and per-record limits still apply. API keys are device-local and excluded from cloud snapshots and exports.
 
 ## Verification
 
@@ -58,7 +58,7 @@ Tasks > Appearance offers eight coordinated accent palettes, with separate light
 
 Apply `supabase/migrations/202611100001_connected_memory.sql` before or with the release that learns continuously. It lets memories hold connections, repeat counts, earlier versions and the person and goal categories. It is additive. Until it is applied, the app still saves memories but drops those fields and files people under facts and goals under projects, so apply it to get connected recall.
 
-Apply `supabase/migrations/202611010002_agent_memory.sql` before publishing a frontend that saves `agentMemory`. It extends the existing revision-checked save function and validates the versioned memory collection (500 entries and 256 KiB, within the existing 2 MiB workspace limit). Existing workspaces without the field remain valid. The migration is additive and does not rewrite stored workspaces.
+Apply `supabase/migrations/202611010002_agent_memory.sql` before publishing a frontend that saves `agentMemory`. It extends the existing revision-checked save function and validates the versioned memory collection (500 entries and 256 KiB). Existing workspaces without the field remain valid. The migration is additive and does not rewrite stored workspaces.
 
 Memory is available in Workspace settings > Memory and through Remembered indicators in chat. Saved context and automatic learning have separate controls. Ordinary durable user statements may be learned through the existing agent tool loop; sensitive information needs an explicit remember request, and common credential formats are rejected. Memory is fallible context, not a replacement for current record retrieval. Users can inspect source quotes, correct/pin/expire/forget memories, and preview selected past-chat suggestions before approving them. Forgetting retains suppression markers, not the removed memory's content; the original conversation remains in history.
 
@@ -189,3 +189,7 @@ $$);
 This uses Supabase rather than `crons` in `vercel.json` because Vercel's Hobby plan rejects schedules that run more than once a day.
 
 Reminders are plain rules over tasks and events, so they use no AI credits. Deletions and other gated changes get Approve and Reject buttons. Sending email or inviting guests must still be approved in the app, where the full message and undo window are shown.
+
+## Remove the aggregate snapshot cap
+
+Apply `supabase/migrations/202611130001_remove_snapshot_limit.sql` in the Supabase SQL editor, then deploy the updated frontend. It removes the `brains.brain_size` constraint and the size checks in the installed `save_brain` and (when present) `save_brain_prefs` functions. It supports both snapshot-only and per-record databases and can be reapplied. Existing validation, account isolation, revision checks, and per-record limits remain in force. Export pending changes before reloading, and retry the failed save after applying the migration.
