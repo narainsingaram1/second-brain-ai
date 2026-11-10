@@ -41,7 +41,8 @@
 .note-tool-divider { width: 1px; height: 18px; background: var(--note-line); margin-inline: 4px; }
 .note-style-select { max-width: 112px; background: transparent; font-size: 13px; padding: 6px; color: var(--note-ink); }
 .note-editor select option { color: #0f172a; background: #fff; }
-.note-tool:focus-visible, .note-style-select:focus-visible, .note-editor input:focus-visible, .note-editor select:focus-visible, .note-editor button:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
+.note-tool:focus-visible, .note-editor button:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 2px; }
+.note-style-select:focus, .note-editor input:focus, .note-editor select:focus { outline: none !important; }
 .note-prose { font-size: var(--note-font-size, 18px); line-height: 1.85; color: var(--note-ink); min-height: 420px; outline: none; overflow-wrap: anywhere; padding: 0 4px 48px; caret-color: var(--workspace-accent); }
 .note-prose p { margin: .65em 0; }
 .note-prose > :first-child { margin-top: 0; }
