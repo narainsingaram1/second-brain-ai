@@ -772,3 +772,31 @@ test('the agent reports each step live: reasoning, searches and what they found'
   assert.equal(result.activity.length, 2, 'the final answer pass without reasoning is not shown');
   assert.ok(seen.some(s => s.status === 'running' && s.label === 'Searching your records for “Assignment 3”'), 'steps are reported while running');
 });
+
+test('concurrent tool dispatching runs independent reads in parallel and preserves tool message order', async () => {
+  const requests = [];
+  const startTimes = [];
+  const c1 = call('query_records', { type: 'task', countOnly: true }, 'call-tasks');
+  const c2 = call('query_records', { type: 'event', countOnly: true }, 'call-events');
+  const c3 = call('search_records', { query: 'Midterm' }, 'call-search');
+
+  mockProvider([
+    response(null, [c1, c2, c3]),
+    response('Found your schedule details.'),
+  ], requests);
+
+  const result = await AutonomousBrainAgent.execute('Check my tasks and schedule', state(), 'test-key', 'test-model');
+  assert.equal(result.status, 'complete');
+  assert.equal(requests.length, 2);
+
+  // Verify that all 3 tool responses in round 2 match the original call IDs in exact order
+  const toolMessages = requests[1].messages.filter(m => m.role === 'tool');
+  assert.equal(toolMessages.length, 3);
+  assert.equal(toolMessages[0].tool_call_id, 'call-tasks');
+  assert.equal(toolMessages[1].tool_call_id, 'call-events');
+  assert.equal(toolMessages[2].tool_call_id, 'call-search');
+  assert.ok(JSON.parse(toolMessages[0].content).total !== undefined);
+  assert.ok(JSON.parse(toolMessages[1].content).total !== undefined);
+  assert.ok(JSON.parse(toolMessages[2].content).results !== undefined);
+});
+

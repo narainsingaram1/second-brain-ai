@@ -356,6 +356,17 @@ export interface AgentStep {
   hidden?: boolean;
 }
 
+/** A change the assistant successfully executed and saved in the user's workspace during this turn. */
+export interface AppliedAction {
+  action: string;
+  type: string;
+  id: string;
+  title: string;
+  summary: string;
+  details?: string[];
+  remove?: boolean;
+}
+
 export interface AIMessage {
   sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
   attachments?: ImageAttachment[];
@@ -369,6 +380,8 @@ export interface AIMessage {
   memoryNotice?: string;
   /** Changes the assistant proposed in this reply that wait for the user's decision. */
   approvals?: ApprovalRequest[];
+  /** Actions successfully executed and saved in the user's workspace this turn. */
+  actions?: AppliedAction[];
   /** Things the assistant did in connected services (drafts saved, events created), with links. */
   external?: Array<{ tool: string; summary: string; link?: string }>;
   /** What the assistant did to produce this reply, step by step. */

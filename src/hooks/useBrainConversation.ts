@@ -9,6 +9,7 @@ import {
   type AgentExecutionResult,
 } from "../services/agentDispatcher";
 import { applyMutation, mutationRecords, recordTitle, type Mutation } from "../services/brainTools";
+import { describeMutation } from "../services/actionPolicy";
 import { prepareCardChanges, prepareChecklistTasks, type CardChange } from "../services/irisCards";
 import type { IrisCardState, IrisUiSpec } from "../utils/irisUi";
 import { persistBrainState } from "../services/storage";
@@ -416,6 +417,21 @@ export function useBrainConversation(
           rememberedIds: result.rememberedIds,
           memoryNotice: result.memoryNotice,
           ...(result.approvals?.length ? { approvals: result.approvals } : {}),
+          ...(result.actions?.length ? {
+            actions: result.actions.map(m => {
+              const { summary, details } = describeMutation(m.action, m);
+              const title = recordTitle(m.record, "Untitled");
+              return {
+                action: m.action,
+                type: m.type,
+                id: m.record.id,
+                title,
+                summary,
+                details,
+                remove: !!m.remove,
+              };
+            }),
+          } : {}),
           ...(result.external?.length ? { external: result.external } : {}),
           ...(result.activity?.length ? { activity: result.activity } : {}),
         };

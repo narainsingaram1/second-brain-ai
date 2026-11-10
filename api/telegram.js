@@ -9653,6 +9653,7 @@ var AutonomousBrainAgent = class {
 		let stateRevision = 0;
 		const explorationDeadline = Date.now() + 18e4;
 		const readCache = /* @__PURE__ */ new Map();
+		const inFlightReads = /* @__PURE__ */ new Map();
 		const seenEvidence = /* @__PURE__ */ new Set();
 		const evidence = /* @__PURE__ */ new Map();
 		const canonical = (value) => JSON.stringify(value, (_, child) => child && typeof child === "object" && !Array.isArray(child) ? Object.fromEntries(Object.entries(child).sort(([a], [b]) => a.localeCompare(b))) : child);
@@ -9726,92 +9727,224 @@ var AutonomousBrainAgent = class {
 					content: completion.content,
 					tool_calls: completion.toolCalls
 				});
+				const isReadCall = (call) => {
+					if (call.function.name === SHOW_CARD.function.name) return true;
+					if (readNames.has(call.function.name)) return true;
+					if (external && externalNames.has(call.function.name)) {
+						let preview = {};
+						try {
+							preview = JSON.parse(call.function.arguments) || {};
+						} catch {}
+						return toolTier(call.function.name, preview) === "read";
+					}
+					return false;
+				};
+				const batches = [];
 				for (const call of completion.toolCalls) {
+					const isRead = isReadCall(call);
+					const lastBatch = batches[batches.length - 1];
+					if (lastBatch && lastBatch.isRead && isRead) lastBatch.calls.push(call);
+					else batches.push({
+						isRead,
+						calls: [call]
+					});
+				}
+				for (const batch of batches) {
 					signal.throwIfAborted();
-					let output;
-					let preview = {};
-					try {
-						preview = JSON.parse(call.function.arguments) || {};
-					} catch {}
-					const described = describeCall(call.function.name, preview);
-					const stepId = activity.start(described.kind, described.label);
-					const settle = (result) => {
-						if (result && typeof result === "object" && "error" in result) activity.fail(stepId, String(result.error));
-						else activity.finish(stepId, {
-							label: pastTense(described.label),
-							...describeResult(call.function.name, preview, result)
-						});
-					};
-					try {
-						if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
-						const tool = tools.find((t) => t.function.name === call.function.name);
-						if (!tool) throw new Error("Unsupported tool");
-						const args = parseToolArguments(call.function.arguments, tool.function.parameters);
-						if (call.function.name === SHOW_CARD.function.name) {
-							if (cards.length >= 2) throw new Error("Two cards are already shown. Write the reply now.");
-							cards.push(checkCard(args.card, state));
-							output = {
-								shown: true,
-								next: "The card appears below your reply. Now write the reply: a sentence or two of framing and insight, without repeating the card's contents or mentioning the card."
+					if (batch.isRead) {
+						if (batch.calls.length === 1) {
+							const name = batch.calls[0].function.name;
+							options.onProgress?.(READ_PROGRESS[name] || (name === "search_records" ? "Searching your records…" : "Reading your records…"));
+						} else {
+							const names = batch.calls.map((c) => c.function.name);
+							const hasSearch = names.some((n) => n === "search_records" || n === "web_search");
+							const hasExternal = names.some((n) => n === "read_url" || n === "search_email" || n === "read_email");
+							options.onProgress?.(hasSearch && hasExternal ? "Searching records & reading sources in parallel…" : hasSearch ? "Searching your records in parallel…" : hasExternal ? "Reading connected sources in parallel…" : `Reading ${batch.calls.length} records in parallel…`);
+						}
+						if (options.getMemory) state = {
+							...state,
+							agentMemory: options.getMemory()
+						};
+						const results = await Promise.all(batch.calls.map(async (call) => {
+							signal.throwIfAborted();
+							let output;
+							let preview = {};
+							try {
+								preview = JSON.parse(call.function.arguments) || {};
+							} catch {}
+							const described = describeCall(call.function.name, preview);
+							const stepId = activity.start(described.kind, described.label);
+							const settle = (result) => {
+								if (result && typeof result === "object" && "error" in result) activity.fail(stepId, String(result.error));
+								else activity.finish(stepId, {
+									label: pastTense(described.label),
+									...describeResult(call.function.name, preview, result)
+								});
 							};
-						} else if (MEMORY_WRITES.includes(call.function.name)) {
-							if (!options.commitMemory) throw new Error("Memory writes are unavailable in this session.");
-							const latestMemory = options.getMemory ? options.getMemory() : state.agentMemory;
-							const memoryState = {
-								...state,
-								agentMemory: latestMemory
-							};
-							const fingerprint = call.function.name + canonical(args);
-							if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
-							else {
-								const change = prepareMemoryChange(call.function.name, args, memoryState, prompt, currentMessage, options.temporary);
-								const savedMemory = await options.commitMemory(change);
-								state = {
-									...state,
-									agentMemory: savedMemory
-								};
-								memoryWrites++;
-								const savedEntry = change.kind === "remember" ? savedMemory.entries.find((e) => topicKey(e.topic) === topicKey(change.entry.topic)) : void 0;
-								if (savedEntry && !rememberedIds.includes(savedEntry.id)) rememberedIds.push(savedEntry.id);
-								output = {
-									saved: true,
-									action: change.kind,
-									...savedEntry ? {
-										id: savedEntry.id,
-										topic: savedEntry.topic
-									} : {}
-								};
-								completedWrites.set(fingerprint, output);
-								readCache.clear();
-								stateRevision++;
-								roundProgress = true;
-							}
-							memoryErrors.delete(memoryErrorKey(args));
-						} else if (external && externalNames.has(call.function.name)) {
-							const name = call.function.name;
-							if (toolTier(name, args) === "read") {
-								options.onProgress?.(READ_PROGRESS[name] || "Reading…");
-								const readKey = name + canonical(args);
-								let cached = readCache.get(readKey);
-								if (!cached) {
-									cached = {
-										output: (await external.execute(name, args, signal)).output,
-										sources: []
+							try {
+								if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
+								const tool = tools.find((t) => t.function.name === call.function.name);
+								if (!tool) throw new Error("Unsupported tool");
+								const args = parseToolArguments(call.function.arguments, tool.function.parameters);
+								if (call.function.name === SHOW_CARD.function.name) {
+									if (cards.length >= 2) throw new Error("Two cards are already shown. Write the reply now.");
+									cards.push(checkCard(args.card, state));
+									output = {
+										shown: true,
+										next: "The card appears below your reply. Now write the reply: a sentence or two of framing and insight, without repeating the card's contents or mentioning the card."
 									};
-									readCache.set(readKey, cached);
-								}
-								output = cached.output;
-								if (readsUntrustedContent(name, [])) untrustedRead = true;
-								if (!seenEvidence.has(readKey)) {
-									seenEvidence.add(readKey);
+								} else if (external && externalNames.has(call.function.name)) {
+									const name = call.function.name;
+									const readKey = name + canonical(args);
+									let cached = readCache.get(readKey);
+									if (!cached) {
+										let inFlight = inFlightReads.get(readKey);
+										if (!inFlight) {
+											inFlight = external.execute(name, args, signal).then((res) => ({
+												output: res.output,
+												sources: []
+											}));
+											inFlightReads.set(readKey, inFlight);
+										}
+										try {
+											cached = await inFlight;
+											readCache.set(readKey, cached);
+										} finally {
+											inFlightReads.delete(readKey);
+										}
+									}
+									output = cached.output;
+									if (readsUntrustedContent(name, [])) untrustedRead = true;
+									if (!seenEvidence.has(readKey)) {
+										seenEvidence.add(readKey);
+										roundProgress = true;
+									}
+									evidence.set(readKey, {
+										tool: name,
+										result: output,
+										stateRevision
+									});
+								} else if (readNames.has(call.function.name)) {
+									if ((options.temporary || !normalizeAgentMemory(state.agentMemory).enabled) && (call.function.name === "search_memories" || call.function.name === "search_conversations" || call.function.name === "recall_conversation" && args.conversationId && args.conversationId !== (state.conversationId || "current"))) throw new Error("Saved memory and archived recall are disabled.");
+									const normalizedArgs = {
+										...args,
+										offset: args.offset || 0,
+										...call.function.name === "query_records" ? { countOnly: args.countOnly || false } : {},
+										...call.function.name === "recall_conversation" ? { characterOffset: args.characterOffset || 0 } : {}
+									};
+									const readKey = call.function.name + canonical(normalizedArgs);
+									let result = readCache.get(readKey);
+									if (!result) {
+										let inFlight = inFlightReads.get(readKey);
+										if (!inFlight) {
+											inFlight = executeRead(call.function.name, args, state, key, signal, options.onProgress, options.retrieval);
+											inFlightReads.set(readKey, inFlight);
+										}
+										try {
+											result = await inFlight;
+											readCache.set(readKey, result);
+										} finally {
+											inFlightReads.delete(readKey);
+										}
+									}
+									output = result.output;
+									const evidenceKey = call.function.name + canonical(JSON.parse(JSON.stringify({
+										arguments: normalizedArgs,
+										output
+									}, (field, value) => [
+										"offset",
+										"characterOffset",
+										"nextOffset",
+										"nextCharacterOffset",
+										"complete"
+									].includes(field) ? void 0 : value)));
+									if (!seenEvidence.has(evidenceKey)) {
+										seenEvidence.add(evidenceKey);
+										roundProgress = true;
+									}
+									evidence.set(readKey, {
+										tool: call.function.name,
+										result: output,
+										stateRevision
+									});
+									for (const source of result.sources) sources.set(`${source.type}:${source.id}:${source.offset || 0}`, source);
+									if (readsUntrustedContent(call.function.name, result.sources.map((s) => s.type))) untrustedRead = true;
+								} else throw new Error("Unsupported tool");
+							} catch (err) {
+								signal.throwIfAborted();
+								output = {
+									error: errorMessage(err),
+									saved: false
+								};
+							}
+							settle(output);
+							return {
+								call,
+								output
+							};
+						}));
+						for (const res of results) messages.push({
+							role: "tool",
+							tool_call_id: res.call.id,
+							content: JSON.stringify(res.output)
+						});
+					} else for (const call of batch.calls) {
+						signal.throwIfAborted();
+						let output;
+						let preview = {};
+						try {
+							preview = JSON.parse(call.function.arguments) || {};
+						} catch {}
+						const described = describeCall(call.function.name, preview);
+						const stepId = activity.start(described.kind, described.label);
+						const settle = (result) => {
+							if (result && typeof result === "object" && "error" in result) activity.fail(stepId, String(result.error));
+							else activity.finish(stepId, {
+								label: pastTense(described.label),
+								...describeResult(call.function.name, preview, result)
+							});
+						};
+						try {
+							if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
+							const tool = tools.find((t) => t.function.name === call.function.name);
+							if (!tool) throw new Error("Unsupported tool");
+							const args = parseToolArguments(call.function.arguments, tool.function.parameters);
+							if (MEMORY_WRITES.includes(call.function.name)) {
+								if (!options.commitMemory) throw new Error("Memory writes are unavailable in this session.");
+								const latestMemory = options.getMemory ? options.getMemory() : state.agentMemory;
+								const memoryState = {
+									...state,
+									agentMemory: latestMemory
+								};
+								const fingerprint = call.function.name + canonical(args);
+								if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
+								else {
+									const change = prepareMemoryChange(call.function.name, args, memoryState, prompt, currentMessage, options.temporary);
+									const savedMemory = await options.commitMemory(change);
+									state = {
+										...state,
+										agentMemory: savedMemory
+									};
+									memoryWrites++;
+									const savedEntry = change.kind === "remember" ? savedMemory.entries.find((e) => topicKey(e.topic) === topicKey(change.entry.topic)) : void 0;
+									if (savedEntry && !rememberedIds.includes(savedEntry.id)) rememberedIds.push(savedEntry.id);
+									output = {
+										saved: true,
+										action: change.kind,
+										...savedEntry ? {
+											id: savedEntry.id,
+											topic: savedEntry.topic
+										} : {}
+									};
+									completedWrites.set(fingerprint, output);
+									readCache.clear();
+									inFlightReads.clear();
+									stateRevision++;
 									roundProgress = true;
 								}
-								evidence.set(readKey, {
-									tool: name,
-									result: output,
-									stateRevision
-								});
-							} else {
+								memoryErrors.delete(memoryErrorKey(args));
+							} else if (external && externalNames.has(call.function.name)) {
+								const name = call.function.name;
 								const fingerprint = name + canonical(args);
 								if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
 								else {
@@ -9861,136 +9994,96 @@ var AutonomousBrainAgent = class {
 									completedWrites.set(fingerprint, output);
 									roundProgress = true;
 								}
-							}
-						} else if (readNames.has(call.function.name)) {
-							if (options.getMemory) state = {
-								...state,
-								agentMemory: options.getMemory()
-							};
-							if ((options.temporary || !normalizeAgentMemory(state.agentMemory).enabled) && (call.function.name === "search_memories" || call.function.name === "search_conversations" || call.function.name === "recall_conversation" && args.conversationId && args.conversationId !== (state.conversationId || "current"))) throw new Error("Saved memory and archived recall are disabled.");
-							options.onProgress?.(call.function.name === "search_records" ? "Searching your records…" : "Reading your records…");
-							const normalizedArgs = {
-								...args,
-								offset: args.offset || 0,
-								...call.function.name === "query_records" ? { countOnly: args.countOnly || false } : {},
-								...call.function.name === "recall_conversation" ? { characterOffset: args.characterOffset || 0 } : {}
-							};
-							const readKey = call.function.name + canonical(normalizedArgs);
-							let result = readCache.get(readKey);
-							if (!result) {
-								result = await executeRead(call.function.name, args, state, key, signal, options.onProgress, options.retrieval);
-								readCache.set(readKey, result);
-							}
-							output = result.output;
-							const evidenceKey = call.function.name + canonical(JSON.parse(JSON.stringify({
-								arguments: normalizedArgs,
-								output
-							}, (field, value) => [
-								"offset",
-								"characterOffset",
-								"nextOffset",
-								"nextCharacterOffset",
-								"complete"
-							].includes(field) ? void 0 : value)));
-							if (!seenEvidence.has(evidenceKey)) {
-								seenEvidence.add(evidenceKey);
-								roundProgress = true;
-							}
-							evidence.set(readKey, {
-								tool: call.function.name,
-								result: output,
-								stateRevision
-							});
-							for (const source of result.sources) sources.set(`${source.type}:${source.id}:${source.offset || 0}`, source);
-							if (readsUntrustedContent(call.function.name, result.sources.map((s) => s.type))) untrustedRead = true;
-						} else {
-							const fingerprint = call.function.name + JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
-							if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
-							else {
-								if (!options.commit) throw new Error("Writes are unavailable in this session.");
-								const mutation = prepareMutation(call.function.name, args, state);
-								const reason = approvalReason(call.function.name, {
-									untrustedRead,
-									changes: actions.length + approvals.length,
-									askBeforeChanges: !!state.preferences?.askBeforeChanges
-								});
-								if (reason) {
-									if (!options.propose) throw new Error("This change needs the user's approval, which is not available in this session.");
-									const { summary, details } = describeMutation(call.function.name, mutation);
-									options.onProgress?.("Asking for your approval…");
-									const request = await options.propose({
-										tool: call.function.name,
-										args,
-										mutation,
-										summary,
-										details,
-										reason
+							} else {
+								const fingerprint = call.function.name + JSON.stringify(Object.entries(args).sort(([a], [b]) => a.localeCompare(b)));
+								if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
+								else {
+									if (!options.commit) throw new Error("Writes are unavailable in this session.");
+									const mutation = prepareMutation(call.function.name, args, state);
+									const reason = approvalReason(call.function.name, {
+										untrustedRead,
+										changes: actions.length + approvals.length,
+										askBeforeChanges: !!state.preferences?.askBeforeChanges
 									});
-									approvals.push(request);
+									if (reason) {
+										if (!options.propose) throw new Error("This change needs the user's approval, which is not available in this session.");
+										const { summary, details } = describeMutation(call.function.name, mutation);
+										options.onProgress?.("Asking for your approval…");
+										const request = await options.propose({
+											tool: call.function.name,
+											args,
+											mutation,
+											summary,
+											details,
+											reason
+										});
+										approvals.push(request);
+										output = {
+											status: "awaiting_approval",
+											saved: false,
+											approvalId: request.id,
+											summary,
+											reason
+										};
+										completedWrites.set(fingerprint, output);
+										roundProgress = true;
+										settle(output);
+										messages.push({
+											role: "tool",
+											tool_call_id: call.id,
+											content: JSON.stringify(output)
+										});
+										continue;
+									}
+									options.onProgress?.("Saving changes…");
+									signal.throwIfAborted();
+									await options.commit(mutation);
+									state = applyMutation(state, mutation);
+									readCache.clear();
+									inFlightReads.clear();
+									stateRevision++;
+									roundProgress = true;
+									actions.push(mutation);
 									output = {
-										status: "awaiting_approval",
-										saved: false,
-										approvalId: request.id,
-										summary,
-										reason
+										saved: true,
+										action: mutation.action,
+										type: mutation.type,
+										record: mutation.record
 									};
 									completedWrites.set(fingerprint, output);
-									roundProgress = true;
-									settle(output);
-									messages.push({
-										role: "tool",
-										tool_call_id: call.id,
-										content: JSON.stringify(output)
+									if (!mutation.remove && ![
+										"workspace",
+										"folder",
+										"section"
+									].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, {
+										id: mutation.record.id,
+										type: mutation.type,
+										title: recordTitle$1(mutation.record, "Note"),
+										snippet: "Saved during this conversation"
 									});
-									continue;
 								}
-								options.onProgress?.("Saving changes…");
-								signal.throwIfAborted();
-								await options.commit(mutation);
-								state = applyMutation(state, mutation);
-								readCache.clear();
-								stateRevision++;
-								roundProgress = true;
-								actions.push(mutation);
-								output = {
-									saved: true,
-									action: mutation.action,
-									type: mutation.type,
-									record: mutation.record
-								};
-								completedWrites.set(fingerprint, output);
-								if (!mutation.remove && ![
-									"workspace",
-									"folder",
-									"section"
-								].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, {
-									id: mutation.record.id,
-									type: mutation.type,
-									title: recordTitle$1(mutation.record, "Note"),
-									snippet: "Saved during this conversation"
-								});
 							}
+						} catch (err) {
+							signal.throwIfAborted();
+							if (MEMORY_WRITES.includes(call.function.name)) {
+								let args = {};
+								try {
+									args = JSON.parse(call.function.arguments);
+								} catch {}
+								memoryErrors.set(memoryErrorKey(args || {}), errorMessage(err));
+							}
+							output = {
+								error: errorMessage(err),
+								saved: false
+							};
 						}
-					} catch (err) {
-						signal.throwIfAborted();
-						if (MEMORY_WRITES.includes(call.function.name)) {
-							let args = {};
-							try {
-								args = JSON.parse(call.function.arguments);
-							} catch {}
-							memoryErrors.set(memoryErrorKey(args || {}), errorMessage(err));
-						}
-						output = {
-							error: errorMessage(err),
-							saved: false
-						};
+						settle(output);
+						messages.push({
+							role: "tool",
+							tool_call_id: call.id,
+							content: JSON.stringify(output)
+						});
 					}
-					settle(output);
-					messages.push({
-						role: "tool",
-						tool_call_id: call.id,
-						content: JSON.stringify(output)
-					});
 				}
 				stagnantRounds = roundProgress ? 0 : stagnantRounds + 1;
 			}

@@ -91,3 +91,27 @@ test('activity renders a live status while working and an expandable summary whe
   const id = tracker.start('think', 'Thinking'); tracker.hide(id);
   assert.deepEqual(tracker.list(), []);
 });
+
+test('agentic actions render preview card with badges, details and change inspector', () => {
+  const msgWithActions = {
+    ...message,
+    actions: [
+      {
+        action: 'create_task',
+        type: 'task',
+        id: 'task-123',
+        title: 'Prepare presentation',
+        summary: 'Create task "Prepare presentation"',
+        details: ['Due date: — → 2026-11-02', 'Priority: — → high'],
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(React.createElement(ConversationMessage, { message: msgWithActions, state }));
+  assert.match(html, /action-applied-container/);
+  assert.match(html, /Action executed in your workspace/);
+  assert.match(html, /Created/);
+  assert.match(html, /Prepare presentation/);
+  assert.match(html, /Preview change/);
+  assert.match(html, /View record/);
+});
+
