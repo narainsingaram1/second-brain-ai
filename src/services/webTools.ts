@@ -77,8 +77,75 @@ export function decodeEntities(text: string): string {
   });
 }
 
+const LD_SKIP = /^(@context|@id|logo|image|thumbnailUrl|sameAs|potentialAction|breadcrumb|mainEntityOfPage|isPartOf|inLanguage|identifier|url|directApply)$/i;
+const LD_NOISE = /^(BreadcrumbList|WebSite|WebPage|SearchAction|SiteNavigationElement|ImageObject|Organization)$/i;
+const label = (key: string) => (key === "@type" ? "Type" : key.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/^./, c => c.toUpperCase()));
+const fieldText = (value: string) => (/<[a-z][^>]*>/i.test(value) ? htmlToText(value, false).text : decodeEntities(value).replace(/\s+/g, " ").trim());
+
+/** Schema.org data as readable lines: labelled fields at the top, nested values (places, salaries, employers) compacted. */
+function ldToText(value: unknown, depth = 0): string {
+  if (value == null || depth > 5) return "";
+  if (typeof value === "string") return fieldText(value);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.map(v => ldToText(v, depth + 1)).filter(Boolean).join(depth ? ", " : "\n\n");
+  if (typeof value !== "object") return "";
+  const entries = Object.entries(value as Record<string, unknown>).filter(([k]) => !LD_SKIP.test(k));
+  if (depth) {
+    const name = (value as Record<string, unknown>).name;
+    if (typeof name === "string" && name.trim()) return fieldText(name);
+    return entries.filter(([k]) => k !== "@type").map(([, v]) => ldToText(v, depth + 1)).filter(Boolean).join(", ");
+  }
+  return entries.map(([k, v]) => {
+    const t = ldToText(v, depth + 1);
+    return !t ? "" : t.includes("\n") ? `${label(k)}:\n${t}` : `${label(k)}: ${t}`;
+  }).filter(Boolean).join("\n");
+}
+
+/** Long text values (descriptions, bodies) found anywhere in an app's embedded state, in order and without repeats. */
+function stateStrings(value: unknown, out: string[], seen: Set<string>, depth = 0) {
+  if (depth > 40 || out.length > 200) return;
+  if (typeof value === "string") {
+    const isHtml = /<(p|li|br|h[1-6]|div|ul|strong)\b/i.test(value);
+    if ((isHtml || (value.length >= 80 && /\s/.test(value) && !/^(https?:|data:|\{|\[)/.test(value))) && !seen.has(value)) {
+      seen.add(value);
+      const text = fieldText(value);
+      if (text.length >= 40) out.push(text);
+    }
+  } else if (Array.isArray(value)) value.forEach(v => stateStrings(v, out, seen, depth + 1));
+  else if (value && typeof value === "object") Object.values(value).forEach(v => stateStrings(v, out, seen, depth + 1));
+}
+
+/**
+ * Text that JavaScript-rendered pages (job boards, shops, many modern sites) carry in their HTML even when the
+ * visible body is just a loading spinner: schema.org JSON-LD first, then framework state such as __NEXT_DATA__.
+ */
+export function embeddedText(html: string): string {
+  const objects: unknown[] = [];
+  for (const m of html.matchAll(/<script\b[^>]*type=["']?application\/ld\+json["']?[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
+    try {
+      const data = JSON.parse(m[1].trim());
+      const flat = (v: unknown): unknown[] => Array.isArray(v) ? v.flatMap(flat)
+        : v && typeof v === "object" && Array.isArray((v as Record<string, unknown>)["@graph"]) ? flat((v as Record<string, unknown>)["@graph"]) : [v];
+      objects.push(...flat(data).filter(o => o && typeof o === "object" && !LD_NOISE.test(String((o as Record<string, unknown>)["@type"] ?? ""))));
+    } catch { /* malformed JSON-LD is common; skip it */ }
+  }
+  const ld = objects.map(o => ldToText(o)).filter(Boolean).join("\n\n");
+  if (ld.length >= 200) return ld;
+
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const parse = (json: string) => { try { stateStrings(JSON.parse(json), out, seen); } catch { /* not JSON */ } };
+  for (const m of html.matchAll(/<script\b[^>]*type=["']application\/json["'][^>]*>([\s\S]*?)<\/script\s*>/gi)) parse(m[1].trim());
+  for (const m of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)) {
+    const assign = m[1].match(/^\s*(?:window\.|self\.|var |let |const )?[\w$.[\]"']+\s*=\s*(\{[\s\S]*\}|\[[\s\S]*\])\s*;?\s*$/);
+    if (assign) parse(assign[1]);
+  }
+  const state = out.join("\n\n");
+  return [ld, state].filter(Boolean).join("\n\n").slice(0, 200_000);
+}
+
 /** Readable text from an HTML page: title, description, and the main content as plain text with light structure. */
-export function htmlToText(html: string): { title: string; description: string; text: string } {
+export function htmlToText(html: string, withEmbedded = true): { title: string; description: string; text: string } {
   const meta = (name: string) => html.match(new RegExp(`<meta[^>]+(?:name|property)=["']${name}["'][^>]*content=["']([^"']*)["']`, "i"))?.[1]
     || html.match(new RegExp(`<meta[^>]+content=["']([^"']*)["'][^>]*(?:name|property)=["']${name}["']`, "i"))?.[1] || "";
   const title = decodeEntities((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || meta("og:title")).replace(/\s+/g, " ").trim());
@@ -101,6 +168,11 @@ export function htmlToText(html: string): { title: string; description: string; 
     .replace(/ *\n */g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  // A thin body usually means the page renders with JavaScript; its content is often embedded as data instead.
+  if (withEmbedded && text.length < 500) {
+    const embedded = embeddedText(html);
+    if (embedded.length > text.length) return { title, description, text: text ? `${text}\n\n${embedded}` : embedded };
+  }
   return { title, description, text };
 }
 
@@ -151,7 +223,10 @@ export async function readUrl(raw: string, offset: number, access: WebAccess, si
     try {
       response = await access.fetch(url.toString(), {
         signal: timeout, redirect: access.manualRedirects ? "manual" : "follow",
-        headers: { Accept: "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.8,*/*;q=0.5", "User-Agent": "Mozilla/5.0 (compatible; SynapseAssistant/1.0; link preview)" },
+        // Browser-standard headers: some sites (Workday) answer a listed application/json with a JSON stub instead of
+        // the page, and many refuse bot-style user agents outright.
+        headers: { Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8", "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 SynapseAssistant/1.0" },
       });
     } catch (error) {
       if (signal.aborted) throw error;
@@ -170,6 +245,8 @@ export async function readUrl(raw: string, offset: number, access: WebAccess, si
   if (type && !/(text\/|html|xml|json|javascript)/.test(type)) throw new Error(`This link is a file (${type.split(";")[0]}), not a readable page.`);
   const raw_ = await readCapped(response);
   const page = /html|xml/.test(type) || /^\s*</.test(raw_) ? htmlToText(raw_) : { title: "", description: "", text: raw_.trim() };
+  // Pages that render only with JavaScript still usually name themselves; hand that back rather than nothing.
+  if (!page.text && (page.title || page.description)) page.text = [...new Set([page.title, page.description].filter(Boolean))].join("\n\n");
   if (!page.text) throw new Error("The page has no readable text. It may load its content with JavaScript or need a sign-in.");
   const start = Math.max(0, Math.min(offset || 0, page.text.length));
   const text = page.text.slice(start, start + CHUNK);
