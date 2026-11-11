@@ -37,6 +37,7 @@ export async function writeManagedBrain(state: unknown, revision: number, ownerI
   if (error?.code === "40001") throw new Error("Another device saved changes. Export your work, then reload before editing again.");
   if (error?.code === "42501") throw new Error("Your account changed. Reload and sign in again before saving.");
   if (error?.code === "22023" && /invalid agent memory/i.test(error.message)) throw new Error("Cloud memory validation failed. The database may need a memory update or memory may be full.");
+  if (error?.code === "22023" && /invalid workspace page/i.test(error.message)) throw new Error("Cloud database rejected a workspace page. Apply the latest workspace schema update, then retry saving. Your changes are still in this tab.");
   if (error) throw new Error(error.code === "22023" ? "Cloud save rejected: invalid workspace data. Export your work before reloading." : "Cloud save failed. Keep this tab open and retry.");
   return { revision: Number(data) };
 }

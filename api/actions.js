@@ -1078,6 +1078,12 @@ const TRACKER_FIELDS = [
 		kinds: ["job_application"],
 		type: "text",
 		description: "Recruiter or contact: name, email or LinkedIn."
+	},
+	{
+		key: "resumeId",
+		kinds: ["job_application"],
+		type: "text",
+		description: "ID of an uploaded résumé version in this workspace. Use only a real saved ID when the user identifies the résumé used; empty string clears the selection. Never infer the résumé for a past application."
 	}
 ];
 const TRACKER_FIELD_KEYS = TRACKER_FIELDS.map((f) => f.key);
@@ -2170,6 +2176,10 @@ function tool(name, description, properties, required = []) {
 	};
 }
 const READ_TOOLS = [
+	tool("list_resume_versions", "List uploaded résumé versions and the current default for a Career workspace. Returns metadata only, never file contents. Use real returned IDs to record which version the user used for an application; do not assume past applications used today's default.", {
+		workspaceId: str,
+		offset: cursorSchema
+	}, ["workspaceId"]),
 	tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", { date: {
 		type: "string",
 		description: "Optional YYYY-MM-DD to evaluate as 'today'."
@@ -2822,6 +2832,14 @@ function prepareMutation(name, args, state) {
 			const workspaceId = careerWorkspace(state, args.workspaceId);
 			const now = (/* @__PURE__ */ new Date()).toISOString();
 			const fields = readTrackerFields(args.kind, args);
+			if (fields.resumeId) {
+				const resume = state.workspaces?.find((w) => w.id === workspaceId)?.resumes?.find((r) => r.id === fields.resumeId);
+				if (!resume) throw new Error("Unknown résumé version in this Career workspace.");
+				Object.assign(fields, {
+					resumeName: resume.name,
+					resumeUploadedAt: resume.uploadedAt
+				});
+			}
 			if (args.kind === "leetcode" && !fields.difficulty) fields.difficulty = "Medium";
 			const title = args.title.trim();
 			return {
@@ -2860,6 +2878,18 @@ function prepareMutation(name, args, state) {
 				...readTrackerFields(item.kind, args)
 			};
 			for (const key of args.clearFields || []) delete fields[key];
+			if (args.resumeId !== void 0 || args.clearFields?.includes("resumeId")) {
+				delete fields.resumeName;
+				delete fields.resumeUploadedAt;
+				if (fields.resumeId) {
+					const resume = state.workspaces?.find((w) => w.id === (args.moveToWorkspaceId || item.workspaceId))?.resumes?.find((r) => r.id === fields.resumeId);
+					if (!resume) throw new Error("Unknown résumé version in this Career workspace.");
+					Object.assign(fields, {
+						resumeName: resume.name,
+						resumeUploadedAt: resume.uploadedAt
+					});
+				}
+			}
 			const title = args.newTitle?.trim();
 			const notes = args.replaceNotes !== void 0 ? args.replaceNotes.trim() : args.appendNotes ? [item.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") : item.notes;
 			return {
@@ -3549,6 +3579,7 @@ function prepareMutation(name, args, state) {
 }
 // src/services/actionPolicy.ts
 const READ = /* @__PURE__ */ new Set([
+	"list_resume_versions",
 	"health_summary",
 	"query_records",
 	"read_record",

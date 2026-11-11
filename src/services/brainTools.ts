@@ -474,6 +474,7 @@ function tool(name: string, description: string, properties: Record<string, unkn
   return { type: "function", function: { name, description, parameters: { type: "object", properties, required, additionalProperties: false } } };
 }
 export const READ_TOOLS = [
+  tool("list_resume_versions", "List uploaded résumé versions and the current default for a Career workspace. Returns metadata only, never file contents. Use real returned IDs to record which version the user used for an application; do not assume past applications used today's default.", { workspaceId: str, offset: cursorSchema }, ["workspaceId"]),
   tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", {
     date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
   }),
@@ -696,6 +697,12 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
   return { ...state, [key]: exists ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record] };
 }
 export async function executeRead(name: string, args: any, state: BrainState, key: string, signal?: AbortSignal, progress?: (s: string) => void, ctx?: RetrievalContext): Promise<{ output: unknown; sources: Source[] }> {
+  if (name === "list_resume_versions") {
+    const workspace = state.workspaces?.find(w => w.id === args.workspaceId && w.template === "career");
+    if (!workspace) throw new Error("Unknown Career workspace.");
+    const versions = workspace.resumes || [], offset = args.offset || 0;
+    return { output: { currentResumeId: workspace.currentResumeId || null, versions: versions.slice(offset, offset + 20), total: versions.length, nextOffset: offset + 20 < versions.length ? offset + 20 : null }, sources: [] };
+  }
   if (name === "search_memories") return { output: await readMemories(state,args,key,signal), sources: [] };
   if (name === "search_conversations") return { output: searchConversations(state,args.query,args.offset || 0), sources: [] };
   if (name === "health_summary") {
@@ -932,6 +939,11 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const workspaceId = careerWorkspace(state, args.workspaceId);
       const now = new Date().toISOString();
       const fields: Record<string, unknown> = readTrackerFields(args.kind, args);
+      if (fields.resumeId) {
+        const resume = state.workspaces?.find(w => w.id === workspaceId)?.resumes?.find(r => r.id === fields.resumeId);
+        if (!resume) throw new Error("Unknown résumé version in this Career workspace.");
+        Object.assign(fields, { resumeName: resume.name, resumeUploadedAt: resume.uploadedAt });
+      }
       if (args.kind === "leetcode" && !fields.difficulty) fields.difficulty = "Medium";
       const title = args.title.trim();
       return { type: "tracker", action: name, record: { id, workspaceId, kind: args.kind, title, subject: args.kind === "leetcode" ? title : args.company.trim(),
@@ -949,6 +961,14 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (args.newUrl && !url) throw new Error("Links must be full http:// or https:// URLs.");
       const fields: Record<string, unknown> = { ...item.fields, ...readTrackerFields(item.kind, args) };
       for (const key of args.clearFields || []) delete fields[key];
+      if (args.resumeId !== undefined || args.clearFields?.includes("resumeId")) {
+        delete fields.resumeName; delete fields.resumeUploadedAt;
+        if (fields.resumeId) {
+          const resume = state.workspaces?.find(w => w.id === (args.moveToWorkspaceId || item.workspaceId))?.resumes?.find(r => r.id === fields.resumeId);
+          if (!resume) throw new Error("Unknown résumé version in this Career workspace.");
+          Object.assign(fields, { resumeName: resume.name, resumeUploadedAt: resume.uploadedAt });
+        }
+      }
       const title = args.newTitle?.trim();
       const notes = args.replaceNotes !== undefined ? args.replaceNotes.trim() : args.appendNotes ? [item.notes?.trim(), args.appendNotes.trim()].filter(Boolean).join("\n") : item.notes;
       return { type: "tracker", action: name, expected: item, record: { ...item, fields, notes, ...(args.status ? { status: args.status } : {}),

@@ -13,6 +13,7 @@ interface TopHeaderProps {
 const titles: Record<string, string> = {
   home: "Home",
   tasks: "Tasks",
+  events: "Events",
   knowledge: "Notes",
   goals: "Goals",
   habits: "Habits",

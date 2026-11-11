@@ -6,7 +6,7 @@ import type { Mutation } from "./brainTools";
  */
 export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible";
 
-const READ = new Set(["health_summary", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
+const READ = new Set(["list_resume_versions", "health_summary", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
   "list_calendar_events", "search_email", "read_email", "read_url", "web_search"]);
 /** Actions outside Synapse that can be undone there (a draft is not sent; an event without guests notifies no one). */
 const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_event"]);

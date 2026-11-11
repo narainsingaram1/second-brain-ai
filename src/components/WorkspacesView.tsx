@@ -52,7 +52,12 @@ import type { TaskActions } from "./academic/TasksPanel";
 import { studyOf } from "../utils/study";
 import { deleteDocumentTexts } from "../services/studyDocuments";
 import { DIFFICULTIES, JOB_TYPES } from "../utils/trackerFields";
+import { ApplicationOverview, ResumeDownload } from "./career/ApplicationOverview";
+import { ApplicationActions } from "./career/ApplicationActions";
+import { filterApplications, type ApplicationSort } from "../utils/careerApplications";
+import { resumeVersionLabel, withApplicationResume } from "../utils/resumes";
 import "../workspaces.css";
+import "../career.css";
 
 type Update = (update: (state: BrainState) => BrainState) => void;
 interface Props {
@@ -164,6 +169,8 @@ export function WorkspacesView({
   const [statusFilter, setStatusFilter] = useState("all");
   const [difficulty, setDifficulty] = useState("all");
   const [board, setBoard] = useState(false);
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [applicationSort, setApplicationSort] = useState<ApplicationSort>("applied-newest");
   const items = workspace
     ? workspaceItems(state.trackerItems || [], workspace.id)
     : [];
@@ -179,6 +186,7 @@ export function WorkspacesView({
     setSearch("");
     setStatusFilter("all");
     setDifficulty("all");
+    setLocationFilter("all");
   };
   const updateItem = (item: TrackerItem) =>
     onChange((prev) => ({
@@ -188,6 +196,10 @@ export function WorkspacesView({
       ),
     }));
   const saveItem = (item: TrackerItem) => {
+    if (item.kind === "job_application" && workspace) {
+      const resume = workspace.resumes?.find(resume => resume.id === item.fields.resumeId);
+      if (!item.fields.resumeId || resume) item = withApplicationResume(item, resume);
+    }
     onChange((prev) => ({
       ...prev,
       trackerItems: (prev.trackerItems || []).some(
@@ -239,7 +251,7 @@ export function WorkspacesView({
         field(b, b.kind === "leetcode" ? "nextReview" : "followUpDate"),
       ),
     );
-  const filteredItems = items.filter(
+  const filteredItems = panel === "job_application" ? filterApplications(applications, search, statusFilter, locationFilter, applicationSort) : items.filter(
     (item) =>
       item.kind === panel &&
       (statusFilter === "all" || item.status === statusFilter) &&
@@ -252,7 +264,7 @@ export function WorkspacesView({
   const totalPractice = activity.reduce((sum, day) => sum + day.count, 0);
 
   return (
-    <div className="ws-root">
+    <div className={`ws-root ${panel === "job_application" ? "career-application-page" : ""}`}>
       {!workspace ? (
         <>
           <div className="ws-page-heading">
@@ -709,7 +721,7 @@ export function WorkspacesView({
                     <p>
                       {panel === "leetcode"
                         ? `${solvedCount} solved · ${problems.filter((item) => item.status === "review").length} marked to revisit`
-                        : `${activeApplications.length} active · ${applications.filter((item) => item.status === "offer").length} offers`}
+                        : "Track your applications, interviews and follow-ups."}
                     </p>
                   </div>
                   <button
@@ -720,7 +732,8 @@ export function WorkspacesView({
                     {panel === "leetcode" ? "Add problem" : "Add application"}
                   </button>
                 </div>
-                <div className="ws-toolbar">
+                {panel === "job_application" && <ApplicationOverview workspace={workspace} applications={applications} account={state.userId || "guest"} onChange={onChange} />}
+                <div className={`ws-toolbar ${panel === "job_application" ? "career-application-toolbar" : ""}`}>
                   <label className="ws-search">
                     <Search size={16} />
                     <input
@@ -743,7 +756,7 @@ export function WorkspacesView({
                     value={statusFilter}
                     onChange={(event) => setStatusFilter(event.target.value)}
                   >
-                    <option value="all">All statuses</option>
+                    <option value="all">{panel === "job_application" ? "All stages" : "All statuses"}</option>
                     {stagesFor(panel).map((stage) => (
                       <option key={stage.id} value={stage.id}>
                         {stage.label}
@@ -762,6 +775,14 @@ export function WorkspacesView({
                       ))}
                     </select>
                   ) : (
+                    <>
+                    <select aria-label="Filter applications by location" value={locationFilter} onChange={event => setLocationFilter(event.target.value)}>
+                      <option value="all">All locations</option>
+                      {[...new Map(applications.map(item => field(item, "location").trim()).filter(Boolean).map(location => [location.toLocaleLowerCase(), location])).entries()].sort((a, b) => a[1].localeCompare(b[1])).map(([value, label]) => <option value={value} key={value}>{label}</option>)}
+                    </select>
+                    <select aria-label="Sort applications" value={applicationSort} onChange={event => setApplicationSort(event.target.value as ApplicationSort)}>
+                      <option value="applied-newest">Applied (newest)</option><option value="applied-oldest">Applied (oldest)</option><option value="company">Company (A–Z)</option><option value="follow-up">Follow-up (soonest)</option>
+                    </select>
                     <div className="ws-view-toggle">
                       <button
                         aria-label="Table view"
@@ -778,6 +799,7 @@ export function WorkspacesView({
                         <LayoutGrid size={16} />
                       </button>
                     </div>
+                    </>
                   )}
                 </div>
                 {filteredItems.length === 0 ? (
@@ -790,14 +812,14 @@ export function WorkspacesView({
                       )}
                     </span>
                     <h3>
-                      {search || statusFilter !== "all" || difficulty !== "all"
+                      {search || statusFilter !== "all" || difficulty !== "all" || locationFilter !== "all"
                         ? "No matches"
                         : panel === "leetcode"
                           ? "Your practice starts here"
                           : "Your next opportunity starts here"}
                     </h3>
                     <p>
-                      {search || statusFilter !== "all" || difficulty !== "all"
+                      {search || statusFilter !== "all" || difficulty !== "all" || locationFilter !== "all"
                         ? "Try a different search or clear your filters."
                         : panel === "leetcode"
                           ? "Save a problem, track your approach, and come back for a review."
@@ -805,13 +827,14 @@ export function WorkspacesView({
                     </p>
                     {search ||
                     statusFilter !== "all" ||
-                    difficulty !== "all" ? (
+                    difficulty !== "all" || locationFilter !== "all" ? (
                       <button
                         className="ws-button ws-secondary"
                         onClick={() => {
                           setSearch("");
                           setStatusFilter("all");
                           setDifficulty("all");
+                          setLocationFilter("all");
                         }}
                       >
                         Clear filters
@@ -902,7 +925,7 @@ export function WorkspacesView({
                   </div>
                 ) : (
                   <div className="ws-table-wrap">
-                    <table className="ws-table">
+                    <table className={`ws-table ${panel === "job_application" ? "career-applications-table" : ""}`}>
                       <thead>
                         <tr>
                           {(panel === "leetcode"
@@ -921,6 +944,7 @@ export function WorkspacesView({
                                 "Stage",
                                 "Applied",
                                 "Follow up",
+                                "Résumé",
                                 "Actions",
                               ]
                           ).map((column) => (
@@ -939,11 +963,7 @@ export function WorkspacesView({
                                   </span>
                                 )}
                                 <div>
-                                  {item.kind === "job_application" && (
-                                    <span className="ws-company-name">
-                                      {item.subject}
-                                    </span>
-                                  )}
+                                  {item.kind === "job_application" && <button className="ws-company-name" onClick={() => setItemEditor({ kind: item.kind, item })}>{item.subject}</button>}
                                   <button
                                     className="ws-record-title"
                                     onClick={() =>
@@ -1031,8 +1051,16 @@ export function WorkspacesView({
                                 )}
                               </span>
                             </td>
+                            {item.kind === "job_application" && <td className="career-resume-cell">
+                              <select aria-label={`Résumé used for ${item.subject} ${item.title}`} value={field(item, "resumeId")} onChange={event => updateItem({ ...withApplicationResume(item, workspace.resumes?.find(resume => resume.id === event.target.value)), updatedAt: new Date().toISOString() })}>
+                                <option value="">Not recorded</option>
+                                {field(item, "resumeId") && !workspace.resumes?.some(resume => resume.id === field(item, "resumeId")) && <option value={field(item, "resumeId")}>{field(item, "resumeName") || "Saved résumé version"}</option>}
+                                {(workspace.resumes || []).map((resume, index) => <option value={resume.id} key={resume.id}>v{index + 1} · {resumeVersionLabel(resume)}</option>)}
+                              </select>
+                              {workspace.resumes?.find(resume => resume.id === field(item, "resumeId")) && <ResumeDownload account={state.userId || "guest"} resume={workspace.resumes.find(resume => resume.id === field(item, "resumeId"))!} compact />}
+                            </td>}
                             <td>
-                              <div className="ws-row-actions">
+                              {item.kind === "job_application" ? <ApplicationActions title={`${item.subject} ${item.title}`} url={safeTrackerUrl(item.subjectUrl)} onEdit={() => setItemEditor({ kind: item.kind, item })} onDelete={() => setDeleteTarget(item)} /> : <div className="ws-row-actions">
                                 {item.kind === "leetcode" && (
                                   <button
                                     className="ws-icon-button ws-solve-button"
@@ -1059,7 +1087,7 @@ export function WorkspacesView({
                                 >
                                   <Trash2 size={14} />
                                 </button>
-                              </div>
+                              </div>}
                             </td>
                           </tr>
                         ))}
@@ -1135,6 +1163,8 @@ export function WorkspacesView({
           kind={itemEditor.kind}
           item={itemEditor.item}
           workspaceId={workspace.id}
+          resumes={workspace.resumes || []}
+          currentResumeId={workspace.currentResumeId}
           onClose={() => setItemEditor(null)}
           onSave={saveItem}
         />
@@ -1232,6 +1262,7 @@ function WorkspaceEditor({
           event.preventDefault();
           if (!name.trim()) return;
           onSave({
+            ...workspace,
             id: workspace?.id || crypto.randomUUID(),
             name: name.trim(),
             description: description.trim(),
@@ -1379,12 +1410,16 @@ function TrackerEditor({
   kind,
   item,
   workspaceId,
+  resumes,
+  currentResumeId,
   onSave,
   onClose,
 }: {
   kind: TrackerKind;
   item?: TrackerItem;
   workspaceId: string;
+  resumes: NonNullable<Workspace["resumes"]>;
+  currentResumeId?: string;
   onSave: (item: TrackerItem) => void;
   onClose: () => void;
 }) {
@@ -1397,7 +1432,7 @@ function TrackerEditor({
   );
   const [notes, setNotes] = useState(item?.notes || "");
   const [fields, setFields] = useState<Record<string, unknown>>(
-    item?.fields || (problem ? { difficulty: "Medium" } : {}),
+    item?.fields || (problem ? { difficulty: "Medium" } : { resumeId: currentResumeId || "" }),
   );
   const [error, setError] = useState("");
   const setField = (key: string, value: string) =>
@@ -1619,6 +1654,14 @@ function TrackerEditor({
               />
             </label>
           </div>
+          {!problem && <label>Résumé used
+            <select value={value("resumeId")} onChange={event => setField("resumeId", event.target.value)}>
+              <option value="">Not recorded</option>
+              {value("resumeId") && !resumes.some(resume => resume.id === value("resumeId")) && <option value={value("resumeId")}>{typeof fields.resumeName === "string" ? fields.resumeName : "Saved résumé version"}</option>}
+              {resumes.map((resume, index) => <option value={resume.id} key={resume.id}>v{index + 1} · {resumeVersionLabel(resume)}{resume.id === currentResumeId ? " (current)" : ""}</option>)}
+            </select>
+            <small>{item ? "Changing your current résumé does not change this application." : "Your current résumé is selected for new applications. Upload versions above the application list."}</small>
+          </label>}
           {!problem && (
             <label>
               Contact / recruiter <small>optional</small>
