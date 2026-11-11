@@ -6,12 +6,11 @@ import {
   Box,
   Briefcase,
   CalendarClock,
-  CalendarDays,
   Check,
   CheckSquare,
   ChevronDown,
   ChevronUp,
-  Clock,
+  Compass,
   Eye,
   FileText,
   Flame,
@@ -22,8 +21,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { AppliedAction, BrainState } from "../types";
-import { findRecord, formatRecordDate } from "../utils/chatPresentation";
-import { eventTimeLabel, formatTime } from "../utils/events";
+import { findRecord } from "../utils/chatPresentation";
+import { RecordUiPreview } from "./RecordUiPreview";
+import { navigateToRecord } from "../utils/recordNavigation";
 
 const TYPE_ICONS: Record<string, LucideIcon> = {
   task: CheckSquare,
@@ -114,16 +114,31 @@ export function ActionPreviewCard({
                     {isExpanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
                   </button>
 
-                  {!action.remove && onOpenRecord && (
-                    <button
-                      type="button"
-                      className="action-btn action-open-btn"
-                      onClick={() => onOpenRecord(action.type, action.id, action.title)}
-                      title="Open full record in workspace"
-                    >
-                      <span>View record</span>
-                      <ArrowUpRight size={12} />
-                    </button>
+                  {!action.remove && (
+                    <>
+                      <button
+                        type="button"
+                        className="action-btn action-goto-btn"
+                        onClick={() => navigateToRecord(action.type, action.id, action.title, state)}
+                        title={`Go to ${action.title} in application`}
+                      >
+                        <Compass size={12} />
+                        <span>Go to in app</span>
+                        <ArrowUpRight size={12} />
+                      </button>
+
+                      {onOpenRecord && (
+                        <button
+                          type="button"
+                          className="action-btn action-open-btn"
+                          onClick={() => onOpenRecord(action.type, action.id, action.title)}
+                          title="Open full record in workspace"
+                        >
+                          <span>View record</span>
+                          <ArrowUpRight size={12} />
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -153,89 +168,13 @@ export function ActionPreviewCard({
                       <span>This record was removed. You can undo this deletion in the audit log.</span>
                     </div>
                   ) : record ? (
-                    <div className="action-live-preview">
-                      <div className="action-live-preview-header">
-                        <span className="action-preview-label">Live record snapshot</span>
-                        {"status" in record && record.status && (
-                          <span className="action-live-pill capitalize">
-                            {String(record.status).replace(/_/g, " ")}
-                          </span>
-                        )}
-                        {"priority" in record && record.priority && (
-                          <span className="action-live-pill capitalize">
-                            {String(record.priority)} priority
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="action-live-grid">
-                        {"dueDate" in record && record.dueDate && (
-                          <div className="action-live-field">
-                            <CalendarDays size={12} />
-                            <span>Due {formatRecordDate(record.dueDate)}</span>
-                            {"dueTime" in record && record.dueTime && (
-                              <span>at {formatTime(String(record.dueTime))}</span>
-                            )}
-                          </div>
-                        )}
-
-                        {"targetDate" in record && record.targetDate && (
-                          <div className="action-live-field">
-                            <CalendarDays size={12} />
-                            <span>Target {formatRecordDate(record.targetDate)}</span>
-                          </div>
-                        )}
-
-                        {"date" in record && record.date && (
-                          <div className="action-live-field">
-                            <CalendarDays size={12} />
-                            <span>Date: {formatRecordDate(record.date)}</span>
-                          </div>
-                        )}
-
-                        {action.type === "event" && "startTime" in record && record.startTime && (
-                          <div className="action-live-field">
-                            <Clock size={12} />
-                            <span>{eventTimeLabel(record as any)}</span>
-                          </div>
-                        )}
-
-                        {"section" in record && record.section && (
-                          <div className="action-live-field">
-                            <Folder size={12} />
-                            <span>
-                              {record.section}
-                              {record.subsection ? ` / ${record.subsection}` : ""}
-                            </span>
-                          </div>
-                        )}
-
-                        {"streak" in record && typeof record.streak === "number" && (
-                          <div className="action-live-field">
-                            <Flame size={12} />
-                            <span>{record.streak}-day streak</span>
-                          </div>
-                        )}
-                      </div>
-
-                      {"description" in record && record.description && (
-                        <p className="action-live-snippet">{String(record.description)}</p>
-                      )}
-
-                      {"content" in record && record.content && (
-                        <p className="action-live-snippet">
-                          {String(record.content).slice(0, 240)}
-                          {String(record.content).length > 240 ? "…" : ""}
-                        </p>
-                      )}
-
-                      {"notes" in record && record.notes && (
-                        <p className="action-live-snippet">
-                          {String(record.notes).slice(0, 240)}
-                          {String(record.notes).length > 240 ? "…" : ""}
-                        </p>
-                      )}
-                    </div>
+                    <RecordUiPreview
+                      type={action.type}
+                      id={action.id}
+                      title={action.title}
+                      state={state}
+                      onNavigate={() => navigateToRecord(action.type, action.id, action.title, state)}
+                    />
                   ) : null}
                 </div>
               )}

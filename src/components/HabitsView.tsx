@@ -60,7 +60,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
           ))}
         </div>
         {habits.map((habit) => (
-          <div key={habit.id} className="tally-row">
+          <div key={habit.id} data-record-id={habit.id} className="tally-row">
             <div className="tally-name">
               <strong>{habit.name}</strong>
               <small>{[habit.domain, habit.timeOfDay || "Any time"].filter(Boolean).map((x) => String(x).replace(/^./, (c) => c.toUpperCase())).join(" · ")}</small>

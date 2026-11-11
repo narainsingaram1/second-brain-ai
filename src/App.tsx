@@ -42,6 +42,8 @@ import { isServerHeldKey, SERVER_HELD_KEY, setProviderProxyAuth } from "./servic
 import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
 import { AppSkeleton } from "./components/AppSkeleton";
 import { rememberedTab, rememberTab, rememberTheme } from "./utils/startupMemory";
+import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation";
+import { referenceTitle } from "./utils/chatPresentation";
 
 export const App: React.FC = () => {
   const [startupError, setStartupError] = useState("");
@@ -87,6 +89,49 @@ export const App: React.FC = () => {
     window.addEventListener("synapse-open-memory", open);
     return () => window.removeEventListener("synapse-open-memory", open);
   }, []);
+
+  // Destination toast when navigating directly to a record
+  const [navToast, setNavToast] = useState<{ title: string; breadcrumb: string; id: string } | null>(null);
+
+  useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ type: string; id: string; title?: string; location?: RecordLocation }>).detail;
+      if (!detail) return;
+      const loc = detail.location || getRecordLocation(state, detail.type, detail.id);
+
+      if (detail.type === "knowledge") {
+        const note = state?.knowledgeItems?.find(n => n.id === detail.id);
+        if (note) {
+          setActiveEditKnowledge(note);
+        }
+      }
+
+      setActiveTab(loc.tab);
+
+      setNavToast({
+        title: detail.title || referenceTitle(detail.type, detail.id, undefined, state),
+        breadcrumb: loc.breadcrumb,
+        id: detail.id,
+      });
+
+      const attemptScroll = (retries = 12) => {
+        const selector = `[data-record-id="${detail.id}"], [data-task-id="${detail.id}"], [data-tracker-id="${detail.id}"]`;
+        const el = document.querySelector(selector);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("record-target-highlight");
+          setTimeout(() => el.classList.remove("record-target-highlight"), 3500);
+        } else if (retries > 0) {
+          setTimeout(() => attemptScroll(retries - 1), 120);
+        }
+      };
+      setTimeout(() => attemptScroll(), 150);
+    };
+
+    window.addEventListener("synapse-navigate-to-record", handleNavigate);
+    return () => window.removeEventListener("synapse-navigate-to-record", handleNavigate);
+  }, [state]);
+
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskModalDefaultSection, setTaskModalDefaultSection] = useState<string>("Academic");
   const [taskModalDefaultSubsection, setTaskModalDefaultSubsection] = useState<string>("CS 1332");
@@ -1341,6 +1386,24 @@ export const App: React.FC = () => {
           setState((prev) => (prev ? { ...prev, auditLog: [] } : null))
         }
       />
+
+      {navToast && (
+        <div className="nav-destination-toast" role="status" aria-live="polite">
+          <span className="nav-toast-pin" aria-hidden="true">📍</span>
+          <div className="nav-toast-text">
+            <span className="nav-toast-eyebrow">Jumped to record in</span>
+            <strong className="nav-toast-destination">{navToast.breadcrumb}</strong>
+          </div>
+          <button
+            type="button"
+            className="nav-toast-dismiss"
+            onClick={() => setNavToast(null)}
+            aria-label="Dismiss toast"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -282,6 +282,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                       return (
                         <div
                           key={task.id}
+                          data-record-id={task.id}
                           onClick={() => onEditTask(task)}
                           className={`px-5 py-3 flex items-center justify-between gap-3 cursor-pointer group hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors ${
                             taskStatus === "completed" ? "opacity-50" : ""
