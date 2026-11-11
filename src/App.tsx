@@ -27,6 +27,7 @@ import type { PreparedImage } from "./utils/imageInput";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { EventModal } from "./components/EventModal";
+import { DailyPlannerView } from "./components/DailyPlannerView";
 import { EventsView } from "./components/EventsView";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
@@ -1045,6 +1046,7 @@ export const App: React.FC = () => {
               {/* ========================================================= */}
               {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
               {/* ========================================================= */}
+              {activeTab === "planner" && <DailyPlannerView state={state} onChange={update => setState(prev => prev ? update(prev) : prev)} onSettings={() => setIsSettingsOpen(true)} />}
               {activeTab === "events" && (
                 <EventsView events={state.events || []} onAddEvent={openNewEvent} onEditEvent={openEditEvent} />
               )}
