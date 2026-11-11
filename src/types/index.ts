@@ -433,6 +433,7 @@ export interface ApprovalRequest {
 }
 
 export interface BrainPreferences {
+  planner?: import("../utils/dailyPlanner").PlannerData;
   /** Every change the assistant makes waits for approval. */
   askBeforeChanges?: boolean;
 }

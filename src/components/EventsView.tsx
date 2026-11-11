@@ -91,7 +91,7 @@ export function EventsView({ events, onAddEvent, onEditEvent }: {
       <div className="events-day-list">{items.map(event => {
         const link = safeEventLink(event.link);
         const label = EVENT_KINDS.find(item => item.id === event.kind)?.label || "Google Calendar";
-        return <article className={`events-row events-kind-${event.kind}`} key={event.id}>
+        return <article className={`events-row events-kind-${event.kind}`} key={event.id} data-record-id={event.original?.id || event.id}>
           <div className="events-time"><Clock size={14} /><span>{eventTimeLabel(event)}{event.endDate && event.endDate !== event.date && <small>{fullDate(event.date)} – {fullDate(event.endDate)}</small>}</span></div>
           <div className="events-details">
             <div className="events-title-line">{event.original ? <button className="events-title" onClick={() => onEditEvent(event.original!)}>{event.title}</button> : <h3 className="events-title">{event.title}</h3>}<span className="events-kind-label">{label}</span></div>

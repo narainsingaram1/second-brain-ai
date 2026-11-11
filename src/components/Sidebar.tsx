@@ -2,6 +2,7 @@ import {
   BookOpen,
   CheckSquare,
   CalendarDays,
+  CalendarRange,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -32,6 +33,7 @@ const groups = [
     label: "Plan",
     items: [
       { id: "home", label: "Home", icon: Home },
+      { id: "planner", label: "Daily planner", icon: CalendarRange },
       { id: "tasks", label: "Tasks", icon: CheckSquare },
       { id: "events", label: "Events", icon: CalendarDays },
       { id: "knowledge", label: "Notes", icon: FileText },

@@ -56,8 +56,8 @@ async function testOpenRouterKey(apiKey, model, base) {
 	const target = normalizeProviderBase(base);
 	const custom = target !== DEFAULT_PROVIDER_BASE;
 	try {
-		const res = await fetch(providerUrl(target, "auth/key"), { headers: { Authorization: `Bearer ${apiKey.trim()}` } });
-		if (res.ok) {
+		const res = custom ? null : await fetch(providerUrl(target, "auth/key"), { headers: { Authorization: `Bearer ${apiKey.trim()}` } });
+		if (res?.ok) {
 			const data = await res.json();
 			return {
 				success: true,

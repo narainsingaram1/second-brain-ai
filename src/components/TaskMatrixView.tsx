@@ -573,6 +573,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                 <div
                                   className={`task-row task-row-${status}`}
                                   key={task.id}
+                                  data-record-id={task.id}
                                 >
                                   <button
                                     className={`task-completion task-completion-${status}`}

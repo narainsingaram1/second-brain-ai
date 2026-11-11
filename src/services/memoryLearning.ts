@@ -16,6 +16,7 @@ import {
   type RememberChange,
 } from "./agentMemory";
 import { matchRecords, nearbyRecords, recordCatalog, significantTerms, similarity, type MemoryRecordLink } from "./memoryGraph";
+import { isHaiProvider } from "./providerTransport";
 import { FAST_MODEL, queryOpenRouterWithTools, type OpenRouterTool } from "./openrouter";
 
 /**
@@ -245,7 +246,7 @@ export async function learnFromTurns(state: BrainState, turns: LearningTurn[], s
     ],
     [turnTool],
     key,
-    FAST_MODEL,
+    isHaiProvider(base) ? state.selectedModel : FAST_MODEL,
     undefined,
     { type: "function", function: { name: "propose_memories" } },
     signal,

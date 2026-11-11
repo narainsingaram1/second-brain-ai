@@ -33,13 +33,18 @@ export async function uploadResume(account: string, file: File): Promise<ResumeV
   const header = new Uint8Array(await file.slice(0, 5).arrayBuffer());
   if (extension === "pdf" ? String.fromCharCode(...header) !== "%PDF-" : header[0] !== 0x50 || header[1] !== 0x4b) throw new Error("This file does not match its PDF or DOCX extension.");
   const resume: ResumeVersion = { id: crypto.randomUUID(), name: file.name.slice(0, 200), size: file.size, mime: extension === "pdf" ? PDF_MIME : DOCX_MIME, uploadedAt: new Date().toISOString() };
+  await localFile(account || "guest", resume.id, file);
   if (managedAuthEnabled) {
-    const { data: { user }, error: authError } = await getSupabase().auth.getUser();
-    if (authError || !user || user.id !== account) throw new Error("Your account changed. Sign in again before uploading.");
-    const { error } = await getSupabase().storage.from(BUCKET).upload(objectPath(account, resume), file, { contentType: resume.mime, upsert: false });
-    if (error) throw new Error(/bucket.*not found/i.test(error.message) ? "Résumé storage needs its database update before uploads can work." : "Could not upload your résumé. Please retry.");
-    await localFile(account, resume.id, file).catch(() => {}); // Cache failure must not undo a confirmed cloud upload.
-  } else await localFile(account || "guest", resume.id, file);
+    try {
+      const { data: { user }, error: authError } = await getSupabase().auth.getUser();
+      if (!authError && user && user.id === account) {
+        const { error } = await getSupabase().storage.from(BUCKET).upload(objectPath(account, resume), file, { contentType: resume.mime, upsert: false });
+        if (error) console.warn("[Career] Cloud résumé backup skipped:", error.message);
+      }
+    } catch (e) {
+      console.warn("[Career] Cloud résumé backup error:", e);
+    }
+  }
   return resume;
 }
 

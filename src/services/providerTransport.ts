@@ -7,8 +7,17 @@
  * the browser.
  */
 export const DEFAULT_PROVIDER_BASE = "https://openrouter.ai/api/v1";
+export const HAI_PROVIDER_BASE = "https://hai.mehapps.com/v1";
+/** Suggested alias; the authenticated model catalog is authoritative. */
+export const HAI_DEFAULT_MODEL = "qwen3.8-27b";
+export function isHaiProvider(base = providerBase()): boolean {
+  try { return new URL(base).origin === "https://hai.mehapps.com"; } catch { return false; }
+}
+export function validProviderModel(model: string, base: string): boolean {
+  return base === DEFAULT_PROVIDER_BASE ? /^[^\s/]+\/[^\s]+$/.test(model) : /^[^\s]+$/.test(model);
+}
 export const SERVER_HELD_KEY = "server-held-key";
-export type ProviderEndpoint = "chat/completions" | "embeddings";
+export type ProviderEndpoint = "chat/completions" | "embeddings" | "models";
 
 const BASE_STORAGE_KEY = "synapse.providerBase";
 
@@ -54,6 +63,15 @@ export const isServerHeldKey = (key: string | undefined) => key === SERVER_HELD_
  */
 export async function providerFetch(endpoint: ProviderEndpoint, apiKey: string, body: unknown, signal?: AbortSignal, base?: string): Promise<Response> {
   const target = base || providerBase();
+  // Background jobs still pass OpenRouter defaults; HAI needs its own model alias.
+  if (isHaiProvider(target) && endpoint === "chat/completions" && body && typeof body === "object") {
+    const payload = body as Record<string, unknown>;
+    if (typeof payload.model === "string" && new Set(["anthropic/claude-sonnet-5.5", "anthropic/claude-opus-5.5", "anthropic/claude-haiku-5.5", "google/gemini-3.8-flash", "deepseek/deepseek-v4.1-flash", "nvidia/nemotron-3.5-super-vl", "nvidia/nemotron-3.5-super-vl:free"]).has(payload.model)) {
+      let model = HAI_DEFAULT_MODEL;
+      try { model = window.localStorage.getItem("synapse.haiModel") || model; } catch { /* Server uses the default alias. */ }
+      body = { ...payload, model };
+    }
+  }
   if (isServerHeldKey(apiKey)) {
     if (!accessToken) throw new Error("Sign in again to use the AI provider key stored on the server.");
     const baseParam = target === DEFAULT_PROVIDER_BASE ? "" : `&base=${encodeURIComponent(target)}`;
@@ -64,13 +82,13 @@ export async function providerFetch(endpoint: ProviderEndpoint, apiKey: string, 
     });
   }
   return fetch(`${target.replace(/\/+$/, "")}/${endpoint}`, {
-    method: "POST", signal,
+    method: endpoint === "models" ? "GET" : "POST", signal,
     headers: {
       Authorization: `Bearer ${apiKey.trim()}`,
       "Content-Type": "application/json",
       "HTTP-Referer": "https://synapse-second-brain.local",
       "X-Title": "Synapse Second Brain",
     },
-    body: JSON.stringify(body),
+    ...(endpoint === "models" ? {} : { body: JSON.stringify(body) }),
   });
 }

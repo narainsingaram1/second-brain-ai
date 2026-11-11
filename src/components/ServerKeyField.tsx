@@ -7,7 +7,7 @@ import { isServerHeldKey, SERVER_HELD_KEY } from "../services/providerTransport"
  * Provider key stored encrypted on the server. The browser can add, replace or remove it and sees only its
  * last four characters. A key previously saved in this browser can be moved over in one step.
  */
-export function ServerKeyField({ localKey, onUseKey, base, model }: { localKey: string; onUseKey: (key: string) => void; base?: string; model?: string }) {
+export function ServerKeyField({ localKey, onUseKey, base, model, onKeyInputChange }: { localKey: string; onUseKey: (key: string) => void; base?: string; model?: string; onKeyInputChange?: (key: string) => void }) {
   const [status, setStatus] = useState<StoredKeyStatus | null>(null);
   const [input, setInput] = useState("");
   const [replacing, setReplacing] = useState(false);
@@ -53,7 +53,7 @@ export function ServerKeyField({ localKey, onUseKey, base, model }: { localKey: 
         <button type="button" disabled={busy} onClick={() => save(browserKey)} className="px-3 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-950 font-semibold">{busy ? "Moving…" : "Move to secure storage"}</button>
       </div>}
       <form className="flex gap-2" onSubmit={e => { e.preventDefault(); if (input.trim()) save(input.trim()); }}>
-        <input type="password" autoComplete="off" placeholder="sk-or-v1-…" value={input} onChange={e => { setInput(e.target.value); setError(""); }}
+        <input type="password" autoComplete="off" placeholder="Provider API key" value={input} onChange={e => { setInput(e.target.value); onKeyInputChange?.(e.target.value); setError(""); }}
           aria-label="AI provider key" className="flex-1 bg-raised text-xs font-mono px-4 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500" />
         <button type="submit" disabled={busy || !input.trim()} className="px-3 rounded-2xl border border-line text-xs font-semibold disabled:opacity-40">{busy ? "Checking…" : "Save key"}</button>
         {replacing && <button type="button" onClick={() => { setReplacing(false); setInput(""); }} className="px-3 rounded-2xl text-xs">Cancel</button>}

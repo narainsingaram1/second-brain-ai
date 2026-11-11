@@ -164,7 +164,7 @@ export const GoalsView: React.FC<GoalsViewProps> = ({
           const completedCount = milestones.filter((m) => m.completed).length;
           const isExpanded = expandedMilestonesGoalId === goal.id;
           return (
-            <article key={goal.id} className="goal-card">
+            <article key={goal.id} data-record-id={goal.id} className="goal-card">
               <header className="goal-card-top">
                 <span className="goal-sector"><SectorIcon size={14} strokeWidth={1.5} />{cfg.label} · {TIMEFRAME_LABELS[goal.timeframe]}</span>
                 <div className="goal-menu">

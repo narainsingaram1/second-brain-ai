@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import {
   ArrowLeft,
@@ -188,6 +188,47 @@ export function WorkspacesView({
     setDifficulty("all");
     setLocationFilter("all");
   };
+
+  useEffect(() => {
+    const checkNavigation = (targetId: string, itemKind: string) => {
+      setPanel(itemKind === "leetcode" ? "leetcode" : "job_application");
+      setStatusFilter("all");
+      setSearch("");
+      setDifficulty("all");
+      setLocationFilter("all");
+      const highlight = (retries = 10) => {
+        const el = document.querySelector(`[data-record-id="${targetId}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.classList.add("record-target-highlight");
+          setTimeout(() => el.classList.remove("record-target-highlight"), 3500);
+        } else if (retries > 0) {
+          setTimeout(() => highlight(retries - 1), 120);
+        }
+      };
+      setTimeout(() => highlight(), 120);
+    };
+
+    const lastNav = (window as any).__synapse_last_record_navigation;
+    if (lastNav && lastNav.type === "tracker" && Date.now() - lastNav.time < 3000) {
+      const match = (state.trackerItems || []).find((t) => t.id === lastNav.id);
+      if (match && (!match.workspaceId || match.workspaceId === workspace?.id)) {
+        checkNavigation(lastNav.id, match.kind);
+      }
+    }
+
+    const handleNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ type: string; id: string; location?: any }>).detail;
+      if (!detail || detail.type !== "tracker") return;
+      const match = (state.trackerItems || []).find((t) => t.id === detail.id);
+      if (match && (!match.workspaceId || match.workspaceId === workspace?.id)) {
+        checkNavigation(detail.id, match.kind);
+      }
+    };
+
+    window.addEventListener("synapse-navigate-to-record", handleNavigate);
+    return () => window.removeEventListener("synapse-navigate-to-record", handleNavigate);
+  }, [state.trackerItems, workspace?.id]);
   const updateItem = (item: TrackerItem) =>
     onChange((prev) => ({
       ...prev,
@@ -874,7 +915,7 @@ export function WorkspacesView({
                         {filteredItems
                           .filter((item) => item.status === stage.id)
                           .map((item) => (
-                            <div className="ws-board-card" key={item.id}>
+                            <div className="ws-board-card" key={item.id} data-record-id={item.id}>
                               <div className="ws-board-company">
                                 <span className="ws-company-avatar">
                                   {initial(item.subject)}
@@ -954,7 +995,7 @@ export function WorkspacesView({
                       </thead>
                       <tbody>
                         {filteredItems.map((item) => (
-                          <tr key={item.id}>
+                          <tr key={item.id} data-record-id={item.id}>
                             <td>
                               <div className="ws-title-cell">
                                 {item.kind === "job_application" && (

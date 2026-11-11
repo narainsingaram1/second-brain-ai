@@ -113,5 +113,50 @@ test('agentic actions render preview card with badges, details and change inspec
   assert.match(html, /Prepare presentation/);
   assert.match(html, /Preview change/);
   assert.match(html, /View record/);
+  assert.match(html, /Go to in app/);
+});
+
+test('tracker actions render direct navigation to workspace and job application UI preview', async () => {
+  const { getRecordLocation } = await server.ssrLoadModule('/src/utils/recordNavigation.ts');
+  const careerState = {
+    ...state,
+    workspaces: [{ id: 'ws-career', name: 'Career', template: 'career' }],
+    trackerItems: [
+      {
+        id: 'tracker-epic-1',
+        workspaceId: 'ws-career',
+        kind: 'job_application',
+        title: 'AI Programmer Intern (Research Engineering Intern)',
+        subject: 'Epic Games',
+        status: 'applied',
+        fields: { location: 'Cary, NC', jobType: 'Internship' },
+        streak: 0,
+        notes: 'Unreal Engine AI team. ML/generative research.',
+      },
+    ],
+  };
+
+  const loc = getRecordLocation(careerState, 'tracker', 'tracker-epic-1');
+  assert.equal(loc.tab, 'workspace:ws-career');
+  assert.equal(loc.panel, 'job_application');
+  assert.equal(loc.breadcrumb, 'Career Workspace › Job Applications');
+
+  const trackerMsg = {
+    ...message,
+    actions: [
+      {
+        action: 'create_tracker',
+        type: 'tracker',
+        id: 'tracker-epic-1',
+        title: 'AI Programmer Intern (Research Engineering Intern)',
+        summary: 'Create tracker entry "AI Programmer Intern (Research Engineering Intern)"',
+      },
+    ],
+  };
+
+  const html = renderToStaticMarkup(React.createElement(ConversationMessage, { message: trackerMsg, state: careerState }));
+  assert.match(html, /Go to in app/);
+  assert.match(html, /View record/);
+  assert.match(html, /AI Programmer Intern \(Research Engineering Intern\)/);
 });
 
