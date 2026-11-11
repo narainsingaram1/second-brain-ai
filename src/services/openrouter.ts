@@ -138,7 +138,7 @@ export async function queryOpenRouterWithTools(
   providerBase?: string
 ): Promise<OpenRouterCompletionResponse> {
   if (!apiKey) {
-    throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
+    throw new Error("No AI provider key provided. Please configure it in Settings.");
   }
 
   const payloadMessages = [];
@@ -289,13 +289,13 @@ export async function testOpenRouterKey(apiKey: string, model?: string, base?: s
   const custom = target !== DEFAULT_PROVIDER_BASE;
 
   try {
-    const res = await fetch(providerUrl(target, "auth/key"), {
+    const res = custom ? null : await fetch(providerUrl(target, "auth/key"), {
       headers: {
         Authorization: `Bearer ${apiKey.trim()}`,
       },
     });
 
-    if (res.ok) {
+    if (res?.ok) {
       const data = await res.json();
       const label = data?.data?.label || "User";
       const limit = data?.data?.limit != null ? `$${data.data.limit}` : "Active";

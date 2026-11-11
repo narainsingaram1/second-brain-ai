@@ -726,11 +726,15 @@ async function providerKey(deps, store) {
 	return openSecret(deps.secretsKey(), store.userId, "openrouter", sealed);
 }
 // server/routes/ai.ts
-const ENDPOINTS = /* @__PURE__ */ new Set(["chat/completions", "embeddings"]);
+const ENDPOINTS = /* @__PURE__ */ new Set([
+	"chat/completions",
+	"embeddings",
+	"models"
+]);
 /**
 * Forwards the app's AI requests to the user's provider (OpenRouter by default) with the caller's stored
 * key, so features that run in the browser (journal insights, flashcards, search) work without the key
-* ever being sent to the browser. Only the chat and embedding endpoints are reachable, and responses
+* ever being sent to the browser. Only chat, embeddings and model discovery are reachable, and responses
 * (including streams) pass through.
 */
 function aiHandlers(deps = productionDeps, upstream = (...args) => fetch(...args)) {
@@ -743,10 +747,10 @@ function aiHandlers(deps = productionDeps, upstream = (...args) => fetch(...args
 		if (baseParam && !base) throw new HttpError(400, "The AI provider address is not allowed.");
 		const { store } = await deps.caller(request);
 		const body = await readJson(request, 8e6);
-		if (!body || typeof body !== "object" || typeof body.model !== "string" || body.model.length > 200) throw new HttpError(400, "Choose a model.");
+		if (endpoint !== "models" && (!body || typeof body !== "object" || typeof body.model !== "string" || body.model.length > 200)) throw new HttpError(400, "Choose a model.");
 		const key = await providerKey(deps, store);
 		const response = await upstream(`${base || "https://openrouter.ai/api/v1"}/${endpoint}`, {
-			method: "POST",
+			method: endpoint === "models" ? "GET" : "POST",
 			signal: request.signal,
 			headers: {
 				Authorization: `Bearer ${key}`,
@@ -754,7 +758,7 @@ function aiHandlers(deps = productionDeps, upstream = (...args) => fetch(...args
 				"HTTP-Referer": "https://synapse-second-brain.local",
 				"X-Title": "Synapse Second Brain"
 			},
-			body: JSON.stringify(body)
+			...endpoint === "models" ? {} : { body: JSON.stringify(body) }
 		});
 		return new Response(response.body, {
 			status: response.status,

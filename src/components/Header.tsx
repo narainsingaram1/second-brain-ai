@@ -162,7 +162,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* OpenRouter Key status */}
         <button
           onClick={onOpenSettings}
-          title={openRouterKey ? "OpenRouter Connected" : "Add OpenRouter API Key"}
+          title={openRouterKey ? "AI provider connected" : "Add AI provider key"}
           className={`w-9 h-9 rounded-2xl flex items-center justify-center transition-colors ${
             openRouterKey
               ? "bg-raised text-[var(--workspace-success)]"

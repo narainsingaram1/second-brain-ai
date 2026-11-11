@@ -165,6 +165,15 @@ function syncHabitStreaks(habit, referenceDateStr) {
 * the browser.
 */
 const DEFAULT_PROVIDER_BASE = "https://openrouter.ai/api/v1";
+/** Suggested alias; the authenticated model catalog is authoritative. */
+const HAI_DEFAULT_MODEL = "qwen3.8-27b";
+function isHaiProvider(base = providerBase()) {
+	try {
+		return new URL(base).origin === "https://hai.mehapps.com";
+	} catch {
+		return false;
+	}
+}
 const SERVER_HELD_KEY = "server-held-key";
 const BASE_STORAGE_KEY = "synapse.providerBase";
 /** Normalizes an AI provider address; anything unusable falls back to OpenRouter's default. */
@@ -199,9 +208,30 @@ const isServerHeldKey = (key) => key === SERVER_HELD_KEY;
 */
 async function providerFetch(endpoint, apiKey, body, signal, base) {
 	const target = base || providerBase();
+	if (isHaiProvider(target) && endpoint === "chat/completions" && body && typeof body === "object") {
+		const payload = body;
+		if (typeof payload.model === "string" && (/* @__PURE__ */ new Set([
+			"anthropic/claude-sonnet-5.5",
+			"anthropic/claude-opus-5.5",
+			"anthropic/claude-haiku-5.5",
+			"google/gemini-3.8-flash",
+			"deepseek/deepseek-v4.1-flash",
+			"nvidia/nemotron-3.5-super-vl",
+			"nvidia/nemotron-3.5-super-vl:free"
+		])).has(payload.model)) {
+			let model = HAI_DEFAULT_MODEL;
+			try {
+				model = window.localStorage.getItem("synapse.haiModel") || model;
+			} catch {}
+			body = {
+				...payload,
+				model
+			};
+		}
+	}
 	if (isServerHeldKey(apiKey)) throw new Error("Sign in again to use the AI provider key stored on the server.");
 	return fetch(`${target.replace(/\/+$/, "")}/${endpoint}`, {
-		method: "POST",
+		method: endpoint === "models" ? "GET" : "POST",
 		signal,
 		headers: {
 			Authorization: `Bearer ${apiKey.trim()}`,
@@ -209,7 +239,7 @@ async function providerFetch(endpoint, apiKey, body, signal, base) {
 			"HTTP-Referer": "https://synapse-second-brain.local",
 			"X-Title": "Synapse Second Brain"
 		},
-		body: JSON.stringify(body)
+		...endpoint === "models" ? {} : { body: JSON.stringify(body) }
 	});
 }
 // src/services/openrouter.ts
@@ -312,7 +342,7 @@ function withPromptCache(model, messages) {
 	});
 }
 async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT_MODEL, systemPrompt, toolChoice = "auto", signal, tuning = {}, providerBase) {
-	if (!apiKey) throw new Error("No OpenRouter API key provided. Please configure it in Settings.");
+	if (!apiKey) throw new Error("No AI provider key provided. Please configure it in Settings.");
 	const payloadMessages = [];
 	if (systemPrompt) payloadMessages.push({
 		role: "system",
@@ -10374,7 +10404,7 @@ async function learnFromTurns(state, turns, signal, base) {
 				...turn.reply ? { assistantReply: turn.reply.slice(0, MAX_REPLY_CHARS) } : {}
 			}))
 		})
-	}], [turnTool], key, FAST_MODEL, void 0, {
+	}], [turnTool], key, isHaiProvider(base) ? state.selectedModel : FAST_MODEL, void 0, {
 		type: "function",
 		function: { name: "propose_memories" }
 	}, signal, {
