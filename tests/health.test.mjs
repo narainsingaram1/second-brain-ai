@@ -109,6 +109,13 @@ test('metrics: recovery against your own baseline, training load, sleep debt and
 
   assert.ok(workoutLoad(60, 160, 55, 190) > workoutLoad(60, 120, 55, 190));
   assert.equal(computeHealth([], undefined, today).dayCount, 0);
+
+  // Computing health for a specific selected past date anchors insights to that day.
+  const pastDay = '2026-11-05';
+  const pastInsights = computeHealth(days, { sleepGoalMin: 480 }, pastDay);
+  assert.equal(pastInsights.today, pastDay);
+  assert.ok(pastInsights.dayCount < 75);
+  assert.equal(pastInsights.recovery?.date, pastDay);
 });
 
 const emptyState = () => ({ userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], workspaces: [], noteFolders: [],

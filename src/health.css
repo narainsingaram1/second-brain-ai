@@ -112,3 +112,30 @@
 .hl-progress-bar { height: 6px; border-radius: 999px; background: var(--workspace-line); overflow: hidden; }
 .hl-progress-bar span { display: block; height: 100%; border-radius: 999px; background: var(--hl-line); transition: width .3s ease; }
 .hl-progress small { color: var(--workspace-muted); }
+
+/* Day navigation & date picker */
+.hl-toolbar-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hl-date-nav { display: inline-flex; align-items: center; gap: 3px; background: var(--workspace-raised); border: 1px solid var(--workspace-line); border-radius: 10px; padding: 2px 4px; }
+.hl-date-nav .ws-icon-button { width: 28px; height: 28px; border-radius: 6px; color: var(--workspace-secondary); display: inline-flex; align-items: center; justify-content: center; }
+.hl-date-nav .ws-icon-button:hover:not(:disabled) { background: var(--workspace-hover); color: var(--workspace-ink); }
+.hl-date-nav .ws-icon-button:disabled { opacity: 0.35; cursor: not-allowed; }
+.hl-date-picker-wrap { position: relative; display: inline-flex; align-items: center; }
+.hl-date-pill { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: var(--workspace-ink); font: inherit; font-size: 13px; font-weight: 500; padding: 4px 8px; border-radius: 6px; cursor: pointer; transition: background-color .15s ease; }
+.hl-date-pill:hover { background: var(--workspace-hover); }
+.hl-date-today-badge, .hl-day-badge { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; background: color-mix(in srgb, var(--workspace-accent, #3b82f6) 15%, transparent); color: var(--workspace-accent, #3b82f6); padding: 1px 6px; border-radius: 999px; }
+.hl-sr-input { position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; pointer-events: none; }
+.hl-nav-today-btn { font-size: 12px; padding: 3px 8px; height: 26px; border-radius: 6px; line-height: 1; }
+.hl-notice-stale-day { background: color-mix(in srgb, var(--hl-warn) 8%, var(--workspace-panel)); border-color: color-mix(in srgb, var(--hl-warn) 30%, transparent); }
+.hl-day-cell { display: inline-flex; align-items: center; gap: 6px; }
+.hl-day-name { font-weight: 500; color: var(--workspace-ink); }
+.hl-row-selected { background: color-mix(in srgb, var(--workspace-accent, #3b82f6) 8%, transparent); }
+.hl-tag-cell { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hl-day-edit-btn { opacity: 0; transition: opacity .15s ease; margin-left: auto; width: 24px; height: 24px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center; }
+tr:hover .hl-day-edit-btn { opacity: 1; }
+.hl-day-workouts { margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--workspace-line); }
+.hl-workout-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.hl-workout-chip { display: inline-block; padding: 2px 8px; border-radius: 6px; background: var(--workspace-raised); border: 1px solid var(--workspace-line); font-size: 12px; color: var(--workspace-secondary); }
+.hl-workout-chip b { color: var(--workspace-ink); font-weight: 500; }
+.hl-day-meta { background: var(--workspace-panel); border: 1px solid var(--workspace-line); border-radius: 12px; padding: 12px 16px; display: flex; flex-direction: column; gap: 8px; }
+.hl-day-tags { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.hl-day-note { margin: 0; font-size: 13px; line-height: 1.5; color: var(--workspace-secondary); }

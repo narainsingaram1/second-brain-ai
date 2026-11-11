@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, BedDouble, Check, Copy, Footprints, HeartPulse, Moon, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
+  Activity, AlertTriangle, BedDouble, Calendar, Check, ChevronLeft, ChevronRight, Copy, Footprints, HeartPulse, Moon, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
 } from "lucide-react";
 import type { BrainState, HealthDay, HealthProfile, Workspace } from "../../types";
 import { applyHealthPatches, cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, normalizeHealthDays, normalizeHealthProfile, parseHealthPayload, type HealthDayPatch } from "../../utils/health";
@@ -28,6 +28,11 @@ const ago = (iso?: string | null) => {
 const dayLabel = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 const toneOf = (label: string) => label === "Primed" ? "good" : label === "Normal" ? "neutral" : label === "Strained" ? "warn" : "bad";
 const signed = (n: number, digits = 0) => `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
+const shiftDate = (dateStr: string, delta: number): string => {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+};
 
 export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   const stored = state.healthDays || [];
@@ -40,12 +45,38 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   const [editing, setEditing] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const today = localToday();
+  const [selectedDate, setSelectedDate] = useState<string>(today);
+  const isToday = selectedDate === today;
+
   const sample = useMemo(() => sampleHealthDays(today), [today]);
   const showingSample = preview && !stored.length;
   const days = showingSample ? sample : stored;
-  const insights = useMemo(() => computeHealth(days, workspace.health, today), [days, workspace.health, today]);
+  const insights = useMemo(() => computeHealth(days, workspace.health, selectedDate), [days, workspace.health, selectedDate]);
+  const currentDay = useMemo(() => days.find(d => d.date === selectedDate), [days, selectedDate]);
   const lastDate = stored.length ? stored[stored.length - 1].date : undefined;
+  const firstDate = days.length ? days[0].date : undefined;
   const staleDays = lastDate ? Math.round((Date.parse(`${today}T12:00:00Z`) - Date.parse(`${lastDate}T12:00:00Z`)) / 86400000) : 0;
+  const dateInputRef = useRef<HTMLInputElement>(null);
+
+  const shiftDay = (delta: number) => {
+    setSelectedDate(prev => {
+      const next = shiftDate(prev, delta);
+      return next > today ? today : next;
+    });
+  };
+
+  const triggerDatePicker = () => {
+    try {
+      if (dateInputRef.current && "showPicker" in HTMLInputElement.prototype) {
+        dateInputRef.current.showPicker();
+        return;
+      }
+    } catch {
+      // fallback
+    }
+    dateInputRef.current?.focus();
+    dateInputRef.current?.click();
+  };
 
   const saveDay = (day: HealthDay | null, date: string) => onChange(prev => {
     const rest = (prev.healthDays || []).filter(d => d.date !== date);
@@ -61,7 +92,11 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   /** Merges imported days in. Only changed days are saved; tags and notes are never touched. */
   const applyImport = (patches: HealthDayPatch[], source: string): number => {
     const result = applyHealthPatches(stored, patches, source);
-    if (result.changed.length) onChange(prev => ({ ...prev, healthDays: applyHealthPatches(prev.healthDays || [], patches, source).days }));
+    if (result.changed.length) {
+      onChange(prev => ({ ...prev, healthDays: applyHealthPatches(prev.healthDays || [], patches, source).days }));
+      const last = patches[patches.length - 1]?.date;
+      if (last) setSelectedDate(last);
+    }
     setPreview(false);
     return result.changed.length;
   };
@@ -71,10 +106,78 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   return (
     <div className="hl-root">
       <div className="hl-toolbar">
-        <div className="hl-views" role="tablist" aria-label="Health views">
-          {(["today", "trends", "days"] as const).map(v => (
-            <button key={v} role="tab" aria-selected={view === v} onClick={() => setView(v)}>{v === "today" ? "Today" : v === "trends" ? "Trends" : "Days"}</button>
-          ))}
+        <div className="hl-toolbar-left">
+          <div className="hl-views" role="tablist" aria-label="Health views">
+            {(["today", "trends", "days"] as const).map(v => (
+              <button
+                key={v}
+                role="tab"
+                aria-selected={view === v}
+                onClick={() => {
+                  setView(v);
+                  if (v === "today" && view === "today" && !isToday) setSelectedDate(today);
+                }}
+              >
+                {v === "today" ? (isToday ? "Today" : "Day") : v === "trends" ? "Trends" : "Days"}
+              </button>
+            ))}
+          </div>
+
+          {days.length > 0 && view === "today" && (
+            <div className="hl-date-nav" role="group" aria-label="Date navigation">
+              <button
+                type="button"
+                className="ws-icon-button"
+                aria-label="Previous day"
+                title="Previous day"
+                onClick={() => shiftDay(-1)}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <div className="hl-date-picker-wrap">
+                <button
+                  type="button"
+                  className="hl-date-pill"
+                  onClick={triggerDatePicker}
+                  title="Choose specific date"
+                >
+                  <Calendar size={14} className="ws-text-muted" />
+                  <span>{dayLabel(selectedDate)}</span>
+                  {isToday && <span className="hl-date-today-badge">Today</span>}
+                </button>
+                <input
+                  ref={dateInputRef}
+                  type="date"
+                  max={today}
+                  min={firstDate}
+                  value={selectedDate}
+                  onChange={e => { if (e.target.value) setSelectedDate(e.target.value); }}
+                  className="hl-sr-input"
+                  aria-label="Date selector"
+                />
+              </div>
+              <button
+                type="button"
+                className="ws-icon-button"
+                aria-label="Next day"
+                title="Next day"
+                disabled={selectedDate >= today}
+                onClick={() => shiftDay(1)}
+              >
+                <ChevronRight size={16} />
+              </button>
+              {!isToday && (
+                <button
+                  type="button"
+                  className="ws-button ws-secondary hl-nav-today-btn"
+                  onClick={() => setSelectedDate(today)}
+                  title="Jump to today"
+                >
+                  Today
+                </button>
+              )}
+            </div>
+          )}
         </div>
         <div className="hl-toolbar-actions">
           <button className={`hl-sync-pill${lastDate && staleDays <= 3 ? " hl-sync-ok" : ""}`} onClick={() => setImportOpen(true)}>
@@ -96,11 +199,27 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       {!days.length ? (
         <EmptyState onImport={() => setImportOpen(true)} onPreview={() => setPreview(true)} />
       ) : view === "today" ? (
-        <TodayView h={insights} onAsk={onAsk} onTagToday={() => setEditing(today)} />
+        <DayView
+          h={insights}
+          date={selectedDate}
+          day={currentDay}
+          isToday={isToday}
+          lastDate={lastDate}
+          onAsk={onAsk}
+          onTagDay={() => setEditing(selectedDate)}
+          onJumpToDate={setSelectedDate}
+        />
       ) : view === "trends" ? (
         <TrendsView h={insights} days={days} range={range} setRange={setRange} />
       ) : (
-        <DaysView days={days} onEdit={setEditing} onImport={() => setImportOpen(true)} readOnly={showingSample} />
+        <DaysView
+          days={days}
+          selectedDate={selectedDate}
+          onSelectDate={d => { setSelectedDate(d); setView("today"); }}
+          onEdit={setEditing}
+          onImport={() => setImportOpen(true)}
+          readOnly={showingSample}
+        />
       )}
 
       {importOpen && <ImportDialog lastDate={lastDate} onClose={() => setImportOpen(false)} onImport={applyImport}
@@ -199,9 +318,31 @@ function ImportDialog({ lastDate, onClose, onImport, onDone, onAutoSync }: {
   );
 }
 
-function TodayView({ h, onAsk, onTagToday }: { h: HealthInsights; onAsk: (p: string) => void; onTagToday: () => void }) {
+function DayView({
+  h,
+  date,
+  day,
+  isToday,
+  lastDate,
+  onAsk,
+  onTagDay,
+  onJumpToDate,
+}: {
+  h: HealthInsights;
+  date: string;
+  day?: HealthDay;
+  isToday: boolean;
+  lastDate?: string;
+  onAsk: (p: string) => void;
+  onTagDay: () => void;
+  onJumpToDate?: (d: string) => void;
+}) {
   const r = h.recovery;
   const t = h.training;
+  const restingHrVal = day?.metrics.restingHr ?? (isToday ? h.latest?.metrics.restingHr : undefined);
+  const hrvVal = day?.metrics.hrv ?? (isToday ? h.latest?.metrics.hrv : undefined);
+  const stepsVal = day?.metrics.steps ?? (isToday ? h.steps.today : undefined);
+
   return (
     <div className="hl-today">
       {h.strain.length > 0 && (
@@ -210,9 +351,20 @@ function TodayView({ h, onAsk, onTagToday }: { h: HealthInsights; onAsk: (p: str
           <div><strong>Your body looks under strain</strong>{h.strain.map(s => <p key={s}>{s}</p>)}<small>Patterns from your watch, not a diagnosis. Consider an easier day.</small></div>
         </div>
       )}
+
+      {isToday && !day && lastDate && lastDate < date && onJumpToDate && (
+        <div className="hl-notice hl-notice-stale-day" role="status">
+          <RefreshCw size={15} />
+          <span>No health data recorded for today yet. Latest data is from {dayLabel(lastDate)}.</span>
+          <button type="button" className="ws-button ws-secondary" onClick={() => onJumpToDate(lastDate)}>
+            View {shortDate(lastDate)} summary →
+          </button>
+        </div>
+      )}
+
       <div className="hl-hero">
         <section className="hl-card hl-recovery">
-          <header><span>Recovery</span><small>{r ? dayLabel(r.date) : ""}</small></header>
+          <header><span>Recovery</span><small>{r ? dayLabel(r.date) : dayLabel(date)}</small></header>
           {r ? (
             <div className="hl-recovery-body">
               <ScoreRing score={r.score} tone={toneOf(r.label)} />
@@ -226,15 +378,51 @@ function TodayView({ h, onAsk, onTagToday }: { h: HealthInsights; onAsk: (p: str
                 </ul>
               </div>
             </div>
-          ) : <p className="hl-muted hl-pad">Needs about a week of HRV or resting heart rate to learn your normal. {h.dayCount} day{h.dayCount === 1 ? "" : "s"} so far.</p>}
+          ) : (
+            <div className="hl-muted hl-pad">
+              <p>
+                {h.dayCount >= 7
+                  ? `No recovery reading recorded for ${isToday ? "today" : dayLabel(date)}.`
+                  : `Needs about a week of HRV or resting heart rate to learn your normal. ${h.dayCount} day${h.dayCount === 1 ? "" : "s"} so far.`}
+              </p>
+              {lastDate && date !== lastDate && onJumpToDate && (
+                <button
+                  type="button"
+                  className="ws-button ws-secondary"
+                  style={{ marginTop: 8 }}
+                  onClick={() => onJumpToDate(lastDate)}
+                >
+                  View latest data from {shortDate(lastDate)}
+                </button>
+              )}
+            </div>
+          )}
           <footer>
-            <button className="ws-button ws-secondary" onClick={() => onAsk("Look at my health summary and tell me how hard I should train today and why. Keep it short.")}><Sparkles size={14} />Ask Iris about today</button>
-            <button className="ws-button ws-secondary" onClick={onTagToday}><Tag size={14} />Tag today</button>
+            <button
+              className="ws-button ws-secondary"
+              onClick={() =>
+                onAsk(
+                  isToday
+                    ? "Look at my health summary and tell me how hard I should train today and why. Keep it short."
+                    : `Look at my health summary for ${dayLabel(date)} and tell me how my recovery and training looked. Keep it short.`
+                )
+              }
+            >
+              <Sparkles size={14} />{isToday ? "Ask Iris about today" : `Ask Iris about ${shortDate(date)}`}
+            </button>
+            <button className="ws-button ws-secondary" onClick={onTagDay}><Tag size={14} />{isToday ? "Tag today" : `Tag ${shortDate(date)}`}</button>
           </footer>
         </section>
         <section className="hl-card">
           <header><span>Sleep</span><Moon size={16} className="ws-text-blue" /></header>
-          <div className="hl-big">{h.sleep.lastNightMin !== undefined ? hm(h.sleep.lastNightMin) : "—"}<small>last night</small></div>
+          <div className="hl-big">
+            {day?.metrics.sleepMin !== undefined
+              ? hm(day.metrics.sleepMin)
+              : h.sleep.lastNightMin !== undefined
+              ? hm(h.sleep.lastNightMin)
+              : "—"}
+            <small>{isToday ? "last night" : "sleep"}</small>
+          </div>
           <dl className="hl-facts">
             <div><dt>Sleep debt</dt><dd>{hm(h.sleep.debtMin)}</dd></div>
             <div><dt>7-night average</dt><dd>{h.sleep.avg7Min !== undefined ? hm(h.sleep.avg7Min) : "—"}</dd></div>
@@ -251,13 +439,37 @@ function TodayView({ h, onAsk, onTagToday }: { h: HealthInsights; onAsk: (p: str
             <div><dt>Form</dt><dd>{signed(t.form)}</dd></div>
           </dl>
           <p className="hl-muted hl-small">0.8–1.3 builds fitness safely; above 1.5 is a spike. Max HR {t.maxHr} ({t.maxHrSource}).</p>
+          {day?.workouts && day.workouts.length > 0 && (
+            <div className="hl-day-workouts">
+              <dt className="hl-muted hl-small">Workouts on this day</dt>
+              <div className="hl-workout-chips">
+                {day.workouts.map((w, i) => (
+                  <span key={i} className="hl-workout-chip">
+                    <b>{w.type}</b> {w.minutes}m
+                    {w.avgHr ? ` · avg ${w.avgHr} bpm` : ""}
+                    {w.distanceKm ? ` · ${w.distanceKm.toFixed(1)} km` : ""}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </div>
       <div className="ws-stats">
         {[
-          { label: "Resting HR", value: h.latest?.metrics.restingHr !== undefined ? `${h.latest.metrics.restingHr}` : "—", detail: h.baselines.restingHr ? `usual ${Math.round(h.baselines.restingHr.mean)} bpm` : "bpm", icon: HeartPulse, color: "rose" },
-          { label: "HRV", value: h.latest?.metrics.hrv !== undefined ? `${h.latest.metrics.hrv}` : "—", detail: h.baselines.hrv ? `usual ${h.baselines.hrv.mean} ms` : "ms", icon: Activity, color: "purple" },
-          { label: "Steps today", value: h.steps.today !== undefined ? h.steps.today.toLocaleString() : "—", detail: `${h.steps.streak}-day streak at ${h.steps.goal.toLocaleString()}`, icon: Footprints, color: "green" },
+          { label: "Resting HR", value: restingHrVal !== undefined ? `${restingHrVal}` : "—", detail: h.baselines.restingHr ? `usual ${Math.round(h.baselines.restingHr.mean)} bpm` : "bpm", icon: HeartPulse, color: "rose" },
+          { label: "HRV", value: hrvVal !== undefined ? `${hrvVal}` : "—", detail: h.baselines.hrv ? `usual ${h.baselines.hrv.mean} ms` : "ms", icon: Activity, color: "purple" },
+          {
+            label: isToday ? "Steps today" : "Steps",
+            value: stepsVal !== undefined ? stepsVal.toLocaleString() : "—",
+            detail: isToday
+              ? `${h.steps.streak}-day streak at ${h.steps.goal.toLocaleString()}`
+              : stepsVal !== undefined && stepsVal >= h.steps.goal
+              ? `Goal met (${h.steps.goal.toLocaleString()})`
+              : `Goal ${h.steps.goal.toLocaleString()}`,
+            icon: Footprints,
+            color: "green",
+          },
           { label: "Cardio fitness", value: h.vo2 ? h.vo2.latest.toFixed(1) : "—", detail: h.vo2?.perMonth !== undefined ? `${signed(h.vo2.perMonth, 1)} per month` : "VO₂ max", icon: BedDouble, color: "blue" },
         ].map(s => (
           <div className="ws-stat" key={s.label}>
@@ -267,6 +479,19 @@ function TodayView({ h, onAsk, onTagToday }: { h: HealthInsights; onAsk: (p: str
           </div>
         ))}
       </div>
+      {day && (day.tags?.length || day.note) ? (
+        <section className="hl-card hl-day-meta">
+          {day.tags?.length ? (
+            <div className="hl-day-tags">
+              <Tag size={14} className="ws-text-muted" />
+              {day.tags.map(t => <span key={t} className="hl-chip">{t}</span>)}
+            </div>
+          ) : null}
+          {day.note ? (
+            <p className="hl-day-note"><strong className="hl-muted">Note:</strong> {day.note}</p>
+          ) : null}
+        </section>
+      ) : null}
       {h.tagEffects.length > 0 && (
         <section className="hl-card">
           <header><span>What changes your next morning</span><Tag size={16} /></header>
@@ -337,8 +562,23 @@ function TrendsView({ h, days, range, setRange }: { h: HealthInsights; days: Hea
   );
 }
 
-function DaysView({ days, onEdit, onImport, readOnly }: { days: HealthDay[]; onEdit: (date: string) => void; onImport: () => void; readOnly: boolean }) {
+function DaysView({
+  days,
+  selectedDate,
+  onSelectDate,
+  onEdit,
+  onImport,
+  readOnly,
+}: {
+  days: HealthDay[];
+  selectedDate: string;
+  onSelectDate: (date: string) => void;
+  onEdit: (date: string) => void;
+  onImport: () => void;
+  readOnly: boolean;
+}) {
   const recent = [...days].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 90);
+  const today = localToday();
   return (
     <section className="hl-card">
       <header><span>Daily log</span>{!readOnly && <button className="ws-button ws-secondary" onClick={onImport}><Upload size={14} />Import file</button>}</header>
@@ -346,17 +586,51 @@ function DaysView({ days, onEdit, onImport, readOnly }: { days: HealthDay[]; onE
         <table className="hl-table hl-days">
           <thead><tr><th>Day</th><th>Sleep</th><th>HRV</th><th>Resting HR</th><th>Steps</th><th>Workouts</th><th>Tags</th></tr></thead>
           <tbody>
-            {recent.map(d => (
-              <tr key={d.date} onClick={() => !readOnly && onEdit(d.date)} tabIndex={readOnly ? undefined : 0} onKeyDown={e => { if (e.key === "Enter" && !readOnly) onEdit(d.date); }}>
-                <td>{dayLabel(d.date)}</td>
-                <td>{d.metrics.sleepMin !== undefined ? hm(d.metrics.sleepMin) : "—"}</td>
-                <td>{d.metrics.hrv ?? "—"}</td>
-                <td>{d.metrics.restingHr ?? "—"}</td>
-                <td>{d.metrics.steps?.toLocaleString() ?? "—"}</td>
-                <td>{d.workouts?.map(w => `${w.type} ${w.minutes}m`).join(", ") || "—"}</td>
-                <td>{(d.tags || []).map(t => <span key={t} className="hl-chip">{t}</span>)}{d.note && <span className="hl-muted" title={d.note}> ✎</span>}</td>
-              </tr>
-            ))}
+            {recent.map(d => {
+              const isSelected = d.date === selectedDate;
+              return (
+                <tr
+                  key={d.date}
+                  className={isSelected ? "hl-row-selected" : undefined}
+                  onClick={() => onSelectDate(d.date)}
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === "Enter") onSelectDate(d.date); }}
+                  title={`View ${dayLabel(d.date)} summary`}
+                >
+                  <td>
+                    <div className="hl-day-cell">
+                      <span className="hl-day-name">{dayLabel(d.date)}</span>
+                      {d.date === today && <span className="hl-day-badge">Today</span>}
+                    </div>
+                  </td>
+                  <td>{d.metrics.sleepMin !== undefined ? hm(d.metrics.sleepMin) : "—"}</td>
+                  <td>{d.metrics.hrv ?? "—"}</td>
+                  <td>{d.metrics.restingHr ?? "—"}</td>
+                  <td>{d.metrics.steps?.toLocaleString() ?? "—"}</td>
+                  <td>{d.workouts?.map(w => `${w.type} ${w.minutes}m`).join(", ") || "—"}</td>
+                  <td>
+                    <div className="hl-tag-cell">
+                      {(d.tags || []).map(t => <span key={t} className="hl-chip">{t}</span>)}
+                      {d.note && <span className="hl-muted" title={d.note}> ✎</span>}
+                      {!readOnly && (
+                        <button
+                          type="button"
+                          className="ws-icon-button hl-day-edit-btn"
+                          title={`Edit tags and notes for ${dayLabel(d.date)}`}
+                          aria-label={`Edit ${dayLabel(d.date)}`}
+                          onClick={e => {
+                            e.stopPropagation();
+                            onEdit(d.date);
+                          }}
+                        >
+                          <Tag size={13} />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
