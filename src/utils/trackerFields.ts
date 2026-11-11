@@ -26,6 +26,7 @@ export const TRACKER_FIELDS: TrackerFieldDef[] = [
   { key: "appliedDate", kinds: ["job_application"], type: "date", description: "YYYY-MM-DD the application was sent." },
   { key: "followUpDate", kinds: ["job_application"], type: "date", description: "YYYY-MM-DD to follow up." },
   { key: "contact", kinds: ["job_application"], type: "text", description: "Recruiter or contact: name, email or LinkedIn." },
+  { key: "resumeId", kinds: ["job_application"], type: "text", description: "ID of an uploaded résumé version in this workspace. Use only a real saved ID when the user identifies the résumé used; empty string clears the selection. Never infer the résumé for a past application." },
 ];
 export const TRACKER_FIELD_KEYS = TRACKER_FIELDS.map(f => f.key);
 

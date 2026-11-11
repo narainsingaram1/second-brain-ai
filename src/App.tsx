@@ -15,7 +15,6 @@ import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrou
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { TopHeader } from "./components/TopHeader";
-import { HomeView } from "./components/HomeView";
 import { GoalsView } from "./components/GoalsView";
 import { GoalModal } from "./components/GoalModal";
 import { TaskMatrixView } from "./components/TaskMatrixView";
@@ -28,6 +27,7 @@ import type { PreparedImage } from "./utils/imageInput";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { EventModal } from "./components/EventModal";
+import { EventsView } from "./components/EventsView";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
 import { ManagedAccountModal } from "./components/ManagedAccountModal";
@@ -61,7 +61,7 @@ export const App: React.FC = () => {
     return () => media.removeEventListener("change", update);
   }, []);
 
-  const isChatTab = activeTab === "copilot";
+  const isChatTab = activeTab === "home" || activeTab === "copilot";
   const [chatLaunchError, setChatLaunchError] = useState("");
   useEffect(() => {
     const viewport = window.visualViewport;
@@ -118,10 +118,10 @@ export const App: React.FC = () => {
     historyFuture.current = [];
   });
 
-  /** Opens the assistant with a message, from Home or any workspace. */
+  /** Opens the Home assistant with a message from any workspace. */
   const askAssistant = async (prompt: string, images?: PreparedImage[]) => {
     setChatLaunchError("");
-    setActiveTab("copilot");
+    setActiveTab("home");
     try { await conversation.run(prompt, images?.length ? { images } : undefined); }
     catch (error) { setChatLaunchError(error instanceof Error ? error.message : "Could not send your message. Try again."); }
   };
@@ -964,32 +964,6 @@ export const App: React.FC = () => {
         <main id="main-content" className={`workspace-main flex-1 min-h-0 w-full ${isChatTab ? "flex flex-col overflow-hidden" : "overflow-y-auto"}`}>
           {isChatTab ? (
             <ChatWorkspace conversation={conversation} state={state} messages={conversation.messages || state.chatHistory} onSaveNote={handleSaveKnowledge} onOpenSettings={() => setIsSettingsOpen(true)} externalError={chatLaunchError} />
-          ) : activeTab === "home" ? (
-            <HomeView
-              conversation={conversation}
-              brainState={state}
-              displayName={session.currentUser?.name}
-              onToggleTask={handleToggleTask}
-              onEditTask={task => { setActiveEditTask(task); setIsTaskModalOpen(true); }}
-              onEditEvent={openEditEvent}
-              onOpenNote={note => { setActiveEditKnowledge(note); setActiveTab("knowledge"); }}
-              onAsk={askAssistant}
-              onNavigate={setActiveTab}
-              onNewTask={() => {
-                const section = state.sections[0] || "Academic";
-                setActiveEditTask(null);
-                setTaskModalDefaultSection(section);
-                setTaskModalDefaultSubsection(state.subsections[section]?.[0] || "General");
-                setTaskModalDefaultDueDate(getLocalDateString());
-                setIsTaskModalOpen(true);
-              }}
-              onNewNote={() => {
-                const note: KnowledgeItem = { id: crypto.randomUUID(), subject: "Untitled Note", title: "Untitled Note", summary: "", content: "", folderId: null, status: "Draft", startDate: getLocalDateString(), endDate: getLocalDateString(), createdAt: new Date().toISOString() };
-                handleSaveKnowledge(note);
-                setActiveEditKnowledge(note);
-                setActiveTab("knowledge");
-              }}
-            />
           ) : (
             <div className={`workspace-page page-${activeTab} w-full mx-auto space-y-6`}>
               {activeTab.startsWith("workspace") && <WorkspacesView
@@ -1026,6 +1000,9 @@ export const App: React.FC = () => {
               {/* ========================================================= */}
               {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
               {/* ========================================================= */}
+              {activeTab === "events" && (
+                <EventsView events={state.events || []} onAddEvent={openNewEvent} onEditEvent={openEditEvent} />
+              )}
               {activeTab === "tasks" && (
                 <TaskMatrixView
                   tasks={state.tasks}

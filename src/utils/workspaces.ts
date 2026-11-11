@@ -8,6 +8,7 @@ import type {
 import { getLocalDateString } from "./habitStreaks";
 import { removeWorkspaceCourses } from "./study";
 import { normalizeHealthProfile } from "./health";
+import { normalizeResumes } from "./resumes";
 
 export const CAREER_WORKSPACE_ID = "workspace-career";
 export const WORKSPACE_COLORS: WorkspaceColor[] = [
@@ -56,6 +57,7 @@ export function normalizeWorkspaces(value: unknown): Workspace[] {
     )
       return [];
     seen.add(item.id);
+    const resumes = normalizeResumes(item.resumes);
     return [
       {
         id: item.id,
@@ -80,6 +82,7 @@ export function normalizeWorkspaces(value: unknown): Workspace[] {
         ...(item.template === "health" && normalizeHealthProfile(item.health)
           ? { health: normalizeHealthProfile(item.health) }
           : {}),
+        ...(Array.isArray(item.resumes) ? { resumes, currentResumeId: resumes.some(resume => resume.id === item.currentResumeId) ? item.currentResumeId : undefined } : {}),
       },
     ];
   });

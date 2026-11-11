@@ -1,5 +1,58 @@
 /* Shared page parts built on the Iris tokens in redesign.css. */
 
+/* Events agenda shares the calendar's records and editor. */
+.events-toolbar, .events-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.events-toolbar { justify-content: space-between; margin: 24px 0 14px; }
+.events-result-count, .events-calendar-note { color: var(--workspace-muted); font-size: 12px; }
+.events-result-count { margin-bottom: 24px; }
+.events-calendar-note { margin-top: 24px; line-height: 1.6; }
+.events-agenda { display: flex; flex-direction: column; gap: 28px; }
+.events-day { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 24px; }
+.events-date { display: flex; flex-direction: column; gap: 4px; padding-top: 18px; }
+.events-date > span { color: var(--workspace-ink); font-size: 14px; font-weight: 550; }
+.events-date time { color: var(--workspace-muted); font-size: 13px; }
+.events-day-list { border: 1px solid var(--workspace-line); border-radius: 12px; background: var(--workspace-panel); overflow: hidden; }
+.events-row { display: grid; grid-template-columns: 152px minmax(0, 1fr) auto; gap: 20px; padding: 20px; border-top: 1px solid var(--workspace-line); }
+.events-row:first-child { border-top: 0; }
+.events-time { display: flex; align-items: flex-start; gap: 7px; color: var(--workspace-secondary); font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums; }
+.events-time > svg { flex-shrink: 0; margin-top: 4px; }
+.events-time small { display: block; margin-top: 4px; color: var(--workspace-muted); font-size: 11px; line-height: 1.5; }
+.events-details { min-width: 0; }
+.events-title-line { display: flex; align-items: baseline; gap: 8px 12px; flex-wrap: wrap; }
+.events-title { text-align: left; color: var(--workspace-ink); font-size: 15px; font-weight: 550; line-height: 22px; overflow-wrap: anywhere; }
+button.events-title:hover { color: var(--workspace-accent); }
+.events-kind-label { font-size: 11px; line-height: 20px; color: var(--workspace-muted); white-space: nowrap; }
+.events-kind-google .events-kind-label { color: var(--workspace-accent); }
+.events-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 7px; color: var(--workspace-muted); font-size: 12px; }
+.events-meta > span { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; min-width: 0; }
+.events-meta svg { flex-shrink: 0; }
+.events-notes { color: var(--workspace-secondary); font-size: 13px; line-height: 1.6; margin-top: 9px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.events-row-actions { display: flex; align-items: flex-start; gap: 8px; }
+.events-link { display: inline-flex; align-items: center; gap: 5px; color: var(--workspace-accent); font-size: 12px; padding: 6px 8px; border-radius: 7px; white-space: nowrap; }
+.events-link:hover { background: var(--workspace-tint); }
+.events-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 76px 24px; border: 1px dashed var(--workspace-line-strong); border-radius: 14px; text-align: center; color: var(--workspace-muted); }
+.events-empty h2 { font-size: 18px; color: var(--workspace-ink); font-weight: 500; }
+.events-empty p { max-width: 360px; font-size: 14px; line-height: 1.6; }
+.events-empty button { margin-top: 8px; }
+@media (max-width: 1050px) {
+  .events-day { grid-template-columns: 90px minmax(0, 1fr); gap: 16px; }
+  .events-row { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; }
+  .events-time { grid-column: 1; }
+  .events-details { grid-column: 1; }
+  .events-row-actions { grid-column: 2; grid-row: 1 / span 2; }
+}
+@media (max-width: 600px) {
+  .events-toolbar { align-items: stretch; gap: 16px; }
+  .events-filters { width: 100%; }
+  .events-filters .field-search { flex: 1 1 100%; }
+  .events-filters .field-select { flex: 1; }
+  .events-day { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .events-date { flex-direction: row; gap: 10px; align-items: baseline; padding-top: 0; }
+  .events-row { padding: 16px; gap: 8px; }
+  .events-row-actions { gap: 2px; }
+  .events-empty { padding: 48px 20px; }
+}
+
 /* Stats read as numbers: label above, figure below, one hairline row. */
 .stat-strip {
   display: grid;

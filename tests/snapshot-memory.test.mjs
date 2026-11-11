@@ -65,6 +65,7 @@ test('learning saves successive batches to the old snapshot schema without chang
 test('invalid data, invalid memory, permissions and revision failures are not bypassed', async () => {
   for (const [code, message, expected] of [
     ['22023', 'Invalid workspace', /invalid workspace data/],
+    ['22023', 'Invalid workspace page', /latest workspace schema update/],
     ['42501', 'Not authorized', /account changed/],
     ['40001', 'Workspace changed', /Another device/],
   ]) {

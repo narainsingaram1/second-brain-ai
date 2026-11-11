@@ -3,12 +3,13 @@
 
 const TAB_KEY = "synapse_active_tab";
 const THEME_KEY = "synapse_theme";
-const PAGES = ["home", "tasks", "knowledge", "goals", "habits", "journal", "copilot", "workspaces"];
+const PAGES = ["home", "tasks", "events", "knowledge", "goals", "habits", "journal", "copilot", "workspaces"];
 
 /** The page this browser tab was on, so a reload stays there. A new tab starts on Home. */
 export function rememberedTab(): string {
   try {
     const tab = sessionStorage.getItem(TAB_KEY) || "";
+    if (tab === "copilot") return "home";
     return PAGES.includes(tab) || tab.startsWith("workspace:") ? tab : "home";
   } catch { return "home"; }
 }

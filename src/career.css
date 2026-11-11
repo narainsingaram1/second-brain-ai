@@ -1,0 +1,66 @@
+/* Career uses the existing Iris theme; only the information layout changes. */
+.career-application-page .ws-hero { padding-bottom: 16px; margin-bottom: 12px; }
+.career-application-page .ws-hero h1 { font-size: 24px; }
+.career-application-page .ws-hero .ws-icon { width: 36px; height: 36px; border-radius: 9px; }
+.career-application-page .ws-hero-eyebrow, .career-application-page .ws-hero-main p { display: none; }
+.career-application-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 0 0 20px; }
+.career-application-stats > div { display: flex; align-items: center; gap: 14px; padding: 20px; border: 1px solid var(--workspace-line); border-radius: 12px; background: var(--workspace-panel); }
+.career-stat-icon { display: grid; place-items: center; width: 42px; height: 42px; flex-shrink: 0; border-radius: 10px; color: var(--workspace-secondary); background: var(--workspace-raised); }
+.career-application-stats strong { display: block; color: var(--workspace-ink); font-size: 27px; line-height: 1.2; font-weight: 500; font-variant-numeric: tabular-nums; }
+.career-application-stats div > div > span { display: block; color: var(--workspace-muted); font-size: 12px; margin-top: 5px; }
+.career-resume-panel { border: 1px solid var(--workspace-line); border-radius: 12px; padding: 18px 20px; margin-bottom: 24px; background: var(--workspace-panel); }
+.career-resume-current { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+.career-resume-current > svg { color: var(--workspace-muted); flex-shrink: 0; }
+.career-resume-description { flex: 1; min-width: 180px; overflow-wrap: anywhere; }
+.career-resume-description h3 { font-size: 13px; font-weight: 550; color: var(--workspace-ink); }
+.career-resume-description p { color: var(--workspace-muted); margin-top: 4px; font-size: 12px; line-height: 1.6; }
+.career-resume-help { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 14px; font-size: 12px; line-height: 1.6; color: var(--workspace-muted); }
+.career-resume-help details { flex: 1 1 150px; }
+.career-resume-help summary { width: fit-content; margin-left: auto; color: var(--workspace-secondary); cursor: pointer; }
+.career-resume-help details[open] { flex-basis: 100%; }
+.career-resume-help details[open] summary { margin-left: 0; margin-bottom: 12px; }
+.career-resume-versions { display: flex; flex-direction: column; gap: 8px; }
+.career-resume-versions > div { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; padding: 12px 0; border-top: 1px solid var(--workspace-line); }
+.career-resume-versions > div > div:first-child { flex: 1; min-width: 160px; }
+.career-resume-versions strong, .career-resume-versions small { display: block; overflow-wrap: anywhere; }
+.career-resume-versions strong { color: var(--workspace-ink); font-size: 13px; font-weight: 500; }
+.career-file-error { color: var(--workspace-danger); font-size: 12px; margin-top: 8px; max-width: 320px; white-space: normal; }
+.career-application-toolbar { flex-wrap: wrap; }
+.career-application-toolbar .ws-search { max-width: none; min-width: 200px; }
+.career-application-toolbar > select { max-width: 190px; text-overflow: ellipsis; }
+.career-applications-table { min-width: 1060px; }
+.career-applications-table td { padding-top: 14px; padding-bottom: 14px; }
+.career-applications-table .ws-company-avatar { width: 38px; height: 38px; }
+.career-applications-table .ws-title-cell { align-items: center; }
+.career-applications-table .ws-title-cell > div { min-width: 160px; max-width: 280px; gap: 2px; }
+.career-applications-table .ws-company-name { font-size: 14px; font-weight: 550; color: var(--workspace-ink); text-align: left; white-space: normal; overflow-wrap: anywhere; }
+.career-applications-table .ws-company-name:hover { color: var(--workspace-accent); }
+.career-applications-table .ws-record-title { font-size: 12px; font-weight: 400; color: var(--workspace-secondary); line-height: 1.5; }
+.career-applications-table td:nth-child(2) { max-width: 220px; min-width: 120px; white-space: normal; overflow-wrap: anywhere; font-size: 12px; line-height: 1.5; }
+.career-resume-cell { min-width: 210px; }
+.career-resume-cell > select { width: 170px; max-width: 170px; background: var(--workspace-panel); color: var(--workspace-secondary); border: 1px solid var(--workspace-line); border-radius: 7px; padding: 7px; font-size: 12px; text-overflow: ellipsis; }
+.career-resume-cell > .career-resume-download { display: inline-block; margin-left: 5px; vertical-align: middle; }
+.career-resume-file { display: inline-flex; align-items: center; padding: 6px; border-radius: 6px; color: var(--workspace-muted); }
+.career-resume-file:hover { background: var(--workspace-hover); color: var(--workspace-ink); }
+.career-row-menu { width: fit-content; margin-left: auto; }
+.career-row-menu > summary { display: flex; padding: 7px; border: 1px solid var(--workspace-line); border-radius: 7px; color: var(--workspace-muted); cursor: pointer; list-style: none; }
+.career-row-menu > summary::-webkit-details-marker { display: none; }
+.career-row-menu > summary:hover { color: var(--workspace-ink); background: var(--workspace-hover); }
+.career-row-menu-items { position: fixed; z-index: 45; width: 190px; padding: 5px; border: 1px solid var(--workspace-line-strong); border-radius: 10px; background: var(--workspace-panel); box-shadow: var(--workspace-float); }
+.career-row-menu-items > button, .career-row-menu-items > a { display: flex; align-items: center; gap: 9px; width: 100%; padding: 9px 10px; border-radius: 6px; color: var(--workspace-secondary); font-size: 12px; text-align: left; }
+.career-row-menu-items > button:hover, .career-row-menu-items > a:hover { background: var(--workspace-hover); color: var(--workspace-ink); }
+.career-row-menu-items > button:last-child { color: var(--workspace-danger); }
+@media (max-width: 1000px) {
+  .career-application-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .career-application-toolbar .ws-search { flex-basis: 100%; }
+}
+@media (max-width: 600px) {
+  .career-application-stats { gap: 8px; }
+  .career-application-stats > div { gap: 9px; padding: 14px 12px; }
+  .career-stat-icon { width: 32px; height: 32px; }
+  .career-application-stats strong { font-size: 23px; }
+  .career-application-stats div > div > span { font-size: 11px; }
+  .career-resume-panel { padding: 16px; }
+  .career-application-toolbar > select { flex: 1 1 120px; max-width: none; }
+  .career-application-toolbar .ws-view-toggle { margin-left: 0; }
+}

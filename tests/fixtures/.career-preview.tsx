@@ -1,0 +1,9 @@
+import React, {useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import '../../src/index.css';import '../../src/redesign.css';import '../../src/pages.css';
+import {WorkspacesView} from '../../src/components/WorkspacesView';
+import type {BrainState} from '../../src/types';
+const now='2026-11-11T12:00:00Z';
+const items=[['Beli','SWE 2027','New York','applied','2026-11-08','2026-11-14'],['Deeplocal','Creative Technology Intern','Pittsburgh','applied','',''],['Parsec','Applied AI Engineer Intern','San Mateo, California','screening','2026-11-10','2026-11-12'],['UiPath','Software Engineer Intern','Bellevue, Washington','onsite','2026-11-09','2026-11-13'],['Cisco','Software Engineer Full Stack–Backend Intern','San Jose, California','offer','2026-11-06','']];
+function Preview(){const [state,setState]=useState<BrainState>({userId:'career-fixture',tasks:[],goals:[],habits:[],journalEntries:[],knowledgeItems:[],chatHistory:[],sections:[],subsections:{},theme:'dark',selectedModel:'test/model',openRouterKey:'',workspaces:[{id:'career',name:'Career',template:'career',description:'Your applications and interview practice.',notes:'',color:'blue',createdAt:now}],trackerItems:items.map(([subject,title,location,status,appliedDate,followUpDate],i)=>({id:'job'+i,workspaceId:'career',kind:'job_application',subject,title,status:status as any,fields:{location,appliedDate,followUpDate},history:{},streak:0,bestStreak:0,createdAt:now,updatedAt:now}))});return <main className="workspace-page" style={{maxWidth:1440,margin:'auto'}}><button className="ws-button" onClick={()=>document.documentElement.classList.toggle('dark')}>Toggle theme</button><WorkspacesView state={state} workspaceId="career" onChange={setState} onNavigate={()=>{}} onAsk={()=>{}} taskActions={{onToggle:()=>{},onEdit:()=>{},onNew:()=>{}}}/></main>}
+document.documentElement.classList.add('dark');createRoot(document.getElementById('root')!).render(<Preview/>);

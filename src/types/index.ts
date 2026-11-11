@@ -37,6 +37,13 @@ export interface TrackerItem {
 export type Tracker = TrackerItem;
 
 export type WorkspaceColor = 'purple' | 'blue' | 'green' | 'amber' | 'rose';
+export interface ResumeVersion {
+  id: string;
+  name: string;
+  size: number;
+  mime: 'application/pdf' | 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+  uploadedAt: string;
+}
 export interface Workspace {
   id: string;
   name: string;
@@ -47,6 +54,8 @@ export interface Workspace {
   createdAt: string;
   /** Health workspaces only: personal targets the health metrics are measured against. */
   health?: HealthProfile;
+  resumes?: ResumeVersion[];
+  currentResumeId?: string;
 }
 
 /** Personal numbers the health metrics use. Every field is optional; sensible defaults fill the gaps. */

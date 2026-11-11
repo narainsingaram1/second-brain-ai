@@ -1,6 +1,7 @@
 import {
   BookOpen,
   CheckSquare,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -14,7 +15,6 @@ import {
   FolderOpen,
   GraduationCap,
   HeartPulse,
-  MessageSquare,
 } from "lucide-react";
 import type { Workspace } from "../types";
 interface SidebarProps {
@@ -33,6 +33,7 @@ const groups = [
     items: [
       { id: "home", label: "Home", icon: Home },
       { id: "tasks", label: "Tasks", icon: CheckSquare },
+      { id: "events", label: "Events", icon: CalendarDays },
       { id: "knowledge", label: "Notes", icon: FileText },
     ],
   },
@@ -43,10 +44,6 @@ const groups = [
       { id: "habits", label: "Habits", icon: Flame },
       { id: "journal", label: "Journal", icon: BookOpen },
     ],
-  },
-  {
-    label: "Think",
-    items: [{ id: "copilot", label: "Ask Iris", icon: MessageSquare }],
   },
 ];
 export function Sidebar({
