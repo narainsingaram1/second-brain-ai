@@ -4,7 +4,7 @@ The independent build uses Supabase Google/email authentication and per-account 
 
 ## Provider configuration
 
-- Supabase project: `iris-second-brain` (`sgacmfewjzmhixewqpad`), Free plan, Ohio.
+- Supabase project: `second-brain` (`dpmrkkupazorhhmchtxt`), Free plan, North Virginia.
 - Public configuration: `hosting/independent.json`. Its publishable key is deliberately public; it cannot bypass database permissions. Never replace it with a secret or service-role key.
 - Schema: `supabase/migrations/202610300001_brain_accounts.sql`. Apply once to this project's SQL Editor. Later changes require a new migration.
 - Cloudflare deployment configuration: `wrangler.jsonc`. The direct-upload dashboard also accepts a ZIP containing the contents of `dist-independent/`.
@@ -26,7 +26,7 @@ The tests exercise the migration in embedded PostgreSQL, including anonymous den
 Create a Web OAuth client in a Google Cloud project, with only `openid`, email and profile scopes. Configure the exact hosted origin as an authorized JavaScript origin and this callback as the authorized redirect URI:
 
 ```
-https://sgacmfewjzmhixewqpad.supabase.co/auth/v1/callback
+https://dpmrkkupazorhhmchtxt.supabase.co/auth/v1/callback
 ```
 
 Enter the client ID and secret directly in this Supabase project's Google provider settings. Keep the secret out of browser code, source and terminal output. Google consent audience/production status must permit the intended users; a Testing audience only admits configured test users.

@@ -2,8 +2,8 @@
 import { waitUntil } from "@vercel/functions";
 import { createClient } from "@supabase/supabase-js";
 // hosting/independent.json
-var supabaseUrl = "https://sgacmfewjzmhixewqpad.supabase.co";
-var supabasePublishableKey = "sb_publishable_ka6-aemxLBgnBFywALxfWw_dGLJc7CW";
+var supabaseUrl = "https://dpmrkkupazorhhmchtxt.supabase.co";
+var supabasePublishableKey = "sb_publishable_CpRALrHufY_oec2Z3Yq72g_NTDLKtVV";
 // server/lib/env.ts
 /** Server configuration. Public Supabase settings fall back to the same defaults the web build uses. */
 function serverEnv() {
