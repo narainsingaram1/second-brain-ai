@@ -323,7 +323,7 @@ test("planner recovers from empty, non-JSON, truncated and invalid model answers
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test("planner bounds retries and reports an actionable error", async () => {
+test("planner bounds retries and falls back transparently to a basic plan", async () => {
   const { suggestDailyPlan } = await server.ssrLoadModule("/src/services/dailyPlannerAI.ts");
   const originalFetch = globalThis.fetch;
   let calls = 0;
@@ -332,7 +332,9 @@ test("planner bounds retries and reports an actionable error", async () => {
     return Response.json({ choices: [{ message: { content: "No plan" } }] });
   };
   try {
-    await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], new AbortController().signal), /after two attempts.*Settings/);
+    const result = await suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], new AbortController().signal);
+    assert.match(result.summary, /AI could not return a usable plan.*basic plan/);
+    assert.deepEqual(result.suggestions, []);
     assert.equal(calls, 2);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -359,4 +361,60 @@ test("planner does not retry provider failures or cancellation", async () => {
     await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], controller.signal), { name: "AbortError" });
     assert.equal(calls, 1);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("a slow provider reaches one shared deadline and produces a schedulable basic plan", async (t) => {
+  const { suggestDailyPlan } = await server.ssrLoadModule("/src/services/dailyPlannerAI.ts");
+  const deadline = new AbortController();
+  const limits = [];
+  t.mock.method(AbortSignal, "timeout", (ms) => { limits.push(ms); return deadline.signal; });
+  let calls = 0;
+  t.mock.method(globalThis, "fetch", async (_url, init) => {
+    calls++;
+    if (calls === 1) return Response.json({ choices: [{ message: { content: "not JSON" } }] });
+    return new Promise((resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+      queueMicrotask(() => deadline.abort(new DOMException("signal timed out", "TimeoutError")));
+    });
+  });
+  const state = {
+    ...plannerState,
+    tasks: [
+      { id: "t1", title: "Assignment", dueDate: date, dueTime: "12:00", priority: "high" },
+      { id: "kept", title: "Already scheduled", dueDate: date, priority: "high" },
+      { id: "done", title: "Finished", dueDate: date, completed: true, priority: "high" },
+    ],
+    habits: [
+      { name: "Walk", timeOfDay: "evening", frequency: "daily", history: {} },
+      { name: "Meditate", frequency: "daily", history: { [date]: true } },
+      { name: "Lecture", frequency: "daily", history: {} },
+    ],
+  };
+  const locked = { id: "kept-block", title: "Already scheduled", taskId: "kept", start: "10:00", end: "11:00", kind: "focus", locked: true };
+  const data = { ...DEFAULT_PLANNER, instructions: "Keep the afternoon free", plans: { [date]: { blocks: [locked] } } };
+  const result = await suggestDailyPlan(state, date, data, [fixed], new AbortController().signal);
+  assert.equal(calls, 2);
+  assert.ok(limits.every((ms) => ms === 30000));
+  assert.match(result.summary, /AI took too long.*basic plan/);
+  assert.match(result.summary, /preferences were not interpreted/);
+  assert.deepEqual(result.suggestions.map((s) => s.title), ["Assignment", "Walk"]);
+  assert.equal(result.suggestions[0].latestEnd, "12:00");
+  assert.equal(result.suggestions[1].preferredStart, "17:00");
+  const scheduled = schedulePlan(date, data, [fixed], result.suggestions, now);
+  assert.equal(scheduled.blocks.find((b) => b.taskId === "kept").id, locked.id);
+  assert.ok(scheduled.blocks.find((b) => b.taskId === "t1").end <= "12:00");
+  assert.equal(scheduled.blocks.find((b) => b.title === "Walk").start, "17:00");
+  scheduled.blocks.forEach((a, i) => scheduled.blocks.forEach((b, j) => {
+    if (i !== j) assert.equal(overlaps(a, b), false);
+  }));
+});
+
+test("user cancellation takes precedence over the fallback even when the deadline expires", async (t) => {
+  const { suggestDailyPlan } = await server.ssrLoadModule("/src/services/dailyPlannerAI.ts");
+  const user = new AbortController();
+  t.mock.method(globalThis, "fetch", async () => {
+    user.abort();
+    throw new DOMException("signal timed out", "TimeoutError");
+  });
+  await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], user.signal), { name: "AbortError" });
 });
