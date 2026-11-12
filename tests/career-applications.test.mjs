@@ -4,7 +4,11 @@ import { readFile } from 'node:fs/promises';
 import { createServer } from 'vite';
 import { PGlite } from '@electric-sql/pglite';
 import { owner, other, supabaseLikeDatabase } from './helpers/supabaseDb.mjs';
-const server = await createServer({configFile:false,server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
+const server = await createServer({cacheDir:'/tmp/iris-career-history-tests-cache',configFile:false,define:{
+ 'import.meta.env.VITE_AUTH_PROVIDER':JSON.stringify('supabase'),
+ 'import.meta.env.VITE_SUPABASE_URL':JSON.stringify('https://fixture.supabase.test'),
+ 'import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY':JSON.stringify('fixture-publishable-key'),
+},server:{middlewareMode:true,hmr:false,ws:false},appType:'custom'});
 after(()=>server.close());
 const {normalizeWorkspaces}=await server.ssrLoadModule('/src/utils/workspaces.ts');
 const {withApplicationResume,currentResume}=await server.ssrLoadModule('/src/utils/resumes.ts');
@@ -25,6 +29,62 @@ test('résumé versions survive normalization and changing the default cannot re
  assert.equal(old.fields.resumeId,r1.id,'explicit reassignment is immutable');
  const cleaned=normalizeWorkspaces([{...workspace,resumes:[r1,r1,{...r2,size:Infinity}],currentResumeId:r2.id}])[0];
  assert.deepEqual(cleaned.resumes,[r1]);assert.equal(cleaned.currentResumeId,undefined);
+});
+
+test('a newer upload with the same filename leaves the old application PDF downloadable from cloud storage',async()=>{
+ const originals={indexedDB:globalThis.indexedDB,document:globalThis.document,window:globalThis.window,
+  createObjectURL:URL.createObjectURL,revokeObjectURL:URL.revokeObjectURL};
+ const cache=new Map(),cloud=new Map(),downloads=[];
+ let client;
+ const database={createObjectStore(){},transaction(){
+  const tx={objectStore:()=>({
+   put(blob,key){cache.set(key,blob);const request={result:key};queueMicrotask(()=>tx.oncomplete?.());return request;},
+   get(key){const request={result:cache.get(key)};queueMicrotask(()=>tx.oncomplete?.());return request;},
+  })};return tx;
+ }};
+ globalThis.indexedDB={open(){const request={result:database};queueMicrotask(()=>request.onsuccess?.());return request;}};
+ URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:resume-test';};
+ URL.revokeObjectURL=()=>{};
+ try{
+  const {getSupabase}=await server.ssrLoadModule('/src/services/managedAuth.ts');
+  client=getSupabase();
+  client.auth.getUser=async()=>({data:{user:{id:owner}},error:null});
+  client.storage.from=bucket=>{
+   assert.equal(bucket,'career-resumes');
+   return {
+    async upload(path,file,options){
+     assert.equal(options.upsert,false,'uploads must never overwrite an original');
+     assert.equal(cloud.has(path),false,'each version needs its own object path');
+     cloud.set(path,file);return {error:null};
+    },
+    async download(path){return {data:cloud.get(path),error:null};},
+   };
+  };
+  const {uploadResume,downloadResume}=await server.ssrLoadModule('/src/services/resumeFiles.ts');
+  const v1=await uploadResume(owner,new File(['%PDF-1.4\nOriginal résumé'], 'Resume.pdf',{type:'application/pdf'}));
+  const old=withApplicationResume(application('already-applied'),v1);
+  const v2=await uploadResume(owner,new File(['%PDF-1.4\nUpdated résumé'], 'Resume.pdf',{type:'application/pdf'}));
+  assert.notEqual(v1.id,v2.id);
+  assert.equal(cloud.size,2,'both originals remain in cloud storage');
+  const reloaded=normalizeWorkspaces(JSON.parse(JSON.stringify([{...workspace,resumes:[v1,v2],currentResumeId:v2.id}])))[0];
+  assert.equal(currentResume(reloaded).id,v2.id);
+  assert.equal(old.fields.resumeId,v1.id,'the existing application still selects the original');
+  const next=withApplicationResume(application('new-application'),currentResume(reloaded));
+  assert.equal(next.fields.resumeId,v2.id);
+  globalThis.document={createElement:()=>({click(){}})};
+  globalThis.window={setTimeout:callback=>callback()};
+  cache.clear(); // Simulate another device with no cached files.
+  await downloadResume(owner,reloaded.resumes.find(version=>version.id===old.fields.resumeId));
+  assert.equal(await downloads[0].text(),'%PDF-1.4\nOriginal résumé');
+  await downloadResume(owner,reloaded.resumes.find(version=>version.id===next.fields.resumeId));
+  assert.equal(await downloads[1].text(),'%PDF-1.4\nUpdated résumé');
+ }finally{
+  await client?.auth.stopAutoRefresh();
+  for(const key of ['indexedDB','document','window']){
+   if(originals[key]===undefined)delete globalThis[key];else globalThis[key]=originals[key];
+  }
+  URL.createObjectURL=originals.createObjectURL;URL.revokeObjectURL=originals.revokeObjectURL;
+ }
 });
 
 test('applications filter and sort without mutating records; missing dates stay last',()=>{

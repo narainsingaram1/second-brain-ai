@@ -1,9 +1,9 @@
 {
-  "supabaseProjectId": "sgacmfewjzmhixewqpad",
-  "supabaseUrl": "https://sgacmfewjzmhixewqpad.supabase.co",
-  "supabasePublishableKey": "sb_publishable_ka6-aemxLBgnBFywALxfWw_dGLJc7CW",
+  "supabaseProjectId": "dpmrkkupazorhhmchtxt",
+  "supabaseUrl": "https://dpmrkkupazorhhmchtxt.supabase.co",
+  "supabasePublishableKey": "sb_publishable_CpRALrHufY_oec2Z3Yq72g_NTDLKtVV",
   "cloudflareWorkerName": "iris-second-brain",
-  "authMode": "google",
+  "authMode": "email",
   "liveUrl": "https://iris-second-brain.narainsingaram7.workers.dev",
   "googleCloudProjectId": "skilled-array-513300-e9"
 }

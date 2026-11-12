@@ -10,6 +10,14 @@ The failed log was for commit `713c076`. It ran `tsc && vite build` with no Type
 
 The lockfile matches the package manifest. Build tools are installed even if npm is configured to omit dev dependencies, and the build runs TypeScript checks before bundling.
 
+## Replacement project verified November 12, 2026
+
+Production now uses Supabase project `second-brain` (`dpmrkkupazorhhmchtxt`) in the currently accessible account. All 15 repository migrations were applied in order to the new empty database. The previous project was left intact. Vercel production deployment `7u8H9PDdAD9SCroTquYxok5ToqDw` redeploys commit `2007f492c943e3665522900197288004e181964d` with production overrides for `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_AUTH_PROVIDER`, `VITE_GOOGLE_ONLY=false`, `SUPABASE_URL`, and `SUPABASE_ANON_KEY`. These values contain only the public project URL and publishable key. The repository defaults and generated API bundles also use the replacement project; those local changes are uncommitted.
+
+Email/password login was verified using a user created directly in the new dashboard. Google OAuth and public signup email delivery were not configured or verified. The production Site URL and exact production/local root and recovery redirects were saved. The existing workspace was exported before switching, imported into the new account, and re-exported after a cloud reload. Tasks, notes, goals, applications, events, workspaces, conversations, academic data and agent memory were retained; collection ordering and calculated habit streaks can be normalized on reload. The backup is in the user's Downloads folder, outside the repository.
+
+A real PDF upload was verified in the application and in `storage.objects`: the `career-resumes` bucket is private, the file is 148881 bytes, and its limit is 5242880 bytes with PDF/DOCX MIME types. Both owner-path insert/read policies are present. The uploaded version remains current after reload, and the application download matches the original PDF byte for byte. Local validation: 251 tests passed; regenerated API bundles and the production build passed.
+
 ## Public configuration
 
 The default public Supabase URL and publishable key come from `hosting/independent.json`. To use another project, set both `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in Vercel and rebuild. `VITE_AUTH_PROVIDER=supabase` enables hosted authentication and is the default.
