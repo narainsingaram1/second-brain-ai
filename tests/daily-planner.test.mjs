@@ -285,3 +285,78 @@ test("AI request uses live commitments and validates generated task references",
     globalThis.fetch = originalFetch;
   }
 });
+
+const plannerState = {
+  tasks: [], habits: [], openRouterKey: "test-key", selectedModel: "test/model",
+};
+const validPlan = JSON.stringify({
+  summary: "Make room for focused work and rest.",
+  suggestions: [{ title: "Take a walk", minutes: 20, kind: "personal" }],
+});
+
+test("planner recovers from empty, non-JSON, truncated and invalid model answers", async () => {
+  const { suggestDailyPlan } = await server.ssrLoadModule("/src/services/dailyPlannerAI.ts");
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const first of [
+      { message: { content: null, reasoning: "Still thinking" }, finish_reason: "length" },
+      { message: { content: "" }, finish_reason: "stop" },
+      { message: { content: "Here is how I would plan your day." } },
+      { message: { content: '{"suggestions":[' }, finish_reason: "length" },
+      { message: { content: validPlan }, finish_reason: "length" },
+      { message: { content: "null" } },
+      { message: { content: '{"suggestions":[]}' } },
+      { message: { content: '{"suggestions":[{"title":"Invented task","minutes":50,"kind":"focus","taskId":"unknown"}]}' } },
+    ]) {
+      const requests = [];
+      globalThis.fetch = async (_url, options) => {
+        requests.push(JSON.parse(options.body));
+        return Response.json({ choices: [requests.length === 1 ? first : { message: { content: validPlan }, finish_reason: "stop" }] });
+      };
+      const result = await suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [fixed], new AbortController().signal);
+      assert.equal(result.suggestions[0].title, "Take a walk");
+      assert.equal(requests.length, 2);
+      assert.deepEqual(requests.map((r) => r.max_tokens), [8000, 12000]);
+      assert.deepEqual(requests[0].response_format, { type: "json_object" });
+      assert.deepEqual(requests[1].messages, requests[0].messages);
+    }
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("planner bounds retries and reports an actionable error", async () => {
+  const { suggestDailyPlan } = await server.ssrLoadModule("/src/services/dailyPlannerAI.ts");
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({ choices: [{ message: { content: "No plan" } }] });
+  };
+  try {
+    await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], new AbortController().signal), /after two attempts.*Settings/);
+    assert.equal(calls, 2);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("planner does not retry provider failures or cancellation", async () => {
+  const { suggestDailyPlan } = await server.ssrLoadModule("/src/services/dailyPlannerAI.ts");
+  const originalFetch = globalThis.fetch;
+  try {
+    for (const status of [200, 401, 429, 500]) {
+      let calls = 0;
+      globalThis.fetch = async () => { calls++; return Response.json({ error: { message: "Provider unavailable" } }, { status }); };
+      await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], new AbortController().signal), /Provider unavailable/);
+      assert.equal(calls, 1);
+    }
+    const controller = new AbortController();
+    let calls = 0;
+    globalThis.fetch = async () => {
+      calls++;
+      controller.abort();
+      return Response.json({ choices: [{ message: { content: "" } }] });
+    };
+    await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], controller.signal), { name: "AbortError" });
+    assert.equal(calls, 1);
+    await assert.rejects(() => suggestDailyPlan(plannerState, date, DEFAULT_PLANNER, [], controller.signal), { name: "AbortError" });
+    assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
