@@ -328,6 +328,9 @@ export async function testOpenRouterKey(apiKey: string, model?: string, base?: s
   }
 }
 
+/** A successful provider request that did not contain a usable structured answer. */
+export class ModelResponseError extends Error {}
+
 export async function queryOpenRouter(
   messages: { role: string; content: string }[],
   apiKey: string,
@@ -359,7 +362,16 @@ export async function queryOpenRouter(
   }
 
   const data = await res.json();
-  return data.choices?.[0]?.message?.content || "No response received.";
+  if (data.error) throw new Error(data.error.message || "Provider returned an error.");
+  const choice = data.choices?.[0];
+  const content = choice?.message?.content;
+  if (options.json) {
+    if (choice?.finish_reason === "length")
+      throw new ModelResponseError("The AI response reached its output limit before finishing.");
+    if (typeof content !== "string" || !content.trim())
+      throw new ModelResponseError("The AI returned no structured answer.");
+  }
+  return content || "No response received.";
 }
 
 /**
