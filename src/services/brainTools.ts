@@ -4,6 +4,7 @@ import { OpenRouterTool } from "./openrouter";
 import { readTrackerFields, trackerFieldProperties, TRACKER_FIELD_KEYS } from "../utils/trackerFields";
 import { cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, isHealthDate, normalizeHealthDay, normalizeHealthProfile } from "../utils/health";
 import { healthSummaryForAssistant } from "../utils/healthMetrics";
+import { deepHealthForAssistant } from "../utils/healthInsights";
 const s_ = { type: "string" };
 const d_ = (description: string) => ({ type: "string", description });
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[]): OpenRouterTool =>
@@ -475,7 +476,7 @@ function tool(name: string, description: string, properties: Record<string, unkn
 }
 export const READ_TOOLS = [
   tool("list_resume_versions", "List uploaded résumé versions and the current default for a Career workspace. Returns metadata only, never file contents. Use real returned IDs to record which version the user used for an application; do not assume past applications used today's default.", { workspaceId: str, offset: cursorSchema }, ["workspaceId"]),
-  tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", {
+  tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals, how tagged days affect the next morning, plus deeper analysis: a sleep score (duration against a sleep need that rises with debt and training, efficiency, deep+REM, timing, interruptions, overnight HRV/RHR), patterns found in their data (e.g. daylight or late workouts vs sleep), weekday rhythm, best bedtime window, social jetlag and personal records. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", {
     date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
   }),
   tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
@@ -708,7 +709,10 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
   if (name === "health_summary") {
     if (args.date !== undefined) validDate(args.date);
     const profile = (state.workspaces || []).find(w => w.template === "health")?.health;
-    return { output: healthSummaryForAssistant(state.healthDays || [], profile, args.date || getLocalDateString()), sources: [] };
+    const day = args.date || getLocalDateString();
+    const summary = healthSummaryForAssistant(state.healthDays || [], profile, day);
+    const deeper = summary.available ? deepHealthForAssistant(state.healthDays || [], profile, day) : undefined;
+    return { output: deeper ? { ...summary, ...deeper } : summary, sources: [] };
   }
   const all = name === "recall_conversation" || name === "search_records" ? [] : records(state, args.type, ctx);
   const offset = args.offset || 0;

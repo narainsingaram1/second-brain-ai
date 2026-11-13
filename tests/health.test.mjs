@@ -10,6 +10,7 @@ const load = path => server.ssrLoadModule(path);
 const { parseHealthPayload, applyHealthPatches, mergeHealthDay, normalizeHealthDay } = await load('/src/utils/health.ts');
 const { computeHealth, workoutLoad, healthSummaryForAssistant } = await load('/src/utils/healthMetrics.ts');
 const { sampleHealthDays } = await load('/src/utils/healthSample.ts');
+const { computeDeepHealth, scoreNight, spearman, sleepNeedFor } = await load('/src/utils/healthInsights.ts');
 const { prepareMutation, applyMutation, executeRead } = await load('/src/services/brainTools.ts');
 const { approvalReason } = await load('/src/services/actionPolicy.ts');
 const { healthSyncHandlers } = await load('/server/routes/healthsync.ts');
@@ -118,6 +119,47 @@ test('metrics: recovery against your own baseline, training load, sleep debt and
   assert.equal(pastInsights.recovery?.date, pastDay);
 });
 
+test('deep health: a sleep score against a moving need, and patterns found in the data', () => {
+  const today = '2026-11-09';
+  const days = sampleHealthDays(today, 90);
+  const d = computeDeepHealth(days, { sleepGoalMin: 480 }, today);
+  assert.ok(d.night, 'last night is scored');
+  assert.ok(d.night.score >= 0 && d.night.score <= 100);
+  assert.deepEqual(d.night.components.map(c => c.key), ['duration', 'efficiency', 'restorative', 'timing', 'interruptions', 'physiology']);
+  assert.ok(Math.abs(d.night.components.reduce((a, c) => a + c.weight, 0) - 1) < 0.01, 'weights renormalize to 1');
+  assert.ok(d.night.need.totalMin >= 480, 'need is never below the goal');
+  assert.equal(d.nights.length, 90);
+  assert.equal(d.mornings.length, 90);
+
+  // The sample builds in real effects; the finder should recover them with the right sign.
+  const late = d.patterns.find(p => p.id === 'prevWorkoutEnd-sleepScore');
+  assert.ok(late && late.rho < 0 && !late.helps, 'late workouts go with worse sleep');
+  const sleepHrv = d.patterns.find(p => p.id === 'sleepMin-hrv');
+  assert.ok(sleepHrv && sleepHrv.rho > 0 && sleepHrv.helps, 'longer sleep goes with higher HRV');
+  for (const p of d.patterns) assert.ok(p.n >= 14 && Math.abs(p.rho) >= 0.22);
+  assert.ok(d.insights.some(i => i.id === 'tag-alcohol' && i.tone === 'bad'), 'alcohol costs sleep points');
+  assert.ok(d.insights.every((i, k, all) => k === 0 || all[k - 1].weight >= i.weight), 'insights are ranked');
+  assert.equal(d.weekdays.length, 7);
+  assert.ok(d.records.find(r => r.key === 'hrv'));
+
+  // Training hard the day before and carrying debt both raise tonight's need.
+  const base = { id: 'x', metrics: {}, updatedAt: '' };
+  const byDate = new Map([['2026-11-01', { ...base, date: '2026-11-01', metrics: { sleepMin: 300 } }]]);
+  const rested = sleepNeedFor('2026-11-03', new Map(), new Map(), 480);
+  const tired = sleepNeedFor('2026-11-02', byDate, new Map([['2026-11-01', 150]]), 480);
+  assert.equal(rested.totalMin, 480);
+  assert.ok(tired.debtMin > 0 && tired.trainingMin > 0 && tired.totalMin > 480);
+
+  // Same night, more sleep scores higher; a night without sleep isn't scored.
+  const night = (sleepMin) => new Map([['2026-11-05', { ...base, date: '2026-11-05', metrics: { sleepMin, awakeMin: 10 } }]]);
+  assert.ok(scoreNight('2026-11-05', night(480), new Map(), 480).score > scoreNight('2026-11-05', night(330), new Map(), 480).score);
+  assert.equal(scoreNight('2026-11-05', new Map(), new Map(), 480), undefined);
+
+  assert.equal(Math.round(spearman([1, 2, 3, 4], [10, 20, 30, 40]) * 100), 100);
+  assert.equal(Math.round(spearman([1, 2, 3, 4], [4, 3, 2, 1]) * 100), -100);
+  assert.equal(computeDeepHealth([], undefined, today).nights.length, 0);
+});
+
 const emptyState = () => ({ userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], workspaces: [], noteFolders: [],
   sections: ['Academic'], subsections: { Academic: ['General'] }, chatHistory: [], openRouterKey: '', selectedModel: '', theme: 'light', healthDays: [],
   study: { courses: [], folders: [], documents: [], decks: [], quizzes: [] } });
@@ -151,6 +193,7 @@ test('the assistant can log, correct, delete and read health data, and change ta
   const summary = (await executeRead('health_summary', { date: '2026-11-09' }, s, '')).output;
   assert.equal(summary.available, true);
   assert.equal(summary.sleep.goal, '7h 30m');
+  assert.ok(summary.sleepScore?.score >= 0 && Array.isArray(summary.insights), 'the assistant sees the sleep score and insights');
   const rows = (await executeRead('query_records', { type: 'health', dateFrom: '2026-11-01', dateTo: '2026-11-09' }, s, '')).output;
   assert.equal(rows.total, 9);
   assert.equal(healthSummaryForAssistant([], undefined).available, false);

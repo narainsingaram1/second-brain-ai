@@ -2180,7 +2180,7 @@ const READ_TOOLS = [
 		workspaceId: str,
 		offset: cursorSchema
 	}, ["workspaceId"]),
-	tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals and how tagged days affect the next morning. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", { date: {
+	tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals, how tagged days affect the next morning, plus deeper analysis: a sleep score (duration against a sleep need that rises with debt and training, efficiency, deep+REM, timing, interruptions, overnight HRV/RHR), patterns found in their data (e.g. daylight or late workouts vs sleep), weekday rhythm, best bedtime window, social jetlag and personal records. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", { date: {
 		type: "string",
 		description: "Optional YYYY-MM-DD to evaluate as 'today'."
 	} }),

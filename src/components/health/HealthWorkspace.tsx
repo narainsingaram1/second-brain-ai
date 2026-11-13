@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, BedDouble, Calendar, Check, ChevronLeft, ChevronRight, Copy, Footprints, HeartPulse, Moon, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
+  Activity, AlertTriangle, BedDouble, Calendar, Check, ChevronLeft, ChevronRight, Copy, Footprints, HeartPulse, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
 } from "lucide-react";
 import type { BrainState, HealthDay, HealthProfile, Workspace } from "../../types";
 import { applyHealthPatches, cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, normalizeHealthDays, normalizeHealthProfile, parseHealthPayload, type HealthDayPatch } from "../../utils/health";
 import { importAppleHealthExport } from "../../utils/healthExport";
 import { computeHealth, hm, localToday, type HealthInsights } from "../../utils/healthMetrics";
 import { sampleHealthDays } from "../../utils/healthSample";
+import { computeDeepHealth, type DeepHealth } from "../../utils/healthInsights";
+import { InsightList, InsightsView, SleepScoreCard, SleepView } from "./HealthInsightViews";
 import { createHealthSyncToken, healthSyncStatus, revokeHealthSync, type HealthSyncStatus } from "../../services/serverApi";
 import { managedAuthEnabled } from "../../services/managedAuth";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
@@ -15,7 +17,7 @@ import "../../health.css";
 
 type Update = (update: (state: BrainState) => BrainState) => void;
 interface Props { state: BrainState; workspace: Workspace; onChange: Update; onAsk: (prompt: string) => void }
-type View = "today" | "trends" | "days";
+type View = "today" | "sleep" | "insights" | "trends" | "days";
 
 const ago = (iso?: string | null) => {
   if (!iso) return "never";
@@ -52,6 +54,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   const showingSample = preview && !stored.length;
   const days = showingSample ? sample : stored;
   const insights = useMemo(() => computeHealth(days, workspace.health, selectedDate), [days, workspace.health, selectedDate]);
+  const deep = useMemo(() => computeDeepHealth(days, workspace.health, selectedDate), [days, workspace.health, selectedDate]);
   const currentDay = useMemo(() => days.find(d => d.date === selectedDate), [days, selectedDate]);
   const lastDate = stored.length ? stored[stored.length - 1].date : undefined;
   const firstDate = days.length ? days[0].date : undefined;
@@ -108,7 +111,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       <div className="hl-toolbar">
         <div className="hl-toolbar-left">
           <div className="hl-views" role="tablist" aria-label="Health views">
-            {(["today", "trends", "days"] as const).map(v => (
+            {(["today", "sleep", "insights", "trends", "days"] as const).map(v => (
               <button
                 key={v}
                 role="tab"
@@ -118,12 +121,12 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
                   if (v === "today" && view === "today" && !isToday) setSelectedDate(today);
                 }}
               >
-                {v === "today" ? (isToday ? "Today" : "Day") : v === "trends" ? "Trends" : "Days"}
+                {v === "today" ? (isToday ? "Today" : "Day") : v === "sleep" ? "Sleep" : v === "insights" ? "Insights" : v === "trends" ? "Trends" : "Days"}
               </button>
             ))}
           </div>
 
-          {days.length > 0 && view === "today" && (
+          {days.length > 0 && (view === "today" || view === "sleep" || view === "insights") && (
             <div className="hl-date-nav" role="group" aria-label="Date navigation">
               <button
                 type="button"
@@ -201,6 +204,9 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       ) : view === "today" ? (
         <DayView
           h={insights}
+          deep={deep}
+          onOpenSleep={() => setView("sleep")}
+          onOpenInsights={() => setView("insights")}
           date={selectedDate}
           day={currentDay}
           isToday={isToday}
@@ -209,8 +215,12 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
           onTagDay={() => setEditing(selectedDate)}
           onJumpToDate={setSelectedDate}
         />
+      ) : view === "sleep" ? (
+        <SleepView deep={deep} days={days} />
+      ) : view === "insights" ? (
+        <InsightsView deep={deep} days={days} />
       ) : view === "trends" ? (
-        <TrendsView h={insights} days={days} range={range} setRange={setRange} />
+        <TrendsView h={insights} deep={deep} days={days} range={range} setRange={setRange} />
       ) : (
         <DaysView
           days={days}
@@ -320,6 +330,9 @@ function ImportDialog({ lastDate, onClose, onImport, onDone, onAutoSync }: {
 
 function DayView({
   h,
+  deep,
+  onOpenSleep,
+  onOpenInsights,
   date,
   day,
   isToday,
@@ -329,6 +342,9 @@ function DayView({
   onJumpToDate,
 }: {
   h: HealthInsights;
+  deep: DeepHealth;
+  onOpenSleep: () => void;
+  onOpenInsights: () => void;
   date: string;
   day?: HealthDay;
   isToday: boolean;
@@ -413,23 +429,7 @@ function DayView({
             <button className="ws-button ws-secondary" onClick={onTagDay}><Tag size={14} />{isToday ? "Tag today" : `Tag ${shortDate(date)}`}</button>
           </footer>
         </section>
-        <section className="hl-card">
-          <header><span>Sleep</span><Moon size={16} className="ws-text-blue" /></header>
-          <div className="hl-big">
-            {day?.metrics.sleepMin !== undefined
-              ? hm(day.metrics.sleepMin)
-              : h.sleep.lastNightMin !== undefined
-              ? hm(h.sleep.lastNightMin)
-              : "—"}
-            <small>{isToday ? "last night" : "sleep"}</small>
-          </div>
-          <dl className="hl-facts">
-            <div><dt>Sleep debt</dt><dd>{hm(h.sleep.debtMin)}</dd></div>
-            <div><dt>7-night average</dt><dd>{h.sleep.avg7Min !== undefined ? hm(h.sleep.avg7Min) : "—"}</dd></div>
-            <div><dt>Regularity</dt><dd>{h.sleep.regularity ? `${h.sleep.regularity.score}/100` : "—"}</dd></div>
-          </dl>
-          {h.sleep.regularity && <p className="hl-muted hl-small">Usually {h.sleep.regularity.avgBedtime} to {h.sleep.regularity.avgWake}; bedtime varies ±{h.sleep.regularity.bedtimeSdMin} min.</p>}
-        </section>
+        <SleepScoreCard night={deep.night} usual={deep.usual.sleepScore} onOpen={onOpenSleep} />
         <section className="hl-card">
           <header><span>Training load</span><Zap size={16} className="ws-text-amber" /></header>
           <div className="hl-big">{t.ratio !== undefined ? t.ratio.toFixed(2) : "—"}<small>{t.zone ? `${t.zone.toLowerCase()} · 7-day vs 42-day` : "needs a few weeks"}</small></div>
@@ -455,6 +455,7 @@ function DayView({
           )}
         </section>
       </div>
+      <InsightList insights={deep.insights} patterns={deep.patterns} limit={4} onMore={onOpenInsights} />
       <div className="ws-stats">
         {[
           { label: "Resting HR", value: restingHrVal !== undefined ? `${restingHrVal}` : "—", detail: h.baselines.restingHr ? `usual ${Math.round(h.baselines.restingHr.mean)} bpm` : "bpm", icon: HeartPulse, color: "rose" },
@@ -510,7 +511,8 @@ function DayView({
   );
 }
 
-function TrendsView({ h, days, range, setRange }: { h: HealthInsights; days: HealthDay[]; range: 30 | 90; setRange: (r: 30 | 90) => void }) {
+function TrendsView({ h, deep, days, range, setRange }: { h: HealthInsights; deep: DeepHealth; days: HealthDay[]; range: 30 | 90; setRange: (r: 30 | 90) => void }) {
+  const scoreBy = new Map(deep.nights.map(n => [n.date, n.score]));
   const series = h.series.slice(-range);
   const pick = (key: "recovery" | "hrv" | "restingHr" | "sleepMin" | "steps" | "fatigue" | "fitness"): ChartPoint[] => series.map(p => ({ date: p.date, value: p[key] }));
   const byDate = new Map(days.map(d => [d.date, d]));
@@ -547,6 +549,9 @@ function TrendsView({ h, days, range, setRange }: { h: HealthInsights; days: Hea
           <TimeChart points={pick("hrv")} label="HRV" format={v => `${Math.round(v)} ms`} band={hrvSd ? { low: hrvSd[0], high: hrvSd[1], label: "Your usual range" } : undefined} /></section>
         <section className="hl-card"><header><span>Resting heart rate</span><small>shaded: your usual range</small></header>
           <TimeChart points={pick("restingHr")} label="Resting HR" format={v => `${Math.round(v)}`} band={rhrB ? { low: rhrB.mean - rhrB.sd, high: rhrB.mean + rhrB.sd, label: "Your usual range" } : undefined} /></section>
+        <section className="hl-card"><header><span>Sleep score</span></header>
+          <TimeChart points={series.map(p => ({ date: p.date, value: scoreBy.get(p.date) }))} label="Sleep score" format={v => `${Math.round(v)}`} domain={[0, 100]}
+            goal={deep.usual.sleepScore !== undefined ? { value: deep.usual.sleepScore, label: "usual" } : undefined} /></section>
         <section className="hl-card"><header><span>Sleep</span><small>lighter bars are under your goal</small></header>
           <TimeChart kind="bar" points={pick("sleepMin")} label="Sleep" format={v => `${(v / 60).toFixed(1)}h`} goal={{ value: h.sleep.goalMin, label: "goal" }} /></section>
         <section className="hl-card"><header><span>Training load</span></header>

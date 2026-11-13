@@ -185,7 +185,7 @@ export function computeHealth(input: HealthDay[], profile: HealthProfile | undef
   };
 }
 
-function recoveryFor(date: string, day: HealthDay, window: (date: string, key: string, t?: (v: number) => number) => number[], goalMin: number): Recovery | undefined {
+export function recoveryFor(date: string, day: HealthDay, window: (date: string, key: string, t?: (v: number) => number) => number[], goalMin: number): Recovery | undefined {
   const parts: Array<RecoveryComponent & { weight: number }> = [];
   const hrvBase = stats(window(date, "hrv", Math.log));
   if (day.metrics.hrv && hrvBase) {
