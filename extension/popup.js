@@ -29,4 +29,20 @@ document.getElementById("precise").addEventListener("change", async event => {
   if (!box.checked) await chrome.permissions.remove({ permissions: ["debugger"] }).catch(() => {});
   render();
 });
+const LINK_STATES = { connected: "Connected.", connecting: "Connecting…", "app-closed": "Open the Synapse app; it connects within a minute.",
+  "not-installed": "In the Synapse app, open Settings → Browser agent and click Connect Chrome first.", disconnected: "Disconnected. It retries every minute.", off: "", unavailable: "This browser can't connect to apps." };
+async function renderLink() {
+  const res = await send({ type: "desktop-link-status" });
+  const link = res?.value || { on: false, state: "off" };
+  document.getElementById("desktop").checked = link.on;
+  if (link.on) document.getElementById("desktop-state").textContent = LINK_STATES[link.state] || link.state;
+}
+document.getElementById("desktop").addEventListener("change", async event => {
+  const box = event.target;
+  if (box.checked && !(await chrome.permissions.request({ permissions: ["nativeMessaging"] }))) { box.checked = false; return; }
+  await send({ type: "set-desktop-link", on: box.checked });
+  if (!box.checked) await chrome.permissions.remove({ permissions: ["nativeMessaging"] }).catch(() => {});
+  setTimeout(renderLink, 600);
+});
+renderLink();
 render();

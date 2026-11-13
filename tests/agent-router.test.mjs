@@ -263,3 +263,52 @@ test('router: text carried between websites and Mac apps needs a go-ahead, both 
   assert.match(asked[1].reason, /the app com\.apple\.mail/);
   assert.ok(store.entries.some(e => e.tool === 'desktop_act' && e.outcome === 'declined'));
 });
+
+test('MCP: tools as MCP lists them; one router per client session, renewed after idling', async () => {
+  const { createMcpHandler, mcpToolList } = await load('/src/services/mcpBridge.ts');
+  const listed = mcpToolList([{ type: 'function', function: { name: 'browser_look', description: 'Look', parameters: { type: 'object', properties: {} } } }]);
+  assert.deepEqual(listed, [{ name: 'browser_look', description: 'Look', inputSchema: { type: 'object', properties: {} } }]);
+  let made = 0, t = 0;
+  const handle = createMcpHandler(async client => {
+    made++;
+    return { definitions: [{ type: 'function', function: { name: 'desktop_look', description: '', parameters: {} } }], instructions: '',
+      execute: async (name, args) => ({ output: { client, name, args } }) };
+  }, () => t);
+  assert.deepEqual(await handle({ name: 'desktop_look', arguments: { bundleId: 'com.apple.Notes' }, client: 'Claude' }), { client: 'Claude', name: 'desktop_look', args: { bundleId: 'com.apple.Notes' } });
+  await handle({ name: 'desktop_look', arguments: {}, client: 'Claude' });
+  assert.equal(made, 1, 'same client, same session');
+  await handle({ name: 'desktop_look', arguments: {}, client: 'Cursor' });
+  assert.equal(made, 2, 'each client gets its own limits');
+  t += 11 * 60_000;
+  await handle({ name: 'desktop_look', arguments: {}, client: 'Claude' });
+  assert.equal(made, 3, 'idle sessions start over');
+  await assert.rejects(handle({ name: 'browser_act', arguments: {}, client: 'Claude' }), /isn't available/);
+});
+
+test('desktop app: the browser goes through Rust, and paused steps are confirmed by Rust from its own copy', async () => {
+  const calls = [];
+  let linked = true;
+  globalThis.window = { __TAURI_INTERNALS__: { transformCallback: () => 0, invoke: async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'browser_link_status') return { connected: linked, version: '1.2.0', hostInstalled: true };
+    if (cmd === 'browser_call') return args.request.type === 'hello' ? { paired: true } : { ok: 1 };
+    if (cmd === 'browser_confirm') return 'allow';
+    if (cmd === 'approval_request') return 'deny';
+    return null;
+  } } };
+  try {
+    const { NativeBrowserLink } = await load('/src/services/browserLink.ts');
+    const { nativeConfirm } = await load('/src/services/nativeApproval.ts');
+    const link = new NativeBrowserLink();
+    assert.equal(await link.status(), 'ready');
+    linked = false;
+    assert.equal(await link.status(), 'unavailable');
+    assert.deepEqual(await link.call({ type: 'tabs' }), { ok: 1 });
+    assert.deepEqual(calls.at(-1), ['browser_call', { request: { type: 'tabs' } }]);
+    const sig = new AbortController().signal;
+    assert.equal(await nativeConfirm({ label: 'web layer says: harmless', site: 'shop.example', grant: 'g123' }, sig), 'allow');
+    assert.deepEqual(calls.at(-1), ['browser_confirm', { handle: 'g123' }], 'only the handle goes to Rust; Rust shows its own label');
+    assert.equal(await nativeConfirm({ label: 'Policy gate', site: 'shop.example' }, sig), 'deny');
+    assert.equal(calls.at(-1)[0], 'approval_request');
+  } finally { delete globalThis.window; }
+});

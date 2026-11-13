@@ -25,7 +25,8 @@ import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type 
 import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
 import { AgentAuditLog } from "../services/agentAudit";
 import { loadUserPolicy, saveUserPolicy } from "../services/agentPolicy";
-import { askNative, hasNativeApproval, withdrawNative } from "../services/nativeApproval";
+import { hasNativeApproval, nativeConfirm, withdrawNative } from "../services/nativeApproval";
+import { nativeBrowserLink } from "../services/browserLink";
 import { desktopReady, desktopToolset, needsDesktop } from "../services/desktopAgent";
 
 type BrowserAnswer = boolean | "deny_site";
@@ -322,7 +323,8 @@ export function useBrainConversation(
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     // Work on websites runs here, where the browser extension is; the rest may run on the server.
-    const bridge = browserAgentEnabled() ? browserBridge() : null;
+    // In Chrome, the extension's bridge on this page; in the desktop app, Chrome through Rust (native messaging).
+    const bridge = !browserAgentEnabled() ? null : hasNativeApproval() ? nativeBrowserLink() : browserBridge();
     const browser = bridge && needsBrowser(prompt, initial.chatHistory) && (await bridge.status()) === "ready" ? bridge : null;
     /** Stops the agent on a site for good: the user's policy, and the router for the rest of this request. */
     const neverOn = (site: string) => {
@@ -336,8 +338,8 @@ export function useBrainConversation(
         browserConfirmNative.current = true;
         setBrowserConfirm({ ...request, native: true });
         try {
-          const decision = await askNative({ label: request.label, site: request.site, ...(request.reason ? { reason: request.reason } : {}),
-            ...(request.screenshot ? { screenshot: request.screenshot } : {}) }, stepSignal);
+          const decision = await nativeConfirm({ label: request.label, site: request.site, ...(request.reason ? { reason: request.reason } : {}),
+            ...(request.screenshot ? { screenshot: request.screenshot } : {}), ...(request.grant ? { grant: request.grant } : {}) }, stepSignal);
           if (decision === "deny_site") neverOn(request.site);
           return decision === "allow";
         } catch (error) {

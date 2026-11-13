@@ -16,13 +16,21 @@ const PREF_KEY = "synapse.browserAgent";
 
 export interface BrowserConfirmRequest { id: string; label: string; site: string; tabId: number; /** Why the app (not the page) asks: policy or text carried between sites. */ reason?: string;
   /** The page with the target boxed, when the extension's precise mode could take one. Shown to the user only. */ screenshot?: string;
-  /** Answered in the desktop app's approval window; the chat only shows that it is waiting. */ native?: boolean }
+  /** Answered in the desktop app's approval window; the chat only shows that it is waiting. */ native?: boolean;
+  /** The extension's pause for this step (in the desktop app, an opaque handle that only Rust can redeem). */ grant?: string }
+
+/** What the browser tools need from a connection to the extension: in Chrome, the page bridge; in the desktop app, Rust. */
+export interface BrowserLink {
+  call<T = unknown>(request: Record<string, unknown> & { type: string }, signal?: AbortSignal, timeout?: number): Promise<T>;
+  status(): Promise<BrowserStatus>;
+  pair(): Promise<boolean>;
+}
 export type BrowserStatus = "unavailable" | "not_paired" | "ready";
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
 
 /** Request/response messaging with the extension's bridge script on this page. */
-export class BrowserBridge {
+export class BrowserBridge implements BrowserLink {
   private pending = new Map<string, Pending>();
   private version: string | null = null;
   private readyWaiters: Array<() => void> = [];
@@ -216,7 +224,7 @@ export interface BrowserToolsetOptions {
 }
 
 /** The browser tools, backed by the extension. */
-export function browserToolset(bridge: BrowserBridge, options: BrowserToolsetOptions = {}): ExternalToolset {
+export function browserToolset(bridge: Pick<BrowserLink, "call">, options: BrowserToolsetOptions = {}): ExternalToolset {
   const shown = new Map<number, ShownPage>();
   /** A full view, or after an action on the same page, only what changed since the model's last view. */
   const present = (page: PageSnapshot, extra: Record<string, unknown> = {}, full = false) => {
@@ -257,7 +265,7 @@ export function browserToolset(bridge: BrowserBridge, options: BrowserToolsetOpt
       if (page.blocked) return present(all, { userOnly: page.blocked.reason, notRun: steps.length - page.blocked.step });
       if (!page.needsConfirmation) return present(all, confirmed ? { confirmed: true } : {});
       const { step, label, site, screenshot } = page.needsConfirmation;
-      const approved = options.confirm ? await options.confirm({ id: page.needsConfirmation.token, label, site, tabId, ...(screenshot ? { screenshot } : {}) }, signal) : false;
+      const approved = options.confirm ? await options.confirm({ id: page.needsConfirmation.token, grant: page.needsConfirmation.token, label, site, tabId, ...(screenshot ? { screenshot } : {}) }, signal) : false;
       if (!approved) return present(all, { confirmed: false, declined: `The user did not allow: ${label}. That step and the ones after it were not run.`, notRun: steps.length - step });
       // Continue from the confirmed step, carrying the user's one-time grant for it.
       confirmed = true;

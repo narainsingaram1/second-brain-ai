@@ -23,6 +23,22 @@ export async function askNative(request: NativeApprovalRequest, signal: AbortSig
   finally { clearTimeout(timer); signal.removeEventListener("abort", withdraw); }
 }
 
+/**
+ * The desktop app's answer to a gate. A pause the extension raised (`grant`) is asked by Rust from its own copy of
+ * the step, and approving it is what lets Rust release the extension's token; other gates (policy, text carried
+ * between sites) are asked with the description given here.
+ */
+export async function nativeConfirm(request: NativeApprovalRequest & { grant?: string }, signal: AbortSignal): Promise<NativeDecision> {
+  if (!request.grant) return askNative(request, signal);
+  const { invoke } = await tauri();
+  signal.throwIfAborted();
+  const withdraw = () => { void invoke("approval_cancel_all").catch(() => {}); };
+  const timer = setTimeout(withdraw, 5 * 60_000);
+  signal.addEventListener("abort", withdraw, { once: true });
+  try { return await invoke<NativeDecision>("browser_confirm", { handle: request.grant }); }
+  finally { clearTimeout(timer); signal.removeEventListener("abort", withdraw); }
+}
+
 export async function withdrawNative(): Promise<void> {
   try { await (await tauri()).invoke("approval_cancel_all"); } catch { /* Nothing open. */ }
 }

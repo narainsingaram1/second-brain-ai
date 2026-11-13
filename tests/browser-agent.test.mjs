@@ -73,7 +73,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.1.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.2.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -389,4 +389,31 @@ test('the toolset sends change reports, full views on look, and screenshots only
   assert.ok(!JSON.stringify(buy).includes('SHOT'), 'the model never gets it');
   const look = (await tools.execute('browser_look', { tabId: 5 }, sig)).output;
   assert.equal(look.pageOf, 5, 'a look is always a full view');
+});
+
+test('the desktop app (native messaging) is an app origin that the user must still pair', async () => {
+  const chrome = fakeChrome({ default: shop([]) });
+  let prompted = null;
+  const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
+  assert.ok(isAppOrigin('native:desktop'));
+  assert.ok(!isAppOrigin('native:other'));
+  await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, 'native:desktop'), /Connect Synapse/);
+  const pairing = agent.fromApp({ type: 'pair' }, 'native:desktop');
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(prompted.origin, 'native:desktop');
+  await agent.fromExtension({ type: 'pair-decision', id: prompted.id, allow: true });
+  assert.deepEqual(await pairing, { paired: true });
+  const page = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, 'native:desktop');
+  assert.equal(page.site, 'shop.example');
+});
+
+test('manifest: fixed ID for the native host, optional native messaging and debugger', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { createHash } = await import('node:crypto');
+  const manifest = JSON.parse(await readFile(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
+  const id = [...createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32)].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');
+  const hub = await readFile(new URL('../src-tauri/src/hub.rs', import.meta.url), 'utf8');
+  assert.ok(hub.includes(`chrome-extension://${id}/`), `hub.rs must admit exactly this extension (${id})`);
+  assert.deepEqual(manifest.optional_permissions.sort(), ['debugger', 'nativeMessaging']);
+  assert.ok(!manifest.permissions.includes('nativeMessaging') && !manifest.permissions.includes('debugger'));
 });

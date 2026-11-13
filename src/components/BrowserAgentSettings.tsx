@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { MousePointerClick } from "lucide-react";
 import { loadUserPolicy, saveUserPolicy, type AgentPolicy } from "../services/agentPolicy";
+import { hasNativeApproval } from "../services/nativeApproval";
+import { nativeBrowserLink, type LinkStatus } from "../services/browserLink";
 import { browserAgentEnabled, browserBridge, setBrowserAgentEnabled, type BrowserStatus } from "../services/browserAgent";
 
 /** Settings for the assistant working in the user's Chrome: install, connect, and turn it on or off. */
@@ -12,11 +14,25 @@ export function BrowserAgentSettings() {
   const [policy, setPolicy] = useState<AgentPolicy>(loadUserPolicy);
   const hostField = (key: "deniedHosts" | "confirmHosts") => (event: React.FocusEvent<HTMLInputElement>) =>
     setPolicy(saveUserPolicy({ ...policy, [key]: event.target.value.split(/[\s,]+/) }));
-  const check = async () => { const bridge = browserBridge(); setStatus(bridge ? await bridge.status() : "unavailable"); };
+  // In the desktop app the extension reaches Synapse through Rust (native messaging); in Chrome, through this page.
+  const native = hasNativeApproval();
+  const [link, setLink] = useState<LinkStatus | null>(null);
+  const check = async () => {
+    if (native) { const l = nativeBrowserLink(); setLink(await l.link().catch(() => null)); setStatus(await l.status()); return; }
+    const bridge = browserBridge(); setStatus(bridge ? await bridge.status() : "unavailable");
+  };
+  const installLink = async () => {
+    try {
+      const { invoke } = await import("@tauri-apps/api/core");
+      const n = await invoke<number>("browser_install_link");
+      setMessage(`Done (${n} browser${n === 1 ? "" : "s"}). Now open the Synapse extension in Chrome and turn on "Connect to the Synapse desktop app".`);
+    } catch (error) { setMessage(String(error)); }
+    void check();
+  };
   useEffect(() => { void check(); }, []);
 
   const connect = async () => {
-    const bridge = browserBridge();
+    const bridge = native ? nativeBrowserLink() : browserBridge();
     if (!bridge) return;
     setPairing(true); setMessage("Approve the request in the window the extension opened.");
     try { const paired = await bridge.pair(); setMessage(paired ? "" : "Not connected. You can try again any time."); }
@@ -35,7 +51,16 @@ export function BrowserAgentSettings() {
       It works in its own tab group, never types passwords or card numbers, and asks you before buying, sending, posting or deleting anything.
     </p>
     {status === "checking" && <p className="text-[11px] text-slate-400" role="status">Checking for the extension…</p>}
-    {status === "unavailable" && <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
+    {native && status === "unavailable" && <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
+      <p className="font-bold text-ink">Connect Chrome to this app</p>
+      <ol className="list-decimal pl-4 space-y-0.5">
+        <li>Install the Synapse Browser Agent extension in Chrome (<code>chrome://extensions</code> → Developer mode → Load unpacked → the <code>extension</code> folder).</li>
+        <li><button type="button" onClick={() => void installLink()} className="underline font-bold">{link?.hostInstalled ? "Reconnect Chrome" : "Connect Chrome"}</button> — lets Chrome start Synapse for that extension only.</li>
+        <li>In the extension's menu, turn on <em>Connect to the Synapse desktop app</em>.</li>
+      </ol>
+      <button type="button" onClick={() => void check()} className="text-[11px] font-bold px-2.5 py-1 rounded-full border border-line">Check again</button>
+    </div>}
+    {!native && status === "unavailable" && <div className="text-[11px] text-slate-500 dark:text-slate-400 space-y-1">
       <p className="font-bold text-ink">The Synapse Browser Agent extension isn't installed in this browser.</p>
       <ol className="list-decimal pl-4 space-y-0.5">
         <li>In Chrome, open <code>chrome://extensions</code> and turn on Developer mode.</li>

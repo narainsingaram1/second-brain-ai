@@ -11,7 +11,9 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.1.0";
+export const VERSION = "1.2.0";
+/** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
+export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
 const LOCAL_APP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const BLOCKED_HOSTS = ["chrome.google.com", "chromewebstore.google.com", "accounts.google.com/signin/v2/challenge"];
@@ -20,7 +22,7 @@ const LOAD_TIMEOUT_MS = 20_000;
 const MAX_STEPS = 10;
 
 export function isAppOrigin(origin, extra = []) {
-  return LOCAL_APP.test(origin) || STATIC_APP_ORIGINS.includes(origin) || extra.includes(origin);
+  return origin === NATIVE_ORIGIN || LOCAL_APP.test(origin) || STATIC_APP_ORIGINS.includes(origin) || extra.includes(origin);
 }
 
 /** Checks a URL the agent wants to open. Throws a message the assistant can relay. */

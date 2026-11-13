@@ -1,5 +1,6 @@
 mod approval;
 mod desktop;
+mod hub;
 
 use std::collections::HashSet;
 use std::fs;
@@ -313,6 +314,11 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Started by an MCP client (`--mcp`) or by Chrome for the extension: relay to the running app, no window.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--mcp") { hub::run_mcp_proxy(); return; }
+    if let Some(origin) = args.get(1).filter(|a| a.starts_with("chrome-extension://")) { hub::run_native_host(origin); return; }
+
     let mut builder = tauri::Builder::default();
 
     // Configure global hotkey: ⌘⌥N (CommandOrControl+Alt+N) & ⌥⇧N (Alt+Shift+N)
@@ -346,6 +352,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(approval::Approvals::default())
         .manage(desktop::DesktopState::default())
+        .manage(hub::Hub::default())
+        .setup(|app| { hub::start(app.handle().clone()); Ok(()) })
         .invoke_handler(tauri::generate_handler![
             approval::approval_request,
             approval::approval_payload,
@@ -359,6 +367,14 @@ pub fn run() {
             desktop::desktop_look,
             desktop::desktop_act,
             desktop::desktop_stop,
+            hub::browser_link_status,
+            hub::browser_call,
+            hub::browser_confirm,
+            hub::browser_install_link,
+            hub::mcp_register_tools,
+            hub::mcp_status,
+            hub::mcp_set_enabled,
+            hub::mcp_result,
             greet,
             save_brain_data,
             load_brain_data,

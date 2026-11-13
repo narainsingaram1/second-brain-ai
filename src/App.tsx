@@ -274,6 +274,8 @@ export const App: React.FC = () => {
   useEffect(() => {
     if (!(window as any).__TAURI_INTERNALS__ && !(window as any).__TAURI__) return;
     let unlisten: (() => void) | undefined;
+    // MCP clients the user allowed call the agent's browser and Mac-app tools through this window.
+    void import("./services/mcpBridge").then(({ startMcpBridge }) => startMcpBridge()).catch(() => {});
     import("@tauri-apps/api/event")
       .then(({ listen }) => {
         return listen("open-quick-capture", () => {
