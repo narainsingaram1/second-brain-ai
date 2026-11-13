@@ -122,12 +122,55 @@ export interface OpenRouterMessage {
   content: string | OpenRouterContentPart[] | null;
   tool_calls?: OpenRouterToolCall[];
   tool_call_id?: string;
+  /**
+   * The model's reasoning blocks from the turn that made these tool calls, sent back unchanged. Reasoning
+   * models (Claude with thinking, Gemini with thought signatures) reject a tool-call turn replayed without them.
+   */
+  reasoning_details?: unknown[];
 }
 
 export interface OpenRouterCompletionResponse {
   content: string | null;
   toolCalls?: OpenRouterToolCall[];
+  reasoningDetails?: unknown[];
 }
+
+/**
+ * The provider's own reason for an error. OpenRouter wraps upstream failures as "Provider returned error" and
+ * puts the upstream message in error.metadata.raw (often a JSON string); without it the user can't tell why.
+ */
+export function providerErrorMessage(body: any, status?: number): string {
+  const error = body?.error ?? body;
+  const base = typeof error?.message === "string" && error.message ? error.message : status ? `Provider Error (HTTP ${status})` : "Provider returned an error.";
+  const raw = error?.metadata?.raw;
+  let detail = "";
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      detail = parsed?.error?.message || parsed?.message || (typeof parsed?.error === "string" ? parsed.error : "") || raw;
+    } catch { detail = raw; }
+  } else if (raw && typeof raw === "object") detail = raw?.error?.message || raw?.message || JSON.stringify(raw);
+  detail = String(detail).replace(/\s+/g, " ").trim().slice(0, 300);
+  const provider = typeof error?.metadata?.provider_name === "string" ? error.metadata.provider_name : "";
+  if (!detail || detail === base) return provider ? `${base} (${provider})` : base;
+  return `${base}${provider ? ` from ${provider}` : ""}: ${detail}`;
+}
+
+/**
+ * Reassembles streamed reasoning_details fragments into whole blocks: text arrives in pieces per index, and a
+ * block's signature (or encrypted data) arrives once. Blocks must go back exactly as the model produced them.
+ */
+export function mergeReasoningDetails(into: any[], parts: any[]): void {
+  for (const part of parts) {
+    if (!part || typeof part !== "object") continue;
+    const key = typeof part.index === "number" ? part.index : into.length;
+    const block = into.find(b => b.__key === key && b.type === part.type);
+    if (!block) { into.push({ ...part, __key: key }); continue; }
+    for (const field of ["text", "summary"] as const) if (typeof part[field] === "string") block[field] = (block[field] || "") + part[field];
+    for (const [k, v] of Object.entries(part)) if (k !== "text" && k !== "summary" && k !== "index" && v !== undefined && v !== null) block[k] = v;
+  }
+}
+const finishReasoningDetails = (blocks: any[]) => blocks.map(({ __key, ...block }) => block);
 
 export async function queryOpenRouterWithTools(
   messages: OpenRouterMessage[],
@@ -178,7 +221,7 @@ export async function queryOpenRouterWithTools(
 
     if (!res.ok) {
       const errorBody = await res.json().catch(() => ({}));
-      throw new Error(errorBody?.error?.message || `Provider Error (HTTP ${res.status})`);
+      throw new Error(providerErrorMessage(errorBody, res.status));
     }
 
     const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
@@ -199,17 +242,19 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
   const decoder = new TextDecoder();
   let buffer = "", content = "", reasoning = "", finishReason: string | undefined;
   const calls: OpenRouterToolCall[] = [];
+  const details: any[] = [];
   const handle = (line: string) => {
     if (!line.startsWith("data:")) return; // Comments (": OPENROUTER PROCESSING") keep the connection alive.
     const payload = line.slice(5).trim();
     if (!payload || payload === "[DONE]") return;
     let event: any;
     try { event = JSON.parse(payload); } catch { return; }
-    if (event.error) throw new Error(event.error.message || "Provider returned an error.");
+    if (event.error) throw new Error(providerErrorMessage(event));
     const choice = event.choices?.[0];
     if (!choice) return;
     if (choice.finish_reason) finishReason = choice.finish_reason;
     const delta = choice.delta || {};
+    if (Array.isArray(delta.reasoning_details)) mergeReasoningDetails(details, delta.reasoning_details);
     // Models that reason before answering stream it separately; it is shown to the user, never sent back.
     const thought = typeof delta.reasoning === "string" && delta.reasoning ? delta.reasoning
       : Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map((d: any) => typeof d?.text === "string" ? d.text : typeof d?.summary === "string" ? d.summary : "").join("") : "";
@@ -242,11 +287,12 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
   if (buffer) handle(buffer);
   const toolCalls = calls.filter(Boolean).map((c, i) => ({ ...c, id: c.id || `call-${Date.now()}-${i}`, function: { ...c.function, arguments: c.function.arguments || "{}" } }));
   if (!finishReason && !content && !toolCalls.length) throw new Error("The provider closed the stream without a reply.");
-  return { choices: [{ finish_reason: finishReason || "stop", message: { content: content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) } }] };
+  return { choices: [{ finish_reason: finishReason || "stop", message: { content: content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
+    ...(details.length ? { reasoning_details: finishReasoningDetails(details) } : {}) } }] };
 }
 
 function completionFrom(data: any): OpenRouterCompletionResponse {
-  if (data.error) throw new Error(data.error.message || "Provider returned an error.");
+  if (data.error) throw new Error(providerErrorMessage(data));
   const choice = data.choices?.[0];
   if (!choice?.message) throw new Error("Provider returned no message.");
   const msg = choice?.message;
@@ -275,6 +321,7 @@ function completionFrom(data: any): OpenRouterCompletionResponse {
   return {
     content: msg?.content || null,
     toolCalls,
+    ...(Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}),
   };
 }
 
@@ -361,11 +408,11 @@ export async function queryOpenRouter(
 
   if (!res.ok) {
     const errorBody = await res.json().catch(() => ({}));
-    throw new Error(errorBody?.error?.message || `Provider Error (HTTP ${res.status})`);
+    throw new Error(providerErrorMessage(errorBody, res.status));
   }
 
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message || "Provider returned an error.");
+  if (data.error) throw new Error(providerErrorMessage(data));
   const choice = data.choices?.[0];
   const content = choice?.message?.content;
   if (options.json) {

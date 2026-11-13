@@ -343,6 +343,48 @@ function withPromptCache(model, messages) {
 		};
 	});
 }
+/**
+* The provider's own reason for an error. OpenRouter wraps upstream failures as "Provider returned error" and
+* puts the upstream message in error.metadata.raw (often a JSON string); without it the user can't tell why.
+*/
+function providerErrorMessage(body, status) {
+	const error = body?.error ?? body;
+	const base = typeof error?.message === "string" && error.message ? error.message : status ? `Provider Error (HTTP ${status})` : "Provider returned an error.";
+	const raw = error?.metadata?.raw;
+	let detail = "";
+	if (typeof raw === "string" && raw.trim()) try {
+		const parsed = JSON.parse(raw);
+		detail = parsed?.error?.message || parsed?.message || (typeof parsed?.error === "string" ? parsed.error : "") || raw;
+	} catch {
+		detail = raw;
+	}
+	else if (raw && typeof raw === "object") detail = raw?.error?.message || raw?.message || JSON.stringify(raw);
+	detail = String(detail).replace(/\s+/g, " ").trim().slice(0, 300);
+	const provider = typeof error?.metadata?.provider_name === "string" ? error.metadata.provider_name : "";
+	if (!detail || detail === base) return provider ? `${base} (${provider})` : base;
+	return `${base}${provider ? ` from ${provider}` : ""}: ${detail}`;
+}
+/**
+* Reassembles streamed reasoning_details fragments into whole blocks: text arrives in pieces per index, and a
+* block's signature (or encrypted data) arrives once. Blocks must go back exactly as the model produced them.
+*/
+function mergeReasoningDetails(into, parts) {
+	for (const part of parts) {
+		if (!part || typeof part !== "object") continue;
+		const key = typeof part.index === "number" ? part.index : into.length;
+		const block = into.find((b) => b.__key === key && b.type === part.type);
+		if (!block) {
+			into.push({
+				...part,
+				__key: key
+			});
+			continue;
+		}
+		for (const field of ["text", "summary"]) if (typeof part[field] === "string") block[field] = (block[field] || "") + part[field];
+		for (const [k, v] of Object.entries(part)) if (k !== "text" && k !== "summary" && k !== "index" && v !== void 0 && v !== null) block[k] = v;
+	}
+}
+const finishReasoningDetails = (blocks) => blocks.map(({ __key, ...block }) => block);
 async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT_MODEL, systemPrompt, toolChoice = "auto", signal, tuning = {}, providerBase) {
 	if (!apiKey) throw new Error("No AI provider key provided. Please configure it in Settings.");
 	const payloadMessages = [];
@@ -373,7 +415,7 @@ async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT
 		const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal, providerBase);
 		if (!res.ok) {
 			const errorBody = await res.json().catch(() => ({}));
-			throw new Error(errorBody?.error?.message || `Provider Error (HTTP ${res.status})`);
+			throw new Error(providerErrorMessage(errorBody, res.status));
 		}
 		return completionFrom(tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream") ? await readCompletionStream(res.body, tuning.onText, resetStall, tuning.onReasoning) : await res.json());
 	} finally {
@@ -389,6 +431,7 @@ async function readCompletionStream(body, onText, onChunk = () => {}, onReasonin
 	const decoder = new TextDecoder();
 	let buffer = "", content = "", reasoning = "", finishReason;
 	const calls = [];
+	const details = [];
 	const handle = (line) => {
 		if (!line.startsWith("data:")) return;
 		const payload = line.slice(5).trim();
@@ -399,11 +442,12 @@ async function readCompletionStream(body, onText, onChunk = () => {}, onReasonin
 		} catch {
 			return;
 		}
-		if (event.error) throw new Error(event.error.message || "Provider returned an error.");
+		if (event.error) throw new Error(providerErrorMessage(event));
 		const choice = event.choices?.[0];
 		if (!choice) return;
 		if (choice.finish_reason) finishReason = choice.finish_reason;
 		const delta = choice.delta || {};
+		if (Array.isArray(delta.reasoning_details)) mergeReasoningDetails(details, delta.reasoning_details);
 		const thought = typeof delta.reasoning === "string" && delta.reasoning ? delta.reasoning : Array.isArray(delta.reasoning_details) ? delta.reasoning_details.map((d) => typeof d?.text === "string" ? d.text : typeof d?.summary === "string" ? d.summary : "").join("") : "";
 		if (thought) {
 			reasoning += thought;
@@ -452,12 +496,13 @@ async function readCompletionStream(body, onText, onChunk = () => {}, onReasonin
 		finish_reason: finishReason || "stop",
 		message: {
 			content: content || null,
-			...toolCalls.length ? { tool_calls: toolCalls } : {}
+			...toolCalls.length ? { tool_calls: toolCalls } : {},
+			...details.length ? { reasoning_details: finishReasoningDetails(details) } : {}
 		}
 	}] };
 }
 function completionFrom(data) {
-	if (data.error) throw new Error(data.error.message || "Provider returned an error.");
+	if (data.error) throw new Error(providerErrorMessage(data));
 	const choice = data.choices?.[0];
 	if (!choice?.message) throw new Error("Provider returned no message.");
 	const msg = choice?.message;
@@ -477,7 +522,8 @@ function completionFrom(data) {
 	}];
 	return {
 		content: msg?.content || null,
-		toolCalls
+		toolCalls,
+		...Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}
 	};
 }
 /**
@@ -11449,7 +11495,8 @@ var AutonomousBrainAgent = class {
 				messages.push({
 					role: "assistant",
 					content: completion.content,
-					tool_calls: completion.toolCalls
+					tool_calls: completion.toolCalls,
+					...completion.reasoningDetails?.length ? { reasoning_details: completion.reasoningDetails } : {}
 				});
 				const isReadCall = (call) => {
 					if (call.function.name === SHOW_CARD.function.name || call.function.name === "use_tools" || call.function.name === PLAN_TOOL.function.name) return true;

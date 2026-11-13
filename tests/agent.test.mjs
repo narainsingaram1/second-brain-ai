@@ -823,3 +823,41 @@ test('concurrent tool dispatching runs independent reads in parallel and preserv
   assert.ok(JSON.parse(toolMessages[2].content).results !== undefined);
 });
 
+
+test('provider errors say what the provider actually rejected', async () => {
+  const { providerErrorMessage } = await server.ssrLoadModule('/src/services/openrouter.ts');
+  const wrapped = { error: { message: 'Provider returned error', code: 400, metadata: { provider_name: 'Anthropic',
+    raw: JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'messages.1.content.0.type: Expected `thinking` or `redacted_thinking`, but found `tool_use`.' } }) } } };
+  assert.equal(providerErrorMessage(wrapped, 400), 'Provider returned error from Anthropic: messages.1.content.0.type: Expected `thinking` or `redacted_thinking`, but found `tool_use`.');
+  assert.equal(providerErrorMessage({ error: { message: 'Provider returned error', metadata: { raw: 'upstream timeout\n' } } }), 'Provider returned error: upstream timeout');
+  assert.equal(providerErrorMessage({ error: { message: 'Invalid API key' } }, 401), 'Invalid API key');
+  assert.equal(providerErrorMessage({}, 502), 'Provider Error (HTTP 502)');
+});
+
+test('streamed reasoning blocks are reassembled and sent back with the tool calls they led to', async () => {
+  const { readCompletionStream } = await server.ssrLoadModule('/src/services/openrouter.ts');
+  const events = [
+    { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'I should open ', index: 0, format: 'anthropic-claude-v1' }] } }] },
+    { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'Walmart first.', index: 0 }] } }] },
+    { choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', signature: 'sig-abc', index: 0 }] } }] },
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'browser_open', arguments: '{"url":"https://www.walmart.com"}' } }] } }] },
+    { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+  ];
+  const text = events.map(e => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n';
+  const body = new Response(text).body;
+  const data = await readCompletionStream(body, () => {});
+  assert.deepEqual(data.choices[0].message.reasoning_details, [{ type: 'reasoning.text', text: 'I should open Walmart first.', index: 0, format: 'anthropic-claude-v1', signature: 'sig-abc' }]);
+
+  // The next request replays the assistant turn with its reasoning blocks.
+  const requests = [];
+  const replies = [
+    `data: ${JSON.stringify(events[0])}\n\ndata: ${JSON.stringify(events[2])}\n\ndata: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'search_records', arguments: '{"query":"scooter"}' } }] } }] })}\n\ndata: ${JSON.stringify(events[4])}\n\ndata: [DONE]\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { content: 'Nothing saved about scooters yet.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+  ];
+  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift(), { headers: { 'content-type': 'text/event-stream' } }); };
+  const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+  const st = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Inbox'], subsections: { Inbox: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
+  await AutonomousBrainAgent.execute('Do I have notes about scooters?', st, 'k', 'm', { onText: () => {} });
+  const replayed = requests[1].messages.find(m => m.role === 'assistant' && m.tool_calls);
+  assert.deepEqual(replayed.reasoning_details, [{ type: 'reasoning.text', text: 'I should open ', index: 0, format: 'anthropic-claude-v1', signature: 'sig-abc' }]);
+});
