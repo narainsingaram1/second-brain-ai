@@ -14,7 +14,7 @@ import type { OpenRouterTool } from "./openrouter";
 const CHANNEL = "synapse-browser-agent";
 const PREF_KEY = "synapse.browserAgent";
 
-export interface BrowserConfirmRequest { id: string; label: string; site: string; tabId: number }
+export interface BrowserConfirmRequest { id: string; label: string; site: string; tabId: number; /** Why the app (not the page) asks: policy or text carried between sites. */ reason?: string }
 export type BrowserStatus = "unavailable" | "not_paired" | "ready";
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };

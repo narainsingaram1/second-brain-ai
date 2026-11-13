@@ -22,6 +22,9 @@ import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../servic
 import { getVisionModel } from "../services/openrouter";
 import { combineToolsets, webToolset } from "../services/webTools";
 import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
+import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
+import { AgentAuditLog } from "../services/agentAudit";
+import { loadUserPolicy } from "../services/agentPolicy";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
 import { generateFollowUps } from "../services/chatSuggestions";
 import {
@@ -63,6 +66,9 @@ export interface BrainConversation {
   /** A step on a website waiting for the user's go-ahead while the assistant works. */
   browserConfirm?: BrowserConfirmRequest | null;
   answerBrowserConfirm?: (allow: boolean) => void;
+  /** Soft (T1) steps the assistant just took on a website, shown without stopping it. */
+  agentToasts?: ActivityToast[];
+  dismissAgentToast?: (id: string) => void;
 }
 
 /** Website work gets more room than an ordinary turn: pages load slowly and tasks take many steps. */
@@ -96,6 +102,8 @@ export function useBrainConversation(
   const [activity, setActivity] = useState<AgentStep[]>([]);
   const [browserConfirm, setBrowserConfirm] = useState<BrowserConfirmRequest | null>(null);
   const confirmResolver = useRef<((allow: boolean) => void) | null>(null);
+  const [agentToasts, setAgentToasts] = useState<ActivityToast[]>([]);
+  const dismissAgentToast = (id: string) => setAgentToasts(list => list.filter(t => t.id !== id));
   const answerBrowserConfirm = (allow: boolean) => { const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null); resolve?.(allow); };
   // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
   const [followUps, setFollowUps] = useState<{ messageId: string; items: string[]; loading: boolean } | null>(null);
@@ -306,6 +314,15 @@ export function useBrainConversation(
       confirmResolver.current = done;
       setBrowserConfirm(request);
     });
+    // Every browser step passes the router: policy, rate limits, text carried between sites, audit.
+    const router = browser ? createAgentRouter({
+      policy: loadUserPolicy(), audit: new AgentAuditLog(), turnId: crypto.randomUUID(), confirm: confirmStep,
+      notify: toast => {
+        if (!isCurrent()) return;
+        setAgentToasts(list => [...list.slice(-2), toast]);
+        setTimeout(() => dismissAgentToast(toast.id), 5000);
+      },
+    }) : null;
     const runsOnServer = async () => !browser && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
       && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;
     const runOnServer = async () => {
@@ -354,7 +371,7 @@ export function useBrainConversation(
           // read most other sites; without a server (desktop builds) this browser tries them directly.
           externalTools: options.externalTools ?? combineToolsets(
             webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
-            browser ? browserToolset(browser, { confirm: confirmStep }) : undefined),
+            browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm })) : undefined),
           ...(browser ? { budget: BROWSER_BUDGET } : {}),
           getMemory: () =>
             isCurrent()
@@ -671,6 +688,8 @@ export function useBrainConversation(
     stop: () => { answerBrowserConfirm(false); active.current?.abort(); },
     browserConfirm,
     answerBrowserConfirm,
+    agentToasts,
+    dismissAgentToast,
     startNew: () => switchConversation(),
     resume: (id: string) => switchConversation(id),
     temporary,

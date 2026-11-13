@@ -23,7 +23,8 @@
   const SECRET_AUTOCOMPLETE = /\b(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year)\b/i;
   const SECRET_LABEL = /\b(password|passcode|card ?number|credit card|debit card|cvv|cvc|csc|security code|expir\w* date|ssn|social security|routing number|account number|iban|swift|pin)\b/i;
   // Buttons whose click commits something on the user's behalf: these wait for the user's go-ahead.
-  const CONSEQUENTIAL = /\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account)\b/i;
+  // SECRET_*, CONSEQUENTIAL: keep identical to src/services/riskTiers.ts (a test checks).
+  const CONSEQUENTIAL = /\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account|merge|approve|archive|revoke|deploy|release)\b/i;
   const SEARCHY = /\b(search|find|query|look ?up|where|destination|location|city|zip|postal|keyword|filter)\b/i;
 
   // ---- Visibility and naming ----

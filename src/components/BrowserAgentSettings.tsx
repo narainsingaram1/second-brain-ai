@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { MousePointerClick } from "lucide-react";
+import { loadUserPolicy, saveUserPolicy, type AgentPolicy } from "../services/agentPolicy";
 import { browserAgentEnabled, browserBridge, setBrowserAgentEnabled, type BrowserStatus } from "../services/browserAgent";
 
 /** Settings for the assistant working in the user's Chrome: install, connect, and turn it on or off. */
@@ -8,6 +9,9 @@ export function BrowserAgentSettings() {
   const [enabled, setEnabled] = useState(browserAgentEnabled);
   const [pairing, setPairing] = useState(false);
   const [message, setMessage] = useState("");
+  const [policy, setPolicy] = useState<AgentPolicy>(loadUserPolicy);
+  const hostField = (key: "deniedHosts" | "confirmHosts") => (event: React.FocusEvent<HTMLInputElement>) =>
+    setPolicy(saveUserPolicy({ ...policy, [key]: event.target.value.split(/[\s,]+/) }));
   const check = async () => { const bridge = browserBridge(); setStatus(bridge ? await bridge.status() : "unavailable"); };
   useEffect(() => { void check(); }, []);
 
@@ -46,6 +50,20 @@ export function BrowserAgentSettings() {
       <span><strong>Connected.</strong> Use the browser when I ask for something on a website</span>
       <input type="checkbox" role="switch" checked={enabled} onChange={toggle} aria-label="Let the assistant use this browser" />
     </label>}
+    {status === "ready" && enabled && <details className="text-[11px] text-slate-500 dark:text-slate-400">
+      <summary className="cursor-pointer font-bold text-ink">Where it may act</summary>
+      <div className="space-y-2 pt-2">
+        <label className="block">Never act on these sites
+          <input key={`d${policy.deniedHosts.join()}`} defaultValue={policy.deniedHosts.join(", ")} onBlur={hostField("deniedHosts")}
+            placeholder="bank.com, work-intranet.com" className="mt-1 w-full px-2 py-1 rounded-lg border border-line bg-transparent text-ink" />
+        </label>
+        <label className="block">Ask before every change on these sites
+          <input key={`c${policy.confirmHosts.join()}`} defaultValue={policy.confirmHosts.join(", ")} onBlur={hostField("confirmHosts")}
+            placeholder="github.com, mail.google.com" className="mt-1 w-full px-2 py-1 rounded-lg border border-line bg-transparent text-ink" />
+        </label>
+        <p>Buying, sending, posting, deleting and merging always wait for you, on every site. Passwords and card numbers are always yours to type.</p>
+      </div>
+    </details>}
     {message && <p className="text-[11px] text-slate-500" role="status">{message}</p>}
   </section>;
 }

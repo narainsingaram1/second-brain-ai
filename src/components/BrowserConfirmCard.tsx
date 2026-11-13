@@ -12,6 +12,7 @@ export function BrowserConfirmCard({ request, onAnswer }: { request: BrowserConf
   return <section className="approval-card is-pending browser-confirm" role="alertdialog" aria-label={`Allow on ${request.site}: ${request.label}`}>
     <header><MousePointerClick size={15} aria-hidden="true" /><strong>{request.label}</strong></header>
     <ul className="approval-details">
+      {request.reason && <li><strong>Why you’re asked:</strong> {request.reason}</li>}
       <li>On {request.site}, in the Synapse tab group. The assistant is waiting for you.</li>
       <li>Check the tab first if you want to see exactly what will happen.</li>
     </ul>
