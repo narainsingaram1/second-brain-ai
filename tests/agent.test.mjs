@@ -861,3 +861,40 @@ test('streamed reasoning blocks are reassembled and sent back with the tool call
   const replayed = requests[1].messages.find(m => m.role === 'assistant' && m.tool_calls);
   assert.deepEqual(replayed.reasoning_details, [{ type: 'reasoning.text', text: 'I should open ', index: 0, format: 'anthropic-claude-v1', signature: 'sig-abc' }]);
 });
+
+test('tool calls a model writes as text are run as real calls, typed by the tool schema', async () => {
+  const { recoverTextToolCalls } = await server.ssrLoadModule('/src/services/openrouter.ts');
+  const { BROWSER_TOOLS } = await server.ssrLoadModule('/src/services/browserAgent.ts');
+  const web = { type: 'function', function: { name: 'web_search', description: '', parameters: { type: 'object', properties: { query: { type: 'string' } } } } };
+  const tools = [web, ...BROWSER_TOOLS];
+  // Exactly what the model wrote in the chat.
+  const fromChat = recoverTextToolCalls('<tool_call>\n<function=web_search>\n<parameter=query>\nWalmart electric scooter\n</parameter>\n</function>\n</tool_call>', tools);
+  assert.equal(fromChat.content, '');
+  assert.deepEqual(fromChat.toolCalls.map(c => [c.function.name, JSON.parse(c.function.arguments)]), [['web_search', { query: 'Walmart electric scooter' }]]);
+  // Numbers and arrays come back typed, so schema validation and the tools get what they expect.
+  const act = recoverTextToolCalls('Adding it now.\n<tool_call>\n<function=browser_act>\n<parameter=tabId>\n12\n</parameter>\n<parameter=steps>\n[{"action":"click","ref":4}]\n</parameter>\n</function>\n</tool_call>', tools);
+  assert.equal(act.content, 'Adding it now.');
+  assert.deepEqual(JSON.parse(act.toolCalls[0].function.arguments), { tabId: 12, steps: [{ action: 'click', ref: 4 }] });
+  // The JSON variant.
+  const json = recoverTextToolCalls('<tool_call>{"name": "browser_open", "arguments": {"url": "https://www.walmart.com/search?q=electric+scooter"}}</tool_call>', tools);
+  assert.deepEqual(JSON.parse(json.toolCalls[0].function.arguments), { url: 'https://www.walmart.com/search?q=electric+scooter' });
+  // A tool that wasn't offered, or prose that only mentions the format, stays text.
+  assert.equal(recoverTextToolCalls('<tool_call>\n<function=delete_everything>\n</function>\n</tool_call>', tools).toolCalls.length, 0);
+  assert.equal(recoverTextToolCalls('Use <tool_call> tags like this.', tools).toolCalls.length, 0);
+  assert.equal(recoverTextToolCalls('<tool_call>\n<function=web_search>\n<parameter=query>\nx\n</parameter>\n</function>\n</tool_call>', []).toolCalls.length, 0);
+
+  // In the loop: the written call runs, and the model then answers.
+  const requests = [];
+  const replies = [
+    `data: ${JSON.stringify({ choices: [{ delta: { content: '<tool_call>\n<function=search_records>\n<parameter=query>\nscooter\n</parameter>\n</function>\n</tool_call>' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+    `data: ${JSON.stringify({ choices: [{ delta: { content: 'You have no notes about scooters yet.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
+  ];
+  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift(), { headers: { 'content-type': 'text/event-stream' } }); };
+  const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+  const st = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Inbox'], subsections: { Inbox: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
+  const result = await AutonomousBrainAgent.execute('Do I have notes about scooters?', st, 'k', 'm', { onText: () => {} });
+  assert.equal(requests.length, 2);
+  assert.ok(requests[1].messages.some(m => m.role === 'tool'), 'the written call ran');
+  assert.equal(result.queryAnswer, 'You have no notes about scooters yet.');
+  assert.ok(!result.queryAnswer.includes('<tool_call>'));
+});
