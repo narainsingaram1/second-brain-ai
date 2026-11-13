@@ -171,3 +171,37 @@ test('audit: concurrent appends keep the chain intact', async () => {
 test('step descriptions name exactly what will be typed', () => {
   assert.equal(describeSteps([{ action: 'type', ref: 2, text: 'hello', submit: true }, { action: 'click', ref: 5 }]), 'type "hello" and press Enter, then click [5]');
 });
+
+test('router: "never on this site" refuses it for the rest of the request', async () => {
+  const h = harness();
+  await h.tools.execute('browser_open', { url: 'https://shop.example.com/' }, signal);
+  h.router.denyHost('shop.example.com');
+  await assert.rejects(h.tools.execute('browser_act', { tabId: 2, steps: [{ action: 'click', ref: 1 }] }, signal), /turned off/);
+});
+
+test('native approval: answers come from the approval window; stopping withdraws the request', async () => {
+  const calls = [];
+  let answer;
+  globalThis.window = { __TAURI_INTERNALS__: { transformCallback: () => 0, invoke: async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'approval_request') return new Promise(resolve => { answer = resolve; });
+    if (cmd === 'approval_cancel_all') { answer?.('deny'); return 1; }
+    return true;
+  } } };
+  try {
+    const { askNative, hasNativeApproval } = await load('/src/services/nativeApproval.ts');
+    assert.equal(hasNativeApproval(), true);
+    const allowed = askNative({ label: 'Click "Send"', site: 'mail.example.com' }, new AbortController().signal);
+    await new Promise(r => setTimeout(r, 5));
+    answer('allow');
+    assert.equal(await allowed, 'allow');
+    assert.deepEqual(calls[0], ['approval_request', { request: { label: 'Click "Send"', site: 'mail.example.com' } }]);
+    const stop = new AbortController();
+    const stopped = askNative({ label: 'Click "Pay"', site: 'shop.example.com' }, stop.signal);
+    await new Promise(r => setTimeout(r, 5));
+    stop.abort();
+    assert.equal(await stopped, 'deny', 'stopping the turn withdraws the request, which denies it');
+    assert.ok(calls.some(([c]) => c === 'approval_cancel_all'));
+    assert.ok(!calls.some(([c]) => c === 'approval_decide'), 'the main window never answers for the user');
+  } finally { delete globalThis.window; }
+});

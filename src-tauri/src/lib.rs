@@ -1,3 +1,5 @@
+mod approval;
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
@@ -335,7 +337,13 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        .manage(approval::Approvals::default())
         .invoke_handler(tauri::generate_handler![
+            approval::approval_request,
+            approval::approval_payload,
+            approval::approval_decide,
+            approval::approval_cancel_all,
+            approval::approval_focus,
             greet,
             save_brain_data,
             load_brain_data,

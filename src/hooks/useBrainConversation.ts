@@ -24,7 +24,10 @@ import { combineToolsets, webToolset } from "../services/webTools";
 import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
 import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
 import { AgentAuditLog } from "../services/agentAudit";
-import { loadUserPolicy } from "../services/agentPolicy";
+import { loadUserPolicy, saveUserPolicy } from "../services/agentPolicy";
+import { askNative, hasNativeApproval, withdrawNative } from "../services/nativeApproval";
+
+type BrowserAnswer = boolean | "deny_site";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
 import { generateFollowUps } from "../services/chatSuggestions";
 import {
@@ -65,7 +68,8 @@ export interface BrainConversation {
   memoryStatus?: LearnerStatus;
   /** A step on a website waiting for the user's go-ahead while the assistant works. */
   browserConfirm?: BrowserConfirmRequest | null;
-  answerBrowserConfirm?: (allow: boolean) => void;
+  /** true allows, false declines, "deny_site" declines and turns the agent off for that site. */
+  answerBrowserConfirm?: (answer: BrowserAnswer) => void;
   /** Soft (T1) steps the assistant just took on a website, shown without stopping it. */
   agentToasts?: ActivityToast[];
   dismissAgentToast?: (id: string) => void;
@@ -101,10 +105,16 @@ export function useBrainConversation(
   const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
   const [activity, setActivity] = useState<AgentStep[]>([]);
   const [browserConfirm, setBrowserConfirm] = useState<BrowserConfirmRequest | null>(null);
-  const confirmResolver = useRef<((allow: boolean) => void) | null>(null);
+  const confirmResolver = useRef<((answer: BrowserAnswer) => void) | null>(null);
   const [agentToasts, setAgentToasts] = useState<ActivityToast[]>([]);
   const dismissAgentToast = (id: string) => setAgentToasts(list => list.filter(t => t.id !== id));
-  const answerBrowserConfirm = (allow: boolean) => { const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null); resolve?.(allow); };
+  const answerBrowserConfirm = (answer: BrowserAnswer) => {
+    const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null);
+    // In the desktop app only the approval window can allow; from here a request can only be withdrawn.
+    if (browserConfirmNative.current) { browserConfirmNative.current = false; void withdrawNative(); return; }
+    resolve?.(answer);
+  };
+  const browserConfirmNative = useRef(false);
   // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
   const [followUps, setFollowUps] = useState<{ messageId: string; items: string[]; loading: boolean } | null>(null);
   const followUpRequest = useRef<AbortController | null>(null);
@@ -305,9 +315,37 @@ export function useBrainConversation(
     // Work on websites runs here, where the browser extension is; the rest may run on the server.
     const bridge = browserAgentEnabled() ? browserBridge() : null;
     const browser = bridge && needsBrowser(prompt, initial.chatHistory) && (await bridge.status()) === "ready" ? bridge : null;
-    const confirmStep = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<boolean>(resolve => {
+    /** Stops the agent on a site for good: the user's policy, and the router for the rest of this request. */
+    const neverOn = (site: string) => {
+      const policy = loadUserPolicy();
+      saveUserPolicy({ ...policy, deniedHosts: [...policy.deniedHosts, site] });
+      router?.denyHost(site);
+    };
+    const confirmStep = async (request: BrowserConfirmRequest, stepSignal: AbortSignal): Promise<boolean> => {
+      if (hasNativeApproval()) {
+        // The chat shows that the assistant is waiting; the answer comes from the native window.
+        browserConfirmNative.current = true;
+        setBrowserConfirm({ ...request, native: true });
+        try {
+          const decision = await askNative({ label: request.label, site: request.site, ...(request.reason ? { reason: request.reason } : {}),
+            ...(request.screenshot ? { screenshot: request.screenshot } : {}) }, stepSignal);
+          if (decision === "deny_site") neverOn(request.site);
+          return decision === "allow";
+        } catch (error) {
+          if (stepSignal.aborted) return false;
+          console.warn("Native approval window unavailable; asking in the chat instead.", error);
+        } finally {
+          browserConfirmNative.current = false;
+          setBrowserConfirm(current => current?.id === request.id ? null : current);
+        }
+      }
+      const answer = await askInChat(request, stepSignal);
+      if (answer === "deny_site") neverOn(request.site);
+      return answer === true;
+    };
+    const askInChat = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<BrowserAnswer>(resolve => {
       confirmResolver.current?.(false);
-      const done = (allow: boolean) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(allow); };
+      const done = (answer: BrowserAnswer) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(answer); };
       const onAbort = () => { if (confirmResolver.current === done) { confirmResolver.current = null; setBrowserConfirm(null); } done(false); };
       const timer = setTimeout(() => { if (confirmResolver.current === done) answerBrowserConfirm(false); }, 5 * 60_000);
       stepSignal.addEventListener("abort", onAbort, { once: true });

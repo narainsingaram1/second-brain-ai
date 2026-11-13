@@ -32,6 +32,8 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), apiRoutes()],
+    // approval.html is the desktop app's native approval window (src-tauri/src/approval.rs).
+    build: { rollupOptions: { input: { main: path.resolve(process.cwd(), "index.html"), approval: path.resolve(process.cwd(), "approval.html") } } },
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabaseKey),

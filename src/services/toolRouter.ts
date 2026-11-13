@@ -144,5 +144,8 @@ export function createAgentRouter(options: RouterOptions) {
     },
   });
 
-  return { confirm, wrap, stats: () => ({ hardAsks, sites: [...tabHosts.values()] }) };
+  /** The user said never on this site: refuse it for the rest of this request too. */
+  const denyHost = (host: string) => { if (host && !policy.deniedHosts.includes(host)) policy.deniedHosts = [...policy.deniedHosts, host]; };
+
+  return { confirm, wrap, denyHost, stats: () => ({ hardAsks, sites: [...tabHosts.values()] }) };
 }

@@ -15,7 +15,8 @@ const CHANNEL = "synapse-browser-agent";
 const PREF_KEY = "synapse.browserAgent";
 
 export interface BrowserConfirmRequest { id: string; label: string; site: string; tabId: number; /** Why the app (not the page) asks: policy or text carried between sites. */ reason?: string;
-  /** The page with the target boxed, when the extension's precise mode could take one. Shown to the user only. */ screenshot?: string }
+  /** The page with the target boxed, when the extension's precise mode could take one. Shown to the user only. */ screenshot?: string;
+  /** Answered in the desktop app's approval window; the chat only shows that it is waiting. */ native?: boolean }
 export type BrowserStatus = "unavailable" | "not_paired" | "ready";
 
 type Pending = { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> };
