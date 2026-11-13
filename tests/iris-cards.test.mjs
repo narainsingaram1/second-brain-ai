@@ -153,3 +153,26 @@ test('the model shows cards with a real tool; bad cards come back as fixable err
     assert.match(render(result.queryAnswer, { state: live }), /Start here/);
   } finally { globalThis.fetch = original; }
 });
+
+test('a reply written together with valid cards finishes in one model call; an invalid card still goes back to be fixed', async () => {
+  const call = (args) => ({ id: crypto.randomUUID(), type: 'function', function: { name: 'show_card', arguments: JSON.stringify(args) } });
+  const reply = (content, tool_calls) => ({ choices: [{ finish_reason: tool_calls ? 'tool_calls' : 'stop', message: { content, tool_calls } }] });
+  const live = { ...state(), userId: 'test', openRouterKey: 'test-key', selectedModel: 'test/model', tasks: [{ id: 't1', title: 'Homework 6', section: 'Academic', dueDate: '2026-11-10', priority: 'high', status: 'not_started', completed: false }] };
+  const card = JSON.stringify({ type: 'records', title: 'Focus today', items: [{ ref: 'task:t1', note: 'Start here' }] });
+  const original = globalThis.fetch;
+  try {
+    let queue = [reply('Homework first: it is due tonight.', [call({ card })])];
+    let requests = [];
+    globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return Response.json(queue.shift()); };
+    const fast = await AutonomousBrainAgent.execute('what should I focus on today?', live, 'test-key', 'test/model');
+    assert.equal(requests.length, 1);
+    assert.match(fast.queryAnswer, /^Homework first: it is due tonight\.\n\n```iris-ui\n\{"type":"records"/);
+
+    queue = [reply('Here you go.', [call({ card: JSON.stringify({ type: 'records', items: [{ ref: 'task:missing' }] }) })]), reply('Homework first.')];
+    requests = [];
+    const fixed = await AutonomousBrainAgent.execute('what should I focus on today?', live, 'test-key', 'test/model');
+    assert.equal(requests.length, 2);
+    assert.match(requests[1].messages.at(-1).content, /None of those record IDs exist/);
+    assert.equal(fixed.queryAnswer, 'Homework first.');
+  } finally { globalThis.fetch = original; }
+});

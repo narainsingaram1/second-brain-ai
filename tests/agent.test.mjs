@@ -1,5 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { turnContext, userText, userParts } from './helpers/promptLayout.mjs';
 import { createServer } from 'vite';
 
 const server = await createServer({ cacheDir: "/tmp/synapse-agent-test-cache", configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
@@ -84,10 +85,10 @@ test('follow-ups receive prior conversation and exact source references', async 
   s.chatHistory = [{ id: 'u', role: 'user', content: 'What is due?', timestamp: '1' }, { id: 'a', role: 'assistant', content: 'Your assignment.', timestamp: '2', sources: [{ id: 'task-104', type: 'task', title: 'Assignment 104' }] }];
   mockProvider([response('Start with that assignment.')], requests);
   await AutonomousBrainAgent.execute('Which should I start?', s);
-  // Referenced records are listed once in the system context; the transcript itself stays free of IDs.
-  assert.match(requests[0].messages[0].content, /Records referenced recently[\s\S]*Assignment 104 \[task:task-104\]/);
+  // Referenced records are listed once in the per-turn context; the transcript itself stays free of IDs.
+  assert.match(turnContext(requests[0]), /Records referenced recently[\s\S]*Assignment 104 \[task:task-104\]/);
   assert.ok(requests[0].messages.some(m => m.role === 'assistant' && m.content === 'Your assignment.'));
-  assert.equal(requests[0].messages.filter(m => m.content === 'Which should I start?').length, 1);
+  assert.equal(requests[0].messages.filter(m => userText(m) === 'Which should I start?').length, 1);
 });
 
 test('prompt carries a live snapshot and strips internal IDs from the transcript', async () => {
@@ -100,11 +101,12 @@ test('prompt carries a live snapshot and strips internal IDs from the transcript
   mockProvider([response('Hey! Your week looks busy.')], requests);
   const result = await AutonomousBrainAgent.execute('How is my week looking?', s);
   assert.equal(result.queryAnswer, 'Hey! Your week looks busy.');
-  const system = requests[0].messages[0].content;
+  assert.doesNotMatch(requests[0].messages[0].content, /## Current context/, 'The system message stays the same every turn');
+  const system = turnContext(requests[0]);
   assert.match(system, /## Current context/);
   assert.match(system, /Read — not yet today, 3-day streak \[habit:h1\]/);
   assert.match(system, /Open tasks: \d+ total/);
-  const transcript = requests[0].messages.slice(1);
+  const transcript = requests[0].messages.slice(1, -1);
   assert.ok(transcript.every(m => !/User message ID|Source references|\[task:/.test(m.content)));
   assert.ok(transcript.some(m => m.content === 'Start with Assignment 3 today.'));
   assert.equal(requests[0].temperature, 0.7);
@@ -145,7 +147,7 @@ test('follow-up task rename preserves the existing record and task count', async
   assert.equal(updated.tasks.length, s.tasks.length);
   assert.deepEqual(updated.tasks.find(t => t.id === original.id), { ...original, title: 'Dow Jones Interview' });
   assert.equal(s.tasks[0].title, original.title);
-  assert.ok(requests[0].messages[0].content.includes(`[task:${original.id}]`));
+  assert.ok(turnContext(requests[0]).includes(`[task:${original.id}]`));
 });
 
 test('task renames validate titles and can combine with status and date edits', () => {
@@ -561,7 +563,8 @@ test('vision-capable chat models receive attached images directly, plus recent s
   assert.equal(result.status, 'complete'); assert.equal(result.imageDescription, undefined);
   const last = requests[0].messages.at(-1);
   assert.ok(Array.isArray(last.content));
-  assert.equal(last.content[0].text, 'Compare with this one');
+  assert.match(turnContext(requests[0]), /## Current context/);
+  assert.equal(userParts(last)[0].text, 'Compare with this one');
   assert.ok(last.content.some(p => p.type === 'image_url' && p.image_url.url === pixel));
   const history = requests[0].messages.find(m => Array.isArray(m.content) && m.content[0].text === 'What does this show?');
   assert.ok(history?.content.some(p => p.type === 'image_url'), 'earlier session image stays viewable');
@@ -580,8 +583,9 @@ test('text-only chat models get a vision-model description, kept for follow-ups'
   assert.equal(requests[0].model, 'test/vision');
   assert.ok(requests[0].messages[0].content.some(p => p.type === 'image_url'));
   assert.equal(requests[1].model, 'test/model');
-  const sent = requests[1].messages.at(-1).content;
-  assert.equal(typeof sent, 'string'); assert.match(sent, /only the image/); assert.match(sent, /Homework 5 due Friday/);
+  const last = requests[1].messages.at(-1);
+  assert.ok(userParts(last).every(p => p.type === 'text'), 'only text reaches a text-only model');
+  const sent = userText(last); assert.match(turnContext(requests[1]), /## Current context/); assert.match(sent, /only the image/); assert.match(sent, /Homework 5 due Friday/);
   assert.ok(!JSON.stringify(requests[1]).includes('base64'), 'text-only model never receives image data');
   assert.match(result.imageDescription, /Homework 5/);
   assert.equal(saved.length, 1); assert.equal(saved[0].record.description, 'Due 11:59 PM on Canvas'); assert.equal(saved[0].record.dueDate, '2026-11-14');
@@ -660,6 +664,24 @@ test('search indexes readable prose, ranks rare terms with BM25 and splits notes
   assert.equal((await searchRecords(s, 'status', undefined, 0, 'k')).total, 0);
   const result = await searchRecords(s, 'shortest path dijkstra', 'knowledge', 0, 'k');
   assert.match(result.results[0].snippet, /Graphs/); assert.equal(result.results[0].offset, undefined);
+});
+
+test('earlier turns stay a cacheable prefix: per-turn context rides on the newest message', async () => {
+  const s = state(), requests = [];
+  mockProvider([response('Start with Assignment 104.'), response('Done soon.')], requests);
+  await AutonomousBrainAgent.execute('What is due?', s, 'k', 'anthropic/claude-sonnet-5.5');
+  // Next turn: the conversation grew and the workspace changed (a new task changes the snapshot).
+  s.chatHistory = [{ id: 'u1', role: 'user', content: 'What is due?', timestamp: '1' }, { id: 'a1', role: 'assistant', content: 'Start with Assignment 104.', timestamp: '2' }];
+  s.tasks = [...s.tasks, { ...s.tasks[0], id: 'task-new', title: 'Brand new task', dueDate: '2026-11-12' }];
+  await AutonomousBrainAgent.execute('And after that?', s, 'k', 'anthropic/claude-sonnet-5.5');
+  const [first, second] = requests;
+  assert.deepEqual(second.messages[0], first.messages[0], 'The system message is identical across turns');
+  assert.ok(!JSON.stringify(second.messages[0]).includes('Brand new task'), 'Workspace changes do not touch the system message');
+  assert.match(turnContext(second), /Brand new task/);
+  const breakpoints = second.messages.flatMap((m, i) => Array.isArray(m.content) && m.content.some(p => p.cache_control) ? [i] : []);
+  assert.deepEqual(breakpoints, [0, second.messages.length - 2, second.messages.length - 1], 'system, end of history, newest message');
+  assert.equal(userText(second.messages.at(-2)), 'Start with Assignment 104.');
+  assert.equal(userText(second.messages.at(-1)), 'And after that?');
 });
 
 test('anthropic requests cache the system prefix and roll a breakpoint onto the newest message', async () => {

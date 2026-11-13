@@ -44,7 +44,7 @@ function Fixture() {
         setActiveTab={setTab}
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}
-        onQuickCapture={() => {}}
+        onNewChat={() => {}}
         counts={{ tasks: 0, notes: 0, goals: 0 }}
         workspaces={state.workspaces}
       />

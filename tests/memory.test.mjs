@@ -1,5 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { turnContext, userText } from "./helpers/promptLayout.mjs";
 import { createServer } from "vite";
 const server = await createServer({
   configFile: false,
@@ -369,7 +370,7 @@ test("greetings make one normal model call and no embedding/extraction request; 
   const requests = provider([completion("Hello.")]);
   await AutonomousBrainAgent.execute("Hello", s);
   assert.equal(requests.length, 1);
-  assert.match(requests[0].messages[0].content, /Prefers concise/);
+  assert.match(turnContext(requests[0]), /Prefers concise/);
   assert.ok(memory.memoryContext(s, "hi").length < 8000);
 });
 test("agent saves through the existing tool loop, deduplicates writes, and only exposes confirmed IDs", async () => {
@@ -429,7 +430,7 @@ test("temporary chat sends no saved memory, no archives and no memory tool defin
   await AutonomousBrainAgent.execute("Hi", s, undefined, undefined, {
     temporary: true,
   });
-  assert.doesNotMatch(requests[0].messages[0].content, /Prefers concise/);
+  assert.doesNotMatch(turnContext(requests[0]), /Prefers concise/);
   assert.ok(
     !requests[0].tools.some((t) =>
       ["remember_memory", "search_memories", "search_conversations"].includes(
@@ -644,7 +645,7 @@ test("conversation recall sees the current message and never duplicates it in th
     completion("Hello Narain."),
   ]);
   await AutonomousBrainAgent.execute(current.content, s, undefined, undefined, { currentMessage: current });
-  assert.equal(requests[0].messages.filter(m => m.role === "user" && m.content === current.content).length, 1);
+  assert.equal(requests[0].messages.filter(m => m.role === "user" && userText(m) === current.content).length, 1);
   const output = JSON.parse(requests[1].messages.find(m => m.role === "tool").content);
   assert.match(output.content, /Narain Singaram/);
   assert.equal((output.content.match(/current-user/g) || []).length, 1);
@@ -764,7 +765,7 @@ test("saved personal facts survive storage reload and are retrieved in a fresh c
       },
     ]);
     const answer = await AutonomousBrainAgent.execute("What is my favorite color?", restored);
-    assert.match(requests[0].messages[0].content, /Narain Singaram/);
+    assert.match(turnContext(requests[0]), /Narain Singaram/);
     assert.match(answer.queryAnswer, /blue/);
     assert.equal(answer.rememberedIds.length, 0, "Recall does not resave existing memories");
   } finally {
