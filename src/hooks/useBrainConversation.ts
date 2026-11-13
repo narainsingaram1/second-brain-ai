@@ -26,6 +26,7 @@ import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
 import { AgentAuditLog } from "../services/agentAudit";
 import { loadUserPolicy, saveUserPolicy } from "../services/agentPolicy";
 import { askNative, hasNativeApproval, withdrawNative } from "../services/nativeApproval";
+import { desktopReady, desktopToolset, needsDesktop } from "../services/desktopAgent";
 
 type BrowserAnswer = boolean | "deny_site";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
@@ -128,6 +129,14 @@ export function useBrainConversation(
     latest.current = next;
     setState(next);
   };
+  // ⌘⌥. (desktop app) stops the assistant: Rust halts desktop steps, this ends the turn and any browser work.
+  useEffect(() => {
+    if (!hasNativeApproval()) return;
+    let unlisten: (() => void) | undefined, gone = false;
+    void import("@tauri-apps/api/event").then(({ listen }) => listen("agent-stop", () => { answerBrowserConfirm(false); active.current?.abort(); }))
+      .then(off => { if (gone) off(); else unlisten = off; }).catch(() => {});
+    return () => { gone = true; unlisten?.(); };
+  }, []);
   useEffect(() => {
     generation.current++;
     active.current?.abort();
@@ -353,7 +362,9 @@ export function useBrainConversation(
       setBrowserConfirm(request);
     });
     // Every browser step passes the router: policy, rate limits, text carried between sites, audit.
-    const router = browser ? createAgentRouter({
+    // Native Mac apps, in the desktop app, when the request is about one and the user allowed some.
+    const desktop = hasNativeApproval() && needsDesktop(prompt, initial.chatHistory) && await desktopReady();
+    const router = browser || desktop ? createAgentRouter({
       policy: loadUserPolicy(), audit: new AgentAuditLog(), turnId: crypto.randomUUID(), confirm: confirmStep,
       notify: toast => {
         if (!isCurrent()) return;
@@ -361,7 +372,7 @@ export function useBrainConversation(
         setTimeout(() => dismissAgentToast(toast.id), 5000);
       },
     }) : null;
-    const runsOnServer = async () => !browser && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
+    const runsOnServer = async () => !browser && !desktop && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
       && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;
     const runOnServer = async () => {
       let saved = 0;
@@ -409,8 +420,9 @@ export function useBrainConversation(
           // read most other sites; without a server (desktop builds) this browser tries them directly.
           externalTools: options.externalTools ?? combineToolsets(
             webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
-            browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm })) : undefined),
-          ...(browser ? { budget: BROWSER_BUDGET } : {}),
+            browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm })) : undefined,
+            desktop && router ? router.wrap(desktopToolset()) : undefined),
+          ...(browser || desktop ? { budget: BROWSER_BUDGET } : {}),
           getMemory: () =>
             isCurrent()
               ? latest.current?.agentMemory

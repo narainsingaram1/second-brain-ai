@@ -1,5 +1,6 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import { BrowserAgentSettings } from "./BrowserAgentSettings";
+import { DesktopControlSettings } from "./DesktopControlSettings";
 import React, { useEffect, useState } from "react";
 import { ServerKeyField } from "./ServerKeyField";
 import { ConnectionsPanel } from "./ConnectionsPanel";
@@ -206,6 +207,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
           </section>
 
           <BrowserAgentSettings />
+          <DesktopControlSettings />
 
 
           {/* API Key Input Section */}

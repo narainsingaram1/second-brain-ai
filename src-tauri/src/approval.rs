@@ -102,6 +102,12 @@ pub async fn approval_request(app: AppHandle, window: Window, request: ApprovalP
     if window.label() != MAIN_WINDOW {
         return Err("Only the Synapse window can ask for approval.".into());
     }
+    ask(&app, request).await
+}
+
+/// Asks the user in a native window. Rust code that performs a step itself (desktop control) calls this
+/// directly, so the go-ahead never passes through the web layer.
+pub async fn ask(app: &AppHandle, request: ApprovalPayload) -> Result<Decision, String> {
     validate(&request)?;
     let id = new_id();
     let (reply, mut answer) = channel::<Decision>(1);
@@ -110,7 +116,7 @@ pub async fn approval_request(app: AppHandle, window: Window, request: ApprovalP
         .insert(id.clone(), Pending { payload: request, reply });
 
     let url = WebviewUrl::App(format!("approval.html?id={id}").into());
-    let built = WebviewWindowBuilder::new(&app, window_label(&id), url)
+    let built = WebviewWindowBuilder::new(app, window_label(&id), url)
         .title(title)
         .inner_size(560.0, 660.0)
         .resizable(false)

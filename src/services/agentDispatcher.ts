@@ -456,14 +456,15 @@ export class AutonomousBrainAgent {
     const explorationDeadline = Date.now() + timeMs * 0.75;
     // Only the newest look at each browser tab stays in full; older ones are out of date and only cost context.
     // A change report (diffOf) builds on the latest full view, so both stay until the next full view replaces them.
-    const pageMessages = new Map<number, number>();
-    const diffMessages = new Map<number, number[]>();
+    // Keyed by tab id, or "app:<bundle id>" for a Mac app's window.
+    const pageMessages = new Map<number | string, number>();
+    const diffMessages = new Map<number | string, number[]>();
     let browserActs = 0;
     const compactPages = (output: unknown) => {
       const diffTab = output && typeof output === "object" ? (output as { diffOf?: unknown }).diffOf : undefined;
-      if (typeof diffTab === "number") { diffMessages.set(diffTab, [...(diffMessages.get(diffTab) || []), messages.length - 1]); return; }
+      if (typeof diffTab === "number" || typeof diffTab === "string") { diffMessages.set(diffTab, [...(diffMessages.get(diffTab) || []), messages.length - 1]); return; }
       const tab = output && typeof output === "object" ? (output as { pageOf?: unknown }).pageOf : undefined;
-      if (typeof tab !== "number") return;
+      if (typeof tab !== "number" && typeof tab !== "string") return;
       for (const index of diffMessages.get(tab) || []) {
         if (!messages[index]) continue;
         try {
@@ -751,7 +752,7 @@ export class AutonomousBrainAgent {
                   untrustedRead = true;
                   roundProgress = true;
                   const done = (output as { done?: unknown[] }).done;
-                  if (call.function.name === "browser_act" && Array.isArray(done) && done.length) browserActs++;
+                  if ((call.function.name === "browser_act" || call.function.name === "desktop_act") && Array.isArray(done) && done.length) browserActs++;
                   if ((output as { confirmed?: boolean }).confirmed === true)
                     externalDone.push({ tool: call.function.name, summary: result.summary || "Acted on a website", ...(result.link ? { link: result.link } : {}) });
                 } else if (external && externalNames.has(call.function.name)) {

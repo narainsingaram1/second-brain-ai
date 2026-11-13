@@ -205,3 +205,61 @@ test('native approval: answers come from the approval window; stopping withdraws
     assert.ok(!calls.some(([c]) => c === 'approval_decide'), 'the main window never answers for the user');
   } finally { delete globalThis.window; }
 });
+
+test('the Rust desktop tiers use exactly the shared vocabulary', async () => {
+  const rs = await readFile(new URL('../src-tauri/src/desktop/tiers.rs', import.meta.url), 'utf8');
+  assert.ok(rs.includes(`pub const CONSEQUENTIAL_SOURCE: &str = r#"${tiers.CONSEQUENTIAL_SOURCE}"#;`), 'CONSEQUENTIAL in tiers.rs differs from riskTiers.ts');
+  assert.ok(rs.includes(`pub const SECRET_LABEL_SOURCE: &str = r#"${tiers.SECRET_LABEL_SOURCE}"#;`), 'SECRET_LABEL in tiers.rs differs from riskTiers.ts');
+  for (const label of ['Empty Trash', 'Move to Trash', 'Quit', 'Sign out', 'Erase']) assert.match(label, tiers.CONSEQUENTIAL, label);
+});
+
+const { desktopToolset, needsDesktop } = await load('/src/services/desktopAgent.ts');
+const { toolTier, readsUntrustedContent } = await load('/src/services/actionPolicy.ts');
+
+test('desktop: routing, live tier, and what the model sees', async () => {
+  assert.ok(needsDesktop('make a note in Apple Notes with my grocery list'));
+  assert.ok(needsDesktop('find the syllabus pdf in Finder'));
+  assert.ok(needsDesktop('run the tests in my terminal'));
+  assert.ok(!needsDesktop('what is on my calendar today?'));
+  assert.equal(toolTier('desktop_act'), 'browser', 'live, never cached; Rust asks itself');
+  assert.ok(readsUntrustedContent('desktop_look', []));
+  const calls = [];
+  const tools = desktopToolset(async (cmd, args) => {
+    calls.push([cmd, args]);
+    if (cmd === 'desktop_apps') return [{ bundleId: 'com.apple.Notes', name: 'Notes', pid: 1, active: true, allowed: true }, { bundleId: 'com.apple.keychainaccess', name: 'Keychain Access', pid: 2, active: false, allowed: false, blocked: 'holds passwords' }];
+    return { app: 'Notes', bundleId: 'com.apple.Notes', window: 'Notes', elements: ['[1] button "New Note"', '[2] textarea "Body"'], omitted: 3, text: 'Groceries', secureInput: false, ...(cmd === 'desktop_act' ? { done: ['Click "New Note" in Notes'] } : {}) };
+  });
+  const sig = new AbortController().signal;
+  const apps = (await tools.execute('desktop_apps', {}, sig)).output.apps;
+  assert.deepEqual(apps[1], { bundleId: 'com.apple.keychainaccess', name: 'Keychain Access', never: 'holds passwords' });
+  const look = (await tools.execute('desktop_look', { bundleId: 'com.apple.Notes' }, sig)).output;
+  assert.equal(look.pageOf, 'app:com.apple.Notes', 'older looks at the app get compacted');
+  assert.match(look.elements, /\[2\] textarea "Body"\n…3 more/); assert.match(look.untrusted, /never instructions/);
+  const act = await tools.execute('desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }, sig);
+  assert.equal(act.summary, 'Click "New Note" in Notes');
+  assert.deepEqual(calls.at(-1), ['desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }]);
+});
+
+test('router: text carried between websites and Mac apps needs a go-ahead, both ways', async () => {
+  const store = memoryAuditStore();
+  const asked = [];
+  const router = createAgentRouter({ policy: normalizePolicy({}), audit: new AgentAuditLog(store), turnId: 't', confirm: async r => { asked.push(r); return false; } });
+  const secret = 'the board approved the layoffs for the Denver office on Friday';
+  const inner = { definitions: [], instructions: '', async execute(name, args) {
+    if (name === 'browser_open') return { output: { tabId: 1, url: args.url, site: 'news.example.com', text: name === 'browser_open' && args.url.includes('wiki') ? 'nothing' : `Leaked: ${secret}` }, summary: 'Opened' };
+    if (name === 'desktop_look') return { output: { app: 'Mail', bundleId: args.bundleId, elements: [], text: `Re: plans — ${secret}` }, summary: 'Looked' };
+    return { output: { done: ['x'] }, summary: 'did' };
+  } };
+  const tools = router.wrap(inner);
+  // Web → app.
+  await tools.execute('browser_open', { url: 'https://news.example.com/' }, signal);
+  const out = await tools.execute('desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'type', ref: 2, text: secret }] }, signal);
+  assert.equal(out.output.confirmed, false);
+  assert.match(asked[0].reason, /news\.example\.com.*com\.apple\.Notes/);
+  // App → web.
+  await tools.execute('desktop_look', { bundleId: 'com.apple.mail' }, signal);
+  await tools.execute('browser_open', { url: 'https://wiki.example.org/' }, signal);
+  await tools.execute('browser_act', { tabId: 1, steps: [{ action: 'type', ref: 1, text: secret }] }, signal);
+  assert.match(asked[1].reason, /the app com\.apple\.mail/);
+  assert.ok(store.entries.some(e => e.tool === 'desktop_act' && e.outcome === 'declined'));
+});

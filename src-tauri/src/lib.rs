@@ -1,10 +1,11 @@
 mod approval;
+mod desktop;
 
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager};
-use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, ShortcutState};
+use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, Code, ShortcutState};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct VectorChunk {
@@ -317,9 +318,15 @@ pub fn run() {
     // Configure global hotkey: ⌘⌥N (CommandOrControl+Alt+N) & ⌥⇧N (Alt+Shift+N)
     // Avoids browser collisions like ⌘⇧N (Incognito window in Chrome/Brave/Edge)
     if let Ok(shortcut_plugin) = ShortcutBuilder::new()
-        .with_shortcuts(["CommandOrControl+Alt+N", "Alt+Shift+N"])
+        // ⌘⌥. stops the assistant: the desktop step loop at its next step, and the turn in the main window.
+        .with_shortcuts(["CommandOrControl+Alt+N", "Alt+Shift+N", "CommandOrControl+Alt+Period"])
         .and_then(|b| {
-            Ok(b.with_handler(|app, _shortcut, event| {
+            Ok(b.with_handler(|app, shortcut, event| {
+                if event.state() == ShortcutState::Pressed && shortcut.key == Code::Period {
+                    desktop::request_stop();
+                    let _ = app.emit("agent-stop", ());
+                    return;
+                }
                 if event.state() == ShortcutState::Pressed {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
@@ -338,12 +345,20 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_opener::init())
         .manage(approval::Approvals::default())
+        .manage(desktop::DesktopState::default())
         .invoke_handler(tauri::generate_handler![
             approval::approval_request,
             approval::approval_payload,
             approval::approval_decide,
             approval::approval_cancel_all,
             approval::approval_focus,
+            desktop::desktop_status,
+            desktop::desktop_request_access,
+            desktop::desktop_apps,
+            desktop::desktop_allow_app,
+            desktop::desktop_look,
+            desktop::desktop_act,
+            desktop::desktop_stop,
             greet,
             save_brain_data,
             load_brain_data,
