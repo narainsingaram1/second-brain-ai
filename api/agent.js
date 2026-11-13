@@ -3595,6 +3595,7 @@ new Set(BROWSER_TOOLS.map((t) => t.function.name));
 	"You can use the user's own Chrome, where they are already signed in, through the browser tools. You work in your own tabs (the Synapse tab group); the user can watch.",
 	"- Go straight to the right page: use a site's search URL or a direct link when you know it, rather than clicking through the home page.",
 	"- Each result shows the page's elements as `[ref] role \"name\" flags`. Act only on refs from the latest result for that tab; after a page changes, use the new refs.",
+	"- After an action on the same page you may get only what changed (`changes`: New, Changed, Gone). Everything else is as in your last full view of that tab, and those refs still work. Use browser_look for a fresh full view if you've lost track.",
 	"- Batch steps that belong together in one browser_act call (fill a form's fields, then submit). Check the result before the next step: did the page change the way you expected? If not, look again and adapt instead of repeating the same step.",
 	"- Close cookie banners and pop-ups that cover the page (Reject non-essential, or close). Prefer the most privacy-preserving choice.",
 	"- Elements flagged user-only are passwords, card numbers and similar: you can't fill them. If a sign-in or payment details are needed, tell the user to complete that step in the Synapse tab group, then continue when they say so.",
@@ -10547,10 +10548,33 @@ var AutonomousBrainAgent = class {
 		let stateRevision = 0;
 		const explorationDeadline = Date.now() + timeMs * .75;
 		const pageMessages = /* @__PURE__ */ new Map();
+		const diffMessages = /* @__PURE__ */ new Map();
 		let browserActs = 0;
 		const compactPages = (output) => {
+			const diffTab = output && typeof output === "object" ? output.diffOf : void 0;
+			if (typeof diffTab === "number") {
+				diffMessages.set(diffTab, [...diffMessages.get(diffTab) || [], messages.length - 1]);
+				return;
+			}
 			const tab = output && typeof output === "object" ? output.pageOf : void 0;
 			if (typeof tab !== "number") return;
+			for (const index of diffMessages.get(tab) || []) {
+				if (!messages[index]) continue;
+				try {
+					const old = JSON.parse(messages[index].content);
+					messages[index] = {
+						...messages[index],
+						content: JSON.stringify({
+							tabId: tab,
+							url: old.url,
+							...old.done ? { done: old.done } : {},
+							...old.confirmed !== void 0 ? { confirmed: old.confirmed } : {},
+							superseded: "An older change report for this tab. Use the latest view."
+						})
+					};
+				} catch {}
+			}
+			diffMessages.delete(tab);
 			const previous = pageMessages.get(tab);
 			if (previous !== void 0 && messages[previous]) try {
 				const old = JSON.parse(messages[previous].content);

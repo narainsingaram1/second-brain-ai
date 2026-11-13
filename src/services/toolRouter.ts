@@ -53,7 +53,7 @@ export function createAgentRouter(options: RouterOptions) {
     if (!page || typeof page !== "object") return;
     const host = hostOf(page.url) || page.site || "";
     if (typeof page.tabId === "number" && host) tabHosts.set(page.tabId, host);
-    if (host && typeof page.text === "string" && page.text) corpus.set(host, ((corpus.get(host) || "") + " " + norm(page.text)).slice(-CORPUS_LIMIT));
+    if (host && typeof page.text === "string" && page.text && page.text !== "(unchanged)") corpus.set(host, ((corpus.get(host) || "") + " " + norm(page.text)).slice(-CORPUS_LIMIT));
   };
 
   /** Hosts other than `host` whose pages contain `text`. */

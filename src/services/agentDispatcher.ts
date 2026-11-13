@@ -455,11 +455,24 @@ export class AutonomousBrainAgent {
     let stateRevision = 0;
     const explorationDeadline = Date.now() + timeMs * 0.75;
     // Only the newest look at each browser tab stays in full; older ones are out of date and only cost context.
+    // A change report (diffOf) builds on the latest full view, so both stay until the next full view replaces them.
     const pageMessages = new Map<number, number>();
+    const diffMessages = new Map<number, number[]>();
     let browserActs = 0;
     const compactPages = (output: unknown) => {
+      const diffTab = output && typeof output === "object" ? (output as { diffOf?: unknown }).diffOf : undefined;
+      if (typeof diffTab === "number") { diffMessages.set(diffTab, [...(diffMessages.get(diffTab) || []), messages.length - 1]); return; }
       const tab = output && typeof output === "object" ? (output as { pageOf?: unknown }).pageOf : undefined;
       if (typeof tab !== "number") return;
+      for (const index of diffMessages.get(tab) || []) {
+        if (!messages[index]) continue;
+        try {
+          const old = JSON.parse(messages[index].content as string);
+          messages[index] = { ...messages[index], content: JSON.stringify({ tabId: tab, url: old.url, ...(old.done ? { done: old.done } : {}),
+            ...(old.confirmed !== undefined ? { confirmed: old.confirmed } : {}), superseded: "An older change report for this tab. Use the latest view." }) };
+        } catch { /* Leave it. */ }
+      }
+      diffMessages.delete(tab);
       const previous = pageMessages.get(tab);
       if (previous !== undefined && messages[previous]) {
         try {

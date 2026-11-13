@@ -1063,3 +1063,4 @@
 .agent-toast span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agent-toast button { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border: 1px solid var(--workspace-line-strong); border-radius: 999px; background: transparent; color: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
 .agent-toast button:last-child { padding: 3px 5px; border-color: transparent; }
+.browser-confirm-shot { display: block; width: 100%; max-height: 320px; object-fit: contain; object-position: top; margin: 10px 0 4px; border: 1px solid var(--workspace-line-strong); border-radius: 8px; background: var(--workspace-raised); }

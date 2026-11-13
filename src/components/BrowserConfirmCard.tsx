@@ -11,6 +11,7 @@ export function BrowserConfirmCard({ request, onAnswer }: { request: BrowserConf
   useEffect(() => { allow.current?.focus({ preventScroll: true }); }, [request.id]);
   return <section className="approval-card is-pending browser-confirm" role="alertdialog" aria-label={`Allow on ${request.site}: ${request.label}`}>
     <header><MousePointerClick size={15} aria-hidden="true" /><strong>{request.label}</strong></header>
+    {request.screenshot && <img className="browser-confirm-shot" src={request.screenshot} alt={`The page on ${request.site}, with the element that will be used outlined in red`} />}
     <ul className="approval-details">
       {request.reason && <li><strong>Why you’re asked:</strong> {request.reason}</li>}
       <li>On {request.site}, in the Synapse tab group. The assistant is waiting for you.</li>
