@@ -226,7 +226,7 @@ export async function queryOpenRouterWithTools(
 
     const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
     const data = streamed ? await readCompletionStream(res.body!, tuning.onText!, resetStall, tuning.onReasoning) : await res.json();
-    return completionFrom(data);
+    return completionFrom(data, tools);
   } finally {
     clearTimeout(stallTimer);
   }
@@ -291,7 +291,51 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
     ...(details.length ? { reasoning_details: finishReasoningDetails(details) } : {}) } }] };
 }
 
-function completionFrom(data: any): OpenRouterCompletionResponse {
+/**
+ * Some models (Qwen-family and others behind providers that don't parse their tool calls) write a tool call as
+ * text instead of sending it as one. This turns well-formed calls to tools that were actually offered back into
+ * real calls, with each argument typed by the tool's schema; anything else stays text. Two formats:
+ *   <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
+ *   <tool_call>{"name": "NAME", "arguments": {…}}</tool_call>
+ */
+export function recoverTextToolCalls(content: string, tools: OpenRouterTool[] = []): { content: string; toolCalls: OpenRouterToolCall[] } {
+  const byName = new Map(tools.map(t => [t.function.name, t]));
+  const calls: OpenRouterToolCall[] = [];
+  if (!byName.size || !/<tool_call>|<function=/.test(content)) return { content, toolCalls: calls };
+  const typed = (tool: OpenRouterTool, key: string, raw: string): unknown => {
+    const schema = ((tool.function.parameters as any)?.properties || {})[key] || {};
+    const value = raw.replace(/^\n|\n$/g, "");
+    if (schema.type === "string" || (!schema.type && !/^[\[{]/.test(value.trim()))) return value;
+    try { return JSON.parse(value.trim()); } catch { return value; }
+  };
+  const blocks = content.match(/<tool_call>[\s\S]*?<\/tool_call>|<function=[^>\n]+>[\s\S]*?<\/function>/g) || [];
+  let rest = content;
+  for (const block of blocks) {
+    let name = "", args: Record<string, unknown> | null = null;
+    const fn = /<function=([^>\n]+)>([\s\S]*?)<\/function>/.exec(block);
+    if (fn) {
+      name = fn[1].trim();
+      const tool = byName.get(name);
+      if (tool) {
+        args = {};
+        for (const p of fn[2].matchAll(/<parameter=([^>\n]+)>([\s\S]*?)<\/parameter>/g)) args[p[1].trim()] = typed(tool, p[1].trim(), p[2]);
+      }
+    } else {
+      try {
+        const json = JSON.parse(block.replace(/<\/?tool_call>/g, "").trim());
+        name = String(json?.name || "");
+        const a = typeof json?.arguments === "string" ? JSON.parse(json.arguments) : json?.arguments ?? json?.parameters ?? {};
+        if (byName.has(name) && a && typeof a === "object" && !Array.isArray(a)) args = a;
+      } catch { /* Not a call: leave it as text. */ }
+    }
+    if (!args) continue;
+    calls.push({ id: `call-text-${Date.now()}-${calls.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } });
+    rest = rest.replace(block, "");
+  }
+  return { content: rest.replace(/<\/?tool_call>/g, "").trim(), toolCalls: calls };
+}
+
+function completionFrom(data: any, tools: OpenRouterTool[] = []): OpenRouterCompletionResponse {
   if (data.error) throw new Error(providerErrorMessage(data));
   const choice = data.choices?.[0];
   if (!choice?.message) throw new Error("Provider returned no message.");
@@ -316,6 +360,13 @@ function completionFrom(data: any): OpenRouterCompletionResponse {
         },
       },
     ];
+  }
+
+  // A tool call the model wrote as text instead of sending it as one.
+  if (!toolCalls?.length && typeof msg?.content === "string") {
+    const recovered = recoverTextToolCalls(msg.content, tools);
+    if (recovered.toolCalls.length) return { content: recovered.content || null, toolCalls: recovered.toolCalls,
+      ...(Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}) };
   }
 
   return {
