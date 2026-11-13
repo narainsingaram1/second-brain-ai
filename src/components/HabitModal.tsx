@@ -1,20 +1,45 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Habit, LifeDomain } from "../types";
-import { X, Flame } from "lucide-react";
+import { X, Flame, Trash2 } from "lucide-react";
 
 interface HabitModalProps {
   isOpen: boolean;
   onClose: () => void;
+  habit?: Habit | null;
   onSave: (habit: Habit) => void;
+  onDelete?: (habitId: string) => void;
 }
 
-export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave }) => {
+export const HabitModal: React.FC<HabitModalProps> = ({
+  isOpen,
+  onClose,
+  habit,
+  onSave,
+  onDelete,
+}) => {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [domain, setDomain] = useState<LifeDomain>("health");
   const [frequency, setFrequency] = useState<Habit["frequency"]>("daily");
   const [timeOfDay, setTimeOfDay] = useState<Habit["timeOfDay"]>("morning");
+
+  useEffect(() => {
+    if (!isOpen) return;
+    if (habit) {
+      setName(habit.name || "");
+      setDescription(habit.description || "");
+      setDomain(habit.domain || "health");
+      setFrequency(habit.frequency || "daily");
+      setTimeOfDay(habit.timeOfDay || "morning");
+    } else {
+      setName("");
+      setDescription("");
+      setDomain("health");
+      setFrequency("daily");
+      setTimeOfDay("morning");
+    }
+  }, [isOpen, habit]);
 
   if (!isOpen) return null;
 
@@ -22,33 +47,50 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
     e.preventDefault();
     if (!name.trim()) return;
 
-    const newHabit: Habit = {
-      id: `habit-${Date.now()}`,
+    const habitToSave: Habit = {
+      id: habit?.id || `habit-${Date.now()}`,
       name: name.trim(),
       description: description.trim() || undefined,
       domain,
       frequency,
       timeOfDay,
-      streak: 0,
-      bestStreak: 0,
-      history: {},
+      streak: habit?.streak || 0,
+      bestStreak: habit?.bestStreak || 0,
+      history: habit?.history || {},
+      icon: habit?.icon,
     };
 
-    onSave(newHabit);
+    onSave(habitToSave);
     onClose();
   };
 
+  const handleDelete = () => {
+    if (!habit || !onDelete) return;
+    if (confirm(`Delete habit "${habit.name}"?`)) {
+      onDelete(habit.id);
+      onClose();
+    }
+  };
+
+  const isEditing = Boolean(habit);
+
   return (
-    <DialogBackdrop onClose={onClose} label="New habit" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+    <DialogBackdrop
+      onClose={onClose}
+      label={isEditing ? "Edit habit" : "New habit"}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in"
+    >
       <div className="workspace-dialog bg-panel rounded-4xl border border-line shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
           <div className="flex items-center gap-2">
             <Flame className="w-5 h-5 text-muted " />
             <h3 className="font-extrabold text-base tracking-tight text-ink">
-              New daily habit
+              {isEditing ? "Edit habit" : "New daily habit"}
             </h3>
           </div>
-          <button aria-label="Close dialog" onClick={onClose}
+          <button
+            aria-label="Close dialog"
+            onClick={onClose}
             className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400"
           >
             <X className="w-4 h-4" />
@@ -131,20 +173,34 @@ export const HabitModal: React.FC<HabitModalProps> = ({ isOpen, onClose, onSave 
             </div>
           </div>
 
-          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md active:scale-[0.98] transition-all"
-            >
-              Start Habit
-            </button>
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div>
+              {isEditing && onDelete && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="px-3 py-1.5 rounded-full text-xs font-bold text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40 flex items-center gap-1.5 transition-colors"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete</span>
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-4 py-2 rounded-full text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-full bg-primary text-white text-xs font-bold shadow-md active:scale-[0.98] transition-all"
+              >
+                {isEditing ? "Save changes" : "Start Habit"}
+              </button>
+            </div>
           </div>
         </form>
       </div>

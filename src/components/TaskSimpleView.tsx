@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Calendar,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import { getLocalDateString } from "../utils/habitStreaks";
 
@@ -381,13 +382,25 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
                               }`}
                             />
 
-                            {/* Delete on hover */}
+                            {/* Actions on hover (Edit & Delete) */}
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onEditTask(task);
+                              }}
+                              title="Edit task"
+                              aria-label={`Edit task ${task.title}`}
+                              className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-blue-500 rounded-lg transition-all"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onDeleteTask(task.id);
                               }}
                               title="Delete task"
+                              aria-label={`Delete task ${task.title}`}
                               className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500 rounded-lg transition-all"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

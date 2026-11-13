@@ -25,6 +25,7 @@ interface TaskCalendarViewProps {
   onStatusChange?: (taskId: string, status: TaskStatus) => void;
   onAddTask: (section?: string, subsection?: string, defaultDueDate?: string) => void;
   onEditTask: (task: Task) => void;
+  onSaveTask?: (task: Task) => void;
   onDeleteTask: (taskId: string) => void;
   events?: CalendarEvent[];
   onAddEvent?: (date?: string) => void;
@@ -56,6 +57,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   onStatusChange,
   onAddTask,
   onEditTask,
+  onSaveTask,
   onDeleteTask,
   events = [],
   onAddEvent,
@@ -707,7 +709,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                       onClick={(e) => {
                         e.stopPropagation();
                         // Reschedule to today
-                        onEditTask({ ...t, dueDate: todayStr });
+                        (onSaveTask || onEditTask)({ ...t, dueDate: todayStr });
                       }}
                       className="px-2 py-1 rounded-lg bg-rose-100 dark:bg-rose-900/50 hover:bg-rose-200 text-rose-700 dark:text-rose-300 text-[11px] font-bold shrink-0"
                     >

@@ -144,6 +144,7 @@ export const App: React.FC = () => {
   const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
   const [activeEditGoal, setActiveEditGoal] = useState<Goal | null>(null);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
+  const [activeEditHabit, setActiveEditHabit] = useState<Habit | null>(null);
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
   const [activeEditKnowledge, setActiveEditKnowledge] = useState<KnowledgeItem | null>(null);
   const [isQuickAddMenuOpen, setIsQuickAddMenuOpen] = useState(false);
@@ -732,6 +733,22 @@ export const App: React.FC = () => {
     });
   };
 
+  const openNewHabit = () => {
+    setActiveEditHabit(null);
+    setIsHabitModalOpen(true);
+  };
+
+  const openEditHabit = (habit: Habit) => {
+    setActiveEditHabit(habit);
+    setIsHabitModalOpen(true);
+  };
+
+  const handleDeleteHabit = (habitId: string) => {
+    const habit = state?.habits.find((h) => h.id === habitId);
+    if (habit) recordMutation("Deleted Habit", "habit", habit.name);
+    setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== habitId) } : prev));
+  };
+
   // Goal Handlers (Macro Life Improvement & Horizons)
   const handleSaveGoal = (goal: Goal) => {
     const exists = state?.goals?.some((g) => g.id === goal.id);
@@ -1088,10 +1105,9 @@ export const App: React.FC = () => {
                 <HabitsView
                   habits={state.habits}
                   onToggleHabit={handleToggleHabit}
-                  onAddHabit={() => setIsHabitModalOpen(true)}
-                  onDeleteHabit={(id) =>
-                    setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== id) } : null))
-                  }
+                  onAddHabit={openNewHabit}
+                  onEditHabit={openEditHabit}
+                  onDeleteHabit={handleDeleteHabit}
                 />
               )}
 
@@ -1215,7 +1231,7 @@ export const App: React.FC = () => {
               <button
                 onClick={() => {
                   setIsQuickAddMenuOpen(false);
-                  setIsHabitModalOpen(true);
+                  openNewHabit();
                 }}
                 className="quick-add-item"
               >
@@ -1297,7 +1313,10 @@ export const App: React.FC = () => {
 
       <TaskModal
         isOpen={isTaskModalOpen}
-        onClose={() => setIsTaskModalOpen(false)}
+        onClose={() => {
+          setIsTaskModalOpen(false);
+          setActiveEditTask(null);
+        }}
         task={activeEditTask}
         sections={state.sections}
         subsections={state.subsections}
@@ -1323,8 +1342,13 @@ export const App: React.FC = () => {
 
       <HabitModal
         isOpen={isHabitModalOpen}
-        onClose={() => setIsHabitModalOpen(false)}
+        onClose={() => {
+          setIsHabitModalOpen(false);
+          setActiveEditHabit(null);
+        }}
+        habit={activeEditHabit}
         onSave={handleSaveHabit}
+        onDelete={handleDeleteHabit}
       />
 
       <KnowledgeModal
@@ -1360,8 +1384,9 @@ export const App: React.FC = () => {
           setActiveEditGoal(goal);
           setIsGoalModalOpen(true);
         }}
-        onSelectHabit={() => {
+        onSelectHabit={(habit) => {
           setActiveTab("habits");
+          openEditHabit(habit);
         }}
         onSelectJournal={() => {
           setActiveTab("journal");
