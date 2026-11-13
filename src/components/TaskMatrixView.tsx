@@ -453,6 +453,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
           onStatusChange={onStatusChange}
           onAddTask={onAddTask}
           onEditTask={onEditTask}
+          onSaveTask={onSaveTask || onEditTask}
           onDeleteTask={onDeleteTask}
           events={events}
           onAddEvent={onAddEvent}
@@ -924,7 +925,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                               <div>
                                 {displayedTasks.length > 0 && (
                                   /* Column Headers */
-                                  <div className="grid grid-cols-[1fr_130px_110px_100px_36px] items-center px-4 py-2 bg-zinc-50/50 dark:bg-zinc-900/40 border-b border-zinc-100 dark:border-zinc-800/60 text-xs font-medium text-zinc-400 dark:text-zinc-500">
+                                  <div className="grid grid-cols-[1fr_130px_110px_100px_60px] items-center px-4 py-2 bg-zinc-50/50 dark:bg-zinc-900/40 border-b border-zinc-100 dark:border-zinc-800/60 text-xs font-medium text-zinc-400 dark:text-zinc-500">
                                     <div className="pl-8">Task</div>
                                     <div>Status</div>
                                     <div>Due</div>
@@ -968,7 +969,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                       return (
                                         <div
                                           key={task.id}
-                                          className="grid grid-cols-[1fr_130px_110px_100px_36px] items-center px-4 py-2.5 min-h-[52px] hover:bg-zinc-50/60 dark:hover:bg-zinc-800/25 transition-colors group"
+                                          className="grid grid-cols-[1fr_130px_110px_100px_60px] items-center px-4 py-2.5 min-h-[52px] hover:bg-zinc-50/60 dark:hover:bg-zinc-800/25 transition-colors group"
                                         >
                                           {/* Column 1: Checkbox & Task Title / Subtitle */}
                                           <div className="flex items-center gap-3 min-w-0 pr-3">
@@ -1107,13 +1108,23 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                             </div>
                                           </div>
 
-                                          {/* Delete Task Action */}
-                                          <div className="flex justify-end">
+                                          {/* Task Actions (Edit & Delete) */}
+                                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button
+                                              type="button"
+                                              onClick={() => onEditTask(task)}
+                                              className="p-1 text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors rounded"
+                                              aria-label={`Edit task ${task.title}`}
+                                              title="Edit task"
+                                            >
+                                              <Pencil size={14} />
+                                            </button>
                                             <button
                                               type="button"
                                               onClick={() => onDeleteTask(task.id)}
-                                              className="p-1 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity rounded"
+                                              className="p-1 text-zinc-400 hover:text-red-600 dark:hover:text-red-400 transition-colors rounded"
                                               aria-label={`Delete task ${task.title}`}
+                                              title="Delete task"
                                             >
                                               <Trash2 size={14} />
                                             </button>

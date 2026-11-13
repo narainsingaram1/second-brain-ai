@@ -6,13 +6,14 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 1) return;
+  if (globalThis.__synapseAgent?.version === 2) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
   const READ_CHUNK = 12000;
   const refs = new Map(); // ref -> WeakRef(element)
   const ids = new WeakMap(); // element -> ref
+  const byPrint = new Map(); // fingerprint -> refs, so a re-rendered element keeps its number
   let nextRef = 1;
 
   const INTERACTIVE = "a[href], button, input, textarea, select, summary, [contenteditable=''], [contenteditable='true'], [tabindex]:not([tabindex='-1']), " +
@@ -23,7 +24,8 @@
   const SECRET_AUTOCOMPLETE = /\b(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year)\b/i;
   const SECRET_LABEL = /\b(password|passcode|card ?number|credit card|debit card|cvv|cvc|csc|security code|expir\w* date|ssn|social security|routing number|account number|iban|swift|pin)\b/i;
   // Buttons whose click commits something on the user's behalf: these wait for the user's go-ahead.
-  const CONSEQUENTIAL = /\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account)\b/i;
+  // SECRET_*, CONSEQUENTIAL: keep identical to src/services/riskTiers.ts (a test checks).
+  const CONSEQUENTIAL = /\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account|merge|approve|archive|revoke|deploy|release|empty trash|erase|move to (?:the )?trash|shut down|restart|log out|sign out|quit)\b/i;
   const SEARCHY = /\b(search|find|query|look ?up|where|destination|location|city|zip|postal|keyword|filter)\b/i;
 
   // ---- Visibility and naming ----
@@ -102,10 +104,18 @@
   function consequential(el) {
     const name = nameOf(el);
     if (CONSEQUENTIAL.test(name)) return true;
+    const described = (el.getAttribute("aria-describedby") || "").split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ");
+    if (described && CONSEQUENTIAL.test(clean(described, 200))) return true;
     const form = el.form || el.closest?.("form");
     if (form && (el.type === "submit" || (el.tagName === "BUTTON" && !el.getAttribute("type")))) {
       // Submitting a form that holds a password or card field is consequential whatever the button says.
       if ([...form.elements].some(f => f instanceof HTMLElement && secretReason(f))) return true;
+      // So is posting a form to another site.
+      const method = (el.getAttribute("formmethod") || form.getAttribute("method") || "get").toLowerCase();
+      try {
+        const action = new URL(el.getAttribute("formaction") || form.getAttribute("action") || location.href, location.href);
+        if (method === "post" && action.host !== location.host) return true;
+      } catch { /* Unparseable action: the browser treats it as this page. */ }
     }
     return false;
   }
@@ -116,9 +126,21 @@
     return SEARCHY.test([labelText(el), el.getAttribute("placeholder"), el.getAttribute("name"), el.id].filter(Boolean).join(" "));
   }
 
+  /** Role, name and the nearest stable anchor: what makes "the same control" after a framework re-renders it. */
+  function fingerprint(el) {
+    const anchor = el.closest("[id], [data-testid], form, [role=dialog], main, nav, header, footer");
+    const where = anchor ? (anchor.id ? `#${anchor.id}` : anchor.getAttribute("data-testid") ? `@${anchor.getAttribute("data-testid")}` : anchor.tagName) : "";
+    return `${roleOf(el)}|${nameOf(el)}|${el.getAttribute("name") || ""}|${where}`;
+  }
   function refFor(el) {
     let ref = ids.get(el);
-    if (!ref) { ref = nextRef++; ids.set(el, ref); refs.set(ref, new WeakRef(el)); }
+    if (ref) return ref;
+    const print = fingerprint(el);
+    const same = byPrint.get(print) || [];
+    // Reuse the number of a control that was replaced by an identical one (the old element is gone).
+    ref = same.find(old => { const prev = refs.get(old)?.deref(); return !prev || !prev.isConnected; });
+    if (!ref) { ref = nextRef++; same.push(ref); byPrint.set(print, same); }
+    ids.set(el, ref); refs.set(ref, new WeakRef(el));
     return ref;
   }
   function resolve(ref) {
@@ -332,6 +354,16 @@
 
   /** What the extension needs to decide whether an action is allowed, without performing it. */
   function inspect(step) {
+    // A key press acts on whatever has focus: Enter or Space on a focused "Send" is the same as clicking it.
+    if (step.action === "press" && /^(Enter|Space)$/.test(String(step.key))) {
+      const active = document.activeElement;
+      if (!(active instanceof HTMLElement) || active === document.body) return { exists: true };
+      if (isTextField(active)) {
+        const form = active.form || active.closest("form");
+        return { exists: true, role: roleOf(active), name: nameOf(active), submitsText: step.key === "Enter" && !!form && !(active instanceof HTMLTextAreaElement) && !searchLike(active) };
+      }
+      return { exists: true, role: roleOf(active), name: nameOf(active), consequential: consequential(active) };
+    }
     if (step.ref === undefined || step.ref === null) return { exists: true };
     const el = resolve(step.ref);
     return { exists: true, role: roleOf(el), name: nameOf(el), consequential: step.action === "click" && consequential(el),
@@ -354,6 +386,86 @@
   }
   function fail(message) { throw new Error(message); }
 
+  // ---- Waiting for the page, trusted input and marks (used by the extension's precise mode) ----
+
+  /** Resolves once the page stops changing (quiet for `quiet` ms), it starts navigating away, or `max` ms pass. */
+  function settle({ quiet = 180, max = 2500, min = 60 } = {}) {
+    return new Promise(resolve => {
+      const start = performance.now();
+      let last = start, done = false;
+      const finish = value => { if (done) return; done = true; observer.disconnect(); removeEventListener("pagehide", leaving); clearInterval(timer); resolve(value); };
+      const leaving = () => finish({ navigating: true });
+      const observer = new MutationObserver(() => { last = performance.now(); });
+      observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+      addEventListener("pagehide", leaving, { once: true });
+      const timer = setInterval(() => {
+        const t = performance.now();
+        if (t - start >= max) finish({ quiet: false, waited: Math.round(t - start) });
+        else if (t - start >= min && t - last >= quiet && document.readyState !== "loading") finish({ quiet: true, waited: Math.round(t - start) });
+      }, 40);
+    });
+  }
+
+  /** Where a trusted click on this element should land, in the top-level viewport. Checks it can be clicked. */
+  function pointFor(el) {
+    if (el.disabled || el.getAttribute("aria-disabled") === "true") throw new Error(`"${nameOf(el) || "That element"}" is disabled. Check what the page still needs first.`);
+    reveal(el);
+    const cover = coveredBy(el);
+    if (cover && !cover.closest("[role=dialog], dialog, [aria-modal=true]")?.contains(el))
+      throw new Error(`Something is covering that element (${clean(nameOf(cover) || cover.tagName.toLowerCase(), 60)}). Close or dismiss it first, then try again.`);
+    let { clientX: x, clientY: y } = point(el);
+    // Same-origin frames: add each frame's offset up to the top document.
+    for (let win = el.ownerDocument.defaultView; win && win !== win.top && win.frameElement; win = win.parent) {
+      const r = win.frameElement.getBoundingClientRect(); x += r.left; y += r.top;
+    }
+    return { x: Math.round(x), y: Math.round(y), role: roleOf(el), name: nameOf(el) };
+  }
+
+  /** Readies a field for trusted typing: same checks as type(), then focus and select what will be replaced. */
+  function focusForTyping(el, append) {
+    if (!isTextField(el)) throw new Error(`"${nameOf(el) || roleOf(el)}" is not a text field. Pick a textbox, or click it first if it opens one.`);
+    const secret = secretReason(el);
+    if (secret) throw Object.assign(new Error(`That is a ${secret}. The user has to fill it in themselves.`), { code: "user_only" });
+    if (el.disabled || el.readOnly) throw new Error(`"${nameOf(el)}" can't be edited right now.`);
+    reveal(el);
+    el.focus({ preventScroll: true });
+    if (el.isContentEditable) {
+      const range = document.createRange(); range.selectNodeContents(el); if (append) range.collapse(false);
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    } else if (append) { const end = el.value.length; el.setSelectionRange?.(end, end); }
+    else el.select?.();
+    if (document.activeElement !== el && !el.contains(document.activeElement)) throw new Error(`Couldn't put the cursor in "${nameOf(el)}". Click it first.`);
+    return { name: nameOf(el), searchLike: searchLike(el), textarea: el instanceof HTMLTextAreaElement };
+  }
+
+  // Numbered boxes drawn over the page for a screenshot (Set-of-Mark). A closed shadow root the page can't
+  // reach, no pointer events, removed right after the capture.
+  let markHost = null;
+  function mark(refList, { focus } = {}) {
+    unmark();
+    markHost = document.createElement("synapse-marks");
+    markHost.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;contain:strict;";
+    const root = markHost.attachShadow({ mode: "closed" });
+    const wanted = refList?.length ? refList : [...refs.keys()];
+    for (const ref of wanted.slice(0, 80)) {
+      const el = refs.get(Number(ref))?.deref();
+      if (!el || !el.isConnected || !visible(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
+      const hot = focus !== undefined && Number(focus) === Number(ref);
+      const color = hot ? "#e5484d" : "#6e56cf";
+      const box = document.createElement("div");
+      box.style.cssText = `position:fixed;left:${r.left - 2}px;top:${r.top - 2}px;width:${r.width + 4}px;height:${r.height + 4}px;border:${hot ? 3 : 2}px solid ${color};border-radius:4px;box-sizing:border-box;`;
+      const tag = document.createElement("span");
+      tag.textContent = String(ref);
+      tag.style.cssText = `position:absolute;left:-2px;top:-18px;background:${color};color:#fff;font:600 11px/16px system-ui,sans-serif;padding:0 4px;border-radius:3px;`;
+      box.append(tag); root.append(box);
+    }
+    document.documentElement.append(markHost);
+    return { marked: root.childElementCount };
+  }
+  function unmark() { markHost?.remove(); markHost = null; return { marked: 0 }; }
+
   function read(offset = 0) {
     const text = clean(document.body?.innerText || "", 2_000_000);
     const start = Math.max(0, Math.min(Number(offset) || 0, text.length));
@@ -362,9 +474,14 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 1,
+    version: 2,
     run(command) {
       try {
+        if (command.op === "settle") return settle(command.options).then(value => ({ ok: true, value }));
+        if (command.op === "point") return { ok: true, value: pointFor(resolve(command.ref)) };
+        if (command.op === "focus") return { ok: true, value: focusForTyping(resolve(command.ref), !!command.append) };
+        if (command.op === "mark") return { ok: true, value: mark(command.refs, { focus: command.focus }) };
+        if (command.op === "unmark") return { ok: true, value: unmark() };
         if (command.op === "snapshot") return { ok: true, value: snapshot() };
         if (command.op === "inspect") return { ok: true, value: inspect(command.step) };
         if (command.op === "act") return { ok: true, value: act(command.step) };

@@ -22,6 +22,14 @@ import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../servic
 import { getVisionModel } from "../services/openrouter";
 import { combineToolsets, webToolset } from "../services/webTools";
 import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
+import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
+import { AgentAuditLog } from "../services/agentAudit";
+import { loadUserPolicy, saveUserPolicy } from "../services/agentPolicy";
+import { hasNativeApproval, nativeConfirm, withdrawNative } from "../services/nativeApproval";
+import { nativeBrowserLink } from "../services/browserLink";
+import { desktopReady, desktopToolset, needsDesktop } from "../services/desktopAgent";
+
+type BrowserAnswer = boolean | "deny_site";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
 import { generateFollowUps } from "../services/chatSuggestions";
 import {
@@ -62,7 +70,11 @@ export interface BrainConversation {
   memoryStatus?: LearnerStatus;
   /** A step on a website waiting for the user's go-ahead while the assistant works. */
   browserConfirm?: BrowserConfirmRequest | null;
-  answerBrowserConfirm?: (allow: boolean) => void;
+  /** true allows, false declines, "deny_site" declines and turns the agent off for that site. */
+  answerBrowserConfirm?: (answer: BrowserAnswer) => void;
+  /** Soft (T1) steps the assistant just took on a website, shown without stopping it. */
+  agentToasts?: ActivityToast[];
+  dismissAgentToast?: (id: string) => void;
 }
 
 /** Website work gets more room than an ordinary turn: pages load slowly and tasks take many steps. */
@@ -95,8 +107,16 @@ export function useBrainConversation(
   const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
   const [activity, setActivity] = useState<AgentStep[]>([]);
   const [browserConfirm, setBrowserConfirm] = useState<BrowserConfirmRequest | null>(null);
-  const confirmResolver = useRef<((allow: boolean) => void) | null>(null);
-  const answerBrowserConfirm = (allow: boolean) => { const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null); resolve?.(allow); };
+  const confirmResolver = useRef<((answer: BrowserAnswer) => void) | null>(null);
+  const [agentToasts, setAgentToasts] = useState<ActivityToast[]>([]);
+  const dismissAgentToast = (id: string) => setAgentToasts(list => list.filter(t => t.id !== id));
+  const answerBrowserConfirm = (answer: BrowserAnswer) => {
+    const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null);
+    // In the desktop app only the approval window can allow; from here a request can only be withdrawn.
+    if (browserConfirmNative.current) { browserConfirmNative.current = false; void withdrawNative(); return; }
+    resolve?.(answer);
+  };
+  const browserConfirmNative = useRef(false);
   // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
   const [followUps, setFollowUps] = useState<{ messageId: string; items: string[]; loading: boolean } | null>(null);
   const followUpRequest = useRef<AbortController | null>(null);
@@ -110,6 +130,14 @@ export function useBrainConversation(
     latest.current = next;
     setState(next);
   };
+  // ⌘⌥. (desktop app) stops the assistant: Rust halts desktop steps, this ends the turn and any browser work.
+  useEffect(() => {
+    if (!hasNativeApproval()) return;
+    let unlisten: (() => void) | undefined, gone = false;
+    void import("@tauri-apps/api/event").then(({ listen }) => listen("agent-stop", () => { answerBrowserConfirm(false); active.current?.abort(); }))
+      .then(off => { if (gone) off(); else unlisten = off; }).catch(() => {});
+    return () => { gone = true; unlisten?.(); };
+  }, []);
   useEffect(() => {
     generation.current++;
     active.current?.abort();
@@ -295,18 +323,58 @@ export function useBrainConversation(
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
     // Work on websites runs here, where the browser extension is; the rest may run on the server.
-    const bridge = browserAgentEnabled() ? browserBridge() : null;
+    // In Chrome, the extension's bridge on this page; in the desktop app, Chrome through Rust (native messaging).
+    const bridge = !browserAgentEnabled() ? null : hasNativeApproval() ? nativeBrowserLink() : browserBridge();
     const browser = bridge && needsBrowser(prompt, initial.chatHistory) && (await bridge.status()) === "ready" ? bridge : null;
-    const confirmStep = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<boolean>(resolve => {
+    /** Stops the agent on a site for good: the user's policy, and the router for the rest of this request. */
+    const neverOn = (site: string) => {
+      const policy = loadUserPolicy();
+      saveUserPolicy({ ...policy, deniedHosts: [...policy.deniedHosts, site] });
+      router?.denyHost(site);
+    };
+    const confirmStep = async (request: BrowserConfirmRequest, stepSignal: AbortSignal): Promise<boolean> => {
+      if (hasNativeApproval()) {
+        // The chat shows that the assistant is waiting; the answer comes from the native window.
+        browserConfirmNative.current = true;
+        setBrowserConfirm({ ...request, native: true });
+        try {
+          const decision = await nativeConfirm({ label: request.label, site: request.site, ...(request.reason ? { reason: request.reason } : {}),
+            ...(request.screenshot ? { screenshot: request.screenshot } : {}), ...(request.grant ? { grant: request.grant } : {}) }, stepSignal);
+          if (decision === "deny_site") neverOn(request.site);
+          return decision === "allow";
+        } catch (error) {
+          if (stepSignal.aborted) return false;
+          console.warn("Native approval window unavailable; asking in the chat instead.", error);
+        } finally {
+          browserConfirmNative.current = false;
+          setBrowserConfirm(current => current?.id === request.id ? null : current);
+        }
+      }
+      const answer = await askInChat(request, stepSignal);
+      if (answer === "deny_site") neverOn(request.site);
+      return answer === true;
+    };
+    const askInChat = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<BrowserAnswer>(resolve => {
       confirmResolver.current?.(false);
-      const done = (allow: boolean) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(allow); };
+      const done = (answer: BrowserAnswer) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(answer); };
       const onAbort = () => { if (confirmResolver.current === done) { confirmResolver.current = null; setBrowserConfirm(null); } done(false); };
       const timer = setTimeout(() => { if (confirmResolver.current === done) answerBrowserConfirm(false); }, 5 * 60_000);
       stepSignal.addEventListener("abort", onAbort, { once: true });
       confirmResolver.current = done;
       setBrowserConfirm(request);
     });
-    const runsOnServer = async () => !browser && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
+    // Every browser step passes the router: policy, rate limits, text carried between sites, audit.
+    // Native Mac apps, in the desktop app, when the request is about one and the user allowed some.
+    const desktop = hasNativeApproval() && needsDesktop(prompt, initial.chatHistory) && await desktopReady();
+    const router = browser || desktop ? createAgentRouter({
+      policy: loadUserPolicy(), audit: new AgentAuditLog(), turnId: crypto.randomUUID(), confirm: confirmStep,
+      notify: toast => {
+        if (!isCurrent()) return;
+        setAgentToasts(list => [...list.slice(-2), toast]);
+        setTimeout(() => dismissAgentToast(toast.id), 5000);
+      },
+    }) : null;
+    const runsOnServer = async () => !browser && !desktop && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
       && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;
     const runOnServer = async () => {
       let saved = 0;
@@ -354,8 +422,9 @@ export function useBrainConversation(
           // read most other sites; without a server (desktop builds) this browser tries them directly.
           externalTools: options.externalTools ?? combineToolsets(
             webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
-            browser ? browserToolset(browser, { confirm: confirmStep }) : undefined),
-          ...(browser ? { budget: BROWSER_BUDGET } : {}),
+            browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm })) : undefined,
+            desktop && router ? router.wrap(desktopToolset()) : undefined),
+          ...(browser || desktop ? { budget: BROWSER_BUDGET } : {}),
           getMemory: () =>
             isCurrent()
               ? latest.current?.agentMemory
@@ -671,6 +740,8 @@ export function useBrainConversation(
     stop: () => { answerBrowserConfirm(false); active.current?.abort(); },
     browserConfirm,
     answerBrowserConfirm,
+    agentToasts,
+    dismissAgentToast,
     startNew: () => switchConversation(),
     resume: (id: string) => switchConversation(id),
     temporary,

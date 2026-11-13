@@ -1,8 +1,12 @@
+mod approval;
+mod desktop;
+mod hub;
+
 use std::collections::HashSet;
 use std::fs;
 use std::path::PathBuf;
 use tauri::{Emitter, Manager};
-use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, ShortcutState};
+use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, Code, ShortcutState};
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct VectorChunk {
@@ -310,14 +314,25 @@ fn greet(name: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Started by an MCP client (`--mcp`) or by Chrome for the extension: relay to the running app, no window.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--mcp") { hub::run_mcp_proxy(); return; }
+    if let Some(origin) = args.get(1).filter(|a| a.starts_with("chrome-extension://")) { hub::run_native_host(origin); return; }
+
     let mut builder = tauri::Builder::default();
 
     // Configure global hotkey: ⌘⌥N (CommandOrControl+Alt+N) & ⌥⇧N (Alt+Shift+N)
     // Avoids browser collisions like ⌘⇧N (Incognito window in Chrome/Brave/Edge)
     if let Ok(shortcut_plugin) = ShortcutBuilder::new()
-        .with_shortcuts(["CommandOrControl+Alt+N", "Alt+Shift+N"])
+        // ⌘⌥. stops the assistant: the desktop step loop at its next step, and the turn in the main window.
+        .with_shortcuts(["CommandOrControl+Alt+N", "Alt+Shift+N", "CommandOrControl+Alt+Period"])
         .and_then(|b| {
-            Ok(b.with_handler(|app, _shortcut, event| {
+            Ok(b.with_handler(|app, shortcut, event| {
+                if event.state() == ShortcutState::Pressed && shortcut.key == Code::Period {
+                    desktop::request_stop();
+                    let _ = app.emit("agent-stop", ());
+                    return;
+                }
                 if event.state() == ShortcutState::Pressed {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.show();
@@ -335,7 +350,31 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_opener::init())
+        .manage(approval::Approvals::default())
+        .manage(desktop::DesktopState::default())
+        .manage(hub::Hub::default())
+        .setup(|app| { hub::start(app.handle().clone()); Ok(()) })
         .invoke_handler(tauri::generate_handler![
+            approval::approval_request,
+            approval::approval_payload,
+            approval::approval_decide,
+            approval::approval_cancel_all,
+            approval::approval_focus,
+            desktop::desktop_status,
+            desktop::desktop_request_access,
+            desktop::desktop_apps,
+            desktop::desktop_allow_app,
+            desktop::desktop_look,
+            desktop::desktop_act,
+            desktop::desktop_stop,
+            hub::browser_link_status,
+            hub::browser_call,
+            hub::browser_confirm,
+            hub::browser_install_link,
+            hub::mcp_register_tools,
+            hub::mcp_status,
+            hub::mcp_set_enabled,
+            hub::mcp_result,
             greet,
             save_brain_data,
             load_brain_data,

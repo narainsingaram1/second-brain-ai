@@ -8,7 +8,7 @@ import { createAgent, checkTarget, isAppOrigin } from '../extension/agent-core.j
 const server = await createServer({ cacheDir: '/tmp/synapse-browser-test-cache', configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const load = path => server.ssrLoadModule(path);
-const { BrowserBridge, browserToolset, needsBrowser } = await load('/src/services/browserAgent.ts');
+const { BrowserBridge, browserToolset, needsBrowser, pageChanges } = await load('/src/services/browserAgent.ts');
 const { AutonomousBrainAgent } = await load('/src/services/agentDispatcher.ts');
 const { toolTier, approvalReason } = await load('/src/services/actionPolicy.ts');
 
@@ -73,7 +73,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.0.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.2.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -254,4 +254,166 @@ test('the agent loop: browser steps always run, old page views are compacted, an
   assert.match(proposals[0].reason, /web page/, 'changing records after browsing needs approval');
   assert.ok(result.activity.some(s => s.kind === 'browser' && /Opened shop\.example/.test(s.label)));
   assert.ok(!requests[0].messages[0].content.some?.(p => /cannot click/.test(p.text)) && !String(JSON.stringify(requests[0].messages[0])).includes('you cannot click'), 'the "no browser" note is left out when the browser is available');
+});
+
+/** Adds a fake chrome.debugger to a fake Chrome; records every protocol command. */
+function withDebugger(chrome, { precise = true, granted = true, failAttach = false } = {}) {
+  const sent = [];
+  let onDetach;
+  chrome.store.local.precise = precise;
+  chrome.permissions = { contains: async () => granted };
+  chrome.debugger = {
+    onDetach: { addListener: fn => { onDetach = fn; } },
+    attach: async ({ tabId }) => { if (failAttach) throw new Error('Another debugger is attached'); sent.push(['attach', tabId]); },
+    detach: async ({ tabId }) => { sent.push(['detach', tabId]); },
+    sendCommand: async ({ tabId }, method, params) => {
+      sent.push([method, params]);
+      if (method === 'Page.getLayoutMetrics') return { cssVisualViewport: { pageX: 0, pageY: 40, clientWidth: 2560, clientHeight: 1400 } };
+      if (method === 'Page.captureScreenshot') return { data: 'SHOT' };
+      return {};
+    },
+  };
+  return { sent, cancel: tabId => onDetach({ tabId }, 'canceled_by_user') };
+}
+/** The shop page, plus the ops precise mode uses. */
+const preciseShop = (log, ops) => (command, tab) => {
+  ops.push(command.op);
+  if (command.op === 'point') return { ok: true, value: { x: 120, y: 48, role: 'button', name: { 2: 'Place order', 4: 'Next' }[command.ref] || 'Go' } };
+  if (command.op === 'focus') return { ok: true, value: { name: 'Search', searchLike: true } };
+  if (command.op === 'mark' || command.op === 'unmark') return { ok: true, value: { marked: 1 } };
+  if (command.op === 'settle') return { ok: true, value: { quiet: true } };
+  return shop(log)(command, tab);
+};
+
+test('precise mode: trusted mouse and keyboard input through the debugger, never a debugging port', async () => {
+  const log = [], ops = [];
+  const chrome = fakeChrome({ default: preciseShop(log, ops) }); chrome.store.local.pairedOrigins = [APP];
+  const { sent } = withDebugger(chrome);
+  const agent = agentWith(chrome);
+  const { tabId } = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP);
+  const out = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'type', ref: 1, text: 'usb hub' }, { action: 'click', ref: 4 }] }, APP);
+  assert.deepEqual(out.done, ['Typed into "Search"', 'Clicked button "Next"']);
+  assert.equal(log.length, 0, 'no synthetic events were used');
+  const methods = sent.map(([m, p]) => m === 'Input.dispatchMouseEvent' ? `mouse:${p.type}@${p.x},${p.y}` : m);
+  assert.deepEqual(methods, ['attach', 'Input.insertText', 'mouse:mouseMoved@120,48', 'mouse:mousePressed@120,48', 'mouse:mouseReleased@120,48']);
+  assert.equal(sent[1][1].text, 'usb hub');
+  assert.ok(ops.includes('settle'), 'waits for the page to settle instead of a fixed pause');
+  // Stopping detaches, so Chrome's debugging bar goes away.
+  await agent.fromApp({ type: 'stop' }, APP);
+  assert.deepEqual(sent.at(-1), ['detach', tabId]);
+});
+
+test('precise mode: a step waiting for the user comes with a screenshot of the target, boxed', async () => {
+  const log = [], ops = [];
+  const chrome = fakeChrome({ default: preciseShop(log, ops) }); chrome.store.local.pairedOrigins = [APP];
+  const { sent } = withDebugger(chrome);
+  const agent = agentWith(chrome);
+  const { tabId } = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP);
+  const ask = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'click', ref: 2 }] }, APP);
+  assert.equal(ask.needsConfirmation.screenshot, 'data:image/jpeg;base64,SHOT');
+  assert.deepEqual(ops.filter(o => o === 'mark' || o === 'unmark'), ['mark', 'unmark'], 'marks are removed after the capture');
+  const shot = sent.find(([m]) => m === 'Page.captureScreenshot')[1];
+  assert.equal(shot.clip.scale, 0.5, 'scaled down to 1280 px wide'); assert.equal(shot.format, 'jpeg');
+  assert.ok(!sent.some(([m]) => m.startsWith('Input.')), 'nothing was clicked before the user answered');
+});
+
+test('precise mode falls back to ordinary input when off, not granted, refused, or dismissed by the user', async () => {
+  for (const opts of [{ precise: false }, { granted: false }, { failAttach: true }]) {
+    const log = [], ops = [];
+    const chrome = fakeChrome({ default: preciseShop(log, ops) }); chrome.store.local.pairedOrigins = [APP];
+    const { sent } = withDebugger(chrome, opts);
+    const agent = agentWith(chrome);
+    const { tabId } = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP);
+    const ask = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'click', ref: 1 }, { action: 'click', ref: 2 }] }, APP);
+    assert.deepEqual(log.map(s => s.ref), [1], JSON.stringify(opts));
+    assert.equal(ask.needsConfirmation.screenshot, undefined);
+    assert.ok(!sent.some(([m]) => m.startsWith('Input.')));
+  }
+  const log = [], ops = [];
+  const chrome = fakeChrome({ default: preciseShop(log, ops) }); chrome.store.local.pairedOrigins = [APP];
+  const { sent, cancel } = withDebugger(chrome);
+  const agent = agentWith(chrome);
+  const { tabId } = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP);
+  await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'click', ref: 1 }] }, APP);
+  cancel(tabId); // The user clicked Cancel on Chrome's debugging bar.
+  await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'click', ref: 1 }] }, APP);
+  assert.equal(sent.filter(([m]) => m === 'attach').length, 1, 'not re-attached after the user dismissed it');
+  assert.equal(log.length, 1, 'the second click ran the ordinary way');
+});
+
+test('pressing Enter on a focused committing control needs the user, like clicking it', async () => {
+  const log = [];
+  const page = (command, tab) => command.op === 'inspect' && command.step.action === 'press'
+    ? { ok: true, value: { exists: true, role: 'button', name: 'Send', consequential: true } } : shop(log)(command, tab);
+  const { agent } = await pairedAgent({ default: page });
+  const { tabId } = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP);
+  const ask = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'press', key: 'Enter' }] }, APP);
+  assert.equal(ask.needsConfirmation.label, 'Press Enter on "Send"'); assert.equal(log.length, 0);
+});
+
+test('change reports: only what changed after an action on the same page', () => {
+  const rest = Array.from({ length: 10 }, (_, i) => `[${i + 10}] link "More ${i}"`);
+  const prev = { url: 'u', dialog: '', text: 't', reports: 0, lines: new Map([...['[1] button "A"', '[2] link "B"', '[3] textbox "C"', '[4] link "D"', '[5] link "E"', '[6] link "F"'], ...rest].map(l => [Number(/\d+/.exec(l)[0]), l])) };
+  const els = ['[1] button "A" offscreen', '[2] link "B"', '[3] textbox "C" value="hub"', '[4] link "D"', '[5] link "E"', '[7] button "Add to cart"', ...rest];
+  const d = pageChanges(prev, { url: 'u', dialog: '', elements: els, text: 't' });
+  assert.deepEqual(d.added, ['[7] button "Add to cart"']);
+  assert.deepEqual(d.changed, ['[3] textbox "C" value="hub"'], 'scrolling off screen alone is not a change');
+  assert.deepEqual(d.removed, [6]); assert.equal(d.unchanged, 14); assert.equal(d.textChanged, false);
+  assert.equal(pageChanges(prev, { url: 'other', dialog: '', elements: els, text: 't' }), null, 'another page: full view');
+  assert.equal(pageChanges(prev, { url: 'u', dialog: 'Sign in', elements: els, text: 't' }), null, 'a dialog opened: full view');
+  assert.equal(pageChanges(prev, { url: 'u', dialog: '', elements: ['[9] link "X"', '[10] link "Y"'], text: 't' }), null, 'mostly new: full view');
+  assert.equal(pageChanges({ ...prev, reports: 6 }, { url: 'u', dialog: '', elements: els, text: 't' }), null, 'a full view every few reports');
+});
+
+test('the toolset sends change reports, full views on look, and screenshots only to the user', async () => {
+  const elements = n => Array.from({ length: 20 }, (_, i) => `[${i + 1}] link "Item ${i + 1}"`).concat(n ? [`[99] button "Added ${n}"`] : []);
+  let acts = 0;
+  const bridge = { call: async req => {
+    const base = { tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop', omitted: 0, text: 'Big page text' };
+    if (req.type === 'act' && ++acts === 3 && !req.confirmToken) return { ...base, elements: elements(acts), done: [], stoppedAt: 0, needsConfirmation: { token: 'tok', step: 0, label: 'Click "Buy"', site: 'shop.example', screenshot: 'data:image/jpeg;base64,SHOT' } };
+    return { ...base, elements: elements(req.type === 'act' ? acts : 0), ...(req.type === 'act' ? { done: ['Clicked'] } : {}) };
+  } };
+  const asked = [];
+  const tools = browserToolset(bridge, { confirm: async r => { asked.push(r); return true; } });
+  const sig = new AbortController().signal;
+  const opened = (await tools.execute('browser_open', { url: 'https://shop.example/' }, sig)).output;
+  assert.equal(opened.pageOf, 5); assert.match(opened.elements, /Item 20/);
+  const first = (await tools.execute('browser_act', { tabId: 5, steps: [{ action: 'click', ref: 1 }] }, sig)).output;
+  assert.equal(first.diffOf, 5); assert.equal(first.pageOf, undefined);
+  assert.match(first.changes, /New:\n\[99\] button "Added 1"/); assert.equal(first.text, '(unchanged)');
+  assert.ok(!('elements' in first), 'unchanged elements are not resent');
+  const second = (await tools.execute('browser_act', { tabId: 5, steps: [{ action: 'click', ref: 2 }] }, sig)).output;
+  assert.match(second.changes, /Changed:\n\[99\] button "Added 2"/);
+  const buy = (await tools.execute('browser_act', { tabId: 5, steps: [{ action: 'click', ref: 3 }] }, sig)).output;
+  assert.equal(asked[0].screenshot, 'data:image/jpeg;base64,SHOT', 'the user sees the screenshot');
+  assert.ok(!JSON.stringify(buy).includes('SHOT'), 'the model never gets it');
+  const look = (await tools.execute('browser_look', { tabId: 5 }, sig)).output;
+  assert.equal(look.pageOf, 5, 'a look is always a full view');
+});
+
+test('the desktop app (native messaging) is an app origin that the user must still pair', async () => {
+  const chrome = fakeChrome({ default: shop([]) });
+  let prompted = null;
+  const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
+  assert.ok(isAppOrigin('native:desktop'));
+  assert.ok(!isAppOrigin('native:other'));
+  await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, 'native:desktop'), /Connect Synapse/);
+  const pairing = agent.fromApp({ type: 'pair' }, 'native:desktop');
+  await new Promise(r => setTimeout(r, 10));
+  assert.equal(prompted.origin, 'native:desktop');
+  await agent.fromExtension({ type: 'pair-decision', id: prompted.id, allow: true });
+  assert.deepEqual(await pairing, { paired: true });
+  const page = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, 'native:desktop');
+  assert.equal(page.site, 'shop.example');
+});
+
+test('manifest: fixed ID for the native host, optional native messaging and debugger', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { createHash } = await import('node:crypto');
+  const manifest = JSON.parse(await readFile(new URL('../extension/manifest.json', import.meta.url), 'utf8'));
+  const id = [...createHash('sha256').update(Buffer.from(manifest.key, 'base64')).digest('hex').slice(0, 32)].map(c => String.fromCharCode(97 + parseInt(c, 16))).join('');
+  const hub = await readFile(new URL('../src-tauri/src/hub.rs', import.meta.url), 'utf8');
+  assert.ok(hub.includes(`chrome-extension://${id}/`), `hub.rs must admit exactly this extension (${id})`);
+  assert.deepEqual(manifest.optional_permissions.sort(), ['debugger', 'nativeMessaging']);
+  assert.ok(!manifest.permissions.includes('nativeMessaging') && !manifest.permissions.includes('debugger'));
 });

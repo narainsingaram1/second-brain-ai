@@ -9,7 +9,11 @@
 //   box stops and asks first. It runs only with a one-time token issued for that exact step on that exact page,
 //   which the app obtains from the user, not from the model.
 
-export const VERSION = "1.0.0";
+import { createCdp } from "./cdp.js";
+
+export const VERSION = "1.2.0";
+/** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
+export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
 const LOCAL_APP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const BLOCKED_HOSTS = ["chrome.google.com", "chromewebstore.google.com", "accounts.google.com/signin/v2/challenge"];
@@ -18,7 +22,7 @@ const LOAD_TIMEOUT_MS = 20_000;
 const MAX_STEPS = 10;
 
 export function isAppOrigin(origin, extra = []) {
-  return LOCAL_APP.test(origin) || STATIC_APP_ORIGINS.includes(origin) || extra.includes(origin);
+  return origin === NATIVE_ORIGIN || LOCAL_APP.test(origin) || STATIC_APP_ORIGINS.includes(origin) || extra.includes(origin);
 }
 
 /** Checks a URL the agent wants to open. Throws a message the assistant can relay. */
@@ -39,7 +43,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
  * @param chrome the extension API (or a fake with the same shape)
  * @param options.openPairing (origin, requestId) => void, shows the pairing prompt
  */
-export function createAgent(chrome, { openPairing, now = () => Date.now(), random = () => crypto.randomUUID(), settle = 450 } = {}) {
+/**
+ * @param options.settle the least time (ms) to let a page react after an action, before watching it settle
+ */
+export function createAgent(chrome, { openPairing, now = () => Date.now(), random = () => crypto.randomUUID(), settle = 60, cdp = createCdp(chrome) } = {}) {
   const pendingPairs = new Map(); // requestId -> resolve
   const tokens = new Map(); // token -> { tabId, url, step, expires }
   let stopped = false;
@@ -78,6 +85,49 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     return value.value;
   }
 
+  /** Waits until the page stops changing (or starts navigating). Never fails: a page mid-navigation can't answer. */
+  async function quiet(tabId) {
+    try { return await run(tabId, { op: "settle" }); } catch { return { navigating: true }; }
+  }
+
+  /** After an action: give the page a moment, wait for it to settle and finish any load it started. */
+  async function afterAction(tabId) {
+    await sleep(settle);
+    const first = await quiet(tabId);
+    let tab = await waitForLoad(tabId);
+    if (first?.navigating || tab.status !== "complete") { tab = await waitForLoad(tabId); await quiet(tabId); }
+    return chrome.tabs.get(tabId);
+  }
+
+  /** A screenshot with the target boxed, for the user to see before allowing a step. Optional: null if unavailable. */
+  async function capture(tabId, focusRef) {
+    if (!(await cdp.ready(tabId))) return null;
+    try {
+      await run(tabId, { op: "mark", refs: focusRef ? [focusRef] : [], focus: focusRef });
+      return await cdp.screenshot(tabId);
+    } catch { return null; }
+    finally { try { await run(tabId, { op: "unmark" }); } catch { /* Page moved on. */ } }
+  }
+
+  /** Runs a step as trusted input when precise mode is on; null when it should run the ordinary way. */
+  async function preciseStep(tabId, step) {
+    if (!["click", "type", "press", "check", "uncheck"].includes(step.action) || !(await cdp.ready(tabId))) return null;
+    if (step.action === "press") { await cdp.key(tabId, String(step.key || "")); return `Pressed ${step.key}`; }
+    if (step.action === "check" || step.action === "uncheck") return null; // Needs the current state: the page agent handles it.
+    if (step.action === "click") {
+      const at = await run(tabId, { op: "point", ref: step.ref });
+      await cdp.click(tabId, at.x, at.y);
+      return `Clicked ${at.role} "${at.name}"`;
+    }
+    const field = await run(tabId, { op: "focus", ref: step.ref, append: !!step.append });
+    const text = String(step.text ?? "");
+    if (text) await cdp.insertText(tabId, text);
+    else if (!step.append) await cdp.key(tabId, "Backspace"); // Empty text clears the selected contents.
+    let note = `Typed into "${field.name}"`;
+    if (step.submit) { await cdp.key(tabId, "Enter"); note += " and pressed Enter"; }
+    return note;
+  }
+
   async function snapshot(tabId) {
     const page = await run(tabId, { op: "snapshot" });
     return { tabId, site: hostOf(page.url), ...page };
@@ -106,7 +156,7 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     }
     await sleep(settle);
     await waitForLoad(tab.id);
-    await sleep(settle);
+    await quiet(tab.id);
     const loaded = await chrome.tabs.get(tab.id);
     checkTarget(loaded.url || target.href, (await settings()).blocked); // A redirect may land somewhere blocked.
     return snapshot(tab.id);
@@ -134,18 +184,18 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
         if (!valid) {
           const token = random();
           tokens.set(token, { tabId: tab.id, url: tab.url, step: stepKey(step), expires: now() + TOKEN_TTL_MS });
-          const label = step.action === "type" ? `Send "${String(step.text || "").slice(0, 120)}" in "${info.name || "a text box"}"` : `Click "${info.name || "this button"}"`;
-          return { ...(await snapshot(tab.id)), done, stoppedAt: i, needsConfirmation: { token, step: i, label, site: hostOf(tab.url) } };
+          const label = step.action === "type" ? `Send "${String(step.text || "").slice(0, 120)}" in "${info.name || "a text box"}"`
+            : step.action === "press" ? `Press ${step.key} on "${info.name || "the focused control"}"` : `Click "${info.name || "this button"}"`;
+          const screenshot = await capture(tab.id, step.ref);
+          return { ...(await snapshot(tab.id)), done, stoppedAt: i, needsConfirmation: { token, step: i, label, site: hostOf(tab.url), ...(screenshot ? { screenshot } : {}) } };
         }
         tokens.delete(confirmToken); // One use only.
       }
       const before = tab.url;
-      const note = await run(tab.id, { op: "act", step });
+      const note = (await preciseStep(tab.id, step)) ?? await run(tab.id, { op: "act", step });
       done.push(note);
-      await sleep(settle);
-      tab = await waitForLoad(tab.id);
+      tab = await afterAction(tab.id);
       if (tab.url !== before) {
-        await sleep(settle);
         checkTarget(tab.url, (await settings()).blocked);
         // Refs belong to the old page; the rest of the steps must be planned against the new one.
         if (i < steps.length - 1) return { ...(await snapshot(tab.id)), done, stoppedAt: i + 1, stopReason: "The page changed, so the remaining steps were not run. Plan them against the new page." };
@@ -173,6 +223,7 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   async function stopAll() {
     stopped = true;
     tokens.clear();
+    await cdp.detachAll();
     return { stopped: true };
   }
 
@@ -182,7 +233,9 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     const id = random();
     const decision = new Promise(resolve => pendingPairs.set(id, resolve));
     openPairing(origin, id);
-    const allow = await Promise.race([decision, sleep(120_000).then(() => false)]);
+    let timer;
+    const allow = await Promise.race([decision, new Promise(resolve => { timer = setTimeout(() => resolve(false), 120_000); })]);
+    clearTimeout(timer);
     pendingPairs.delete(id);
     if (!allow) return { paired: false };
     const latest = (await settings()).paired;
@@ -212,7 +265,8 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   /** A message from the extension's own pages (pairing prompt, popup). */
   async function fromExtension(message) {
     if (message.type === "pair-decision") { pendingPairs.get(message.id)?.(!!message.allow); return { ok: true }; }
-    if (message.type === "status") return { version: VERSION, ...(await settings()), ...(await tabs()) };
+    if (message.type === "status") return { version: VERSION, ...(await settings()), ...(await tabs()), precise: !!(await local("precise")) };
+    if (message.type === "set-precise") { await chrome.storage.local.set({ precise: !!message.on }); if (!message.on) await cdp.detachAll(); return { ok: true }; }
     if (message.type === "stop") { await stopAll(); for (const id of await ownTabs()) { try { await chrome.tabs.remove(id); } catch { /* Gone. */ } } await setOwnTabs([]); return { stopped: true }; }
     if (message.type === "unpair") { const { paired } = await settings(); await chrome.storage.local.set({ pairedOrigins: paired.filter(o => o !== message.origin) }); return { ok: true }; }
     if (message.type === "set-blocked") { await chrome.storage.local.set({ blockedHosts: (message.hosts || []).map(h => String(h).trim().toLowerCase().replace(/^www\./, "")).filter(Boolean) }); return { ok: true }; }
@@ -220,7 +274,7 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   }
 
   /** Forget tabs the user closed. */
-  async function tabClosed(tabId) { await setOwnTabs((await ownTabs()).filter(t => t !== tabId)); }
+  async function tabClosed(tabId) { await cdp.detach(tabId); await setOwnTabs((await ownTabs()).filter(t => t !== tabId)); }
 
   return { fromApp, fromExtension, tabClosed };
 }

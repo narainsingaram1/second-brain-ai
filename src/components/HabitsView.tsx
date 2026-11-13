@@ -1,13 +1,14 @@
 import { PageHeading } from "./workspace/PageHeading";
 import React from "react";
 import { Habit } from "../types";
-import { Plus, Check, Trash2 } from "lucide-react";
+import { Plus, Check, Trash2, Pencil } from "lucide-react";
 import { getLocalDateString } from "../utils/habitStreaks";
 
 interface HabitsViewProps {
   habits: Habit[];
   onToggleHabit: (habitId: string, dateStr?: string) => void;
   onAddHabit: () => void;
+  onEditHabit: (habit: Habit) => void;
   onDeleteHabit: (habitId: string) => void;
 }
 
@@ -15,6 +16,7 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
   habits,
   onToggleHabit,
   onAddHabit,
+  onEditHabit,
   onDeleteHabit,
 }) => {
   // Generate last 7 days array based on local date
@@ -62,11 +64,41 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
         {habits.map((habit) => (
           <div key={habit.id} data-record-id={habit.id} className="tally-row">
             <div className="tally-name">
-              <strong>{habit.name}</strong>
-              <small>{[habit.domain, habit.timeOfDay || "Any time"].filter(Boolean).map((x) => String(x).replace(/^./, (c) => c.toUpperCase())).join(" · ")}</small>
-              <button className="icon-control tally-delete" onClick={() => onDeleteHabit(habit.id)} aria-label={`Delete ${habit.name}`}>
-                <Trash2 size={16} strokeWidth={1.5} />
+              <button
+                type="button"
+                className="tally-name-button"
+                onClick={() => onEditHabit(habit)}
+                title={`Edit habit ${habit.name}`}
+              >
+                <strong>{habit.name}</strong>
+                <small>{[habit.domain, habit.timeOfDay || "Any time"].filter(Boolean).map((x) => String(x).replace(/^./, (c) => c.toUpperCase())).join(" · ")}</small>
               </button>
+              <div className="tally-actions">
+                <button
+                  type="button"
+                  className="icon-control tally-edit"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEditHabit(habit);
+                  }}
+                  aria-label={`Edit ${habit.name}`}
+                  title={`Edit ${habit.name}`}
+                >
+                  <Pencil size={15} strokeWidth={1.5} />
+                </button>
+                <button
+                  type="button"
+                  className="icon-control tally-delete"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteHabit(habit.id);
+                  }}
+                  aria-label={`Delete ${habit.name}`}
+                  title={`Delete ${habit.name}`}
+                >
+                  <Trash2 size={16} strokeWidth={1.5} />
+                </button>
+              </div>
             </div>
             <span className="tally-streak">
               <span className="figure">{habit.streak}</span>

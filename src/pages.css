@@ -262,11 +262,40 @@ button.events-title:hover { color: var(--workspace-accent); }
 .tally-head .date-stamp { text-align: center; min-width: 0; }
 .tally-head .date-stamp.is-today { color: var(--workspace-ink); }
 .tally-foot { min-height: 44px; font-size: 13px; color: var(--workspace-muted); }
-.tally-name { position: relative; display: flex; flex-direction: column; min-width: 0; padding-right: 40px; }
-.tally-name strong { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tally-name { position: relative; display: flex; flex-direction: column; min-width: 0; padding-right: 68px; }
+.tally-name-button {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  background: transparent;
+  border: none;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  min-width: 0;
+  color: inherit;
+}
+.tally-name-button:hover strong,
+.tally-name-button:focus-visible strong {
+  color: var(--workspace-accent, #3b82f6);
+}
+.tally-name strong { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 150ms ease; }
 .tally-name small { font-size: 13px; color: var(--workspace-muted); }
-.tally-delete { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: 0; }
-.tally-row:hover .tally-delete, .tally-delete:focus-visible { opacity: 1; }
+.tally-actions {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.tally-row:hover .tally-actions,
+.tally-actions:focus-within {
+  opacity: 1;
+}
 .tally-streak { display: flex; flex-direction: column; }
 .tally-streak .figure { font-size: 15px; color: var(--workspace-ink); }
 .tally-streak small { font-family: var(--font-mono); font-size: 12px; color: var(--workspace-muted); }

@@ -1,5 +1,6 @@
 import type { AgentStep, AgentStepKind } from "../types";
 import { describeBrowserCall } from "./browserAgent";
+import { describeDesktopCall } from "./desktopAgent";
 
 /**
  * Turns what the assistant is doing into steps a person can follow: "Searching your notes for “heaps”",
@@ -63,7 +64,7 @@ const VERBS: Record<string, string> = { create: "Adding", update: "Updating", de
 const PAST: Record<string, string> = { Adding: "Added", Updating: "Updated", Deleting: "Deleted", Logging: "Logged", "Checking off": "Checked off", Renaming: "Renamed",
   Setting: "Set", Recording: "Recorded", Remembering: "Remembered", Forgetting: "Forgot", Searching: "Searched", Reading: "Read", "Looking through": "Looked through",
   Checking: "Checked", Drafting: "Drafted", Rereading: "Reread", Making: "Made",
-  Opening: "Opened", Clicking: "Clicked", "Filling in": "Filled in", Scrolling: "Scrolled", Choosing: "Chose", "Working on": "Worked on", Looking: "Looked", Closing: "Closed" };
+  Opening: "Opened", Clicking: "Clicked", "Filling in": "Filled in", Scrolling: "Scrolled", Choosing: "Chose", "Working on": "Worked on", "Working in": "Worked in", Looking: "Looked", Closing: "Closed" };
 /** "Searching the web for …" → "Searched the web for …", for a finished step. */
 export const pastTense = (label: string) => {
   const word = Object.keys(PAST).find(w => label.startsWith(`${w} `));
@@ -73,6 +74,7 @@ export const pastTense = (label: string) => {
 /** What a tool call is about to do, in plain words. */
 export function describeCall(name: string, args: Record<string, any>): { kind: AgentStepKind; label: string } {
   if (name.startsWith("browser_")) return { kind: "browser", label: describeBrowserCall(name, args) };
+  if (name.startsWith("desktop_")) return { kind: "desktop", label: describeDesktopCall(name, args) };
   switch (name) {
     case "query_records": {
       const range = args.dateFrom && args.dateTo ? ` from ${args.dateFrom} to ${args.dateTo}` : args.dateFrom ? ` from ${args.dateFrom}` : args.dateTo ? ` through ${args.dateTo}` : "";

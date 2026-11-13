@@ -14,10 +14,35 @@ async function render() {
     return li;
   }) : [Object.assign(document.createElement("li"), { textContent: "None yet. Connect from Synapse → Settings → Browser agent.", className: "muted" })]));
   document.getElementById("blocked").value = status.blocked.join("\n");
+  document.getElementById("precise").checked = !!status.precise;
 }
 document.getElementById("stop").addEventListener("click", async () => { await send({ type: "stop" }); render(); });
 document.getElementById("save").addEventListener("click", async () => {
   await send({ type: "set-blocked", hosts: document.getElementById("blocked").value.split(/[\s,]+/) });
   render();
 });
+document.getElementById("precise").addEventListener("change", async event => {
+  const box = event.target;
+  // The debugger permission is optional: asked for here, from the user's own click, and given back when turned off.
+  if (box.checked && !(await chrome.permissions.request({ permissions: ["debugger"] }))) { box.checked = false; return; }
+  await send({ type: "set-precise", on: box.checked });
+  if (!box.checked) await chrome.permissions.remove({ permissions: ["debugger"] }).catch(() => {});
+  render();
+});
+const LINK_STATES = { connected: "Connected.", connecting: "Connecting…", "app-closed": "Open the Synapse app; it connects within a minute.",
+  "not-installed": "In the Synapse app, open Settings → Browser agent and click Connect Chrome first.", disconnected: "Disconnected. It retries every minute.", off: "", unavailable: "This browser can't connect to apps." };
+async function renderLink() {
+  const res = await send({ type: "desktop-link-status" });
+  const link = res?.value || { on: false, state: "off" };
+  document.getElementById("desktop").checked = link.on;
+  if (link.on) document.getElementById("desktop-state").textContent = LINK_STATES[link.state] || link.state;
+}
+document.getElementById("desktop").addEventListener("change", async event => {
+  const box = event.target;
+  if (box.checked && !(await chrome.permissions.request({ permissions: ["nativeMessaging"] }))) { box.checked = false; return; }
+  await send({ type: "set-desktop-link", on: box.checked });
+  if (!box.checked) await chrome.permissions.remove({ permissions: ["nativeMessaging"] }).catch(() => {});
+  setTimeout(renderLink, 600);
+});
+renderLink();
 render();

@@ -30,6 +30,8 @@ export function toolTier(name: string, args: Record<string, unknown> = {}): Tool
   // Work in the user's Chrome. The extension gates each step itself: user-only fields are refused and steps that
   // commit something wait for the user's live go-ahead, so these never become stored approvals.
   if (name.startsWith("browser_")) return "browser";
+  // Native Mac apps: the same live model. Rust classifies each step and asks the user itself.
+  if (name.startsWith("desktop_")) return "browser";
   // A batch of the user's own changes (apply_changes); each change in it is checked on its own.
   if (MEMORY.has(name) || INTERNAL.has(name) || name === "apply_changes") return "internal";
   if (name === "create_calendar_event" && Array.isArray(args.attendees) && args.attendees.length) return "external_irreversible";
@@ -39,7 +41,7 @@ export function toolTier(name: string, args: Record<string, unknown> = {}): Tool
 
 /** Reads whose content came from somewhere other than the user's own words in this conversation. */
 export function readsUntrustedContent(tool: string, sourceTypes: string[]): boolean {
-  return tool.startsWith("browser_") || tool === "recall_conversation" || tool === "search_conversations" || tool === "search_email" || tool === "read_email" || tool === "read_url" || tool === "web_search" || sourceTypes.includes("document");
+  return tool.startsWith("browser_") || tool.startsWith("desktop_") || tool === "recall_conversation" || tool === "search_conversations" || tool === "search_email" || tool === "read_email" || tool === "read_url" || tool === "web_search" || sourceTypes.includes("document");
 }
 
 export interface TurnContext {
