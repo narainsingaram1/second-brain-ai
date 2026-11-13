@@ -10,6 +10,7 @@ import {
 } from "../services/agentDispatcher";
 import { applyMutation, mutationRecords, recordTitle, type Mutation } from "../services/brainTools";
 import { describeMutation } from "../services/actionPolicy";
+import { applyBatch } from "../services/batchChanges";
 import { prepareCardChanges, prepareChecklistTasks, type CardChange } from "../services/irisCards";
 import type { IrisCardState, IrisUiSpec } from "../utils/irisUi";
 import { persistBrainState } from "../services/storage";
@@ -19,7 +20,8 @@ import { apiJson, readUrlOnServer, serverFeatures } from "../services/serverApi"
 import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
 import { getVisionModel } from "../services/openrouter";
-import { webToolset } from "../services/webTools";
+import { combineToolsets, webToolset } from "../services/webTools";
+import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
 import { generateFollowUps } from "../services/chatSuggestions";
 import {
@@ -58,7 +60,13 @@ export interface BrainConversation {
   messages?: AIMessage[];
   changeMemory?: (change: MemoryChange) => Promise<AgentMemory>;
   memoryStatus?: LearnerStatus;
+  /** A step on a website waiting for the user's go-ahead while the assistant works. */
+  browserConfirm?: BrowserConfirmRequest | null;
+  answerBrowserConfirm?: (allow: boolean) => void;
 }
+
+/** Website work gets more room than an ordinary turn: pages load slowly and tasks take many steps. */
+const BROWSER_BUDGET = { steps: 120, tools: 240, timeMs: 15 * 60_000 };
 function archiveCurrent(state: BrainState): ConversationThread[] {
   const archived = state.conversations || [];
   if (!state.chatHistory.some((m) => m.role === "user")) return archived;
@@ -86,6 +94,9 @@ export function useBrainConversation(
     [progress, setProgress] = useState("");
   const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
   const [activity, setActivity] = useState<AgentStep[]>([]);
+  const [browserConfirm, setBrowserConfirm] = useState<BrowserConfirmRequest | null>(null);
+  const confirmResolver = useRef<((allow: boolean) => void) | null>(null);
+  const answerBrowserConfirm = (allow: boolean) => { const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null); resolve?.(allow); };
   // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
   const [followUps, setFollowUps] = useState<{ messageId: string; items: string[]; loading: boolean } | null>(null);
   const followUpRequest = useRef<AbortController | null>(null);
@@ -283,7 +294,19 @@ export function useBrainConversation(
       visionModel: getVisionModel(), temporary, images: images.length ? images : undefined,
       timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     };
-    const runsOnServer = async () => isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
+    // Work on websites runs here, where the browser extension is; the rest may run on the server.
+    const bridge = browserAgentEnabled() ? browserBridge() : null;
+    const browser = bridge && needsBrowser(prompt, initial.chatHistory) && (await bridge.status()) === "ready" ? bridge : null;
+    const confirmStep = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<boolean>(resolve => {
+      confirmResolver.current?.(false);
+      const done = (allow: boolean) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(allow); };
+      const onAbort = () => { if (confirmResolver.current === done) { confirmResolver.current = null; setBrowserConfirm(null); } done(false); };
+      const timer = setTimeout(() => { if (confirmResolver.current === done) answerBrowserConfirm(false); }, 5 * 60_000);
+      stepSignal.addEventListener("abort", onAbort, { once: true });
+      confirmResolver.current = done;
+      setBrowserConfirm(request);
+    });
+    const runsOnServer = async () => !browser && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
       && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;
     const runOnServer = async () => {
       let saved = 0;
@@ -329,7 +352,10 @@ export function useBrainConversation(
           currentMessage: user,
           // Search goes through the AI provider. Links are read by the app's server, since browsers can't
           // read most other sites; without a server (desktop builds) this browser tries them directly.
-          externalTools: options.externalTools ?? webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
+          externalTools: options.externalTools ?? combineToolsets(
+            webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
+            browser ? browserToolset(browser, { confirm: confirmStep }) : undefined),
+          ...(browser ? { budget: BROWSER_BUDGET } : {}),
           getMemory: () =>
             isCurrent()
               ? latest.current?.agentMemory
@@ -348,7 +374,35 @@ export function useBrainConversation(
           },
           // In-browser turns keep the prepared change with the reply until the user decides.
           propose: async (change) => ({ id: crypto.randomUUID(), tool: change.tool, summary: change.summary, details: change.details,
-            reason: change.reason, status: "pending", remote: false, mutation: change.mutation }),
+            reason: change.reason, status: "pending", remote: false, mutation: change.mutations ?? change.mutation }),
+          // A batch is one write: every change lands or none does, with one undo point.
+          commitBatch: async (mutations) => {
+            signal.throwIfAborted();
+            const before = latest.current;
+            if (!before || !isCurrent()) throw new Error("Account changed; action stopped.");
+            const audits = mutations.map(mutation => ({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: timestamp(),
+              action: mutation.action, entityType: mutation.type, entityTitle: recordTitle(mutation.record, "Note"), canUndo: true })).reverse(); // Newest first.
+            const apply = (base: BrainState) => {
+              const next = applyBatch(base, mutations);
+              return { ...next, auditLog: [...audits, ...(base.auditLog || [])].slice(0, 100) };
+            };
+            await persistBrainState(
+              () => {
+                const current = latest.current;
+                if (!current || !isCurrent()) throw new Error("Account changed; action stopped.");
+                return apply(current);
+              },
+              initial.userId,
+              saved => {
+                if (!isCurrent()) return;
+                onBeforeMutation(before);
+                // Keep anything edited while saving; if that edit touched these records, show what was saved.
+                let shown = saved;
+                try { shown = apply(latest.current!); } catch { /* Saved state is still correct. */ }
+                publish(shown);
+              },
+            );
+          },
           commit: async (mutation) => {
             signal.throwIfAborted();
             const before = latest.current;
@@ -539,6 +593,21 @@ export function useBrainConversation(
       return;
     }
     if (decision === "reject") { setApproval(messageId, approvalId, { status: "rejected" }); return; }
+    if (Array.isArray(approval.mutation)) {
+      // A batch: every change is re-checked against the state the ones before it leave, then applied together.
+      const mutations = approval.mutation as Mutation[];
+      let next: BrainState;
+      try { next = applyBatch(current, mutations); } catch (error) {
+        setApproval(messageId, approvalId, { status: "failed", error: error instanceof Error ? error.message : "These changes could not be applied." });
+        return;
+      }
+      onBeforeMutation(current);
+      const audits = mutations.map(mutation => ({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        action: mutation.action, entityType: mutation.type, entityTitle: recordTitle(mutation.record, "Note"), canUndo: true })).reverse();
+      publish({ ...next, auditLog: [...audits, ...(current.auditLog || [])].slice(0, 100) });
+      setApproval(messageId, approvalId, { status: "executed", mutation: undefined });
+      return;
+    }
     const mutation = approval.mutation as Mutation | undefined;
     const target = mutation && mutationRecords(current, mutation.type).find(r => r.id === mutation.record.id);
     if (!mutation || JSON.stringify(target ?? null) !== JSON.stringify(mutation.expected ?? null)) {
@@ -599,7 +668,9 @@ export function useBrainConversation(
     activity,
     draft,
     followUps,
-    stop: () => active.current?.abort(),
+    stop: () => { answerBrowserConfirm(false); active.current?.abort(); },
+    browserConfirm,
+    answerBrowserConfirm,
     startNew: () => switchConversation(),
     resume: (id: string) => switchConversation(id),
     temporary,

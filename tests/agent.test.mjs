@@ -672,7 +672,8 @@ test('earlier turns stay a cacheable prefix: per-turn context rides on the newes
   await AutonomousBrainAgent.execute('What is due?', s, 'k', 'anthropic/claude-sonnet-5.5');
   // Next turn: the conversation grew and the workspace changed (a new task changes the snapshot).
   s.chatHistory = [{ id: 'u1', role: 'user', content: 'What is due?', timestamp: '1' }, { id: 'a1', role: 'assistant', content: 'Start with Assignment 104.', timestamp: '2' }];
-  s.tasks = [...s.tasks, { ...s.tasks[0], id: 'task-new', title: 'Brand new task', dueDate: '2026-11-12' }];
+  const today = new Date().toLocaleDateString('en-CA'); // Due today, so it is listed whatever day the test runs.
+  s.tasks = [...s.tasks, { ...s.tasks[0], id: 'task-new', title: 'Brand new task', dueDate: today }];
   await AutonomousBrainAgent.execute('And after that?', s, 'k', 'anthropic/claude-sonnet-5.5');
   const [first, second] = requests;
   assert.deepEqual(second.messages[0], first.messages[0], 'The system message is identical across turns');

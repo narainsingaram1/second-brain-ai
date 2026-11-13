@@ -244,6 +244,18 @@
 .agent-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--workspace-accent-strong); animation: agent-ring 1.6s var(--ease) infinite; }
 /* A glimpse of the reasoning as it streams, fading out at the top. */
 .agent-peek { margin: 4px 0 0 22px; max-height: 3.2em; overflow: hidden; display: flex; flex-direction: column-reverse; font-size: 12.5px; line-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--workspace-muted); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 60%); mask-image: linear-gradient(to bottom, transparent, #000 60%); animation: chat-arrive 300ms var(--ease) both; }
+/* The plan for a multi-step request: a checklist that fills in while the assistant works. */
+.agent-plan { margin: 6px 0 4px; padding: 8px 12px; max-width: 560px; border: 1px solid var(--workspace-line); border-radius: 10px; background: var(--workspace-panel); animation: chat-arrive 260ms var(--ease) both; }
+.agent-plan ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+.agent-plan-item { display: flex; align-items: flex-start; gap: 8px; line-height: 20px; color: var(--workspace-ink); }
+.agent-plan-mark { width: 16px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--workspace-muted); }
+.agent-plan-text { min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.agent-plan-text small { font-size: 12px; line-height: 18px; color: var(--workspace-muted); }
+.agent-plan-item.is-done .agent-plan-mark { color: var(--workspace-accent-strong); }
+.agent-plan-item.is-done .agent-plan-text > span { color: var(--workspace-muted); }
+.agent-plan-item.is-skipped .agent-plan-text > span { color: var(--workspace-muted); text-decoration: line-through; }
+.agent-plan-item.is-blocked .agent-plan-mark, .agent-plan-item.is-blocked small { color: var(--workspace-danger); }
+.agent-plan-item.is-in_progress .agent-plan-text > span { font-weight: 600; }
 .agent-steps-wrap { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 260ms var(--ease); }
 .agent-activity.is-open .agent-steps-wrap { grid-template-rows: 1fr; }
 .agent-steps { min-height: 0; overflow: hidden; margin: 0; padding: 0 0 0 1px; list-style: none; }

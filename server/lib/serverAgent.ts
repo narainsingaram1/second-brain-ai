@@ -1,6 +1,7 @@
 import type { AgentStep, AIMessage, BrainState } from "../../src/types";
 import { AutonomousBrainAgent, type AgentExecutionResult, type ExternalToolset } from "../../src/services/agentDispatcher";
 import { applyMutation, mutationRecords, type Mutation } from "../../src/services/brainTools";
+import { applyBatch } from "../../src/services/batchChanges";
 import { applyMemoryChange, normalizeAgentMemory } from "../../src/services/agentMemory";
 import { learnFromTurn } from "../../src/services/memoryLearning";
 import { toolTier } from "../../src/services/actionPolicy";
@@ -112,8 +113,10 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     propose: async change => {
       const tier = toolTier(change.tool);
       const row = await store.proposeAction({
-        tool: change.tool, tier: tier === "read" ? "internal" : tier, summary: change.summary.slice(0, 2000), reason: change.reason.slice(0, 500),
-        payload: { tool: change.tool, args: change.args, expected: change.mutation?.expected ?? null, details: change.details, ...(input.timeZone ? { timeZone: input.timeZone } : {}),
+        tool: change.tool, tier: tier === "read" ? "internal" : tier === "browser" ? "external_irreversible" : tier, summary: change.summary.slice(0, 2000), reason: change.reason.slice(0, 500),
+        payload: { tool: change.tool, args: change.args,
+          // A batch keeps what each of its changes expects to find, in order.
+          expected: change.mutations ? change.mutations.map(m => m.expected ?? null) : change.mutation?.expected ?? null, details: change.details, ...(input.timeZone ? { timeZone: input.timeZone } : {}),
           ...(change.preview ? { preview: change.preview } : {}), ...(change.warnings?.length ? { warnings: change.warnings } : {}) },
         conversationId: input.conversationId, messageId: input.message.id,
       });
@@ -125,6 +128,14 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
       const memory = applyMemoryChange(normalizeAgentMemory(stored.agentMemory), change);
       await persist({ ...stored, agentMemory: memory }, "memory", "memory", change.kind === "remember" ? change.entry.topic : "Memory");
       return memory;
+    },
+    commitBatch: async mutations => {
+      const next = applyBatch(stored, mutations); // Refuses the whole batch if any record changed during the turn.
+      const n = mutations.length;
+      await persist(next, n === 1 ? mutations[0].action : "apply_changes", mutations[0].type, n === 1 ? recordTitle(mutations[0]) : `${n} changes`);
+      for (const mutation of mutations)
+        await store.appendAudit({ actor: "assistant", action: mutation.action, entityType: mutation.type, entityId: mutation.record.id, title: recordTitle(mutation),
+          metadata: { conversationId: input.conversationId ?? null, batch: true } });
     },
     commit: async mutation => {
       if (mutation.expected) {

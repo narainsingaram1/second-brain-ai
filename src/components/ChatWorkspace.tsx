@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSq
 import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
+import { BrowserConfirmCard } from "./BrowserConfirmCard";
 import { conversationTitle, isNearBottom } from "../utils/chatPresentation";
 import { ConversationMessage } from "./ConversationMessage";
 import { useConversationStarters } from "../hooks/useConversationStarters";
@@ -247,6 +248,8 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
             {/* The reply in progress: live steps first, then its text as it streams in. One stable element for the whole turn. */}
             {conversation.busy && last?.role === "user" && <ConversationMessage key="live-turn" state={state} streaming
               message={{ id: draft?.id || "live-turn", role: "assistant", content: draft?.content || "", timestamp: "", activity: conversation.activity }} />}
+            {conversation.busy && conversation.browserConfirm && conversation.answerBrowserConfirm &&
+              <BrowserConfirmCard request={conversation.browserConfirm} onAnswer={conversation.answerBrowserConfirm} />}
           </> : <div className="chat-welcome-inner">
             <span className="chat-welcome-mark" aria-hidden="true" />
             <h1>Ask Iris</h1>

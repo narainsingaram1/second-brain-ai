@@ -1,4 +1,5 @@
 import type { AgentStep, AgentStepKind } from "../types";
+import { describeBrowserCall } from "./browserAgent";
 
 /**
  * Turns what the assistant is doing into steps a person can follow: "Searching your notes for “heaps”",
@@ -61,7 +62,8 @@ const VERBS: Record<string, string> = { create: "Adding", update: "Updating", de
   set: "Setting", record: "Recording", remember: "Remembering", forget: "Forgetting" };
 const PAST: Record<string, string> = { Adding: "Added", Updating: "Updated", Deleting: "Deleted", Logging: "Logged", "Checking off": "Checked off", Renaming: "Renamed",
   Setting: "Set", Recording: "Recorded", Remembering: "Remembered", Forgetting: "Forgot", Searching: "Searched", Reading: "Read", "Looking through": "Looked through",
-  Checking: "Checked", Drafting: "Drafted", Rereading: "Reread" };
+  Checking: "Checked", Drafting: "Drafted", Rereading: "Reread", Making: "Made",
+  Opening: "Opened", Clicking: "Clicked", "Filling in": "Filled in", Scrolling: "Scrolled", Choosing: "Chose", "Working on": "Worked on", Looking: "Looked", Closing: "Closed" };
 /** "Searching the web for …" → "Searched the web for …", for a finished step. */
 export const pastTense = (label: string) => {
   const word = Object.keys(PAST).find(w => label.startsWith(`${w} `));
@@ -70,6 +72,7 @@ export const pastTense = (label: string) => {
 
 /** What a tool call is about to do, in plain words. */
 export function describeCall(name: string, args: Record<string, any>): { kind: AgentStepKind; label: string } {
+  if (name.startsWith("browser_")) return { kind: "browser", label: describeBrowserCall(name, args) };
   switch (name) {
     case "query_records": {
       const range = args.dateFrom && args.dateTo ? ` from ${args.dateFrom} to ${args.dateTo}` : args.dateFrom ? ` from ${args.dateFrom}` : args.dateTo ? ` through ${args.dateTo}` : "";
@@ -91,6 +94,7 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
     case "create_email_draft": return { kind: "email", label: "Drafting an email" };
     case "show_card": return { kind: "records", label: "Preparing a card" };
     case "use_tools": return { kind: "prepare", label: "Getting ready" };
+    case "apply_changes": { const n = Array.isArray(args.changes) ? args.changes.length : 0; return { kind: "change", label: `Making ${n > 1 ? `${n} changes` : "a change"} together` }; }
     case "send_email": case "send_draft": return { kind: "email", label: "Preparing an email to send" };
   }
   const [verb, ...rest] = name.split("_");
@@ -100,6 +104,7 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
 }
 
 const titles = (list: unknown, key = "title") => Array.isArray(list) ? list.map((r: any) => r?.[key]).filter((t: unknown): t is string => typeof t === "string" && !!t.trim()) : [];
+const clip = (text: unknown, n = 80) => { const t = String(text || ""); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** A short summary of what a finished tool call found or did. */
@@ -118,6 +123,13 @@ export function describeResult(name: string, args: Record<string, any>, output: 
     case "list_calendar_events": return { detail: count(output.events?.length ?? 0, "event", "events"), items: titles(output.events) };
     case "search_email": return { detail: count(output.results?.length ?? 0, "email", "emails"), items: titles(output.results, "subject") };
     case "read_email": return output.email?.subject ? { label: `Read ${quote(output.email.subject)}` } : {};
+    case "browser_open": case "browser_look": return output.site ? { label: `${name === "browser_open" ? "Opened" : "Looked at"} ${output.site}`, items: [`${clip(output.title || output.site)}|${output.url}`] } : {};
+    case "browser_act": {
+      const did: string[] = Array.isArray(output.done) ? output.done : [];
+      const detail = output.declined || output.userOnly || output.stopped || (did.length ? undefined : "Nothing ran");
+      return { ...(output.site ? { label: `${did.length ? "Worked on" : "Looked at"} ${output.site}` } : {}), ...(detail ? { detail } : {}), items: did.slice(0, 10) };
+    }
+    case "apply_changes": return Array.isArray(output.changes) ? { items: output.changes.map((c: any) => c.summary).filter(Boolean).slice(0, 50) } : {};
   }
   return {};
 }

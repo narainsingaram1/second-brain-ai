@@ -4,7 +4,7 @@ import type { Mutation } from "./brainTools";
  * Which assistant actions may run on their own and which wait for the user. The model cannot approve
  * anything itself: a gated call becomes a proposal, and only the user's decision in the app runs it.
  */
-export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible";
+export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible" | "browser";
 
 const READ = new Set(["list_resume_versions", "health_summary", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
   "list_calendar_events", "search_email", "read_email", "read_url", "web_search"]);
@@ -27,7 +27,11 @@ export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
  */
 export function toolTier(name: string, args: Record<string, unknown> = {}): ToolTier {
   if (READ.has(name)) return "read";
-  if (MEMORY.has(name) || INTERNAL.has(name)) return "internal";
+  // Work in the user's Chrome. The extension gates each step itself: user-only fields are refused and steps that
+  // commit something wait for the user's live go-ahead, so these never become stored approvals.
+  if (name.startsWith("browser_")) return "browser";
+  // A batch of the user's own changes (apply_changes); each change in it is checked on its own.
+  if (MEMORY.has(name) || INTERNAL.has(name) || name === "apply_changes") return "internal";
   if (name === "create_calendar_event" && Array.isArray(args.attendees) && args.attendees.length) return "external_irreversible";
   if (EXTERNAL_REVERSIBLE.has(name)) return "external_reversible";
   return "external_irreversible";
@@ -35,7 +39,7 @@ export function toolTier(name: string, args: Record<string, unknown> = {}): Tool
 
 /** Reads whose content came from somewhere other than the user's own words in this conversation. */
 export function readsUntrustedContent(tool: string, sourceTypes: string[]): boolean {
-  return tool === "recall_conversation" || tool === "search_conversations" || tool === "search_email" || tool === "read_email" || tool === "read_url" || tool === "web_search" || sourceTypes.includes("document");
+  return tool.startsWith("browser_") || tool === "recall_conversation" || tool === "search_conversations" || tool === "search_email" || tool === "read_email" || tool === "read_url" || tool === "web_search" || sourceTypes.includes("document");
 }
 
 export interface TurnContext {
@@ -51,7 +55,7 @@ export const BULK_CHANGE_LIMIT = 5;
 /** Why this call must wait for approval, or null if it may run now. */
 export function approvalReason(tool: string, ctx: TurnContext, args: Record<string, unknown> = {}): string | null {
   const tier = toolTier(tool, args);
-  if (tier === "read" || MEMORY.has(tool)) return null; // Memory has its own review controls.
+  if (tier === "read" || tier === "browser" || MEMORY.has(tool)) return null; // Memory has its own review controls; the browser asks live.
   if (tool === "create_calendar_event" && tier === "external_irreversible") return "Google will email invitations to the guests.";
   if (tool === "send_email" || tool === "send_draft") return "Sending email always needs your approval. It cannot be unsent.";
   if (tier === "external_irreversible") return "Actions outside Synapse always need your approval.";
