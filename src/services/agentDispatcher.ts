@@ -564,7 +564,9 @@ export class AutonomousBrainAgent {
         }
         // Any preamble streamed before the tool calls is not the answer; the next round writes that.
         options.onText?.("");
-        messages.push({ role: "assistant", content: completion.content, tool_calls: completion.toolCalls });
+        // Reasoning blocks go back with the tool calls they led to; reasoning models reject the turn without them.
+        messages.push({ role: "assistant", content: completion.content, tool_calls: completion.toolCalls,
+          ...(completion.reasoningDetails?.length ? { reasoning_details: completion.reasoningDetails } : {}) });
 
         const isReadCall = (call: (typeof completion.toolCalls)[number]): boolean => {
           if (call.function.name === SHOW_CARD.function.name || call.function.name === "use_tools" || call.function.name === PLAN_TOOL.function.name) return true;
