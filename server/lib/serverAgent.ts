@@ -113,7 +113,7 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     propose: async change => {
       const tier = toolTier(change.tool);
       const row = await store.proposeAction({
-        tool: change.tool, tier: tier === "read" ? "internal" : tier, summary: change.summary.slice(0, 2000), reason: change.reason.slice(0, 500),
+        tool: change.tool, tier: tier === "read" ? "internal" : tier === "browser" ? "external_irreversible" : tier, summary: change.summary.slice(0, 2000), reason: change.reason.slice(0, 500),
         payload: { tool: change.tool, args: change.args,
           // A batch keeps what each of its changes expects to find, in order.
           expected: change.mutations ? change.mutations.map(m => m.expected ?? null) : change.mutation?.expected ?? null, details: change.details, ...(input.timeZone ? { timeZone: input.timeZone } : {}),

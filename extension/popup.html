@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Synapse Browser Agent</title><link rel="stylesheet" href="ui.css"></head>
+<body class="popup">
+  <h1>Synapse Browser Agent</h1>
+  <p id="state" class="muted">Loading…</p>
+  <button id="stop" type="button" class="danger">Stop and close agent tabs</button>
+  <h2>Connected apps</h2>
+  <ul id="paired" class="list"></ul>
+  <h2>Never act on these sites</h2>
+  <textarea id="blocked" rows="3" placeholder="bank.com, one per line"></textarea>
+  <button id="save" type="button">Save blocked sites</button>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -348,7 +348,7 @@ export interface ImageAttachment {
 }
 
 /** One thing the assistant did while working on a reply, shown live and kept with the reply. */
-export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write" | "plan";
+export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write" | "plan" | "browser";
 export type AgentPlanStatus = "pending" | "in_progress" | "done" | "skipped" | "blocked";
 /** One step of the assistant's plan for a multi-step request. */
 export interface AgentPlanItem { title: string; status: AgentPlanStatus; note?: string }

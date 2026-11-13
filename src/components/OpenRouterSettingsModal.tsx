@@ -1,4 +1,5 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
+import { BrowserAgentSettings } from "./BrowserAgentSettings";
 import React, { useEffect, useState } from "react";
 import { ServerKeyField } from "./ServerKeyField";
 import { ConnectionsPanel } from "./ConnectionsPanel";
@@ -203,6 +204,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
             )}
             {!apiBaseValid && <p role="alert" className="text-[11px] text-rose-600 dark:text-slate-400">Enter a full http:// or https:// address.</p>}
           </section>
+
+          <BrowserAgentSettings />
 
 
           {/* API Key Input Section */}

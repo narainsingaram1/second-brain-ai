@@ -11,6 +11,7 @@ import { getLocalDateString } from "../utils/habitStreaks";
 import { IRIS_UI_FENCE, parseIrisUi } from "../utils/irisUi";
 import { findRecord } from "../utils/chatPresentation";
 import { AREA_NAMES, conversationAreas, routeTools, toolArea, useToolsTool, type ToolArea } from "./toolRouting";
+import { BROWSER_UNAVAILABLE_NOTE } from "./browserAgent";
 import { claimsUnbackedChange, PLAN_TOOL, TaskPlan, UNBACKED_CHANGE_NUDGE } from "./agentPlan";
 import { APPLY_CHANGES_TOOL, BATCH_TOOL_NAME, batchApprovalReason, describeBatch, parseBatchArguments, prepareBatch } from "./batchChanges";
 
@@ -105,6 +106,8 @@ export interface AgentOptions {
   channelNote?: string;
   /** The user's AI provider address, from the app's setting (used when running outside the browser). */
   providerBase?: string;
+  /** Limits for the turn. Defaults suit questions and record changes; work on websites needs more room. */
+  budget?: { steps?: number; tools?: number; timeMs?: number };
 }
 export type RunConversation = (prompt: string, options?: AgentOptions) => Promise<AgentExecutionResult>;
 
@@ -310,7 +313,9 @@ function boundedMessages(state: BrainState, prompt: string, options: AgentOption
   // Prompt-cache layout: everything before the newest user message must stay byte-identical from turn to turn,
   // so the conversation so far is re-read at the cached rate. The system message holds only what is fixed for
   // the session; the per-turn context (date, snapshot, relevant memories, message ID) rides on the newest message.
-  const system = [SYNAPSE_INSTRUCTIONS, options.externalTools?.instructions || "", options.channelNote || ""].filter(Boolean).join("\n\n");
+  // Without the browser tools, the model is told what it can't do on websites and how the user can enable it.
+  const browserNote = options.externalTools?.definitions.some(d => d.function.name.startsWith("browser_")) ? "" : BROWSER_UNAVAILABLE_NOTE;
+  const system = [SYNAPSE_INSTRUCTIONS, options.externalTools?.instructions || "", browserNote, options.channelNote || ""].filter(Boolean).join("\n\n");
   const context = [
     `## Current context`,
     (() => {
@@ -388,7 +393,7 @@ export class AutonomousBrainAgent {
     const plan = new TaskPlan();
     let planStep: string | undefined;
     let claimChecked = false;
-    const ledger = () => ({ saved: actions.length, proposed: approvals.length, external: externalDone.length, memory: memoryWrites });
+    const ledger = () => ({ saved: actions.length, proposed: approvals.length, external: externalDone.length + browserActs, memory: memoryWrites });
     const wouldFlagClaim = (answer: string) => !claimChecked && claimsUnbackedChange(answer, ledger());
     /** Checks a reply before it ends the turn: open plan steps, or changes claimed that never happened. */
     const turnCheck = (answer: string): string | null => {
@@ -411,7 +416,8 @@ export class AutonomousBrainAgent {
       ...(imageDescription ? { imageDescription } : {}),
     });
     if (!key.trim()) return finish("Connect an AI provider in Settings to start a conversation. Your records have not been changed.", "error");
-    const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(240000)]) : AbortSignal.timeout(240000);
+    const maxSteps = options.budget?.steps ?? 48, maxTools = options.budget?.tools ?? 96, timeMs = options.budget?.timeMs ?? 240000;
+    const signal = options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeMs)]) : AbortSignal.timeout(timeMs);
     if (currentMessage.role !== "user" || currentMessage.content !== prompt)
       throw new Error("Current message does not match the user's request.");
     let state = structuredClone(initialState);
@@ -447,7 +453,23 @@ export class AutonomousBrainAgent {
     let toolCount = 0;
     let stagnantRounds = 0;
     let stateRevision = 0;
-    const explorationDeadline = Date.now() + 180000;
+    const explorationDeadline = Date.now() + timeMs * 0.75;
+    // Only the newest look at each browser tab stays in full; older ones are out of date and only cost context.
+    const pageMessages = new Map<number, number>();
+    let browserActs = 0;
+    const compactPages = (output: unknown) => {
+      const tab = output && typeof output === "object" ? (output as { pageOf?: unknown }).pageOf : undefined;
+      if (typeof tab !== "number") return;
+      const previous = pageMessages.get(tab);
+      if (previous !== undefined && messages[previous]) {
+        try {
+          const old = JSON.parse(messages[previous].content as string);
+          messages[previous] = { ...messages[previous], content: JSON.stringify({ tabId: tab, url: old.url, ...(old.done ? { done: old.done } : {}),
+            ...(old.confirmed !== undefined ? { confirmed: old.confirmed } : {}), superseded: "An older view of this tab; its refs are out of date. Use the latest one." }) };
+        } catch { /* Leave it. */ }
+      }
+      pageMessages.set(tab, messages.length - 1);
+    };
     const readCache = new Map<string, Awaited<ReturnType<typeof executeRead>>>();
     const inFlightReads = new Map<string, Promise<Awaited<ReturnType<typeof executeRead>>>>();
     const seenEvidence = new Set<string>();
@@ -480,10 +502,10 @@ export class AutonomousBrainAgent {
       return finish(completion.content, "partial");
     };
     try {
-      for (let step = 0; step < 48; step++) {
+      for (let step = 0; step < maxSteps; step++) {
         signal.throwIfAborted();
         if (stagnantRounds >= 2) return await finalize("Recent tool calls repeated evidence or failed without making progress");
-        if (step === 47 || toolCount >= 96 || Date.now() >= explorationDeadline) return await finalize("The retrieval budget has been reached");
+        if (step === maxSteps - 1 || toolCount >= maxTools || Date.now() >= explorationDeadline) return await finalize("The retrieval budget has been reached");
         let roundProgress = false;
         options.onProgress?.(step ? "Reviewing results…" : "Thinking…");
         // Keep protocol-valid tool messages, but evict old bodies when the evidence budget is exceeded.
@@ -599,7 +621,7 @@ export class AutonomousBrainAgent {
                 else activity.finish(stepId, { label: pastTense(described.label), ...describeResult(call.function.name, preview, result) });
               };
               try {
-                if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
+                if (++toolCount > maxTools) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
                 const tool = findTool(call.function.name);
                 if (!tool) throw new Error("Unsupported tool");
                 const args = parseToolArguments(call.function.arguments, tool.function.parameters);
@@ -688,7 +710,7 @@ export class AutonomousBrainAgent {
                 else activity.finish(stepId, { label: pastTense(described.label), ...describeResult(call.function.name, preview, result) });
               };
               try {
-                if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
+                if (++toolCount > maxTools) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
                 const tool = findTool(call.function.name);
                 if (!tool) throw new Error("Unsupported tool");
                 const args = call.function.name === BATCH_TOOL_NAME ? parseBatchArguments(call.function.arguments) : parseToolArguments(call.function.arguments, tool.function.parameters);
@@ -709,6 +731,16 @@ export class AutonomousBrainAgent {
                     completedWrites.set(fingerprint, output); readCache.clear(); inFlightReads.clear(); stateRevision++; roundProgress = true;
                   }
                   memoryErrors.delete(memoryErrorKey(args));
+                } else if (external && externalNames.has(call.function.name) && toolTier(call.function.name) === "browser") {
+                  // Pages change between calls, so browser steps are never cached or deduplicated, and always run in order.
+                  const result = await external.execute(call.function.name, args, signal);
+                  output = result.output;
+                  untrustedRead = true;
+                  roundProgress = true;
+                  const done = (output as { done?: unknown[] }).done;
+                  if (call.function.name === "browser_act" && Array.isArray(done) && done.length) browserActs++;
+                  if ((output as { confirmed?: boolean }).confirmed === true)
+                    externalDone.push({ tool: call.function.name, summary: result.summary || "Acted on a website", ...(result.link ? { link: result.link } : {}) });
                 } else if (external && externalNames.has(call.function.name)) {
                   const name = call.function.name;
                   const fingerprint = name + canonical(args);
@@ -813,6 +845,7 @@ export class AutonomousBrainAgent {
               }
               settle(output);
               messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(output) });
+              compactPages(output);
             }
           }
         }

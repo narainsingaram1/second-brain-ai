@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, PenLine, Search, ShieldCheck, SquarePen } from "lucide-react";
+import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, MousePointerClick, PenLine, Search, ShieldCheck, SquarePen } from "lucide-react";
 import type { AgentPlanItem, AgentStep, AgentStepKind } from "../types";
 
 const ICONS: Record<AgentStepKind, typeof Brain> = {
   think: Brain, prepare: Database, records: Search, web: Globe, email: Mail, calendar: CalendarDays, change: SquarePen,
-  memory: BookMarked, image: ImageIcon, approval: ShieldCheck, write: PenLine, plan: ListChecks,
+  memory: BookMarked, image: ImageIcon, approval: ShieldCheck, write: PenLine, plan: ListChecks, browser: MousePointerClick,
 };
 
 export function duration(ms: number): string {
