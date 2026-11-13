@@ -12,7 +12,7 @@ export function AppSkeleton() {
         <Sidebar
           activeTab={rememberedTab()}
           setActiveTab={noop}
-          onQuickCapture={noop}
+          onNewChat={noop}
           onToggleCollapse={noop}
           counts={{ tasks: 0, notes: 0, goals: 0 }}
           collapsed={window.matchMedia("(max-width: 767px)").matches}

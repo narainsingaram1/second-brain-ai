@@ -164,6 +164,13 @@ export const App: React.FC = () => {
     historyFuture.current = [];
   });
 
+  const handleNewChat = () => {
+    if (conversation.busy) return;
+    setChatLaunchError("");
+    conversation.startNew();
+    setActiveTab("home");
+  };
+
   /** Opens the Home assistant with a message from any workspace. */
   const askAssistant = async (prompt: string, images?: PreparedImage[]) => {
     setChatLaunchError("");
@@ -435,17 +442,12 @@ export const App: React.FC = () => {
 
       if ((e.metaKey || e.ctrlKey) && e.key === "n" && !e.shiftKey && !e.altKey) {
         e.preventDefault();
-        setActiveEditTask(null);
-        const sec = state?.sections[0] || "Academic";
-        const sub = state?.subsections[sec]?.[0] || "General";
-        setTaskModalDefaultSection(sec);
-        setTaskModalDefaultSubsection(sub);
-        setIsTaskModalOpen(true);
+        handleNewChat();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [state]);
+  }, [state, conversation.busy, conversation.startNew]);
 
   if (startupError) return <div className="p-8"><p>{startupError}</p><button onClick={() => window.location.reload()}>Retry</button></div>;
 
@@ -985,7 +987,8 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         workspaces={state.workspaces}
         counts={{ tasks: state.tasks.filter(task => !task.completed).length, notes: state.knowledgeItems.length, goals: state.goals.filter(goal => goal.status !== "achieved").length }}
-        onQuickCapture={() => setIsQuickCaptureOpen(true)}
+        onNewChat={handleNewChat}
+        chatBusy={conversation.busy}
         setActiveTab={setActiveTab}
         collapsed={isSidebarCollapsed || isNarrow}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}

@@ -24,7 +24,8 @@ interface SidebarProps {
   collapsed: boolean;
   onToggleCollapse: () => void;
   onOpenSettings?: () => void;
-  onQuickCapture: () => void;
+  onNewChat: () => void;
+  chatBusy?: boolean;
   counts: { tasks: number; notes: number; goals: number };
   workspaces?: Workspace[];
 }
@@ -54,7 +55,8 @@ export function Sidebar({
   collapsed,
   onToggleCollapse,
   onOpenSettings,
-  onQuickCapture,
+  onNewChat,
+  chatBusy = false,
   counts,
   workspaces = [],
 }: SidebarProps) {
@@ -80,8 +82,10 @@ export function Sidebar({
       </div>
       <button
         className="sidebar-capture"
-        onClick={onQuickCapture}
-        title="Create a note or task"
+        onClick={onNewChat}
+        title="New chat (⌘N)"
+        aria-label="New chat"
+        disabled={chatBusy}
       >
         <Plus size={16} />
         {!collapsed && (

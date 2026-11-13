@@ -1,5 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { turnContext } from './helpers/promptLayout.mjs';
 import { createServer } from 'vite';
 import { owner } from './helpers/supabaseDb.mjs';
 import { CALENDAR_SCOPE, connectedSetup, secretsKey } from './helpers/googleMock.mjs';
@@ -64,7 +65,7 @@ test('email is untrusted: after reading it the assistant may add tasks and draft
     const offered = requests[0].tools.map(t => t.function.name);
     for (const name of ['list_calendar_events', 'create_calendar_event', 'search_email', 'read_email', 'create_email_draft']) assert.ok(offered.includes(name), name);
     assert.match(text(requests[0].messages[0].content), /## Google \(student@gatech\.edu\)/);
-    assert.match(JSON.stringify(requests[0].messages[0]), /Today is \w+day, \d{4}-\d{2}-\d{2}/);
+    assert.match(turnContext(requests[0]), /Today is \w+day, \d{4}-\d{2}-\d{2}/);
 
     const toolOutputs = requests[2].messages.filter(m => m.role === 'tool').map(m => JSON.parse(text(m.content)));
     const email = toolOutputs.find(o => o.email).email;

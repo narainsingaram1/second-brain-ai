@@ -92,7 +92,7 @@ function Fixture() {
       <button type="button" onClick={() => setState(prev => prev && ({ ...prev, chatHistory: [...prev.chatHistory, makeMessage("assistant", "A new answer arrived while you were reading earlier messages.")] }))}>Add incoming</button>
       <button type="button" onClick={() => document.documentElement.classList.toggle("dark")}>Dark</button>
     </div>
-    <Sidebar activeTab="home" setActiveTab={() => {}} collapsed={collapsed} onToggleCollapse={() => setCollapsed(!collapsed)} onQuickCapture={() => {}} counts={{ tasks: tasks.length, notes: 0, goals: goals.length }} />
+    <Sidebar activeTab="home" setActiveTab={() => {}} collapsed={collapsed} onToggleCollapse={() => setCollapsed(!collapsed)} onNewChat={() => {}} counts={{ tasks: tasks.length, notes: 0, goals: goals.length }} />
     <div className="flex-1 flex flex-col min-w-0 min-h-0">{!active && <TopHeader theme="light" onToggleTheme={() => document.documentElement.classList.toggle("dark")} onOpenGlobalSearch={() => {}} onOpenAuth={() => {}} onOpenNotifications={() => {}} />}
       <main className="flex-1 min-h-0 flex flex-col overflow-hidden"><ChatWorkspace conversation={conversation} state={state} messages={state.chatHistory} onSaveNote={note => setState(prev => prev && ({ ...prev, knowledgeItems: [...prev.knowledgeItems, note] }))} onOpenSettings={() => {}} /></main>
     </div>

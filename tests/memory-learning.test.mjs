@@ -1,5 +1,6 @@
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
+import { turnContext } from "./helpers/promptLayout.mjs";
 import { createServer } from "vite";
 
 const server = await createServer({ configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: "custom" });
@@ -186,7 +187,7 @@ test("the prompt stays bounded however large memory grows, and new chats get the
   const requests = provider([{ choices: [{ message: { content: "Hello Narain." } }] }]);
   await AutonomousBrainAgent.execute("Hi there", s);
   assert.equal(requests.length, 1, "No embedding or extraction call runs before the reply");
-  assert.match(requests[0].messages[0].content, /Narain[\s\S]*Synapse/);
+  assert.match(turnContext(requests[0]), /Narain[\s\S]*Synapse/);
 });
 
 test("the learner batches turns, retries failures without losing them, and reads each message once", async () => {

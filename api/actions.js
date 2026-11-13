@@ -4807,6 +4807,59 @@ const productionDeps = {
 	background: (work) => waitUntil(work),
 	cronSecret: () => serverEnv().cronSecret
 };
+// src/services/toolRouting.ts
+/**
+* Tools for areas most messages never touch are sent only when the conversation is about them. Every tool not
+* listed here is always sent, so a new tool is available everywhere unless it is added to an area.
+*
+* The chosen areas come from the whole conversation, not just the newest message, so within a conversation the
+* tool list only grows. The tool list sits at the very front of the cached prompt prefix, and a list that changed
+* from turn to turn would make every turn re-read the full prompt.
+*/
+const TOOL_AREAS = {
+	career: [
+		"create_tracker_item",
+		"update_tracker_item",
+		"delete_tracker_item",
+		"log_practice",
+		"list_resume_versions"
+	],
+	study: [
+		"create_course",
+		"update_course",
+		"delete_course",
+		"set_course_grading",
+		"record_grade",
+		"create_flashcard_deck",
+		"update_flashcard_deck",
+		"delete_flashcard_deck",
+		"create_quiz",
+		"update_quiz",
+		"delete_quiz"
+	],
+	health: [
+		"health_summary",
+		"log_health_day",
+		"update_health_day",
+		"delete_health_day",
+		"update_health_profile"
+	],
+	organize: [
+		"create_workspace",
+		"update_workspace",
+		"delete_workspace",
+		"create_section",
+		"rename_section",
+		"delete_section",
+		"rename_subsection",
+		"delete_subsection",
+		"create_note_folder",
+		"update_note_folder",
+		"delete_note_folder"
+	]
+};
+const AREA_NAMES = Object.keys(TOOL_AREAS);
+new Map(AREA_NAMES.flatMap((area) => TOOL_AREAS[area].map((name) => [name, area])));
 new Set(READ_TOOLS.map((t) => t.function.name));
 [...MEMORY_CATEGORIES];
 // server/lib/serverAgent.ts
