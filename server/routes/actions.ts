@@ -1,4 +1,5 @@
-import { applyMutation, prepareMutation } from "../../src/services/brainTools";
+import { applyMutation, prepareMutation, recordTitle } from "../../src/services/brainTools";
+import { BATCH_TOOL_NAME, prepareBatch } from "../../src/services/batchChanges";
 import { toolTier } from "../../src/services/actionPolicy";
 import { productionDeps, type Deps } from "../lib/context";
 import { HttpError, json, readJson, route } from "../lib/http";
@@ -32,6 +33,18 @@ export async function executeApproved(deps: Deps, store: ServerStore, id: string
         title: result.summary || action.summary, ...(result.link ? { link: result.link } : {}) };
     }
     const { engine, workspace } = await loadWorkspace(store);
+    if (tool === BATCH_TOOL_NAME) {
+      // Prepared again in order from current data; refused whole if any record differs from what was approved.
+      const { mutations } = prepareBatch((payload.args as { changes?: unknown } | undefined)?.changes, workspace);
+      const expected = Array.isArray(payload.expected) ? payload.expected : [];
+      if (expected.length !== mutations.length || mutations.some((m, i) => canonical(m.expected ?? null) !== canonical(expected[i] ?? null)))
+        throw new Error("Some of these records changed after the changes were proposed, so none were applied. Ask again to work from their current versions.");
+      const saved = await saveWorkspace(engine, mutations.reduce(applyMutation, workspace));
+      await store.completeAction(id, true, { type: BATCH_TOOL_NAME, count: mutations.length });
+      for (const m of mutations)
+        await store.appendAudit({ actor: "assistant", action: m.action, entityType: m.type, entityId: m.record.id, title: recordTitle(m.record, "Note"), actionId: id, metadata: { approved: true, batch: true } });
+      return { status: "executed" as const, ...saved, action: BATCH_TOOL_NAME, entityType: mutations[0].type, title: action.summary };
+    }
     const mutation = prepareMutation(tool, payload.args || {}, workspace);
     if (canonical(mutation.expected ?? null) !== canonical(payload.expected ?? null))
       throw new Error("The record changed after this was proposed, so it was not applied. Ask again to work from its current version.");

@@ -2249,8 +2249,64 @@ const READ_TOOLS = [
 	...MUTATION_TOOLS,
 	...MEMORY_TOOLS.filter((t) => t.function.name !== "search_memories")
 ];
+/** Normalize unambiguous provider encodings before strict schema validation.
+* Optional nulls/blank values mean absent, not a filter or an invented mutation value.
+* Never round cursors, coerce IDs, or infer values for required fields.
+*/
+function parseToolArguments(raw, schema) {
+	function normalize(value, rule) {
+		if (rule.type === "object" && value && typeof value === "object" && !Array.isArray(value)) {
+			const result = {};
+			for (const [key, child] of Object.entries(value)) {
+				const childRule = rule.properties?.[key];
+				if (childRule && !(rule.required || []).includes(key) && (child === null || typeof child === "string" && !child.trim())) continue;
+				result[key] = childRule ? normalize(child, childRule) : child;
+			}
+			return result;
+		}
+		if (rule.type === "array" && Array.isArray(value)) return value.map((child) => normalize(child, rule.items));
+		if (typeof value === "string") {
+			const text = value.trim();
+			if (rule.type === "integer" && /^[+-]?\d+(?:\.0+)?$/.test(text)) return Number(text);
+			if (rule.type === "number" && /^[+-]?\d+(?:\.\d+)?$/.test(text)) return Number(text);
+			if (rule.type === "boolean" && /^(true|false)$/i.test(text)) return text.toLowerCase() === "true";
+		}
+		return value;
+	}
+	const args = normalize(JSON.parse(raw), schema);
+	validate(args, schema);
+	return args;
+}
+function validate(value, schema, path = "arguments") {
+	if (schema.type === "object") {
+		if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${path} must be an object`);
+		const object = value;
+		for (const key of schema.required || []) if (object[key] === void 0) throw new Error(`${path}.${key} is required`);
+		for (const [key, child] of Object.entries(object)) {
+			if (!schema.properties?.[key]) throw new Error(`Unknown ${path}.${key}`);
+			validate(child, schema.properties[key], `${path}.${key}`);
+		}
+	} else if (schema.type === "array") {
+		if (!Array.isArray(value) || value.length < (schema.minItems || 0) || value.length > (schema.maxItems || 100)) throw new Error(`${path} must contain ${schema.minItems || 0} to ${schema.maxItems || 100} items`);
+		value.forEach((v, i) => validate(v, schema.items, `${path}[${i}]`));
+	} else {
+		if (schema.type === "integer" ? !Number.isInteger(value) : typeof value !== schema.type) throw new Error(`${path} must be ${schema.type}`);
+		if (schema.enum && !schema.enum.includes(value)) throw new Error(`${path} has an unsupported value`);
+		if (typeof value === "number" && (value < (schema.minimum ?? 0) || value > Number.MAX_SAFE_INTEGER)) throw new Error(`${path} is out of range`);
+		if (typeof value === "string" && (!value.trim() || value.length > 1e5)) throw new Error(`${path} must be nonempty and at most 100000 characters`);
+	}
+}
 function validDate(value) {
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T12:00:00Z`)) || (/* @__PURE__ */ new Date(`${value}T12:00:00Z`)).toISOString().slice(0, 10) !== value) throw new Error(`Invalid calendar date: ${value}`);
+}
+/** A task section as one record: its name and subsections. Its ID is its name before the change. */
+/** A record's display name for activity logs and chat summaries. */
+function recordTitle(record, fallback) {
+	const r = record;
+	if (typeof r.name === "string" && r.name) return r.name;
+	if (typeof r.title === "string" && r.title) return r.title;
+	if (typeof r.id === "string" && r.id.startsWith("health-")) return `Health ${String(r.date)}`;
+	return fallback;
 }
 const MUTATION_COLLECTIONS = {
 	task: "tasks",
@@ -3659,10 +3715,79 @@ const INTERNAL = /* @__PURE__ */ new Set([
 */
 function toolTier(name, args = {}) {
 	if (READ.has(name)) return "read";
-	if (MEMORY.has(name) || INTERNAL.has(name)) return "internal";
+	if (MEMORY.has(name) || INTERNAL.has(name) || name === "apply_changes") return "internal";
 	if (name === "create_calendar_event" && Array.isArray(args.attendees) && args.attendees.length) return "external_irreversible";
 	if (EXTERNAL_REVERSIBLE.has(name)) return "external_reversible";
 	return "external_irreversible";
+}
+// src/services/batchChanges.ts
+/**
+* Many changes as one transaction: "move every overdue CS task to Friday", "mark these six done",
+* "rename the section and file these notes under it".
+*
+* Every change is checked and prepared before anything is saved, each against the state the changes
+* before it leave behind. If any one of them is invalid, none is saved and the assistant is told exactly
+* which one failed and why. A batch is saved in a single write, so it lands whole or not at all, makes one
+* undo point, and when it needs the user's approval it asks once for the whole batch.
+*/
+const BATCH_TOOL_NAME = "apply_changes";
+const CHANGE_TOOLS = new Map(MUTATION_TOOLS.map((t) => [t.function.name, t]));
+[...CHANGE_TOOLS.keys()];
+/** Thrown when a batch cannot run; lists every failing change by its position. */
+var BatchError = class extends Error {
+	failures;
+	constructor(failures) {
+		super(`Nothing was saved. Fix ${failures.length === 1 ? "this change" : "these changes"} and send the whole batch again: ${failures.map((f) => `#${f.index + 1} ${f.tool}: ${f.error}`).join(" | ")}`);
+		this.failures = failures;
+	}
+};
+const message = (error) => error instanceof Error ? error.message : String(error);
+/**
+* Validates and prepares every change in order against a working copy of the state. Throws BatchError,
+* with every failure, if any change is invalid. Nothing is saved here.
+*/
+function prepareBatch(raw, state) {
+	if (!Array.isArray(raw) || !raw.length) throw new BatchError([{
+		index: 0,
+		tool: BATCH_TOOL_NAME,
+		error: "Send at least one change."
+	}]);
+	if (raw.length > 50) throw new BatchError([{
+		index: 50,
+		tool: BATCH_TOOL_NAME,
+		error: `At most 50 changes per batch; split the rest into another call.`
+	}]);
+	const failures = [];
+	const changes = [], mutations = [];
+	let working = state;
+	raw.forEach((entry, index) => {
+		const tool = entry && typeof entry === "object" ? String(entry.tool || "") : "";
+		try {
+			const definition = CHANGE_TOOLS.get(tool);
+			if (!definition) throw new Error(tool ? `"${tool}" is not a change tool that can run in a batch.` : "Name the change tool.");
+			const given = entry.args;
+			if (!given || typeof given !== "object" || Array.isArray(given)) throw new Error("args must be an object.");
+			const args = parseToolArguments(JSON.stringify(given), definition.function.parameters);
+			const mutation = prepareMutation(tool, args, working);
+			working = applyMutation(working, mutation);
+			changes.push({
+				tool,
+				args
+			});
+			mutations.push(mutation);
+		} catch (error) {
+			failures.push({
+				index,
+				tool: tool || "?",
+				error: message(error)
+			});
+		}
+	});
+	if (failures.length) throw new BatchError(failures);
+	return {
+		changes,
+		mutations
+	};
 }
 // hosting/independent.json
 var supabaseUrl = "https://dpmrkkupazorhhmchtxt.supabase.co";
@@ -4860,6 +4985,9 @@ const TOOL_AREAS = {
 };
 const AREA_NAMES = Object.keys(TOOL_AREAS);
 new Map(AREA_NAMES.flatMap((area) => TOOL_AREAS[area].map((name) => [name, area])));
+// src/services/agentPlan.ts
+const DID = "(?:added|created|made|updated|changed|renamed|moved|rescheduled|pushed|marked|completed|checked off|deleted|removed|scheduled|saved|logged|recorded|set up|archived|organi[sz]ed|reorgani[sz]ed)";
+new RegExp(`\\bi(?:(?:'|’)ve| have)?\\s+(?:(?:also|now|just|already|went ahead and|gone ahead and)\\s+)*${DID}\\b`, "i"), new RegExp(`\\b(?:has|have|was|were) (?:now |also |all )?been ${DID}\\b|\\b(?:was|were) ${DID}\\b`, "i"), new RegExp(`\\b(?:all set|done|successfully)\\b[^.!?\\n]{0,80}\\b${DID}\\b`, "i");
 new Set(READ_TOOLS.map((t) => t.function.name));
 [...MEMORY_CATEGORIES];
 // server/lib/serverAgent.ts
@@ -5542,6 +5670,35 @@ async function executeApproved(deps, store, id) {
 			};
 		}
 		const { engine, workspace } = await loadWorkspace(store);
+		if (tool === "apply_changes") {
+			const { mutations } = prepareBatch(payload.args?.changes, workspace);
+			const expected = Array.isArray(payload.expected) ? payload.expected : [];
+			if (expected.length !== mutations.length || mutations.some((m, i) => canonical(m.expected ?? null) !== canonical(expected[i] ?? null))) throw new Error("Some of these records changed after the changes were proposed, so none were applied. Ask again to work from their current versions.");
+			const saved = await saveWorkspace(engine, mutations.reduce(applyMutation, workspace));
+			await store.completeAction(id, true, {
+				type: BATCH_TOOL_NAME,
+				count: mutations.length
+			});
+			for (const m of mutations) await store.appendAudit({
+				actor: "assistant",
+				action: m.action,
+				entityType: m.type,
+				entityId: m.record.id,
+				title: recordTitle(m.record, "Note"),
+				actionId: id,
+				metadata: {
+					approved: true,
+					batch: true
+				}
+			});
+			return {
+				status: "executed",
+				...saved,
+				action: BATCH_TOOL_NAME,
+				entityType: mutations[0].type,
+				title: action.summary
+			};
+		}
 		const mutation = prepareMutation(tool, payload.args || {}, workspace);
 		if (canonical(mutation.expected ?? null) !== canonical(payload.expected ?? null)) throw new Error("The record changed after this was proposed, so it was not applied. Ask again to work from its current version.");
 		const saved = await saveWorkspace(engine, applyMutation(workspace, mutation));

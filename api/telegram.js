@@ -4296,7 +4296,8 @@ const PAST = {
 	"Looking through": "Looked through",
 	Checking: "Checked",
 	Drafting: "Drafted",
-	Rereading: "Reread"
+	Rereading: "Reread",
+	Making: "Made"
 };
 /** "Searching the web for …" → "Searched the web for …", for a finished step. */
 const pastTense = (label) => {
@@ -4377,6 +4378,13 @@ function describeCall(name, args) {
 			kind: "prepare",
 			label: "Getting ready"
 		};
+		case "apply_changes": {
+			const n = Array.isArray(args.changes) ? args.changes.length : 0;
+			return {
+				kind: "change",
+				label: `Making ${n > 1 ? `${n} changes` : "a change"} together`
+			};
+		}
 		case "send_email":
 		case "send_draft": return {
 			kind: "email",
@@ -4429,6 +4437,7 @@ function describeResult(name, args, output) {
 			items: titles(output.results, "subject")
 		};
 		case "read_email": return output.email?.subject ? { label: `Read ${quote(output.email.subject)}` } : {};
+		case "apply_changes": return Array.isArray(output.changes) ? { items: output.changes.map((c) => c.summary).filter(Boolean).slice(0, 50) } : {};
 	}
 	return {};
 }
@@ -9839,7 +9848,7 @@ const INTERNAL = /* @__PURE__ */ new Set([
 */
 function toolTier(name, args = {}) {
 	if (READ.has(name)) return "read";
-	if (MEMORY.has(name) || INTERNAL.has(name)) return "internal";
+	if (MEMORY.has(name) || INTERNAL.has(name) || name === "apply_changes") return "internal";
 	if (name === "create_calendar_event" && Array.isArray(args.attendees) && args.attendees.length) return "external_irreversible";
 	if (EXTERNAL_REVERSIBLE.has(name)) return "external_reversible";
 	return "external_irreversible";
@@ -10360,6 +10369,285 @@ function useToolsTool(missing) {
 		}
 	};
 }
+// src/services/agentPlan.ts
+/**
+* The assistant's working plan for a multi-step request, shown to the user as a live checklist.
+*
+* The plan is the contract for the turn: the runtime will not let the assistant end the turn with steps
+* still open. It must either do them or mark them skipped or blocked with a reason the user can read.
+* That stops the most common agent failure, quietly stopping halfway and replying as if it had finished.
+*/
+const PLAN_TOOL = {
+	type: "function",
+	function: {
+		name: "update_plan",
+		description: "Write or update your plan for a request that takes three or more steps (several changes, research then changes, a reorganization). Send the whole plan each time: every step with its status. Mark a step in_progress when you start it and done as soon as it is finished. A step you will not do is skipped or blocked, with a note saying why. Not needed for simple questions or a single change.",
+		parameters: {
+			type: "object",
+			additionalProperties: false,
+			required: ["steps"],
+			properties: { steps: {
+				type: "array",
+				minItems: 1,
+				maxItems: 12,
+				items: {
+					type: "object",
+					additionalProperties: false,
+					required: ["title", "status"],
+					properties: {
+						title: {
+							type: "string",
+							minLength: 1,
+							maxLength: 120,
+							description: "Short imperative step, e.g. \"Move overdue CS tasks to Friday\""
+						},
+						status: {
+							type: "string",
+							enum: [
+								"pending",
+								"in_progress",
+								"done",
+								"skipped",
+								"blocked"
+							]
+						},
+						note: {
+							type: "string",
+							maxLength: 240,
+							description: "Why a step was skipped or blocked, or a short result"
+						}
+					}
+				}
+			} }
+		}
+	}
+};
+const OPEN = /* @__PURE__ */ new Set(["pending", "in_progress"]);
+var TaskPlan = class {
+	items = [];
+	nudges = 0;
+	/** Replaces the plan. A step marked done earlier cannot be reopened silently: done stays done. */
+	set(steps) {
+		const clean = steps.map((s) => ({
+			title: s.title.trim().slice(0, 120),
+			status: s.status,
+			...s.note?.trim() ? { note: s.note.trim().slice(0, 240) } : {}
+		})).filter((s) => s.title);
+		if (!clean.length) throw new Error("A plan needs at least one step with a title.");
+		const titles = /* @__PURE__ */ new Set();
+		for (const step of clean) {
+			const key = step.title.toLowerCase();
+			if (titles.has(key)) throw new Error(`The plan lists "${step.title}" twice. Give each step once.`);
+			titles.add(key);
+		}
+		for (const step of clean) if ((step.status === "skipped" || step.status === "blocked") && !step.note) throw new Error(`Say why "${step.title}" is ${step.status} in its note.`);
+		this.items = clean;
+		return this.list();
+	}
+	list() {
+		return this.items.map((s) => ({ ...s }));
+	}
+	get active() {
+		return this.items.length > 0;
+	}
+	unfinished() {
+		return this.items.filter((s) => OPEN.has(s.status));
+	}
+	/**
+	* When the assistant tries to end the turn with steps still open, the instruction to finish them (or
+	* account for them). Given at most twice per turn, so a model that cannot finish still gets to reply.
+	*/
+	completionNudge() {
+		const open = this.unfinished();
+		if (!open.length || this.nudges >= 2) return null;
+		this.nudges++;
+		return `Your plan still has unfinished steps: ${open.map((s) => `"${s.title}"`).join(", ")}. Do them now with tools, or call update_plan marking each one skipped or blocked with a note saying why. Then write your reply. Do not tell the user a step is done unless a tool result confirmed it.`;
+	}
+};
+const DID = "(?:added|created|made|updated|changed|renamed|moved|rescheduled|pushed|marked|completed|checked off|deleted|removed|scheduled|saved|logged|recorded|set up|archived|organi[sz]ed|reorgani[sz]ed)";
+const CLAIMS = [
+	new RegExp(`\\bi(?:(?:'|’)ve| have)?\\s+(?:(?:also|now|just|already|went ahead and|gone ahead and)\\s+)*${DID}\\b`, "i"),
+	new RegExp(`\\b(?:has|have|was|were) (?:now |also |all )?been ${DID}\\b|\\b(?:was|were) ${DID}\\b`, "i"),
+	new RegExp(`\\b(?:all set|done|successfully)\\b[^.!?\\n]{0,80}\\b${DID}\\b`, "i")
+];
+/** Words that mean the reply is about a change waiting for approval or one the user should make, not a claim. */
+const HEDGE = /\b(approv|waiting|once you|if you|would you like|want me to|should i|shall i|can you|you can|could)\w*/i;
+/**
+* True when the reply says changes were made but nothing was saved, proposed or done this turn. The
+* assistant is then asked once to either make the change or correct the reply.
+*/
+function claimsUnbackedChange(answer, ledger) {
+	if (ledger.saved || ledger.proposed || ledger.external || ledger.memory) return false;
+	for (const sentence of answer.split(/(?<=[.!?])\s+|\n+/)) if (CLAIMS.some((claim) => claim.test(sentence)) && !HEDGE.test(sentence)) return true;
+	return false;
+}
+const UNBACKED_CHANGE_NUDGE = "Your reply says a change was made, but no change was saved, proposed or done in this turn. If the user asked for a change, make it now with the right tool. Otherwise rewrite the reply so it does not say anything was changed.";
+// src/services/batchChanges.ts
+/**
+* Many changes as one transaction: "move every overdue CS task to Friday", "mark these six done",
+* "rename the section and file these notes under it".
+*
+* Every change is checked and prepared before anything is saved, each against the state the changes
+* before it leave behind. If any one of them is invalid, none is saved and the assistant is told exactly
+* which one failed and why. A batch is saved in a single write, so it lands whole or not at all, makes one
+* undo point, and when it needs the user's approval it asks once for the whole batch.
+*/
+const BATCH_TOOL_NAME = "apply_changes";
+const CHANGE_TOOLS = new Map(MUTATION_TOOLS.map((t) => [t.function.name, t]));
+const APPLY_CHANGES_TOOL = {
+	type: "function",
+	function: {
+		name: BATCH_TOOL_NAME,
+		description: `Make several changes in one step, all or nothing: use it instead of calling change tools one at a time whenever a request needs two or more changes (up to 50). Each change names a change tool (create_task, update_task, delete_task, update_goal, create_event, …) and the exact arguments that tool takes. The changes run in order, so a later change sees the earlier ones (create a section, then put tasks in it), but a change cannot use the ID of a record created in the same batch: create it first, then change it in a later call. If any change is invalid nothing is saved, and the error says which one to fix.`,
+		parameters: {
+			type: "object",
+			additionalProperties: false,
+			required: ["changes"],
+			properties: { changes: {
+				type: "array",
+				minItems: 1,
+				maxItems: 50,
+				items: {
+					type: "object",
+					additionalProperties: false,
+					required: ["tool", "args"],
+					properties: {
+						tool: {
+							type: "string",
+							enum: [...CHANGE_TOOLS.keys()]
+						},
+						args: {
+							type: "object",
+							description: "The arguments for that tool, exactly as the tool itself takes them."
+						}
+					}
+				}
+			} }
+		}
+	}
+};
+/**
+* Reads apply_changes arguments. Each change's own arguments are checked later against that tool's schema;
+* here only the envelope is checked. Arguments a provider sent as a JSON string are accepted.
+*/
+function parseBatchArguments(raw) {
+	let value;
+	try {
+		value = JSON.parse(raw);
+	} catch {
+		throw new Error("apply_changes arguments are not valid JSON.");
+	}
+	if (!value || typeof value !== "object" || !Array.isArray(value.changes)) throw new Error("apply_changes needs a changes array.");
+	const extra = Object.keys(value).filter((k) => k !== "changes");
+	if (extra.length) throw new Error(`Unknown apply_changes argument ${extra[0]}.`);
+	return { changes: value.changes.map((change) => {
+		if (change && typeof change === "object" && typeof change.args === "string") try {
+			return {
+				...change,
+				args: JSON.parse(change.args)
+			};
+		} catch {
+			return change;
+		}
+		return change;
+	}) };
+}
+/** Thrown when a batch cannot run; lists every failing change by its position. */
+var BatchError = class extends Error {
+	failures;
+	constructor(failures) {
+		super(`Nothing was saved. Fix ${failures.length === 1 ? "this change" : "these changes"} and send the whole batch again: ${failures.map((f) => `#${f.index + 1} ${f.tool}: ${f.error}`).join(" | ")}`);
+		this.failures = failures;
+	}
+};
+const message = (error) => error instanceof Error ? error.message : String(error);
+/**
+* Validates and prepares every change in order against a working copy of the state. Throws BatchError,
+* with every failure, if any change is invalid. Nothing is saved here.
+*/
+function prepareBatch(raw, state) {
+	if (!Array.isArray(raw) || !raw.length) throw new BatchError([{
+		index: 0,
+		tool: BATCH_TOOL_NAME,
+		error: "Send at least one change."
+	}]);
+	if (raw.length > 50) throw new BatchError([{
+		index: 50,
+		tool: BATCH_TOOL_NAME,
+		error: `At most 50 changes per batch; split the rest into another call.`
+	}]);
+	const failures = [];
+	const changes = [], mutations = [];
+	let working = state;
+	raw.forEach((entry, index) => {
+		const tool = entry && typeof entry === "object" ? String(entry.tool || "") : "";
+		try {
+			const definition = CHANGE_TOOLS.get(tool);
+			if (!definition) throw new Error(tool ? `"${tool}" is not a change tool that can run in a batch.` : "Name the change tool.");
+			const given = entry.args;
+			if (!given || typeof given !== "object" || Array.isArray(given)) throw new Error("args must be an object.");
+			const args = parseToolArguments(JSON.stringify(given), definition.function.parameters);
+			const mutation = prepareMutation(tool, args, working);
+			working = applyMutation(working, mutation);
+			changes.push({
+				tool,
+				args
+			});
+			mutations.push(mutation);
+		} catch (error) {
+			failures.push({
+				index,
+				tool: tool || "?",
+				error: message(error)
+			});
+		}
+	});
+	if (failures.length) throw new BatchError(failures);
+	return {
+		changes,
+		mutations
+	};
+}
+/** JSON with object keys sorted, so records compare equal however they were stored. */
+const canonical$1 = (value) => JSON.stringify(value, (_, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
+/** Refuses a change whose target record is no longer the one that was read when it was prepared. */
+function assertUnchanged(state, mutation) {
+	if (!mutation.expected) return;
+	const current = mutationRecords(state, mutation.type).find((r) => r.id === mutation.record.id);
+	if (canonical$1(current ?? null) !== canonical$1(mutation.expected)) throw new Error("A record in this change was edited in the meantime, so nothing was saved. Ask again to work from its current version.");
+}
+/** Applies prepared changes in order, all or nothing. Each is checked against the state the ones before it left. */
+function applyBatch(state, mutations) {
+	return mutations.reduce((next, mutation) => {
+		assertUnchanged(next, mutation);
+		return applyMutation(next, mutation);
+	}, state);
+}
+/** Why the batch must wait for approval, or null. One reason covers the whole batch. */
+function batchApprovalReason(changes, ctx) {
+	const reasons = /* @__PURE__ */ new Set();
+	changes.forEach((change, i) => {
+		const reason = approvalReason(change.tool, {
+			...ctx,
+			changes: ctx.changes + i
+		}, change.args);
+		if (reason) reasons.add(reason);
+	});
+	return reasons.size ? [...reasons].join(" ") : null;
+}
+/** The approval card's summary and one line per change. */
+function describeBatch(batch) {
+	const lines = batch.mutations.map((m, i) => {
+		const { summary, details } = describeMutation(batch.changes[i].tool, m);
+		return details.length && details.length <= 2 ? `${summary} (${details.join("; ")})` : summary;
+	});
+	const deletes = batch.mutations.filter((m) => m.remove).length;
+	const n = batch.mutations.length;
+	return {
+		summary: `Apply ${n} change${n === 1 ? "" : "s"}${deletes ? `, including ${deletes} deletion${deletes === 1 ? "" : "s"}` : ""}`,
+		details: lines
+	};
+}
 // src/services/agentDispatcher.ts
 /** Cards are shown through a real tool: models call tools far more reliably than they follow a text format. */
 const SHOW_CARD = {
@@ -10428,7 +10716,16 @@ const SYNAPSE_INSTRUCTIONS = `You are Synapse, the user's thinking partner and p
 - Edits to something already discussed ("rename it", "push it to Friday", "mark that done") target the existing record with an update tool; never create a duplicate. If the target is ambiguous, ask briefly.
 - Never invent dates, folders or statuses. A tool result with saved:true confirms the change; errors do not. After saving, confirm briefly in plain language what changed.
 - Do not repeat writes that already succeeded. Report partial completion honestly.
+- Two or more changes in one request go in a single apply_changes call (in order, all or nothing) instead of one call each. If it returns an error, nothing was saved: fix the listed changes and send the whole batch again.
 - Some changes wait for the user's approval (deletions, many changes at once, or changes after reading uploaded documents or past chats). The tool then returns status "awaiting_approval": the change has NOT been made. Tell the user in one short sentence what is waiting and that they can approve or reject it below your reply. Do not call the tool again for it and do not describe it as done.
+
+## Getting multi-step work done
+- You are an agent: when the user asks for something that takes several steps, carry it through to the end in this turn. Don't stop halfway to ask permission for steps they already asked for, and don't hand them work you can do.
+- For requests with three or more steps, first call update_plan with the steps, then work through them, updating the plan as each starts and finishes. Keep plans short and concrete. Skip the plan for questions and single changes.
+- Look before you change: read the records you will change (query_records, read_records) so you use exact IDs and current values, then make the changes, ideally in one apply_changes call.
+- Check the results: a change is done only when its tool result says saved:true (or status awaiting_approval, which means it is waiting for the user). If something failed, fix it and retry once; if it still fails, mark the step blocked and say so plainly.
+- Ask a question only when a choice is genuinely the user's and you cannot make a sensible default; otherwise pick the obvious option and mention it.
+- In your reply, report what was actually done, what is waiting for approval, and anything you could not do. Never say something was done unless a tool result confirmed it.
 
 ## Visual answers
 Show interactive cards by calling show_card with the card as one JSON object. Write your reply text in the same response as the show_card calls, so the answer is finished in one step; cards appear below your text in the order you showed them. Your answers are visual first: whenever an answer has structure (the user's records, figures, a plan or schedule, options to weigh, steps to follow, a quick choice, practice), put that structure in a card and keep the text to one or two sentences of framing and your real insight: what matters, why, what to do first. Plain text alone is only for conversation, feelings, explaining ideas and one-line answers.
@@ -10683,6 +10980,8 @@ var AutonomousBrainAgent = class {
 				"search_conversations"
 			].includes(t.function.name)),
 			...external?.definitions || [],
+			PLAN_TOOL,
+			APPLY_CHANGES_TOOL,
 			SHOW_CARD
 		];
 		const areas = conversationAreas(prompt, (initialState.chatHistory || []).filter((m) => m.id !== currentMessage.id), images.length > 0);
@@ -10702,6 +11001,27 @@ var AutonomousBrainAgent = class {
 		};
 		const cards = [];
 		const approvals = [];
+		const plan = new TaskPlan();
+		let planStep;
+		let claimChecked = false;
+		const ledger = () => ({
+			saved: actions.length,
+			proposed: approvals.length,
+			external: externalDone.length,
+			memory: memoryWrites
+		});
+		const wouldFlagClaim = (answer) => !claimChecked && claimsUnbackedChange(answer, ledger());
+		/** Checks a reply before it ends the turn: open plan steps, or changes claimed that never happened. */
+		const turnCheck = (answer) => {
+			const nudge = plan.completionNudge();
+			if (nudge) return nudge;
+			if (wouldFlagClaim(answer)) {
+				claimChecked = true;
+				return UNBACKED_CHANGE_NUDGE;
+			}
+			return null;
+		};
+		const runtimeNote = (text) => `<synapse_runtime>\nA check by Synapse, not a message from the user.\n${text}\n</synapse_runtime>`;
 		let untrustedRead = false;
 		const activity = new ActivityTracker(options.onStep);
 		const finish = (answer, status = "complete") => ({
@@ -10769,6 +11089,7 @@ var AutonomousBrainAgent = class {
 		const evidence = /* @__PURE__ */ new Map();
 		const canonical = (value) => JSON.stringify(value, (_, child) => child && typeof child === "object" && !Array.isArray(child) ? Object.fromEntries(Object.entries(child).sort(([a], [b]) => a.localeCompare(b))) : child);
 		const finalize = async (reason) => {
+			if (planStep) activity.finish(planStep, { plan: plan.list() });
 			options.onProgress?.("Writing your answer…");
 			const wrapUp = activity.start("write", "Pulling together what I found");
 			let remaining = 6e4;
@@ -10783,6 +11104,8 @@ var AutonomousBrainAgent = class {
 				available.unshift(item);
 				remaining -= length;
 			}
+			const open = plan.unfinished();
+			if (open.length) reason += `. These plan steps were not finished; tell the user plainly: ${open.map((s) => s.title).join("; ")}`;
 			const completion = await queryOpenRouterWithTools([
 				...messages,
 				{
@@ -10830,9 +11153,22 @@ var AutonomousBrainAgent = class {
 				else activity.hide(thinking);
 				if (!completion.toolCalls?.length) {
 					if (!completion.content?.trim()) throw new Error("The model returned no answer. Please retry or select another model in Settings.");
+					const check = turnCheck(completion.content);
+					if (check) {
+						options.onText?.("");
+						messages.push({
+							role: "assistant",
+							content: completion.content
+						}, {
+							role: "user",
+							content: runtimeNote(check)
+						});
+						continue;
+					}
+					if (planStep) activity.finish(planStep, { plan: plan.list() });
 					return finish(completion.content);
 				}
-				if (completion.toolCalls.every((c) => c.function.name === SHOW_CARD.function.name) && completion.content?.trim() && cards.length + completion.toolCalls.length <= 2) {
+				if (completion.toolCalls.every((c) => c.function.name === SHOW_CARD.function.name) && completion.content?.trim() && cards.length + completion.toolCalls.length <= 2 && !plan.unfinished().length && !wouldFlagClaim(completion.content)) {
 					const checked = completion.toolCalls.map((c) => {
 						try {
 							return checkCard(parseToolArguments(c.function.arguments, SHOW_CARD.function.parameters).card, state);
@@ -10842,6 +11178,7 @@ var AutonomousBrainAgent = class {
 					});
 					if (checked.every((card) => card !== null)) {
 						cards.push(...checked);
+						if (planStep) activity.finish(planStep, { plan: plan.list() });
 						return finish(completion.content);
 					}
 				}
@@ -10852,7 +11189,7 @@ var AutonomousBrainAgent = class {
 					tool_calls: completion.toolCalls
 				});
 				const isReadCall = (call) => {
-					if (call.function.name === SHOW_CARD.function.name || call.function.name === "use_tools") return true;
+					if (call.function.name === SHOW_CARD.function.name || call.function.name === "use_tools" || call.function.name === PLAN_TOOL.function.name) return true;
 					if (readNames.has(call.function.name)) return true;
 					if (external && externalNames.has(call.function.name)) {
 						let preview = {};
@@ -10892,6 +11229,34 @@ var AutonomousBrainAgent = class {
 						const results = await Promise.all(batch.calls.map(async (call) => {
 							signal.throwIfAborted();
 							let output;
+							if (call.function.name === PLAN_TOOL.function.name) {
+								try {
+									const args = parseToolArguments(call.function.arguments, PLAN_TOOL.function.parameters);
+									const items = plan.set(args.steps);
+									const label = `Plan: ${items.filter((s) => s.status === "done").length} of ${items.length} done`;
+									if (planStep) activity.update(planStep, {
+										label,
+										plan: items
+									});
+									else planStep = activity.start("plan", label, { plan: items });
+									roundProgress = true;
+									const open = plan.unfinished();
+									output = {
+										saved: true,
+										open: open.map((s) => s.title),
+										next: open.length ? `Continue with "${open[0].title}".` : "Every step is accounted for. Write your reply."
+									};
+								} catch (err) {
+									output = {
+										error: errorMessage(err),
+										saved: false
+									};
+								}
+								return {
+									call,
+									output
+								};
+							}
 							let preview = {};
 							try {
 								preview = JSON.parse(call.function.arguments) || {};
@@ -11041,7 +11406,7 @@ var AutonomousBrainAgent = class {
 							if (++toolCount > 96) throw new Error("Tool budget reached. Use the evidence already retrieved to answer; no further actions were executed.");
 							const tool = findTool(call.function.name);
 							if (!tool) throw new Error("Unsupported tool");
-							const args = parseToolArguments(call.function.arguments, tool.function.parameters);
+							const args = call.function.name === "apply_changes" ? parseBatchArguments(call.function.arguments) : parseToolArguments(call.function.arguments, tool.function.parameters);
 							if (MEMORY_WRITES.includes(call.function.name)) {
 								if (!options.commitMemory) throw new Error("Memory writes are unavailable in this session.");
 								const latestMemory = options.getMemory ? options.getMemory() : state.agentMemory;
@@ -11122,6 +11487,75 @@ var AutonomousBrainAgent = class {
 										output = {
 											done: true,
 											...result.output
+										};
+									}
+									completedWrites.set(fingerprint, output);
+									roundProgress = true;
+								}
+							} else if (call.function.name === "apply_changes") {
+								const fingerprint = call.function.name + canonical(args);
+								if (completedWrites.has(fingerprint)) output = completedWrites.get(fingerprint);
+								else {
+									if (!options.commit && !options.commitBatch) throw new Error("Writes are unavailable in this session.");
+									const prepared = prepareBatch(args.changes, state);
+									const { summary, details } = describeBatch(prepared);
+									const reason = batchApprovalReason(prepared.changes, {
+										untrustedRead,
+										changes: actions.length + approvals.length,
+										askBeforeChanges: !!state.preferences?.askBeforeChanges
+									});
+									const lines = prepared.mutations.map((m, i) => ({
+										tool: prepared.changes[i].tool,
+										summary: details[i],
+										type: m.type,
+										id: m.record.id
+									}));
+									if (reason) {
+										if (!options.propose) throw new Error("These changes need the user's approval, which is not available in this session.");
+										options.onProgress?.("Asking for your approval…");
+										const request = await options.propose({
+											tool: BATCH_TOOL_NAME,
+											args: { changes: prepared.changes },
+											mutations: prepared.mutations,
+											summary,
+											details,
+											reason
+										});
+										approvals.push(request);
+										output = {
+											status: "awaiting_approval",
+											saved: false,
+											approvalId: request.id,
+											summary,
+											reason,
+											changes: lines
+										};
+									} else {
+										options.onProgress?.(`Saving ${prepared.mutations.length} change${prepared.mutations.length === 1 ? "" : "s"}…`);
+										signal.throwIfAborted();
+										if (options.commitBatch) await options.commitBatch(prepared.mutations);
+										else for (const mutation of prepared.mutations) await options.commit(mutation);
+										for (const mutation of prepared.mutations) {
+											state = applyMutation(state, mutation);
+											actions.push(mutation);
+											if (!mutation.remove && ![
+												"workspace",
+												"folder",
+												"section"
+											].includes(mutation.type)) sources.set(`${mutation.type}:${mutation.record.id}:0`, {
+												id: mutation.record.id,
+												type: mutation.type,
+												title: recordTitle$1(mutation.record, "Note"),
+												snippet: "Saved during this conversation"
+											});
+										}
+										readCache.clear();
+										inFlightReads.clear();
+										stateRevision++;
+										output = {
+											saved: true,
+											count: prepared.mutations.length,
+											changes: lines
 										};
 									}
 									completedWrites.set(fingerprint, output);
@@ -11613,7 +12047,7 @@ async function runServerAgent(store, key, input, emit, signal, externalTools, we
 				payload: {
 					tool: change.tool,
 					args: change.args,
-					expected: change.mutation?.expected ?? null,
+					expected: change.mutations ? change.mutations.map((m) => m.expected ?? null) : change.mutation?.expected ?? null,
 					details: change.details,
 					...input.timeZone ? { timeZone: input.timeZone } : {},
 					...change.preview ? { preview: change.preview } : {},
@@ -11643,6 +12077,22 @@ async function runServerAgent(store, key, input, emit, signal, externalTools, we
 				agentMemory: memory
 			}, "memory", "memory", change.kind === "remember" ? change.entry.topic : "Memory");
 			return memory;
+		},
+		commitBatch: async (mutations) => {
+			const next = applyBatch(stored, mutations);
+			const n = mutations.length;
+			await persist(next, n === 1 ? mutations[0].action : "apply_changes", mutations[0].type, n === 1 ? recordTitle(mutations[0]) : `${n} changes`);
+			for (const mutation of mutations) await store.appendAudit({
+				actor: "assistant",
+				action: mutation.action,
+				entityType: mutation.type,
+				entityId: mutation.record.id,
+				title: recordTitle(mutation),
+				metadata: {
+					conversationId: input.conversationId ?? null,
+					batch: true
+				}
+			});
 		},
 		commit: async (mutation) => {
 			if (mutation.expected) {
@@ -11737,6 +12187,35 @@ async function executeApproved(deps, store, id) {
 			};
 		}
 		const { engine, workspace } = await loadWorkspace(store);
+		if (tool === "apply_changes") {
+			const { mutations } = prepareBatch(payload.args?.changes, workspace);
+			const expected = Array.isArray(payload.expected) ? payload.expected : [];
+			if (expected.length !== mutations.length || mutations.some((m, i) => canonical(m.expected ?? null) !== canonical(expected[i] ?? null))) throw new Error("Some of these records changed after the changes were proposed, so none were applied. Ask again to work from their current versions.");
+			const saved = await saveWorkspace(engine, mutations.reduce(applyMutation, workspace));
+			await store.completeAction(id, true, {
+				type: BATCH_TOOL_NAME,
+				count: mutations.length
+			});
+			for (const m of mutations) await store.appendAudit({
+				actor: "assistant",
+				action: m.action,
+				entityType: m.type,
+				entityId: m.record.id,
+				title: recordTitle$1(m.record, "Note"),
+				actionId: id,
+				metadata: {
+					approved: true,
+					batch: true
+				}
+			});
+			return {
+				status: "executed",
+				...saved,
+				action: BATCH_TOOL_NAME,
+				entityType: mutations[0].type,
+				title: action.summary
+			};
+		}
 		const mutation = prepareMutation(tool, payload.args || {}, workspace);
 		if (canonical(mutation.expected ?? null) !== canonical(payload.expected ?? null)) throw new Error("The record changed after this was proposed, so it was not applied. Ask again to work from its current version.");
 		const saved = await saveWorkspace(engine, applyMutation(workspace, mutation));

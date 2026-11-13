@@ -27,7 +27,8 @@ export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
  */
 export function toolTier(name: string, args: Record<string, unknown> = {}): ToolTier {
   if (READ.has(name)) return "read";
-  if (MEMORY.has(name) || INTERNAL.has(name)) return "internal";
+  // A batch of the user's own changes (apply_changes); each change in it is checked on its own.
+  if (MEMORY.has(name) || INTERNAL.has(name) || name === "apply_changes") return "internal";
   if (name === "create_calendar_event" && Array.isArray(args.attendees) && args.attendees.length) return "external_irreversible";
   if (EXTERNAL_REVERSIBLE.has(name)) return "external_reversible";
   return "external_irreversible";

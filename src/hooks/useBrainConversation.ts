@@ -10,6 +10,7 @@ import {
 } from "../services/agentDispatcher";
 import { applyMutation, mutationRecords, recordTitle, type Mutation } from "../services/brainTools";
 import { describeMutation } from "../services/actionPolicy";
+import { applyBatch } from "../services/batchChanges";
 import { prepareCardChanges, prepareChecklistTasks, type CardChange } from "../services/irisCards";
 import type { IrisCardState, IrisUiSpec } from "../utils/irisUi";
 import { persistBrainState } from "../services/storage";
@@ -348,7 +349,35 @@ export function useBrainConversation(
           },
           // In-browser turns keep the prepared change with the reply until the user decides.
           propose: async (change) => ({ id: crypto.randomUUID(), tool: change.tool, summary: change.summary, details: change.details,
-            reason: change.reason, status: "pending", remote: false, mutation: change.mutation }),
+            reason: change.reason, status: "pending", remote: false, mutation: change.mutations ?? change.mutation }),
+          // A batch is one write: every change lands or none does, with one undo point.
+          commitBatch: async (mutations) => {
+            signal.throwIfAborted();
+            const before = latest.current;
+            if (!before || !isCurrent()) throw new Error("Account changed; action stopped.");
+            const audits = mutations.map(mutation => ({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: timestamp(),
+              action: mutation.action, entityType: mutation.type, entityTitle: recordTitle(mutation.record, "Note"), canUndo: true })).reverse(); // Newest first.
+            const apply = (base: BrainState) => {
+              const next = applyBatch(base, mutations);
+              return { ...next, auditLog: [...audits, ...(base.auditLog || [])].slice(0, 100) };
+            };
+            await persistBrainState(
+              () => {
+                const current = latest.current;
+                if (!current || !isCurrent()) throw new Error("Account changed; action stopped.");
+                return apply(current);
+              },
+              initial.userId,
+              saved => {
+                if (!isCurrent()) return;
+                onBeforeMutation(before);
+                // Keep anything edited while saving; if that edit touched these records, show what was saved.
+                let shown = saved;
+                try { shown = apply(latest.current!); } catch { /* Saved state is still correct. */ }
+                publish(shown);
+              },
+            );
+          },
           commit: async (mutation) => {
             signal.throwIfAborted();
             const before = latest.current;
@@ -539,6 +568,21 @@ export function useBrainConversation(
       return;
     }
     if (decision === "reject") { setApproval(messageId, approvalId, { status: "rejected" }); return; }
+    if (Array.isArray(approval.mutation)) {
+      // A batch: every change is re-checked against the state the ones before it leave, then applied together.
+      const mutations = approval.mutation as Mutation[];
+      let next: BrainState;
+      try { next = applyBatch(current, mutations); } catch (error) {
+        setApproval(messageId, approvalId, { status: "failed", error: error instanceof Error ? error.message : "These changes could not be applied." });
+        return;
+      }
+      onBeforeMutation(current);
+      const audits = mutations.map(mutation => ({ id: crypto.randomUUID(), timestamp: new Date().toISOString(), timeString: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        action: mutation.action, entityType: mutation.type, entityTitle: recordTitle(mutation.record, "Note"), canUndo: true })).reverse();
+      publish({ ...next, auditLog: [...audits, ...(current.auditLog || [])].slice(0, 100) });
+      setApproval(messageId, approvalId, { status: "executed", mutation: undefined });
+      return;
+    }
     const mutation = approval.mutation as Mutation | undefined;
     const target = mutation && mutationRecords(current, mutation.type).find(r => r.id === mutation.record.id);
     if (!mutation || JSON.stringify(target ?? null) !== JSON.stringify(mutation.expected ?? null)) {

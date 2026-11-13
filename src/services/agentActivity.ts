@@ -61,7 +61,7 @@ const VERBS: Record<string, string> = { create: "Adding", update: "Updating", de
   set: "Setting", record: "Recording", remember: "Remembering", forget: "Forgetting" };
 const PAST: Record<string, string> = { Adding: "Added", Updating: "Updated", Deleting: "Deleted", Logging: "Logged", "Checking off": "Checked off", Renaming: "Renamed",
   Setting: "Set", Recording: "Recorded", Remembering: "Remembered", Forgetting: "Forgot", Searching: "Searched", Reading: "Read", "Looking through": "Looked through",
-  Checking: "Checked", Drafting: "Drafted", Rereading: "Reread" };
+  Checking: "Checked", Drafting: "Drafted", Rereading: "Reread", Making: "Made" };
 /** "Searching the web for …" → "Searched the web for …", for a finished step. */
 export const pastTense = (label: string) => {
   const word = Object.keys(PAST).find(w => label.startsWith(`${w} `));
@@ -91,6 +91,7 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
     case "create_email_draft": return { kind: "email", label: "Drafting an email" };
     case "show_card": return { kind: "records", label: "Preparing a card" };
     case "use_tools": return { kind: "prepare", label: "Getting ready" };
+    case "apply_changes": { const n = Array.isArray(args.changes) ? args.changes.length : 0; return { kind: "change", label: `Making ${n > 1 ? `${n} changes` : "a change"} together` }; }
     case "send_email": case "send_draft": return { kind: "email", label: "Preparing an email to send" };
   }
   const [verb, ...rest] = name.split("_");
@@ -118,6 +119,7 @@ export function describeResult(name: string, args: Record<string, any>, output: 
     case "list_calendar_events": return { detail: count(output.events?.length ?? 0, "event", "events"), items: titles(output.events) };
     case "search_email": return { detail: count(output.results?.length ?? 0, "email", "emails"), items: titles(output.results, "subject") };
     case "read_email": return output.email?.subject ? { label: `Read ${quote(output.email.subject)}` } : {};
+    case "apply_changes": return Array.isArray(output.changes) ? { items: output.changes.map((c: any) => c.summary).filter(Boolean).slice(0, 50) } : {};
   }
   return {};
 }

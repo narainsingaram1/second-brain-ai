@@ -348,7 +348,10 @@ export interface ImageAttachment {
 }
 
 /** One thing the assistant did while working on a reply, shown live and kept with the reply. */
-export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write";
+export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write" | "plan";
+export type AgentPlanStatus = "pending" | "in_progress" | "done" | "skipped" | "blocked";
+/** One step of the assistant's plan for a multi-step request. */
+export interface AgentPlanItem { title: string; status: AgentPlanStatus; note?: string }
 export interface AgentStep {
   id: string;
   kind: AgentStepKind;
@@ -363,6 +366,8 @@ export interface AgentStep {
   endedAt?: number;
   /** Superseded steps (e.g. a thinking pass that produced nothing to show). */
   hidden?: boolean;
+  /** A "plan" step: the assistant's current plan, replaced each time it is updated. */
+  plan?: AgentPlanItem[];
 }
 
 /** A change the assistant successfully executed and saved in the user's workspace during this turn. */
