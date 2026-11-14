@@ -42,6 +42,9 @@
     },
     "api/notifications.js": {
       "maxDuration": 120
+    },
+    "api/routines.js": {
+      "maxDuration": 300
     }
   }
 }

@@ -322,3 +322,24 @@ button.events-title:hover { color: var(--workspace-accent); }
 /* Read-only events from the connected Google Calendar */
 .google-event-chip { color: var(--workspace-ink, #171717); background: transparent; border: 1px dashed var(--workspace-line-strong, #dcdcdf); border-left: 2px solid #4285f4; text-decoration: none; }
 .google-event-chip:hover { background: var(--workspace-raised, #f4f4f5); }
+
+/* Routines */
+.routines-note { display: flex; align-items: flex-start; gap: 8px; margin: 20px 0 0; padding: 12px 14px; border: 1px solid var(--workspace-line); border-radius: 10px; color: var(--workspace-secondary); font-size: 12px; line-height: 1.5; }
+.routines-note > svg { flex-shrink: 0; margin-top: 2px; }
+.routines-error { color: var(--workspace-danger); border-color: var(--workspace-danger); }
+.routines-list, .routines-page .events-empty { margin-top: 24px; }
+.routines-row.is-paused .events-title, .routines-row.is-paused .events-notes { opacity: 0.55; }
+.routines-heading { margin: 36px 0 12px; color: var(--workspace-ink); font-size: 14px; font-weight: 550; }
+.routines-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.routines-heading-row .routines-heading { margin-bottom: 12px; }
+.routines-templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.routines-template { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; text-align: left; border: 1px solid var(--workspace-line); border-radius: 12px; background: var(--workspace-panel); transition: border-color 0.15s; }
+.routines-template:hover:not(:disabled) { border-color: var(--workspace-accent); }
+.routines-template:disabled { opacity: 0.5; cursor: default; }
+.routines-template strong { color: var(--workspace-ink); font-size: 13px; font-weight: 550; }
+.routines-template span { color: var(--workspace-muted); font-size: 12px; line-height: 1.45; }
+.routines-run.is-failed .events-kind-label { color: var(--workspace-danger); }
+.routines-run .events-notes.is-expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }
+@media (max-width: 720px) {
+  .routines-row, .routines-run { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+}

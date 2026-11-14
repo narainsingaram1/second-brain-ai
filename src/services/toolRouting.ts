@@ -16,6 +16,7 @@ export const TOOL_AREAS = {
   health: ["health_summary", "log_health_day", "update_health_day", "delete_health_day", "update_health_profile"],
   organize: ["create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section",
     "rename_subsection", "delete_subsection", "create_note_folder", "update_note_folder", "delete_note_folder"],
+  routines: ["create_routine", "update_routine", "delete_routine"],
 } as const;
 export type ToolArea = keyof typeof TOOL_AREAS;
 export const AREA_NAMES = Object.keys(TOOL_AREAS) as ToolArea[];
@@ -29,11 +30,12 @@ const AREA_WORDS: Record<ToolArea, RegExp> = {
   study: /\b(courses?|class(es)?|lectures?|syllabus|exams?|midterms?|finals?|quiz(zes)?|flash ?cards?|decks?|study|studying|grades?|grading|gpa|homework|hw|professor|prof|semester|scored?|got \d+)\b/i,
   health: /\b(sleep|slept|asleep|naps?|steps|workouts?|exercis\w*|running|ran|gym|lift\w*|heart rate|hrv|resting hr|recovery|recovered|weigh\w*|health|tired|exhausted|vo2|calories|apple (watch|health)|training|strain)\b/i,
   organize: /\b(workspaces?|sections?|subsections?|folders?|rename|reorgani[sz]e|organi[sz]e|categor(y|ies))\b/i,
+  routines: /\b(routines?|automat\w*|recurring|daily|weekly|monthly|every (day|morning|evening|night|week|month|weekday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (day|morning|week)|on a schedule|schedule[ds]? (it|this)|remind me every)\b/i,
 };
 /** A course code such as "CS 2110" or "MATH1552". Case matters, so "in 2026" is not one. */
 const COURSE_CODE = /\b[A-Z]{2,4} ?\d{3,4}\b/;
 /** Record types whose earlier mention in the conversation means its area is in play ("mark it rejected"). */
-const AREA_OF_RECORD: Record<string, ToolArea> = { tracker: "career", course: "study", document: "study", deck: "study", quiz: "study", health: "health", workspace: "organize", folder: "organize", section: "organize" };
+const AREA_OF_RECORD: Record<string, ToolArea> = { tracker: "career", course: "study", document: "study", deck: "study", quiz: "study", health: "health", workspace: "organize", folder: "organize", section: "organize", routine: "routines" };
 
 /** Areas the conversation so far, plus the newest message, is about. Images may hold anything, so they open every area. */
 export function conversationAreas(prompt: string, history: AIMessage[], hasImages = false): Set<ToolArea> {
@@ -59,6 +61,7 @@ const AREA_LABELS: Record<ToolArea, string> = {
   study: "study: courses, grading and grades, flashcard decks, quizzes",
   health: "health: the health summary, logging and correcting health days, health targets",
   organize: "organize: workspaces, task sections and subsections, note folders",
+  routines: "routines: work you do on your own on a schedule (create, change, pause, delete)",
 };
 
 /** Lets the model add an area it needs that the conversation did not mention in words. */

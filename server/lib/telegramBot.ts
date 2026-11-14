@@ -110,7 +110,7 @@ async function deliver(telegram: TelegramClient, store: ServerStore, chatId: num
 
 const approvalText = (a: ApprovalRequest) => [a.summary, ...a.details, ...(a.preview ? [a.preview.slice(0, 1500)] : []), ...(a.warnings || []).map(w => `Check: ${w}`)].join("\n");
 
-async function askApproval(telegram: TelegramClient, store: ServerStore, chatId: number, approval: ApprovalRequest) {
+export async function askApproval(telegram: TelegramClient, store: ServerStore, chatId: number, approval: ApprovalRequest) {
   const action = await store.getAction(approval.id);
   // Email and invitations can't be taken back, so they keep the app's full review and undo window.
   if (action?.tier === "external_irreversible") return telegram.send(chatId, `${approval.summary}\n\nThis one goes out to other people, so review and approve it in Synapse.`);

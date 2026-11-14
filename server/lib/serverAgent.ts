@@ -44,6 +44,14 @@ export interface AgentRequest {
   channelNote?: string;
   /** The user's AI provider address, validated by the route; OpenRouter's default when absent. */
   providerBase?: string;
+  /** Every change this turn waits for approval, whatever the user's setting (a routine in suggest mode). */
+  askBeforeChanges?: boolean;
+  /** Tools this turn may not use. */
+  excludeTools?: string[];
+  /** Learn memories from the exchange afterwards (default true). Off for routines: the request is not the user's own words. */
+  learn?: boolean;
+  /** Limits for the turn, when they differ from a conversation's. */
+  budget?: { steps?: number; tools?: number; timeMs?: number };
 }
 
 const SAVED_THREAD_CONTEXT = 40;
@@ -84,6 +92,8 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     openRouterKey: key,
     selectedModel: input.model || stored.selectedModel || "",
     theme: stored.theme || "light",
+    // Only the agent's working copy: saves go through `stored`, so this never changes the user's setting.
+    ...(input.askBeforeChanges ? { preferences: { ...stored.preferences, askBeforeChanges: true } } : {}),
   };
 
   const persist = async (next: BrainState, action: string, entityType: Mutation["type"] | "memory", title: string) => {
@@ -101,6 +111,8 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     timeZone: input.timeZone,
     channelNote: input.channelNote,
     providerBase: input.providerBase,
+    excludeTools: input.excludeTools,
+    budget: input.budget,
     externalTools: combineToolsets(web ? webToolset(web, key, state.selectedModel, input.providerBase) : undefined, externalTools),
     retrieval: {
       documentText: id => texts.get(id),
@@ -157,6 +169,7 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     const reply: AIMessage = { id: crypto.randomUUID(), role: "assistant", content: outcome.queryAnswer, timestamp: new Date().toISOString(), ...(outcome.approvals?.length ? { approvals: outcome.approvals } : {}) };
     const updated = { id: thread.id, title: thread.title, messages: [...(existing?.messages || []), input.message, reply].slice(-SAVED_THREAD_LIMIT), updatedAt: new Date().toISOString() };
     await persist({ ...stored, conversations: [updated, ...(stored.conversations || []).filter(t => t.id !== thread.id)] }, "conversation", "memory", thread.title);
+    if (input.learn === false) return;
     const changes = await learnFromTurn({ ...stored, agentMemory: normalizeAgentMemory(stored.agentMemory), openRouterKey: key, conversationId: thread.id, chatHistory: [] }, input.message, outcome.queryAnswer, signal, input.providerBase);
     if (changes.length) await persist({ ...stored, agentMemory: applyMemoryChange(normalizeAgentMemory(stored.agentMemory), { kind: "batch", changes }) }, "memory", "memory", "Memory");
   }

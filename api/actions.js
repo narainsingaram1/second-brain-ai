@@ -1124,6 +1124,44 @@ function readTrackerFields(kind, args) {
 	}
 	return out;
 }
+// src/utils/routines.ts
+/**
+* When routines run, and whether a run is worth its AI usage. Pure: the scheduler, the app and the tests share it.
+*
+* The scheduler wakes every 15 minutes. A routine is due from its time until CATCH_UP_MINUTES later, so a late or
+* missed wake still runs it, while a routine created in the afternoon for 8:00 waits for tomorrow. Each run has a
+* slot (its local date), and a slot runs at most once.
+*/
+const ROUTINE_FREQUENCIES = [
+	"daily",
+	"weekdays",
+	"weekly",
+	"monthly"
+];
+const ROUTINE_CONDITIONS = [
+	"always",
+	"overdue_tasks",
+	"due_today",
+	"due_soon",
+	"events_today"
+];
+const ROUTINE_INSTRUCTIONS_MAX = 4e3;
+function isTimeZone(zone) {
+	if (typeof zone !== "string" || !zone) return false;
+	try {
+		new Intl.DateTimeFormat("en-US", { timeZone: zone });
+		return true;
+	} catch {
+		return false;
+	}
+}
+const defaultTimeZone = () => {
+	try {
+		return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+	} catch {
+		return "UTC";
+	}
+};
 // src/utils/taskState.ts
 /**
 * Normalizes a Task to ensure a single, consistent source of truth.
@@ -1861,7 +1899,107 @@ const MANAGE_TOOLS = [
 			description: "Question numbers to remove."
 		}
 	}, ["quizId"]),
-	fn$4("delete_quiz", "Delete a practice quiz and its attempts. Only when the user explicitly asks.", { quizId: s_ }, ["quizId"])
+	fn$4("delete_quiz", "Delete a practice quiz and its attempts. Only when the user explicitly asks.", { quizId: s_ }, ["quizId"]),
+	fn$4("create_routine", "Set up a routine: work you do on your own on a schedule, such as \"every weekday at 8am plan my day\" or \"Sundays at 6pm review my week and move unfinished tasks\". Use when the user asks for something to happen regularly or automatically. Each run's report lands in the routine's own chat and, if they connected Telegram, there too.", {
+		name: d_("Short name, e.g. \"Morning plan\"."),
+		instructions: d_("What to do each run, specific and in the user's words: what to look at, what to change, what to report."),
+		frequency: {
+			type: "string",
+			enum: [
+				"daily",
+				"weekdays",
+				"weekly",
+				"monthly"
+			]
+		},
+		time: d_("24-hour HH:MM local time to run."),
+		days: {
+			type: "array",
+			items: {
+				type: "integer",
+				minimum: 0
+			},
+			maxItems: 7,
+			description: "Weekly only: days of the week, 0 = Sunday … 6 = Saturday."
+		},
+		dayOfMonth: {
+			type: "integer",
+			minimum: 1,
+			description: "Monthly only: 1 to 31 (the last day in shorter months)."
+		},
+		onlyIf: {
+			type: "string",
+			enum: [
+				"always",
+				"overdue_tasks",
+				"due_today",
+				"due_soon",
+				"events_today"
+			],
+			description: "Skip runs unless this holds, so quiet days cost nothing. Default always."
+		},
+		mode: {
+			type: "string",
+			enum: ["act", "suggest"],
+			description: "act (default): save changes directly; deletions still wait for approval. suggest: every change waits for the user's approval."
+		},
+		notify: {
+			type: "boolean",
+			description: "Also send the report to Telegram when connected. Default true."
+		},
+		timeZone: d_("The user's IANA time zone from the context, e.g. America/New_York.")
+	}, [
+		"name",
+		"instructions",
+		"frequency",
+		"time"
+	]),
+	fn$4("update_routine", "Change a routine: rename it, change what it does or when, pause it (enabled false) or resume it. Preserves unspecified fields.", {
+		routineId: s_,
+		newName: s_,
+		newInstructions: s_,
+		frequency: {
+			type: "string",
+			enum: [
+				"daily",
+				"weekdays",
+				"weekly",
+				"monthly"
+			]
+		},
+		time: d_("24-hour HH:MM"),
+		days: {
+			type: "array",
+			items: {
+				type: "integer",
+				minimum: 0
+			},
+			maxItems: 7,
+			description: "0 = Sunday … 6 = Saturday."
+		},
+		dayOfMonth: {
+			type: "integer",
+			minimum: 1
+		},
+		onlyIf: {
+			type: "string",
+			enum: [
+				"always",
+				"overdue_tasks",
+				"due_today",
+				"due_soon",
+				"events_today"
+			]
+		},
+		mode: {
+			type: "string",
+			enum: ["act", "suggest"]
+		},
+		notify: { type: "boolean" },
+		enabled: { type: "boolean" },
+		timeZone: d_("IANA time zone.")
+	}, ["routineId"]),
+	fn$4("delete_routine", "Delete a routine. Its past reports stay in its chat. Only when the user explicitly asks; to stop it for a while, pause it with update_routine.", { routineId: s_ }, ["routineId"])
 ];
 const MUTATION_TOOLS = [
 	{
@@ -2452,6 +2590,13 @@ function applyMutation(state, mutation) {
 			workspaces: upsert(state.workspaces || [], workspace)
 		};
 	}
+	if (mutation.type === "routine") {
+		const routines = state.routines || [];
+		return {
+			...state,
+			routines: mutation.remove ? routines.filter((r) => r.id !== mutation.record.id) : upsert(routines, mutation.record)
+		};
+	}
 	if (mutation.type === "folder") {
 		const folder = mutation.record;
 		if (!mutation.remove) return {
@@ -2546,6 +2691,54 @@ function careerWorkspace(state, id) {
 /** Uploaded files are stored apart from records, so deleting them is left to the app, which removes both. */
 function noUploadedDocuments(count, what) {
 	if (count) throw new Error(`This ${what} has ${count} uploaded document${count === 1 ? "" : "s"}. Delete it from the app so the files are removed too, or delete the documents there first.`);
+}
+/** Applies and checks the schedule fields a routine tool supplied; fields left out keep their values. */
+function routineFields(base, args) {
+	const r = { ...base };
+	if (args.name !== void 0) r.name = groupName(args.name, "Routine");
+	if (args.instructions !== void 0) {
+		const text = String(args.instructions).trim();
+		if (!text) throw new Error("Say what the routine should do.");
+		if (text.length > 4e3) throw new Error(`Instructions can be at most ${ROUTINE_INSTRUCTIONS_MAX} characters.`);
+		r.instructions = text;
+	}
+	if (args.frequency !== void 0) {
+		if (!ROUTINE_FREQUENCIES.includes(args.frequency)) throw new Error("frequency must be daily, weekdays, weekly or monthly.");
+		r.frequency = args.frequency;
+	}
+	if (args.time !== void 0) {
+		if (!isValidTime(args.time)) throw new Error("time must be 24-hour HH:MM.");
+		r.time = args.time;
+	}
+	if (args.days !== void 0) {
+		const days = [...new Set(args.days.map(Number))].sort();
+		if (days.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) throw new Error("days are 0 (Sunday) to 6 (Saturday).");
+		r.days = days;
+	}
+	if (args.dayOfMonth !== void 0) {
+		if (!Number.isInteger(args.dayOfMonth) || args.dayOfMonth < 1 || args.dayOfMonth > 31) throw new Error("dayOfMonth must be 1 to 31.");
+		r.dayOfMonth = args.dayOfMonth;
+	}
+	if (args.onlyIf !== void 0) {
+		if (!ROUTINE_CONDITIONS.includes(args.onlyIf)) throw new Error("Unsupported onlyIf condition.");
+		r.onlyIf = args.onlyIf;
+	}
+	if (args.mode !== void 0) {
+		if (args.mode !== "act" && args.mode !== "suggest") throw new Error("mode must be act or suggest.");
+		r.mode = args.mode;
+	}
+	if (args.notify !== void 0) r.notify = !!args.notify;
+	if (args.enabled !== void 0) r.enabled = !!args.enabled;
+	if (args.timeZone !== void 0) {
+		if (!isTimeZone(args.timeZone)) throw new Error("Unknown time zone. Use an IANA name like America/New_York.");
+		r.timeZone = args.timeZone;
+	}
+	if (!r.name || !r.instructions || !r.frequency || !r.time) throw new Error("A routine needs a name, instructions, frequency and time.");
+	if (r.frequency === "weekly" && !r.days?.length) throw new Error("Weekly routines need days (0 = Sunday … 6 = Saturday).");
+	if (r.frequency === "monthly" && !r.dayOfMonth) throw new Error("Monthly routines need dayOfMonth.");
+	if (r.frequency !== "weekly") delete r.days;
+	if (r.frequency !== "monthly") delete r.dayOfMonth;
+	return r;
 }
 function prepareMutation(name, args, state) {
 	const today = getLocalDateString();
@@ -3401,6 +3594,60 @@ function prepareMutation(name, args, state) {
 				}
 			};
 		}
+		case "create_routine": {
+			if ((state.routines || []).length >= 20) throw new Error(`At most 20 routines. Pause or delete one first.`);
+			const now = (/* @__PURE__ */ new Date()).toISOString();
+			const routine = routineFields({
+				id,
+				enabled: true,
+				onlyIf: "always",
+				mode: "act",
+				notify: true,
+				timeZone: defaultTimeZone(),
+				createdAt: now,
+				updatedAt: now
+			}, {
+				...args,
+				name: args.name,
+				instructions: args.instructions
+			});
+			if ((state.routines || []).some((r) => sameName(r.name, routine.name))) throw new Error("A routine with this name already exists. Update it instead.");
+			return {
+				type: "routine",
+				action: name,
+				record: routine
+			};
+		}
+		case "update_routine": {
+			const r = findIn(state.routines, args.routineId, "Routine");
+			const { routineId: _, newName, newInstructions, ...rest } = args;
+			if (newName === void 0 && newInstructions === void 0 && !Object.keys(rest).length) throw new Error("Supply at least one field to change.");
+			const next = routineFields({ ...r }, {
+				...rest,
+				name: newName,
+				instructions: newInstructions
+			});
+			if (newName && (state.routines || []).some((x) => x.id !== r.id && sameName(x.name, next.name))) throw new Error("Another routine already has this name.");
+			return {
+				type: "routine",
+				action: name,
+				expected: r,
+				record: {
+					...next,
+					updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+				}
+			};
+		}
+		case "delete_routine": {
+			const r = findIn(state.routines, args.routineId, "Routine");
+			return {
+				type: "routine",
+				action: name,
+				expected: r,
+				record: r,
+				remove: true
+			};
+		}
 		case "delete_note_folder": {
 			const f = findIn(state.noteFolders, args.folderId, "Folder");
 			return {
@@ -3707,7 +3954,10 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"log_health_day",
 	"update_health_day",
 	"delete_health_day",
-	"update_health_profile"
+	"update_health_profile",
+	"create_routine",
+	"update_routine",
+	"delete_routine"
 ]);
 /**
 * Unknown tools are treated as the riskiest tier, so a new integration is gated until it is classified.
@@ -3958,6 +4208,7 @@ const RECORD_COLLECTIONS = [
 	"workspaces",
 	"healthDays",
 	"noteFolders",
+	"routines",
 	"conversations",
 	"study.courses",
 	"study.folders",
@@ -4477,6 +4728,17 @@ function rpcError(error, fallback) {
 	if (error?.code === "22023" || error?.code === "23514") throw new HttpError(400, fallback);
 	throw new HttpError(502, fallback);
 }
+const routineRun = (r) => ({
+	id: r.id,
+	routineId: r.routine_id,
+	slot: r.slot,
+	status: r.status,
+	summary: r.summary ?? null,
+	changes: Number(r.changes) || 0,
+	approvals: Number(r.approvals) || 0,
+	startedAt: new Date(r.started_at).toISOString(),
+	finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null
+});
 function supabaseStore(userId, client) {
 	return {
 		userId,
@@ -4674,6 +4936,41 @@ function supabaseStore(userId, client) {
 			const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
 			if (error) rpcError(error, "Could not turn off health sync.");
 		},
+		async claimRoutineRun(routineId, slot) {
+			const { data, error } = await client.from("routine_runs").upsert({
+				user_id: userId,
+				routine_id: routineId,
+				slot
+			}, {
+				onConflict: "user_id,routine_id,slot",
+				ignoreDuplicates: true
+			}).select("id");
+			if (error) rpcError(error, "Could not start the routine.");
+			return data?.[0]?.id ?? null;
+		},
+		async finishRoutineRun(id, outcome) {
+			const { error } = await client.from("routine_runs").update({
+				status: outcome.status,
+				summary: outcome.summary.slice(0, 4e3),
+				changes: outcome.changes ?? 0,
+				approvals: outcome.approvals ?? 0,
+				finished_at: (/* @__PURE__ */ new Date()).toISOString()
+			}).eq("id", id).eq("user_id", userId);
+			if (error) rpcError(error, "Could not record the routine run.");
+		},
+		async listRoutineRuns(limit) {
+			const { data, error } = await client.from("routine_runs").select("*").eq("user_id", userId).order("started_at", { ascending: false }).limit(limit);
+			if (error) rpcError(error, "Could not load routine runs.");
+			return (data || []).map(routineRun);
+		},
+		async countRoutineRuns(sinceIso) {
+			const { count, error } = await client.from("routine_runs").select("id", {
+				count: "exact",
+				head: true
+			}).eq("user_id", userId).neq("status", "skipped").gte("started_at", sinceIso);
+			if (error) rpcError(error, "Could not check recent routine runs.");
+			return count || 0;
+		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
 			for (let i = 0; i < ids.length; i += 50) {
@@ -4797,6 +5094,27 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 				last_sync_days: days,
 				last_sync_source: source.slice(0, 80)
 			}).eq("user_id", userId), "record the sync");
+		},
+		async routineOwners() {
+			const { data } = check(await admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false), "list routines");
+			const byUser = /* @__PURE__ */ new Map();
+			for (const row of data || []) {
+				const routine = row.data;
+				if (!routine?.enabled) continue;
+				byUser.set(row.user_id, [...byUser.get(row.user_id) || [], routine]);
+			}
+			if (!byUser.size) return [];
+			const chats = /* @__PURE__ */ new Map();
+			const users = [...byUser.keys()];
+			for (let i = 0; i < users.length; i += 100) {
+				const { data: linked } = check(await links().select("user_id,chat_id").in("user_id", users.slice(i, i + 100)).not("chat_id", "is", null), "read chat links");
+				for (const r of linked || []) chats.set(r.user_id, Number(r.chat_id));
+			}
+			return users.map((userId) => ({
+				userId,
+				routines: byUser.get(userId),
+				chatId: chats.get(userId) ?? null
+			}));
 		},
 		async session(userId) {
 			const found = await admin.auth.admin.getUserById(userId);
@@ -5133,6 +5451,11 @@ const TOOL_AREAS = {
 		"create_note_folder",
 		"update_note_folder",
 		"delete_note_folder"
+	],
+	routines: [
+		"create_routine",
+		"update_routine",
+		"delete_routine"
 	]
 };
 const AREA_NAMES = Object.keys(TOOL_AREAS);

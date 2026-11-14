@@ -488,7 +488,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workspace' | 'folder';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workspace' | 'folder' | 'routine';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -525,8 +525,40 @@ export interface CalendarEvent {
   updatedAt: string;
 }
 
+export type RoutineFrequency = 'daily' | 'weekdays' | 'weekly' | 'monthly';
+/** A cheap rule over the user's records that must hold before a routine spends any AI usage. */
+export type RoutineCondition = 'always' | 'overdue_tasks' | 'due_today' | 'due_soon' | 'events_today';
+/**
+ * Work the assistant does on its own on a schedule, such as planning the morning or reviewing the week.
+ * Each run is one assistant turn on the server; what it did lands in the routine's own conversation.
+ */
+export interface Routine {
+  id: string;
+  name: string;
+  /** What to do each run, in the user's words. */
+  instructions: string;
+  frequency: RoutineFrequency;
+  /** 24-hour HH:MM local time. */
+  time: string;
+  /** Weekly: days of the week, 0 = Sunday. */
+  days?: number[];
+  /** Monthly: day of the month (the last day in shorter months). */
+  dayOfMonth?: number;
+  /** IANA time zone the schedule is read in. */
+  timeZone: string;
+  onlyIf: RoutineCondition;
+  /** act: saves changes itself (deletions still wait for approval). suggest: every change waits for approval. */
+  mode: 'act' | 'suggest';
+  /** Also send the result to Telegram when it is connected. */
+  notify: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BrainState {
   agentMemory?: AgentMemory;
+  routines?: Routine[];
   userId?: string;
   tasks: Task[];
   goals: Goal[];

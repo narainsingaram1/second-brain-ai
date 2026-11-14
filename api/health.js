@@ -229,6 +229,17 @@ function rpcError(error, fallback) {
 	if (error?.code === "22023" || error?.code === "23514") throw new HttpError(400, fallback);
 	throw new HttpError(502, fallback);
 }
+const routineRun = (r) => ({
+	id: r.id,
+	routineId: r.routine_id,
+	slot: r.slot,
+	status: r.status,
+	summary: r.summary ?? null,
+	changes: Number(r.changes) || 0,
+	approvals: Number(r.approvals) || 0,
+	startedAt: new Date(r.started_at).toISOString(),
+	finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null
+});
 function supabaseStore(userId, client) {
 	return {
 		userId,
@@ -426,6 +437,41 @@ function supabaseStore(userId, client) {
 			const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
 			if (error) rpcError(error, "Could not turn off health sync.");
 		},
+		async claimRoutineRun(routineId, slot) {
+			const { data, error } = await client.from("routine_runs").upsert({
+				user_id: userId,
+				routine_id: routineId,
+				slot
+			}, {
+				onConflict: "user_id,routine_id,slot",
+				ignoreDuplicates: true
+			}).select("id");
+			if (error) rpcError(error, "Could not start the routine.");
+			return data?.[0]?.id ?? null;
+		},
+		async finishRoutineRun(id, outcome) {
+			const { error } = await client.from("routine_runs").update({
+				status: outcome.status,
+				summary: outcome.summary.slice(0, 4e3),
+				changes: outcome.changes ?? 0,
+				approvals: outcome.approvals ?? 0,
+				finished_at: (/* @__PURE__ */ new Date()).toISOString()
+			}).eq("id", id).eq("user_id", userId);
+			if (error) rpcError(error, "Could not record the routine run.");
+		},
+		async listRoutineRuns(limit) {
+			const { data, error } = await client.from("routine_runs").select("*").eq("user_id", userId).order("started_at", { ascending: false }).limit(limit);
+			if (error) rpcError(error, "Could not load routine runs.");
+			return (data || []).map(routineRun);
+		},
+		async countRoutineRuns(sinceIso) {
+			const { count, error } = await client.from("routine_runs").select("id", {
+				count: "exact",
+				head: true
+			}).eq("user_id", userId).neq("status", "skipped").gte("started_at", sinceIso);
+			if (error) rpcError(error, "Could not check recent routine runs.");
+			return count || 0;
+		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
 			for (let i = 0; i < ids.length; i += 50) {
@@ -549,6 +595,27 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 				last_sync_days: days,
 				last_sync_source: source.slice(0, 80)
 			}).eq("user_id", userId), "record the sync");
+		},
+		async routineOwners() {
+			const { data } = check(await admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false), "list routines");
+			const byUser = /* @__PURE__ */ new Map();
+			for (const row of data || []) {
+				const routine = row.data;
+				if (!routine?.enabled) continue;
+				byUser.set(row.user_id, [...byUser.get(row.user_id) || [], routine]);
+			}
+			if (!byUser.size) return [];
+			const chats = /* @__PURE__ */ new Map();
+			const users = [...byUser.keys()];
+			for (let i = 0; i < users.length; i += 100) {
+				const { data: linked } = check(await links().select("user_id,chat_id").in("user_id", users.slice(i, i + 100)).not("chat_id", "is", null), "read chat links");
+				for (const r of linked || []) chats.set(r.user_id, Number(r.chat_id));
+			}
+			return users.map((userId) => ({
+				userId,
+				routines: byUser.get(userId),
+				chatId: chats.get(userId) ?? null
+			}));
 		},
 		async session(userId) {
 			const found = await admin.auth.admin.getUserById(userId);

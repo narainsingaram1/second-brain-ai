@@ -14,6 +14,8 @@ export interface ConnectionRow { provider: "google"; accountEmail: string; scope
 export interface TelegramLinkRow { linked: boolean; username: string | null; timeZone: string; briefEnabled: boolean; briefHour: number; alertsEnabled: boolean }
 export interface TelegramPrefs { timeZone?: string; briefEnabled?: boolean; briefHour?: number; alertsEnabled?: boolean }
 export interface HealthSyncRow { hint: string; createdAt: string; lastSyncAt: string | null; lastSyncDays: number | null; lastSyncSource: string | null }
+export type RoutineRunStatus = "running" | "done" | "skipped" | "failed";
+export interface RoutineRunRow { id: string; routineId: string; slot: string; status: RoutineRunStatus; summary: string | null; changes: number; approvals: number; startedAt: string; finishedAt: string | null }
 export interface AuditInput { actor: "user" | "assistant" | "system"; action: string; entityType?: string; entityId?: string; title?: string; actionId?: string; metadata?: Record<string, unknown> }
 
 /** Everything the server reads or writes for one signed-in user. Supabase in production, memory in tests. */
@@ -47,6 +49,13 @@ export interface ServerStore {
   /** Replaces the account's phone sync token (only its hash is stored). */
   setHealthSyncToken(tokenHash: string, hint: string): Promise<void>;
   deleteHealthSync(): Promise<void>;
+  /** Starts the run for this routine and slot. Null if that slot already ran (or is running). */
+  claimRoutineRun(routineId: string, slot: string): Promise<string | null>;
+  finishRoutineRun(id: string, outcome: { status: Exclude<RoutineRunStatus, "running">; summary: string; changes?: number; approvals?: number }): Promise<void>;
+  /** The most recent runs, newest first. */
+  listRoutineRuns(limit: number): Promise<RoutineRunRow[]>;
+  /** Runs that used the assistant (not skipped) since the given time, for the daily limit. */
+  countRoutineRuns(sinceIso: string): Promise<number>;
 }
 
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
@@ -56,6 +65,9 @@ function rpcError(error: { code?: string; message?: string } | null, fallback: s
   if (error?.code === "22023" || error?.code === "23514") throw new HttpError(400, fallback);
   throw new HttpError(502, fallback);
 }
+
+export const routineRun = (r: Record<string, any>): RoutineRunRow => ({ id: r.id, routineId: r.routine_id, slot: r.slot, status: r.status, summary: r.summary ?? null,
+  changes: Number(r.changes) || 0, approvals: Number(r.approvals) || 0, startedAt: new Date(r.started_at).toISOString(), finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null });
 
 export function supabaseStore(userId: string, client: SupabaseClient): ServerStore {
   return {
@@ -171,6 +183,26 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
     async deleteHealthSync() {
       const { error } = await client.from("health_sync_tokens").delete().eq("user_id", userId);
       if (error) rpcError(error, "Could not turn off health sync.");
+    },
+    async claimRoutineRun(routineId, slot) {
+      const { data, error } = await client.from("routine_runs").upsert({ user_id: userId, routine_id: routineId, slot }, { onConflict: "user_id,routine_id,slot", ignoreDuplicates: true }).select("id");
+      if (error) rpcError(error, "Could not start the routine.");
+      return (data?.[0]?.id as string | undefined) ?? null;
+    },
+    async finishRoutineRun(id, outcome) {
+      const { error } = await client.from("routine_runs").update({ status: outcome.status, summary: outcome.summary.slice(0, 4000), changes: outcome.changes ?? 0,
+        approvals: outcome.approvals ?? 0, finished_at: new Date().toISOString() }).eq("id", id).eq("user_id", userId);
+      if (error) rpcError(error, "Could not record the routine run.");
+    },
+    async listRoutineRuns(limit) {
+      const { data, error } = await client.from("routine_runs").select("*").eq("user_id", userId).order("started_at", { ascending: false }).limit(limit);
+      if (error) rpcError(error, "Could not load routine runs.");
+      return (data || []).map(routineRun);
+    },
+    async countRoutineRuns(sinceIso) {
+      const { count, error } = await client.from("routine_runs").select("id", { count: "exact", head: true }).eq("user_id", userId).neq("status", "skipped").gte("started_at", sinceIso);
+      if (error) rpcError(error, "Could not check recent routine runs.");
+      return count || 0;
     },
     async documentTexts(ids) {
       const texts = new Map<string, string>();

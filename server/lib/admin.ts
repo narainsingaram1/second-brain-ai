@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import type { CalendarEvent, Task } from "../../src/types";
+import type { CalendarEvent, Routine, Task } from "../../src/types";
 import { supabaseStore, type ServerStore } from "./store";
 
 export interface TelegramAccount { userId: string; chatId: number; timeZone: string; briefEnabled: boolean; briefHour: number; alertsEnabled: boolean }
@@ -25,6 +25,8 @@ export interface AdminStore {
   countNotifications(userId: string, sinceIso: string): Promise<number>;
   pruneNotifications(beforeIso: string): Promise<void>;
   session(userId: string): Promise<UserSession>;
+  /** Every account with enabled routines, with its Telegram chat when one is linked. */
+  routineOwners(): Promise<Array<{ userId: string; routines: Routine[]; chatId: number | null }>>;
   /** The account a phone sync token belongs to, or null. */
   healthAccount(tokenHash: string): Promise<string | null>;
   /** Stored health days with their revisions, for merging a sync into them. */
@@ -105,6 +107,23 @@ export function supabaseAdminStore(url: string, anonKey: string, serviceKey: str
     },
     async markHealthSync(userId, days, source) {
       check(await admin.from("health_sync_tokens").update({ last_sync_at: new Date().toISOString(), last_sync_days: days, last_sync_source: source.slice(0, 80) }).eq("user_id", userId), "record the sync");
+    },
+    async routineOwners() {
+      const { data } = check(await admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false), "list routines");
+      const byUser = new Map<string, Routine[]>();
+      for (const row of data || []) {
+        const routine = row.data as Routine;
+        if (!routine?.enabled) continue;
+        byUser.set(row.user_id as string, [...(byUser.get(row.user_id as string) || []), routine]);
+      }
+      if (!byUser.size) return [];
+      const chats = new Map<string, number>();
+      const users = [...byUser.keys()];
+      for (let i = 0; i < users.length; i += 100) {
+        const { data: linked } = check(await links().select("user_id,chat_id").in("user_id", users.slice(i, i + 100)).not("chat_id", "is", null), "read chat links");
+        for (const r of linked || []) chats.set(r.user_id as string, Number(r.chat_id));
+      }
+      return users.map(userId => ({ userId, routines: byUser.get(userId)!, chatId: chats.get(userId) ?? null }));
     },
     async session(userId) {
       const found = await admin.auth.admin.getUserById(userId);

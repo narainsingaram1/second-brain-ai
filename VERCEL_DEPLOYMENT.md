@@ -198,6 +198,25 @@ This uses Supabase rather than `crons` in `vercel.json` because Vercel's Hobby p
 
 Reminders are plain rules over tasks and events, so they use no AI credits. Deletions and other gated changes get Approve and Reject buttons. Sending email or inviting guests must still be approved in the app, where the full message and undo window are shown.
 
+## Routines
+
+Routines are work the assistant does on a schedule ("weekdays at 8 plan my day", "Sundays at 6 review my week"). Each run is one assistant turn on the server, using the account's stored AI provider key, and its report lands in the routine's own chat (and Telegram, when connected). Hosted accounts only.
+
+1. Apply `supabase/migrations/202611160001_routines.sql`.
+2. Set `SUPABASE_SERVICE_ROLE_KEY` and `CRON_SECRET` as for Telegram above, and add the AI provider key in the app's Settings so it is stored on the server.
+3. Schedule the routine runner every 15 minutes, like reminders:
+
+```sql
+select cron.schedule('synapse-routines', '*/15 * * * *', $$
+  select net.http_get(
+    url := 'https://YOUR-DOMAIN/api/routines',
+    headers := jsonb_build_object('Authorization', 'Bearer YOUR-CRON-SECRET')
+  );
+$$);
+```
+
+A routine runs once per scheduled day, up to three hours late if a wake is missed. Its condition (for example "only when tasks are overdue") is checked first with plain rules, so quiet days use no AI credits. Each account is limited to 24 runs a day; each run is capped at 16 model rounds and about 3 minutes. Routines in Suggest mode, deletions, and changes made after reading email or web pages always wait for approval. A routine can't create or change routines.
+
 ## Remove the aggregate snapshot cap
 
 Apply `supabase/migrations/202611130001_remove_snapshot_limit.sql` in the Supabase SQL editor, then deploy the updated frontend. It removes the `brains.brain_size` constraint and the size checks in the installed `save_brain` and (when present) `save_brain_prefs` functions. It supports both snapshot-only and per-record databases and can be reapplied. Existing validation, account isolation, revision checks, and per-record limits remain in force. Export pending changes before reloading, and retry the failed save after applying the migration.
