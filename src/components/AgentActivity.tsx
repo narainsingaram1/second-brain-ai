@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, MousePointerClick, PenLine, Search, ShieldCheck, SquarePen, Monitor } from "lucide-react";
 import type { AgentPlanItem, AgentStep, AgentStepKind } from "../types";
 
@@ -14,11 +14,68 @@ export function duration(ms: number): string {
 }
 
 /** Done-state headline: "Thought for 4s" when it only reasoned, otherwise "Worked for 9s". */
-function summary(steps: AgentStep[]): string {
-  const start = Math.min(...steps.map(s => s.startedAt)), end = Math.max(...steps.map(s => s.endedAt ?? s.startedAt));
+function summary(steps: AgentStep[], now?: number): string {
+  const start = Math.min(...steps.map(s => s.startedAt)), end = Math.max(...steps.map(s => s.endedAt ?? now ?? s.startedAt));
   const took = duration(end - start);
   const onlyThinking = steps.every(s => s.kind === "think");
   return `${onlyThinking ? "Thought" : "Worked"}${took ? ` for ${took}` : ""}`;
+}
+
+/** While no reasoning streams, the status moves through phrases that fit the phase instead of a static "Thinking". */
+const IDLE_PHRASES = ["Thinking", "Reading your request", "Working out an approach", "Pulling it together"];
+const FOLLOW_UP_PHRASES = ["Reviewing what I found", "Connecting the pieces", "Shaping the answer"];
+const PHRASE_MS = 4500;
+
+const FILLER = /^(?:(?:okay|ok|alright|all right|so|now|hmm+|well|right|great|good|wait|actually|then|next|first|also|finally|after that)\b[,.!]?\s*)+/i;
+const INTENT = /^(?:i(?:'ll| will| should| need to| want to| must| can| have to|'m going to| am going to)|let me|let's|we(?:'ll| should| need to))\s+(?:(?:also|just|first|then|quickly|now|carefully|probably)\s+)*/i;
+const CLAUSE_END = /\s*(?:[,;:]\s*(?:then|and then|and|before|so|but|which|because)\b|;|:|\s[—–]\s|\s-\s)/i;
+
+function gerund(word: string): string {
+  const lower = word.toLowerCase();
+  if (lower.endsWith("ing") || lower.length < 2) return word;
+  if (lower === "be") return "Being";
+  if (lower.endsWith("ie")) return `${word.slice(0, -2)}ying`;
+  if (/[^aeiou]e$/.test(lower)) return `${word.slice(0, -1)}ing`;
+  if (/^[^aeiou]*[aeiou][bdgmnpt]$/.test(lower)) return `${word}${word.slice(-1)}ing`;
+  return `${word}ing`;
+}
+
+/**
+ * A short, live headline for what the model is thinking about right now: its latest finished sentence, trimmed to
+ * the first clause, with "I'll check…" turned into "Checking…". Empty until the first sentence is complete.
+ */
+export function thoughtHeadline(reasoning: string): string {
+  const sentences = reasoning.replace(/[*_`#>]+/g, "").replace(/\s+/g, " ").match(/[^.!?]+[.!?]+(?=\s|$)/g);
+  if (!sentences) return "";
+  let text = sentences[sentences.length - 1].trim().replace(/[.!?]+$/, "").replace(FILLER, "");
+  if (/^the user(?:'s)?\b/i.test(text)) return "Understanding the request";
+  const intent = INTENT.exec(text);
+  if (intent) text = text.slice(intent[0].length).replace(/^[A-Za-z]+/, gerund);
+  const clause = CLAUSE_END.exec(text);
+  if (clause && clause.index >= 12) text = text.slice(0, clause.index);
+  text = text.replace(/^[a-z]/, c => c.toUpperCase());
+  if (text.length > 64) text = `${text.slice(0, 64).replace(/[\s,;:]+\S*$/, "")}…`;
+  return text.length >= 6 ? text : "";
+}
+
+/** Holds each value on screen for at least `holdMs`, so a fast-changing status reads as steps rather than flicker. */
+function useSteady(value: string, holdMs: number): string {
+  const [shown, setShown] = useState(value);
+  const since = useRef(Date.now());
+  useEffect(() => {
+    if (value === shown) return;
+    const timer = setTimeout(() => { since.current = Date.now(); setShown(value); }, Math.max(0, holdMs - (Date.now() - since.current)));
+    return () => clearTimeout(timer);
+  }, [value, shown, holdMs]);
+  return shown;
+}
+
+export type LoaderPhase = "think" | "work" | "write";
+/** An abstract 3×3 dot matrix whose motion follows the phase: a diagonal ripple while thinking, a scan while using tools. */
+export function AgentLoader({ phase }: { phase: LoaderPhase }) {
+  return <span className={`agent-loader is-${phase}`} aria-hidden="true">
+    {Array.from({ length: 9 }, (_, i) => <i key={i} style={{ "--r": Math.floor(i / 3), "--c": i % 3, "--d": Math.abs(Math.floor(i / 3) - 1) + Math.abs((i % 3) - 1) } as React.CSSProperties} />)}
+  </span>;
 }
 
 function useElapsed(live: boolean, since: number) {
@@ -47,22 +104,29 @@ export function AgentActivity({ steps, live = false, writing = false, continued 
   const since = visible.length ? Math.min(...visible.map(s => s.startedAt)) : mounted.current;
   const elapsed = useElapsed(live, since);
   const current = [...visible].reverse().find(s => s.status === "running");
+  const thinking = !current || current.kind === "think" || current.kind === "write";
+  // Once the answer is streaming and nothing else is running, the text itself shows progress: settle the line.
+  const settled = !live || (writing && thinking);
+  const phraseSince = current?.startedAt ?? since;
+  const phrases = visible.some(s => s.kind !== "think" && s.kind !== "plan") ? FOLLOW_UP_PHRASES : IDLE_PHRASES;
+  const idle = phrases[Math.min(phrases.length - 1, Math.floor(Math.max(0, Date.now() - phraseSince) / PHRASE_MS))];
+  const headline = thoughtHeadline(current?.kind === "think" ? current.detail || "" : "");
+  const liveStatus = useSteady(!thinking ? current!.label : current?.kind === "write" ? current.label : headline || idle, 1400);
   if (!live && !visible.length && !plan) return null;
 
-  const status = live ? (current?.label || (writing ? "Writing" : "Thinking")) : summary(visible);
-  const reasoning = live && current?.kind === "think" ? current.detail?.trim() : "";
+  const status = settled ? (visible.length ? summary(visible, live ? Date.now() : undefined) : "Writing") : liveStatus;
+  const phase: LoaderPhase = !thinking ? "work" : current?.kind === "write" ? "write" : "think";
   const others = visible.filter(s => s.kind !== "think").length;
 
-  return <div className={`agent-activity ${live ? "is-live" : ""} ${open ? "is-open" : ""}`}>
+  return <div className={`agent-activity ${live ? "is-live" : ""} ${settled ? "is-settled" : ""} ${open ? "is-open" : ""}`}>
     <button type="button" className="agent-activity-toggle" onClick={() => setOpen(!open)} aria-expanded={open} disabled={!visible.length}
       aria-label={`${status}. ${open ? "Hide" : "Show"} steps`}>
-      {live ? <span className="agent-pulse" aria-hidden="true" /> : <Brain size={14} aria-hidden="true" />}
-      <span key={status} className={`agent-status ${live ? "agent-shimmer" : ""}`}>{status}</span>
-      {live && duration(elapsed) && <span className="agent-elapsed">{duration(elapsed)}</span>}
-      {!live && others > 0 && <span className="agent-count">{others} step{others === 1 ? "" : "s"}</span>}
+      {settled ? <Brain size={14} aria-hidden="true" /> : <AgentLoader phase={phase} />}
+      <span key={status} className={`agent-status ${settled ? "" : "agent-shimmer"}`}>{status}</span>
+      {!settled && duration(elapsed) && <span className="agent-elapsed">{duration(elapsed)}</span>}
+      {settled && others > 0 && <span className="agent-count">{others} step{others === 1 ? "" : "s"}</span>}
       {visible.length > 0 && <ChevronDown size={14} className="agent-chevron" aria-hidden="true" />}
     </button>
-    {live && !open && reasoning && <p className="agent-peek" aria-hidden="true">{reasoning.slice(-280)}</p>}
     {plan && <AgentPlan items={plan} live={live} />}
     <div className="agent-steps-wrap" aria-hidden={!open}>
       <ol className="agent-steps" aria-live={live && open ? "polite" : undefined}>
@@ -128,15 +192,27 @@ export function useSmoothText(id: string, text: string, streaming: boolean): str
   const animating = streaming || length < text.length;
   useEffect(() => {
     if (!animating || reducedMotion()) { revealed.delete(id); return; }
-    let frame = 0, last = performance.now(), shown = Math.min(revealed.get(id) ?? length, target.current.length);
+    let frame = 0, last = performance.now(), paintedAt = 0, paintedLength = -1, shown = Math.min(revealed.get(id) ?? length, target.current.length);
+    let budget = 0;
     const tick = (now: number) => {
-      const goal = target.current.length;
+      const text = target.current, goal = text.length;
       if (shown > goal) shown = goal; // The draft was cleared (it turned into tool calls).
       if (shown < goal) {
-        const perSecond = 90 + (goal - shown) * 5;
-        shown = Math.min(goal, shown + Math.max(1, Math.round(perSecond * (now - last) / 1000)));
-        revealed.set(id, shown);
-        setLength(shown);
+        // Steady pace that speeds up with the backlog, so it never falls far behind the model.
+        budget += (70 + (goal - shown) * 4) * (now - last) / 1000;
+        let next = shown + Math.floor(budget);
+        if (next > shown) {
+          // Reveal whole words: extend to the end of the word being cut, unless it is the very end of the stream.
+          const space = text.slice(next).search(/\s/);
+          if (space >= 0 && space < 24) next += space;
+          else if (space < 0 && !streaming) next = goal;
+          next = Math.min(goal, next);
+          budget = Math.max(0, budget - (next - shown));
+          shown = next;
+          revealed.set(id, shown);
+        }
+        // Repaint at most ~30 times a second: each paint re-renders the markdown.
+        if (shown !== paintedLength && (now - paintedAt > 32 || shown === goal)) { paintedAt = now; paintedLength = shown; setLength(shown); }
       }
       last = now;
       if (streaming || shown < goal) frame = requestAnimationFrame(tick);

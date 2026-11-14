@@ -9,7 +9,7 @@ after(() => server.close());
 const { ConversationMessage } = await server.ssrLoadModule('/src/components/ConversationMessage.tsx');
 const { ChatWorkspace } = await server.ssrLoadModule('/src/components/ChatWorkspace.tsx');
 const { readableMessage, referenceTitle, isNearBottom } = await server.ssrLoadModule('/src/utils/chatPresentation.ts');
-const { AgentActivity, closeMarkdown } = await server.ssrLoadModule('/src/components/AgentActivity.tsx');
+const { AgentActivity, closeMarkdown, thoughtHeadline } = await server.ssrLoadModule('/src/components/AgentActivity.tsx');
 const { describeCall, describeResult, pastTense, ActivityTracker } = await server.ssrLoadModule('/src/services/agentActivity.ts');
 const state = { tasks: [{ id: 'task-123', title: 'Prepare presentation', dueDate: '2026-11-02', status: 'in_progress', completed: false, priority: 'high', section: 'Career' }], goals: [{ id: 'goal-456', title: 'Research opportunity', progress: 35, milestones: [], status: 'in_progress' }], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [], conversations: [], selectedModel: 'test/model' };
 const message = { id: 'answer', role: 'assistant', content: 'Start with [task:task-123]. Then review [goal:goal-456].', timestamp: '', sources: [{ id: 'task-123', type: 'task', title: 'Prepare presentation' }, { id: 'goal-456', type: 'goal', title: 'Research opportunity' }] };
@@ -76,11 +76,21 @@ test('steps describe what the assistant is doing in plain words', () => {
   assert.match(describeResult('delete_task', {}, { status: 'awaiting_approval', summary: 'Delete task "X"' }).label, /approval/);
 });
 
+test('the live status follows the model\'s latest thought in a few words', () => {
+  assert.equal(thoughtHeadline('Okay, the user wants a study plan.'), 'Understanding the request');
+  assert.equal(thoughtHeadline("The user wants a plan. I'll check their tasks and deadlines first."), 'Checking their tasks and deadlines first');
+  assert.equal(thoughtHeadline('Then I need to compare the workload across days, so nothing piles up.'), 'Comparing the workload across days');
+  assert.equal(thoughtHeadline('Let me plan the week.'), 'Planning the week');
+  assert.equal(thoughtHeadline('I should also look at **exam** dates.'), 'Looking at exam dates');
+  assert.equal(thoughtHeadline('Still writing the first sent'), '', 'nothing until a sentence is complete');
+  assert.ok(thoughtHeadline(`${'word '.repeat(40)}end.`).length <= 65);
+});
+
 test('activity renders a live status while working and an expandable summary when done', () => {
   const now = Date.now();
   const live = renderToStaticMarkup(React.createElement(AgentActivity, { live: true, steps: [
     { id: 'a', kind: 'think', label: 'Thinking', detail: 'Checking the notes first.', status: 'running', startedAt: now }] }));
-  assert.match(live, /agent-shimmer/); assert.match(live, />Thinking</); assert.match(live, /Checking the notes first/);
+  assert.match(live, /agent-shimmer/); assert.match(live, /agent-loader is-think/); assert.match(live, /Checking the notes first/);
   const done = renderToStaticMarkup(React.createElement(AgentActivity, { steps: [
     { id: 'a', kind: 'think', label: 'Thought for 2s', detail: 'Plan', status: 'done', startedAt: now - 9000, endedAt: now - 7000 },
     { id: 'b', kind: 'web', label: 'Searched the web for “x”', items: ['Wiki|https://w.org'], status: 'done', startedAt: now - 7000, endedAt: now },

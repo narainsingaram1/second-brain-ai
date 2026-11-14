@@ -14,18 +14,13 @@
 .chat-assistant-message { display: flex; flex-direction: column; gap: 0; margin-bottom: 32px; animation: chat-arrive 300ms var(--ease) both; }
 .chat-assistant-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; user-select: none; }
 .chat-assistant-avatar-wrap { position: relative; width: 26px; height: 26px; border-radius: 7px; background: var(--workspace-panel); border: 1px solid var(--workspace-line); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04); }
-.chat-assistant-avatar-wrap.is-typing::after { content: ""; position: absolute; inset: -2px; border-radius: 9px; border: 1.5px solid var(--workspace-accent, #2f55d4); opacity: 0.5; animation: iris-typing-ring 1.8s ease-out infinite; }
+/* While Iris works, a slow light sweeps around the avatar's edge. */
+.chat-assistant-avatar-wrap.is-typing::after { content: ""; position: absolute; inset: -1.5px; border-radius: 8.5px; padding: 1.5px; background: conic-gradient(from var(--iris-sweep, 0deg), transparent 0 62%, var(--workspace-accent-strong, #2f55d4) 82%, transparent 100%); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: iris-sweep 2.4s linear infinite; opacity: .75; }
+@property --iris-sweep { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes iris-sweep { to { --iris-sweep: 360deg; } }
 .chat-assistant-avatar { display: block; width: 17px; height: 17px; background: url("/iris-logo.png") center / contain no-repeat; }
 .chat-assistant-meta { display: flex; align-items: center; gap: 8px; line-height: 1; }
 .chat-assistant-name { display: inline-block; font-size: 13.5px; font-weight: 600; color: var(--workspace-ink); letter-spacing: -0.01em; }
-.chat-typing-status { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--workspace-muted); text-transform: lowercase; }
-.chat-typing-dots { display: inline-flex; align-items: center; gap: 2.5px; margin-left: 1px; }
-.chat-typing-dot { width: 3.5px; height: 3.5px; border-radius: 50%; background: var(--workspace-accent-strong, #2f55d4); opacity: 0.35; animation: chat-typing-bounce 1.2s infinite ease-in-out; }
-.chat-typing-dot:nth-child(1) { animation-delay: 0s; }
-.chat-typing-dot:nth-child(2) { animation-delay: 0.2s; }
-.chat-typing-dot:nth-child(3) { animation-delay: 0.4s; }
-@keyframes chat-typing-bounce { 0%, 80%, 100% { opacity: 0.25; transform: translateY(0); } 40% { opacity: 0.95; transform: translateY(-2px); } }
-@keyframes iris-typing-ring { 0% { transform: scale(0.96); opacity: 0.7; } 60% { transform: scale(1.1); opacity: 0; } 100% { opacity: 0; } }
 .chat-welcome-mark { display: block; flex-shrink: 0; background: url("/iris-logo.png") center / contain no-repeat; }
 .chat-answer { flex: 1; min-width: 0; }
 .chat-prose { font-size: 14.5px; line-height: 24px; overflow-wrap: anywhere; color: var(--workspace-ink); }
@@ -240,11 +235,13 @@
 .agent-elapsed, .agent-count { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; color: var(--workspace-muted); font-variant-numeric: tabular-nums; }
 .agent-chevron { flex-shrink: 0; transition: transform 220ms var(--ease); }
 .agent-activity.is-open .agent-chevron { transform: rotate(180deg); }
-.agent-pulse { position: relative; width: 14px; height: 14px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; }
-.agent-pulse::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--workspace-accent-strong); }
-.agent-pulse::after { content: ""; position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--workspace-accent-strong); animation: agent-ring 1.6s var(--ease) infinite; }
-/* A glimpse of the reasoning as it streams, fading out at the top. */
-.agent-peek { margin: 4px 0 0 22px; max-height: 3.2em; overflow: hidden; display: flex; flex-direction: column-reverse; font-size: 12.5px; line-height: 1.6em; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--workspace-muted); -webkit-mask-image: linear-gradient(to bottom, transparent, #000 60%); mask-image: linear-gradient(to bottom, transparent, #000 60%); animation: chat-arrive 300ms var(--ease) both; }
+/* The live loader: a 3×3 dot matrix. Thinking ripples diagonally, tool work scans across, writing breathes from the centre. */
+.agent-loader { display: inline-grid; grid-template-columns: repeat(3, 3px); gap: 1.5px; width: 14px; height: 14px; flex-shrink: 0; place-content: center; }
+.agent-loader i { width: 3px; height: 3px; border-radius: 1px; background: var(--workspace-accent-strong); opacity: .18; animation: agent-dot 1.3s cubic-bezier(.4, 0, .2, 1) infinite; animation-delay: calc((var(--r) + var(--c)) * 110ms); }
+.agent-loader.is-work i { animation-name: agent-dot-scan; animation-duration: 1s; animation-delay: calc(var(--c) * 140ms + var(--r) * 30ms); }
+.agent-loader.is-write i { animation-duration: 1.6s; animation-delay: calc(var(--d) * 160ms); }
+@keyframes agent-dot { 0%, 100% { opacity: .18; transform: scale(.7); } 35% { opacity: 1; transform: scale(1); } 60% { opacity: .45; transform: scale(.85); } }
+@keyframes agent-dot-scan { 0%, 100% { opacity: .15; transform: scale(.7); } 30% { opacity: 1; transform: scale(1.05); } }
 /* The plan for a multi-step request: a checklist that fills in while the assistant works. */
 .agent-plan { margin: 6px 0 4px; padding: 8px 12px; max-width: 560px; border: 1px solid var(--workspace-line); border-radius: 10px; background: var(--workspace-panel); animation: chat-arrive 260ms var(--ease) both; }
 .agent-plan ol { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
@@ -279,13 +276,14 @@
 .agent-step-items a:hover { color: var(--workspace-ink); border-color: var(--workspace-line-strong); }
 .agent-spinner { width: 11px; height: 11px; border-radius: 50%; border: 1.5px solid var(--workspace-line-strong); border-top-color: var(--workspace-accent-strong); animation: agent-spin 800ms linear infinite; }
 /* Streaming text: a soft caret trails the newest words. */
-.chat-prose.is-revealing > :last-child::after { content: ""; display: inline-block; width: 7px; height: 7px; margin-left: 4px; border-radius: 50%; vertical-align: middle; background: var(--workspace-accent-strong); animation: chat-breathe 1s ease-in-out infinite; }
+.chat-prose.is-revealing > :last-child::after { content: ""; display: inline-block; width: 6px; height: 6px; margin-left: 5px; border-radius: 50%; vertical-align: 0.1em; background: var(--workspace-accent-strong); box-shadow: 0 0 0 0 color-mix(in srgb, var(--workspace-accent-strong) 35%, transparent); animation: chat-caret 1.4s ease-in-out infinite; }
+@keyframes chat-caret { 0%, 100% { opacity: .55; transform: scale(.85); box-shadow: 0 0 0 0 color-mix(in srgb, var(--workspace-accent-strong) 30%, transparent); } 50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 4px color-mix(in srgb, var(--workspace-accent-strong) 0%, transparent); } }
 .chat-prose.is-revealing > :last-child:is(pre, table, div:has(table), ul, ol)::after { display: none; }
 @keyframes agent-shimmer { from { background-position: 100% 0; } to { background-position: -150% 0; } }
-@keyframes agent-status-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+@keyframes agent-status-in { from { opacity: 0; transform: translateY(4px); filter: blur(2px); } to { opacity: 1; transform: none; filter: none; } }
 @keyframes agent-ring { 0% { transform: scale(.5); opacity: .9; } 100% { transform: scale(1.25); opacity: 0; } }
 @keyframes agent-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .agent-shimmer { color: var(--workspace-secondary); background: none; } }
+@media (prefers-reduced-motion: reduce) { .agent-shimmer { color: var(--workspace-secondary); background: none; } .agent-loader i { animation: none; opacity: calc(.3 + (2 - var(--d)) * .3); } .chat-assistant-avatar-wrap.is-typing::after { animation: none; } }
 .chat-assistant-message.is-continued, .chat-assistant-message.is-continued .agent-step, .chat-assistant-message.is-continued .agent-status { animation: none; }
 
 /* Agentic actions applied to the workspace */
