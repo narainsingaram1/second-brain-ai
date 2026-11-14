@@ -17,7 +17,7 @@ const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete
   "create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section", "rename_subsection", "delete_subsection",
   "delete_goal", "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
   "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz",
-  "log_health_day", "update_health_day", "delete_health_day", "update_health_profile"]);
+  "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "create_routine", "update_routine", "delete_routine"]);
 /** Every tool that changes the user's own data, for the coverage check. */
 export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
 
@@ -81,7 +81,7 @@ const show = (value: unknown) => {
 };
 const recordName = (m: Mutation) => ("name" in m.record ? m.record.name : (m.record as { title?: string }).title) || (m.record as { date?: string }).date || "Untitled";
 const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", health: "health day", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
-  workspace: "workspace", folder: "note folder", section: "section" };
+  workspace: "workspace", folder: "note folder", section: "section", routine: "routine" };
 const SECTION_SUMMARIES: Record<string, (before: string, after: string) => string> = {
   create_section: (_, a) => `Add section "${a}"`, rename_section: (b, a) => `Rename section "${b}" to "${a}"`, delete_section: b => `Delete section "${b}"`,
   rename_subsection: b => `Rename a subsection in "${b}"`, delete_subsection: b => `Delete a subsection in "${b}"`,

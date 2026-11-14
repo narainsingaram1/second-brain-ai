@@ -6,7 +6,7 @@ import type { BrainState, StudyState } from "../types";
  */
 export const RECORD_COLLECTIONS = [
   "tasks", "goals", "habits", "journalEntries", "knowledgeItems", "events", "trackerItems", "workspaces", "healthDays",
-  "noteFolders", "conversations", "study.courses", "study.folders", "study.documents", "study.decks", "study.quizzes", "memory",
+  "noteFolders", "routines", "conversations", "study.courses", "study.folders", "study.documents", "study.decks", "study.quizzes", "memory",
 ] as const;
 export type RecordCollection = typeof RECORD_COLLECTIONS[number];
 

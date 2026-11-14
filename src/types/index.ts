@@ -347,6 +347,27 @@ export interface ImageAttachment {
   thumbnail?: string;
 }
 
+export type ChatFileKind = "pdf" | "docx" | "pptx" | "xlsx" | "csv" | "text" | "rtf";
+/**
+ * A document attached to a chat message (PDF, Word, Excel, CSV, slides, text). Its extracted text is what the
+ * model reads, always as untrusted data. Saved messages keep a capped excerpt; the full text stays in memory.
+ */
+export interface FileAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  /** Size of the original file in bytes. */
+  size: number;
+  kind: ChatFileKind;
+  text: string;
+  /** Characters extracted before any cap. */
+  chars: number;
+  /** Pages, slides or sheets, when the format has them. */
+  pages?: number;
+  /** Part of the document was left out because it was too long. */
+  truncated?: boolean;
+}
+
 /** One thing the assistant did while working on a reply, shown live and kept with the reply. */
 export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write" | "plan" | "browser" | "desktop";
 export type AgentPlanStatus = "pending" | "in_progress" | "done" | "skipped" | "blocked";
@@ -384,6 +405,8 @@ export interface AppliedAction {
 export interface AIMessage {
   sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
   attachments?: ImageAttachment[];
+  /** Documents attached to a user message, with their extracted text. */
+  files?: FileAttachment[];
   /** Text description of the attachments from the vision model, kept so follow-ups work after reload. */
   imageDescription?: string;
   id: string;
@@ -465,7 +488,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workspace' | 'folder';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workspace' | 'folder' | 'routine';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -502,8 +525,40 @@ export interface CalendarEvent {
   updatedAt: string;
 }
 
+export type RoutineFrequency = 'daily' | 'weekdays' | 'weekly' | 'monthly';
+/** A cheap rule over the user's records that must hold before a routine spends any AI usage. */
+export type RoutineCondition = 'always' | 'overdue_tasks' | 'due_today' | 'due_soon' | 'events_today';
+/**
+ * Work the assistant does on its own on a schedule, such as planning the morning or reviewing the week.
+ * Each run is one assistant turn on the server; what it did lands in the routine's own conversation.
+ */
+export interface Routine {
+  id: string;
+  name: string;
+  /** What to do each run, in the user's words. */
+  instructions: string;
+  frequency: RoutineFrequency;
+  /** 24-hour HH:MM local time. */
+  time: string;
+  /** Weekly: days of the week, 0 = Sunday. */
+  days?: number[];
+  /** Monthly: day of the month (the last day in shorter months). */
+  dayOfMonth?: number;
+  /** IANA time zone the schedule is read in. */
+  timeZone: string;
+  onlyIf: RoutineCondition;
+  /** act: saves changes itself (deletions still wait for approval). suggest: every change waits for approval. */
+  mode: 'act' | 'suggest';
+  /** Also send the result to Telegram when it is connected. */
+  notify: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BrainState {
   agentMemory?: AgentMemory;
+  routines?: Routine[];
   userId?: string;
   tasks: Task[];
   goals: Goal[];

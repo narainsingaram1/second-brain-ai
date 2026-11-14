@@ -1,6 +1,6 @@
 import "../memory.css";
-import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, Paperclip, Plus, RefreshCw, SlidersHorizontal, Square, Target, type LucideIcon } from "lucide-react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, Paperclip, Plus, Quote, RefreshCw, SlidersHorizontal, Square, Target, type LucideIcon } from "lucide-react";
 import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
@@ -11,6 +11,7 @@ import { ConversationMessage } from "./ConversationMessage";
 import { useConversationStarters } from "../hooks/useConversationStarters";
 import type { StarterKind } from "../services/chatSuggestions";
 import { AttachmentTray, useImageAttachments } from "./ImageAttachments";
+import { withQuote } from "../utils/chatFiles";
 
 interface ChatWorkspaceProps {
   conversation: BrainConversation;
@@ -29,7 +30,9 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const [showJump, setShowJump] = useState(false);
   const [recording, setRecording] = useState(false);
   const [showAllRecent, setShowAllRecent] = useState(false);
-  const attachments = useImageAttachments(setError);
+  const attachments = useImageAttachments(setError, { documents: true });
+  const [selectionQuote, setSelectionQuote] = useState<{ text: string; top: number; left: number } | null>(null);
+  const region = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
@@ -103,15 +106,53 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const prompt = input.trim();
-    const images = attachments.images;
-    if ((!prompt && !images.length) || conversation.busy || attachments.processing) return;
+    const { images, files } = attachments;
+    if ((!prompt && !images.length && !files.length) || conversation.busy || attachments.processing) return;
     setError("");
     setInput("");
     attachments.clear();
     pinned.current = true;
-    try { await conversation.run(prompt, images.length ? { images } : undefined); }
-    catch (err) { setError(err instanceof Error ? err.message : "The request failed. Try again."); setInput(prompt); attachments.restore(images); }
+    try { await conversation.run(prompt, images.length || files.length ? { ...(images.length ? { images } : {}), ...(files.length ? { files } : {}) } : undefined); }
+    catch (err) { setError(err instanceof Error ? err.message : "The request failed. Try again."); setInput(prompt); attachments.restore(images, files); }
   };
+  /** Adds a Markdown quote to the composer and puts the cursor under it. */
+  const quoteIntoComposer = useCallback((text: string) => {
+    if (!text.trim()) return;
+    setInput(previous => withQuote(previous, text));
+    setSelectionQuote(null);
+    window.getSelection()?.removeAllRanges();
+    requestAnimationFrame(() => { const element = textarea.current; if (element) { element.focus(); element.setSelectionRange(element.value.length, element.value.length); } });
+  }, []);
+  /** Edit & resend, or regenerate: both trim the conversation back to that turn and answer again. */
+  const resubmit = async (messageId: string, text?: string, branch = false) => {
+    if (conversation.busy || !conversation.resubmit) return;
+    setError("");
+    pinned.current = true;
+    try { await conversation.resubmit(messageId, text, { branch }); }
+    catch (err) { setError(err instanceof Error ? err.message : "The request failed. Try again."); }
+  };
+  // A small "Quote" button over text selected in a message.
+  useEffect(() => {
+    if (!active) return;
+    let frame = 0;
+    const update = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const selection = window.getSelection();
+        const box = region.current?.getBoundingClientRect();
+        if (!selection || selection.isCollapsed || !selection.rangeCount || !box) { setSelectionQuote(null); return; }
+        const range = selection.getRangeAt(0);
+        const node = range.commonAncestorContainer;
+        const message = (node instanceof Element ? node : node.parentElement)?.closest("[data-message-id]");
+        const text = selection.toString().trim();
+        if (!message || !content.current?.contains(message) || message.querySelector(".chat-message-editor") || !text) { setSelectionQuote(null); return; }
+        const rect = range.getBoundingClientRect();
+        setSelectionQuote({ text, top: Math.max(4, rect.top - box.top - 38), left: Math.min(Math.max(48, rect.left + rect.width / 2 - box.left), box.width - 48) });
+      });
+    };
+    document.addEventListener("selectionchange", update);
+    return () => { cancelAnimationFrame(frame); document.removeEventListener("selectionchange", update); };
+  }, [active]);
   /** Sends a tapped starter or suggested reply as if it had been typed. */
   const send = async (text: string) => {
     if (conversation.busy) return;
@@ -142,8 +183,8 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
         {conversation.temporary && !active && <p className="chat-composer-hint">Temporary chat: saved memory is off and this transcript is not saved.</p>}{error && <p role="alert" className="chat-error">{error}</p>}
         <form onSubmit={submit} className={`chat-composer ${attachments.dragging ? "is-dragging" : ""}`} {...attachments.dropProps}>
           {attachments.picker}
-          <AttachmentTray images={attachments.images} processing={attachments.processing} onRemove={attachments.remove} />
-          <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} onPaste={attachments.onPaste} aria-label="Message Iris" placeholder={attachments.images.length ? "Ask about the image, or send to analyze / add as tasks…" : active ? "Ask a follow-up…" : "Ask about your tasks, notes or courses"} />
+          <AttachmentTray images={attachments.images} files={attachments.files} processing={attachments.processing} onRemove={attachments.remove} />
+          <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} onPaste={attachments.onPaste} aria-label="Message Iris" placeholder={attachments.files.length ? "Ask about the file, or send to get a summary…" : attachments.images.length ? "Ask about the image, or send to analyze / add as tasks…" : active ? "Ask a follow-up…" : "Ask about your tasks, notes or courses"} />
           <div className="chat-composer-toolbar">
             <div className="flex items-center gap-1.5 min-w-0">
               <button
@@ -152,7 +193,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
                 onClick={attachments.openPicker}
                 disabled={conversation.busy}
                 aria-label="Attach file"
-                title="Attach file"
+                title="Attach a PDF, Word, Excel, PowerPoint, CSV, text file or image"
               >
                 <Paperclip size={17} strokeWidth={1.8} />
               </button>
@@ -184,7 +225,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
               <button
                 type="button"
                 className="chat-icon-button"
-                onClick={attachments.openPicker}
+                onClick={attachments.openImagePicker}
                 disabled={conversation.busy}
                 aria-label="Attach images"
                 title="Attach images"
@@ -208,7 +249,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
                 <button
                   type="submit"
                   className="chat-send"
-                  disabled={(!input.trim() && !attachments.images.length) || attachments.processing}
+                  disabled={(!input.trim() && !attachments.images.length && !attachments.files.length) || attachments.processing}
                   aria-label="Send message"
                 >
                   <ArrowUp size={18} strokeWidth={2.4} />
@@ -217,7 +258,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
             </div>
           </div>
         </form>
-        <p className="chat-composer-hint">{conversation.busy ? "Working with your records. You can stop at any time." : "Enter to send · Shift + Enter for a new line · Paste or drop images"}</p>
+        <p className="chat-composer-hint">{conversation.busy ? "Working with your records. You can stop at any time." : "Enter to send · Shift + Enter for a new line · Paste or drop images and files"}</p>
       </div>
     </div>
   );
@@ -239,13 +280,22 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
         )}
       </div>
     </header>}
-    <div className="chat-message-region">
+    <div ref={region} className="chat-message-region">
       <div ref={viewport} className="chat-scroll" data-testid="chat-scroll" tabIndex={0} aria-label={active ? "Conversation messages" : "Welcome"}
         onWheel={() => { scrollingToBottom.current = false; }} onTouchStart={() => { scrollingToBottom.current = false; }} onPointerDown={() => { scrollingToBottom.current = false; }} onKeyDown={() => { scrollingToBottom.current = false; }}
-        onScroll={event => { const element = event.currentTarget; const near = isNearBottom(element.scrollHeight, element.scrollTop, element.clientHeight); if (scrollingToBottom.current && !near) return; scrollingToBottom.current = false; pinned.current = near; setShowJump(!near); }}>
+        onScroll={event => { setSelectionQuote(null); const element = event.currentTarget; const near = isNearBottom(element.scrollHeight, element.scrollTop, element.clientHeight); if (scrollingToBottom.current && !near) return; scrollingToBottom.current = false; pinned.current = near; setShowJump(!near); }}>
         <div ref={content} className={active ? "chat-transcript" : "chat-welcome-content"}>
           {active ? <>
-            {visible.map(message => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} followUps={message.id === last?.id && !conversation.busy && conversation.followUps?.messageId === message.id ? conversation.followUps : undefined} onFollowUp={text => void send(text)} cards={{ busy: conversation.busy, addTasks: conversation.addCardTasks, setState: conversation.setCardState, change: conversation.changeFromCard }} />)}
+            {visible.map((message, index) => <ConversationMessage key={message.id} message={message} state={state} onSaveNote={onSaveNote}
+              actions={{
+                busy: conversation.busy,
+                canBranch: !conversation.temporary,
+                hasLater: index < visible.length - 1,
+                onQuote: quoteIntoComposer,
+                ...(conversation.resubmit ? message.role === "user"
+                  ? { onEdit: (text: string, branch: boolean) => resubmit(message.id, text, branch) }
+                  : visible.slice(0, index).some(m => m.role === "user") ? { onRegenerate: () => void resubmit(message.id) } : {} : {}),
+              }} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} followUps={message.id === last?.id && !conversation.busy && conversation.followUps?.messageId === message.id ? conversation.followUps : undefined} onFollowUp={text => void send(text)} cards={{ busy: conversation.busy, addTasks: conversation.addCardTasks, setState: conversation.setCardState, change: conversation.changeFromCard }} />)}
             {/* The reply in progress: live steps first, then its text as it streams in. One stable element for the whole turn. */}
             {conversation.busy && last?.role === "user" && <ConversationMessage key="live-turn" state={state} streaming
               message={{ id: draft?.id || "live-turn", role: "assistant", content: draft?.content || "", timestamp: "", activity: conversation.activity }} />}
@@ -276,6 +326,13 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
           </div>}
         </div>
       </div>
+      {active && selectionQuote && (
+        <button type="button" className="chat-selection-quote" style={{ top: selectionQuote.top, left: selectionQuote.left }}
+          onMouseDown={event => event.preventDefault()} onClick={() => quoteIntoComposer(selectionQuote.text)} aria-label="Quote selection in reply">
+          <Quote size={13} strokeWidth={2} />
+          <span>Quote</span>
+        </button>
+      )}
       {active && showJump && (
         <button type="button" className="chat-jump" onClick={() => bottom(true)} aria-label="Jump to latest message">
           <ArrowDown size={13} strokeWidth={2} />

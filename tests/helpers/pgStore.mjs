@@ -87,6 +87,17 @@ export function pgStore(db, userId, PreferencesConflict, HttpError) {
     },
     async setHealthSyncToken(hash, hint) { await db.query('select public.set_health_sync_token($1, $2)', [hash, hint]); },
     async deleteHealthSync() { await db.query('delete from public.health_sync_tokens'); },
+    async claimRoutineRun(routineId, slot) {
+      return (await one('insert into public.routine_runs (user_id, routine_id, slot) values ($1, $2, $3) on conflict (user_id, routine_id, slot) do nothing returning id', [userId, routineId, slot]))?.id ?? null;
+    },
+    async finishRoutineRun(id, o) {
+      await db.query('update public.routine_runs set status = $2, summary = $3, changes = $4, approvals = $5, finished_at = now() where id = $1', [id, o.status, o.summary.slice(0, 4000), o.changes ?? 0, o.approvals ?? 0]);
+    },
+    async listRoutineRuns(limit) {
+      return (await db.query('select * from public.routine_runs order by started_at desc limit $1', [limit])).rows.map(r => ({ id: r.id, routineId: r.routine_id, slot: r.slot, status: r.status,
+        summary: r.summary, changes: r.changes, approvals: r.approvals, startedAt: new Date(r.started_at).toISOString(), finishedAt: r.finished_at ? new Date(r.finished_at).toISOString() : null }));
+    },
+    async countRoutineRuns(since) { return (await one("select count(*)::int as n from public.routine_runs where status <> 'skipped' and started_at >= $1", [since])).n; },
     async documentTexts(ids) { return new Map((await db.query('select id, content from public.study_documents where id = any($1)', [ids])).rows.map(r => [r.id, r.content])); },
   };
 }

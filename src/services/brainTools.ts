@@ -215,6 +215,30 @@ const MANAGE_TOOLS: OpenRouterTool[] = [
     removeQuestions: { type: "array", maxItems: 40, items: { type: "integer", minimum: 1 }, description: "Question numbers to remove." },
   }, ["quizId"]),
   fn("delete_quiz", "Delete a practice quiz and its attempts. Only when the user explicitly asks.", { quizId: s_ }, ["quizId"]),
+  fn("create_routine", "Set up a routine: work you do on your own on a schedule, such as \"every weekday at 8am plan my day\" or \"Sundays at 6pm review my week and move unfinished tasks\". Use when the user asks for something to happen regularly or automatically. Each run's report lands in the routine's own chat and, if they connected Telegram, there too.", {
+    name: d_("Short name, e.g. \"Morning plan\"."),
+    instructions: d_("What to do each run, specific and in the user's words: what to look at, what to change, what to report."),
+    frequency: { type: "string", enum: ["daily", "weekdays", "weekly", "monthly"] },
+    time: d_("24-hour HH:MM local time to run."),
+    days: { type: "array", items: { type: "integer", minimum: 0 }, maxItems: 7, description: "Weekly only: days of the week, 0 = Sunday … 6 = Saturday." },
+    dayOfMonth: { type: "integer", minimum: 1, description: "Monthly only: 1 to 31 (the last day in shorter months)." },
+    onlyIf: { type: "string", enum: ["always", "overdue_tasks", "due_today", "due_soon", "events_today"], description: "Skip runs unless this holds, so quiet days cost nothing. Default always." },
+    mode: { type: "string", enum: ["act", "suggest"], description: "act (default): save changes directly; deletions still wait for approval. suggest: every change waits for the user's approval." },
+    notify: { type: "boolean", description: "Also send the report to Telegram when connected. Default true." },
+    timeZone: d_("The user's IANA time zone from the context, e.g. America/New_York."),
+  }, ["name", "instructions", "frequency", "time"]),
+  fn("update_routine", "Change a routine: rename it, change what it does or when, pause it (enabled false) or resume it. Preserves unspecified fields.", {
+    routineId: s_, newName: s_, newInstructions: s_,
+    frequency: { type: "string", enum: ["daily", "weekdays", "weekly", "monthly"] },
+    time: d_("24-hour HH:MM"),
+    days: { type: "array", items: { type: "integer", minimum: 0 }, maxItems: 7, description: "0 = Sunday … 6 = Saturday." },
+    dayOfMonth: { type: "integer", minimum: 1 },
+    onlyIf: { type: "string", enum: ["always", "overdue_tasks", "due_today", "due_soon", "events_today"] },
+    mode: { type: "string", enum: ["act", "suggest"] },
+    notify: { type: "boolean" }, enabled: { type: "boolean" },
+    timeZone: d_("IANA time zone."),
+  }, ["routineId"]),
+  fn("delete_routine", "Delete a routine. Its past reports stay in its chat. Only when the user explicitly asks; to stop it for a while, pause it with update_routine.", { routineId: s_ }, ["routineId"]),
 ];
 export const MUTATION_TOOLS: OpenRouterTool[] = [
       {
@@ -457,7 +481,8 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
     ];
 
 
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder } from "../types";
+import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine } from "../types";
+import { defaultTimeZone, isTimeZone, MAX_ROUTINES, ROUTINE_CONDITIONS, ROUTINE_FREQUENCIES, ROUTINE_INSTRUCTIONS_MAX } from "../utils/routines";
 import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
 import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
 import { EVENT_KINDS, isValidTime, safeEventLink } from "../utils/events";
@@ -562,9 +587,9 @@ export function recordTitle(record: object, fallback: string): string {
   return fallback;
 }
 export interface SectionRecord { id: string; name: string; subsections: string[] }
-type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | SectionRecord;
+type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
 /** Everything the assistant can change: searchable records plus workspaces, note folders and task sections. */
-export type MutationType = RecordType | "workspace" | "folder" | "section";
+export type MutationType = RecordType | "workspace" | "folder" | "section" | "routine";
 export interface Mutation {
   type: MutationType;
   record: MutableRecord;
@@ -581,6 +606,7 @@ export const ACADEMIC_WORKSPACE_ID = "workspace-academic";
 export function mutationRecords(state: BrainState, type: MutationType): Array<{ id: string }> {
   if (type === "workspace") return state.workspaces || [];
   if (type === "folder") return state.noteFolders || [];
+  if (type === "routine") return state.routines || [];
   if (type === "section") return sectionRecords(state);
   if (type in STUDY_COLLECTIONS) return studyOf(state)[STUDY_COLLECTIONS[type as keyof typeof STUDY_COLLECTIONS]];
   return (state[MUTATION_COLLECTIONS[type as keyof typeof MUTATION_COLLECTIONS]] || []) as Array<{ id: string }>;
@@ -655,6 +681,10 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
   if (mutation.type === "workspace") {
     const workspace = mutation.record as Workspace;
     return mutation.remove ? removeWorkspace(state, workspace.id) : { ...state, workspaces: upsert(state.workspaces || [], workspace) };
+  }
+  if (mutation.type === "routine") {
+    const routines = state.routines || [];
+    return { ...state, routines: mutation.remove ? routines.filter(r => r.id !== mutation.record.id) : upsert(routines, mutation.record as Routine) };
   }
   if (mutation.type === "folder") {
     const folder = mutation.record as NoteFolder;
@@ -789,6 +819,42 @@ function careerWorkspace(state: BrainState, id?: string): string {
 /** Uploaded files are stored apart from records, so deleting them is left to the app, which removes both. */
 function noUploadedDocuments(count: number, what: string) {
   if (count) throw new Error(`This ${what} has ${count} uploaded document${count === 1 ? "" : "s"}. Delete it from the app so the files are removed too, or delete the documents there first.`);
+}
+/** Applies and checks the schedule fields a routine tool supplied; fields left out keep their values. */
+export function routineFields(base: Routine, args: Record<string, any>): Routine {
+  const r: Routine = { ...base };
+  if (args.name !== undefined) r.name = groupName(args.name, "Routine");
+  if (args.instructions !== undefined) {
+    const text = String(args.instructions).trim();
+    if (!text) throw new Error("Say what the routine should do.");
+    if (text.length > ROUTINE_INSTRUCTIONS_MAX) throw new Error(`Instructions can be at most ${ROUTINE_INSTRUCTIONS_MAX} characters.`);
+    r.instructions = text;
+  }
+  if (args.frequency !== undefined) {
+    if (!ROUTINE_FREQUENCIES.includes(args.frequency)) throw new Error("frequency must be daily, weekdays, weekly or monthly.");
+    r.frequency = args.frequency;
+  }
+  if (args.time !== undefined) { if (!isValidTime(args.time)) throw new Error("time must be 24-hour HH:MM."); r.time = args.time; }
+  if (args.days !== undefined) {
+    const days = [...new Set((args.days as number[]).map(Number))].sort();
+    if (days.some(d => !Number.isInteger(d) || d < 0 || d > 6)) throw new Error("days are 0 (Sunday) to 6 (Saturday).");
+    r.days = days;
+  }
+  if (args.dayOfMonth !== undefined) {
+    if (!Number.isInteger(args.dayOfMonth) || args.dayOfMonth < 1 || args.dayOfMonth > 31) throw new Error("dayOfMonth must be 1 to 31.");
+    r.dayOfMonth = args.dayOfMonth;
+  }
+  if (args.onlyIf !== undefined) { if (!ROUTINE_CONDITIONS.includes(args.onlyIf)) throw new Error("Unsupported onlyIf condition."); r.onlyIf = args.onlyIf; }
+  if (args.mode !== undefined) { if (args.mode !== "act" && args.mode !== "suggest") throw new Error("mode must be act or suggest."); r.mode = args.mode; }
+  if (args.notify !== undefined) r.notify = !!args.notify;
+  if (args.enabled !== undefined) r.enabled = !!args.enabled;
+  if (args.timeZone !== undefined) { if (!isTimeZone(args.timeZone)) throw new Error("Unknown time zone. Use an IANA name like America/New_York."); r.timeZone = args.timeZone; }
+  if (!r.name || !r.instructions || !r.frequency || !r.time) throw new Error("A routine needs a name, instructions, frequency and time.");
+  if (r.frequency === "weekly" && !r.days?.length) throw new Error("Weekly routines need days (0 = Sunday … 6 = Saturday).");
+  if (r.frequency === "monthly" && !r.dayOfMonth) throw new Error("Monthly routines need dayOfMonth.");
+  if (r.frequency !== "weekly") delete r.days;
+  if (r.frequency !== "monthly") delete r.dayOfMonth;
+  return r;
 }
 export function prepareMutation(name: string, args: any, state: BrainState): Mutation {
   const today = getLocalDateString();
@@ -1170,6 +1236,23 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       for (let p = parentId; p; p = (state.noteFolders || []).find(x => x.id === p)?.parentId || null) if (p === f.id) throw new Error("A folder can't be moved inside itself.");
       return { type: "folder", action: name, expected: f, record: { ...f, parentId, ...(args.newName ? { name: groupName(args.newName, "Folder") } : {}), updatedAt: new Date().toISOString() } };
     }
+    case "create_routine": {
+      if ((state.routines || []).length >= MAX_ROUTINES) throw new Error(`At most ${MAX_ROUTINES} routines. Pause or delete one first.`);
+      const now = new Date().toISOString();
+      const routine = routineFields({ id, enabled: true, onlyIf: "always", mode: "act", notify: true, timeZone: defaultTimeZone(), createdAt: now, updatedAt: now } as Routine, {
+        ...args, name: args.name, instructions: args.instructions });
+      if ((state.routines || []).some(r => sameName(r.name, routine.name))) throw new Error("A routine with this name already exists. Update it instead.");
+      return { type: "routine", action: name, record: routine };
+    }
+    case "update_routine": {
+      const r = findIn(state.routines, args.routineId, "Routine");
+      const { routineId: _, newName, newInstructions, ...rest } = args;
+      if (newName === undefined && newInstructions === undefined && !Object.keys(rest).length) throw new Error("Supply at least one field to change.");
+      const next = routineFields({ ...r }, { ...rest, name: newName, instructions: newInstructions });
+      if (newName && (state.routines || []).some(x => x.id !== r.id && sameName(x.name, next.name))) throw new Error("Another routine already has this name.");
+      return { type: "routine", action: name, expected: r, record: { ...next, updatedAt: new Date().toISOString() } };
+    }
+    case "delete_routine": { const r = findIn(state.routines, args.routineId, "Routine"); return { type: "routine", action: name, expected: r, record: r, remove: true }; }
     case "delete_note_folder": { const f = findIn(state.noteFolders, args.folderId, "Folder"); return { type: "folder", action: name, expected: f, record: f, remove: true }; }
     case "update_course": {
       const study = studyOf(state);

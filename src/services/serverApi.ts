@@ -85,6 +85,10 @@ export async function accountHistory(limit = 100): Promise<AccountHistoryEntry[]
 export interface GoogleStatus { configured?: boolean; connected: boolean; email?: string; calendar?: boolean; gmail?: boolean; send?: boolean; status?: "active" | "needs_reconnect"; connectedAt?: string; lastError?: string | null }
 export interface GoogleCalendarEvent { id: string; title: string; date: string; endDate?: string; startTime?: string; endTime?: string; allDay: boolean; location?: string; link?: string; attendees: number }
 export interface TelegramStatus { configured: boolean; linked: boolean; username?: string | null; briefEnabled: boolean; briefHour: number; alertsEnabled: boolean }
+export interface RoutineRun { id: string; routineId: string; slot: string; status: "running" | "done" | "skipped" | "failed"; summary: string | null; changes: number; approvals: number; startedAt: string; finishedAt: string | null }
+export const routineRuns = () => apiJson<{ runs: RoutineRun[] }>("/api/routines").then(r => r.runs);
+/** Runs a routine now on the server and waits for it to finish (up to a few minutes). */
+export const runRoutineNow = (routineId: string) => apiJson<{ outcome: { status: string; summary: string }; runs: RoutineRun[] }>("/api/routines", { method: "POST", body: JSON.stringify({ routineId }) });
 export const telegramStatus = () => apiJson<TelegramStatus>("/api/telegram");
 export const startTelegramLink = (timeZone: string) => apiJson<{ url: string }>("/api/telegram", { method: "POST", body: JSON.stringify({ timeZone }) });
 export const updateTelegramPrefs = (prefs: Partial<Pick<TelegramStatus, "briefEnabled" | "briefHour" | "alertsEnabled">> & { timeZone?: string }) => apiJson<TelegramStatus>("/api/telegram", { method: "PATCH", body: JSON.stringify(prefs) });
