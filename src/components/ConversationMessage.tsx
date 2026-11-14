@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApprovalCard } from "./ApprovalCard";
 import { ActionPreviewCard } from "./ActionPreviewCard";
 import {
@@ -37,7 +37,7 @@ import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences"
 import { MessageFiles, MessageImages } from "./ImageAttachments";
 import { AgentActivity, useSmoothText, wasStreaming } from "./AgentActivity";
 import { IrisCard } from "./IrisCard";
-import { IRIS_UI_FENCE, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
+import { IRIS_UI_FENCE, repairLeakedToolCalls, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
 import type { CardChange } from "../services/irisCards";
 
 /** How interactive cards in a reply reach the conversation. */
@@ -162,7 +162,9 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
   const [error, setError] = useState("");
   const humanContent = () => readableMessage(message, state);
   const [continued] = useState(() => !streaming && wasStreaming(message.id));
-  const shown = useSmoothText(message.id, message.content, !!streaming);
+  // Older replies may hold tool calls the model wrote as text; show them as cards, never as raw markup.
+  const content = useMemo(() => message.role === "assistant" ? repairLeakedToolCalls(message.content) : message.content, [message.role, message.content]);
+  const shown = useSmoothText(message.id, content, !!streaming);
   const copy = async () => {
     try {
       await copyText(message.role === "user" ? message.content : humanContent());
@@ -222,7 +224,7 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
     </header>
     <div className="chat-answer min-w-0">
       {(streaming || message.activity?.length) && <AgentActivity steps={message.activity || []} live={streaming} writing={!!message.content} continued={continued} />}
-      {shown && <MarkdownView className={`chat-prose ${streaming || shown.length < message.content.length ? "is-revealing" : ""}`} content={shown} renderFence={(language, code, complete, block) => language !== IRIS_UI_FENCE ? undefined : <IrisCard code={code} complete={complete} state={state} saved={message.cardState?.[block]} actions={{
+      {shown && <MarkdownView className={`chat-prose ${streaming || shown.length < content.length ? "is-revealing" : ""}`} content={shown} renderFence={(language, code, complete, block) => language !== IRIS_UI_FENCE ? undefined : <IrisCard code={code} complete={complete} state={state} saved={message.cardState?.[block]} actions={{
         interactive: !streaming && !cards?.busy,
         onReply: onFollowUp,
         onAddTasks: cards ? (spec, indexes) => cards.addTasks(message.id, block, spec, indexes) : undefined,

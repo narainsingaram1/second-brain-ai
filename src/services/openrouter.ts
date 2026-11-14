@@ -1,5 +1,6 @@
 import { Task, Habit, JournalEntry } from "../types";
 import { getLocalDateString } from "../utils/habitStreaks";
+import { extractTextToolCalls, stripToolMarkup } from "../utils/toolMarkup";
 import { DEFAULT_PROVIDER_BASE, isServerHeldKey, normalizeProviderBase, providerFetch, providerUrl } from "./providerTransport";
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
@@ -225,7 +226,10 @@ export async function queryOpenRouterWithTools(
     }
 
     const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
-    const data = streamed ? await readCompletionStream(res.body!, tuning.onText!, resetStall, tuning.onReasoning) : await res.json();
+    // Streamed text hides tool calls the model writes as text, including a half-written one at the end.
+    const toolNames = tools.map(t => t.function.name);
+    const onText = (text: string) => tuning.onText!(stripToolMarkup(text, toolNames, true));
+    const data = streamed ? await readCompletionStream(res.body!, onText, resetStall, tuning.onReasoning) : await res.json();
     // With tools switched off, written tool calls are not calls: never turn them into some.
     return completionFrom(data, toolChoice === "none" ? [] : tools);
   } finally {
@@ -293,47 +297,26 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
 }
 
 /**
- * Some models (Qwen-family and others behind providers that don't parse their tool calls) write a tool call as
- * text instead of sending it as one. This turns well-formed calls to tools that were actually offered back into
- * real calls, with each argument typed by the tool's schema; anything else stays text. Two formats:
- *   <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
- *   <tool_call>{"name": "NAME", "arguments": {…}}</tool_call>
+ * Turns tool calls a model wrote as text (see utils/toolMarkup) back into real calls when they name a tool that was
+ * actually offered, with each argument typed by the tool's schema. Calls to anything else are dropped. The returned
+ * content never contains tool-call markup.
  */
 export function recoverTextToolCalls(content: string, tools: OpenRouterTool[] = []): { content: string; toolCalls: OpenRouterToolCall[] } {
   const byName = new Map(tools.map(t => [t.function.name, t]));
-  const calls: OpenRouterToolCall[] = [];
-  if (!byName.size || !/<tool_call>|<function=/.test(content)) return { content, toolCalls: calls };
+  const { rest, calls: found } = extractTextToolCalls(content, byName.keys());
   const typed = (tool: OpenRouterTool, key: string, raw: string): unknown => {
     const schema = ((tool.function.parameters as any)?.properties || {})[key] || {};
-    const value = raw.replace(/^\n|\n$/g, "");
-    if (schema.type === "string" || (!schema.type && !/^[\[{]/.test(value.trim()))) return value;
-    try { return JSON.parse(value.trim()); } catch { return value; }
+    if (schema.type === "string" || (!schema.type && !/^[\[{]/.test(raw.trim()))) return raw;
+    try { return JSON.parse(raw.trim()); } catch { return raw; }
   };
-  const blocks = content.match(/<tool_call>[\s\S]*?<\/tool_call>|<function=[^>\n]+>[\s\S]*?<\/function>/g) || [];
-  let rest = content;
-  for (const block of blocks) {
-    let name = "", args: Record<string, unknown> | null = null;
-    const fn = /<function=([^>\n]+)>([\s\S]*?)<\/function>/.exec(block);
-    if (fn) {
-      name = fn[1].trim();
-      const tool = byName.get(name);
-      if (tool) {
-        args = {};
-        for (const p of fn[2].matchAll(/<parameter=([^>\n]+)>([\s\S]*?)<\/parameter>/g)) args[p[1].trim()] = typed(tool, p[1].trim(), p[2]);
-      }
-    } else {
-      try {
-        const json = JSON.parse(block.replace(/<\/?tool_call>/g, "").trim());
-        name = String(json?.name || "");
-        const a = typeof json?.arguments === "string" ? JSON.parse(json.arguments) : json?.arguments ?? json?.parameters ?? {};
-        if (byName.has(name) && a && typeof a === "object" && !Array.isArray(a)) args = a;
-      } catch { /* Not a call: leave it as text. */ }
-    }
-    if (!args) continue;
-    calls.push({ id: `call-text-${Date.now()}-${calls.length}`, type: "function", function: { name, arguments: JSON.stringify(args) } });
-    rest = rest.replace(block, "");
+  const calls: OpenRouterToolCall[] = [];
+  for (const call of found) {
+    const tool = byName.get(call.name);
+    if (!tool) continue;
+    const args = call.args ?? Object.fromEntries(Object.entries(call.params || {}).map(([k, v]) => [k, typed(tool, k, v)]));
+    calls.push({ id: `call-text-${Date.now()}-${calls.length}`, type: "function", function: { name: call.name, arguments: JSON.stringify(args) } });
   }
-  return { content: rest.replace(/<\/?tool_call>/g, "").trim(), toolCalls: calls };
+  return { content: rest, toolCalls: calls };
 }
 
 function completionFrom(data: any, tools: OpenRouterTool[] = []): OpenRouterCompletionResponse {
@@ -363,15 +346,17 @@ function completionFrom(data: any, tools: OpenRouterTool[] = []): OpenRouterComp
     ];
   }
 
-  // A tool call the model wrote as text instead of sending it as one.
-  if (!toolCalls?.length && typeof msg?.content === "string") {
-    const recovered = recoverTextToolCalls(msg.content, tools);
-    if (recovered.toolCalls.length) return { content: recovered.content || null, toolCalls: recovered.toolCalls,
-      ...(Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}) };
+  // A tool call the model wrote as text instead of sending it as one. Either way, written call markup never
+  // reaches the user: a call to a tool that wasn't offered is dropped rather than shown.
+  let content: string | null = msg?.content || null;
+  if (typeof content === "string") {
+    const recovered = recoverTextToolCalls(content, tools);
+    content = recovered.content || null;
+    if (!toolCalls?.length && recovered.toolCalls.length) toolCalls = recovered.toolCalls;
   }
 
   return {
-    content: msg?.content || null,
+    content,
     toolCalls,
     ...(Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}),
   };

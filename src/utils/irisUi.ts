@@ -1,5 +1,6 @@
 import type { Habit, IrisCardState, Task } from "../types";
 import { getLocalDateString } from "./habitStreaks";
+import { extractTextToolCalls } from "./toolMarkup";
 
 export type { IrisCardState };
 
@@ -52,10 +53,13 @@ function checklistItem(raw: any): ChecklistItem | undefined {
     ...(section ? { section } : {}), ...(subsection ? { subsection } : {}) };
 }
 function quizQuestion(raw: any): QuizQuestion | undefined {
-  const question = text(raw?.question, 400), options = texts(raw?.options, 6, 200);
-  if (!question || options.length < 2 || !Number.isInteger(raw.answer) || raw.answer < 0 || raw.answer >= options.length) return undefined;
-  const why = text(raw.why, 400);
-  return { question, options, answer: raw.answer, ...(why ? { why } : {}) };
+  // Models often use other common quiz field names (prompt, choices, answerIndex, explanation): accept those too.
+  const question = text(raw?.question ?? raw?.prompt, 400), options = texts(raw?.options ?? raw?.choices, 6, 200);
+  let answer = [raw?.answer, raw?.answerIndex, raw?.correctIndex, raw?.correct].find(Number.isInteger);
+  if (answer === undefined && typeof raw?.answer === "string") answer = options.indexOf(raw.answer.trim());
+  if (!question || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) return undefined;
+  const why = text(raw.why ?? raw.explanation, 400);
+  return { question, options, answer, ...(why ? { why } : {}) };
 }
 
 /** The model's output is untrusted: returns a clean spec, or null when the block can't be shown. */
@@ -142,6 +146,21 @@ function describe(spec: IrisUiSpec): string {
     case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map(o => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
     case "chart": return "";
   }
+}
+
+/**
+ * Repairs a saved assistant reply in which the model wrote its tool calls as text (see utils/toolMarkup): card
+ * calls become real card blocks and every other call is removed, so raw call markup is never shown.
+ */
+export function repairLeakedToolCalls(content: string): string {
+  if (!content || !/<|\[TOOL_CALLS\]/.test(content)) return content;
+  const { rest, calls } = extractTextToolCalls(content, ["show_card"]);
+  if (rest === content.trim() && !calls.length) return content;
+  const cards = calls.filter(c => c.name === "show_card").map(c => {
+    const card = c.params?.card ?? c.args?.card;
+    return typeof card === "string" ? card.trim() : card && typeof card === "object" ? JSON.stringify(card) : "";
+  }).filter(card => card && parseIrisUi(card));
+  return [rest, ...cards.map(card => `\`\`\`${IRIS_UI_FENCE}\n${card}\n\`\`\``)].filter(Boolean).join("\n\n");
 }
 
 /** Replaces card blocks with readable text, for anywhere that can't show a card (copy, notes, Telegram). */

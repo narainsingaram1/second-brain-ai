@@ -900,6 +900,63 @@ test('tool calls a model writes as text are run as real calls, typed by the tool
   assert.ok(!result.queryAnswer.includes('<tool_call>'));
 });
 
+// The quiz reply a model wrote with its card call as text: a bare <show_card> opener and a </function> closer.
+const LEAKED_CARD = 'Here are three more `printf` problems, CS 2110 style.\n\n<show_card>\n<parameter=card>\n{"type":"quiz","title":"CS 2110 — printf practice","questions":[{"type":"mcq","prompt":"Given `char c = \'B\';` (ASCII 66), what does `printf(\\"%d\\", c);` print?","choices":["B","66","42","Compiler error"],"answerIndex":1,"explanation":"A `char` is promoted to `int`."}]}\n</parameter>\n</function>\n\nI made these multiple choice so you can tap an answer.';
+
+test('every written tool-call shape is recovered and none of its markup is left in the reply', async () => {
+  const { recoverTextToolCalls } = await server.ssrLoadModule('/src/services/openrouter.ts');
+  const card = { type: 'function', function: { name: 'show_card', description: '', parameters: { type: 'object', properties: { card: { type: 'string' } } } } };
+  const web = { type: 'function', function: { name: 'web_search', description: '', parameters: { type: 'object', properties: { query: { type: 'string' } } } } };
+  const tools = [card, web];
+  const leaked = recoverTextToolCalls(LEAKED_CARD, tools);
+  assert.equal(leaked.content, 'Here are three more `printf` problems, CS 2110 style.\n\nI made these multiple choice so you can tap an answer.');
+  assert.equal(leaked.toolCalls.length, 1);
+  assert.equal(leaked.toolCalls[0].function.name, 'show_card');
+  assert.equal(JSON.parse(JSON.parse(leaked.toolCalls[0].function.arguments).card).type, 'quiz');
+  const shapes = [
+    '<show_card><parameter=card>{"type":"choices"}</parameter></show_card>',
+    '<invoke name="show_card"><parameter name="card">{"type":"choices"}</parameter></invoke>',
+    '<function_calls>\n<invoke name="show_card">\n<parameter name="card">{"type":"choices"}</parameter>\n</invoke>\n</function_calls>',
+    '<function name="show_card">{"card":"{\\"type\\":\\"choices\\"}"}</function>',
+    '[TOOL_CALLS][{"name":"show_card","arguments":{"card":"{\\"type\\":\\"choices\\"}"}}]',
+    '<tool_call>\n<function=show_card>\n<parameter=card>\n{"type":"choices"}\n</parameter>\n', // cut off mid-call
+  ];
+  for (const shape of shapes) {
+    const r = recoverTextToolCalls(`Pick one.\n${shape}`, tools);
+    assert.equal(r.content, 'Pick one.', shape);
+    assert.deepEqual(r.toolCalls.map(c => [c.function.name, JSON.parse(c.function.arguments)]), [['show_card', { card: '{"type":"choices"}' }]], shape);
+  }
+  // A call to a tool that wasn't offered never runs, and its markup is not shown either.
+  const unknown = recoverTextToolCalls('Done.\n<delete_everything>\n<parameter=all>\ntrue\n</parameter>\n</function>', tools);
+  assert.equal(unknown.toolCalls.length, 0);
+  assert.equal(unknown.content, 'Done.');
+  // Ordinary prose and code are never mistaken for a call.
+  const code = 'Wrap it in <b>bold</b>.\n```xml\n<function=web_search><parameter=query>x</parameter></function>\n```';
+  assert.deepEqual(recoverTextToolCalls(code, tools), { content: code, toolCalls: [] });
+});
+
+test('streamed text never shows a tool call the model is writing as text', async () => {
+  const { stripToolMarkup } = await server.ssrLoadModule('/src/utils/toolMarkup.ts');
+  const names = ['show_card'];
+  for (let cut = 0; cut <= LEAKED_CARD.length; cut += 7) {
+    const shown = stripToolMarkup(LEAKED_CARD.slice(0, cut), names, true);
+    assert.ok(!/<show|<param|<\/|\{"type"/.test(shown), `at ${cut}: ${shown}`);
+  }
+  const seen = [];
+  const { result } = await runWith([textReply(LEAKED_CARD)], { onText: t => seen.push(t) }, 'Quiz me on printf');
+  assert.ok(seen.every(t => !t.includes('<show_card>') && !t.includes('<parameter')), 'streamed text stayed clean');
+  assert.ok(!/<show_card>|<parameter|<\/function>/.test(result.queryAnswer));
+  assert.match(result.queryAnswer, /```iris-ui\n\{"type":"quiz"/, 'the quiz is shown as a real card');
+});
+
+test('saved replies that hold a written card call render it as a card', async () => {
+  const { repairLeakedToolCalls } = await server.ssrLoadModule('/src/utils/irisUi.ts');
+  const repaired = repairLeakedToolCalls(LEAKED_CARD);
+  assert.ok(!/<show_card>|<parameter|<\/function>/.test(repaired));
+  assert.match(repaired, /^Here are three more[\s\S]*tap an answer\.\n\n```iris-ui\n\{"type":"quiz"/);
+  assert.equal(repairLeakedToolCalls('Plain answer with a <b>tag</b>.'), 'Plain answer with a <b>tag</b>.');
+});
+
 const sse = obj => `data: ${JSON.stringify(obj)}\n\ndata: [DONE]\n\n`;
 const textReply = text => sse({ choices: [{ delta: { content: text }, finish_reason: 'stop' }] });
 const callReply = (name, args) => sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: `c-${Math.random()}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] });

@@ -155,6 +155,116 @@ function syncHabitStreaks(habit, referenceDateStr) {
 		bestStreak
 	};
 }
+// src/utils/toolMarkup.ts
+const OPENER = /<(?:function=["']?([\w.:-]+)["']?|(?:function|invoke|tool)\s+name=["']([\w.:-]+)["']|([a-z][\w.-]*))\s*>/gi;
+const PARAM = /<parameter(?:=["']?([\w.:-]+)["']?|\s+name=["']([\w.:-]+)["'])\s*>([\s\S]*?)(?:<\/parameter>|(?=<parameter[=\s])|$)/gi;
+const WRAPPER = /<\/?(?:tool_call|tool_calls|function_calls)>|<\|\/?tool_calls?(?:_begin|_end)?\|>/gi;
+const STRAY_CLOSER = /<\/(?:parameter|function|invoke)>/gi;
+const WRAPPER_NAMES = /* @__PURE__ */ new Set([
+	"tool_call",
+	"tool_calls",
+	"function_calls",
+	"parameter"
+]);
+const jsonObject = (text) => {
+	try {
+		const value = JSON.parse(text.trim());
+		return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+	} catch {
+		return null;
+	}
+};
+/** A {"name", "arguments"} object as models write it in text; arguments may itself be a JSON string. */
+function namedCall(value) {
+	if (!value || typeof value !== "object") return null;
+	const v = value;
+	const name = String(v.name || v.function?.name || "");
+	let args = v.arguments ?? v.parameters ?? v.function?.arguments ?? {};
+	if (typeof args === "string") args = jsonObject(args);
+	if (!name || !args || typeof args !== "object" || Array.isArray(args)) return null;
+	return {
+		name,
+		params: null,
+		args
+	};
+}
+/** Runs `fn` on the text outside ``` code fences only. */
+function outsideFences(text, fn) {
+	return text.split(/(```[\s\S]*?(?:```|$))/).map((part, i) => i % 2 ? part : fn(part)).join("");
+}
+function extractFrom(chunk, names, calls) {
+	chunk = chunk.replace(/<tool_call>\s*(\{[\s\S]*?\})\s*(?:<\/tool_call>|$)/gi, (whole, json) => {
+		const call = namedCall(jsonObject(json));
+		if (!call) return whole;
+		calls.push(call);
+		return "";
+	});
+	chunk = chunk.replace(/\[TOOL_CALLS\]\s*(\[[\s\S]*\]|\{[\s\S]*\})\s*$/, (whole, json) => {
+		let list;
+		try {
+			list = JSON.parse(json);
+		} catch {
+			return whole;
+		}
+		const found = (Array.isArray(list) ? list : [list]).map(namedCall).filter((c) => !!c);
+		if (!found.length) return whole;
+		calls.push(...found);
+		return "";
+	});
+	let out = "", at = 0;
+	OPENER.lastIndex = 0;
+	for (let m = OPENER.exec(chunk); m; m = OPENER.exec(chunk)) {
+		const bare = m[3];
+		const name = (m[1] || m[2] || bare || "").trim();
+		const after = chunk.slice(m.index + m[0].length);
+		if (bare && (WRAPPER_NAMES.has(bare.toLowerCase()) || !names.has(bare) && !/^\s*<parameter[=\s]/i.test(after))) continue;
+		const closer = new RegExp(`</(?:function|invoke|tool|${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})>`, "i").exec(after);
+		const body = closer ? after.slice(0, closer.index) : after;
+		const end = m.index + m[0].length + (closer ? closer.index + closer[0].length : after.length);
+		let params = null;
+		PARAM.lastIndex = 0;
+		for (const p of body.matchAll(PARAM)) (params ??= {})[(p[1] || p[2]).trim()] = p[3].replace(/^\s*\n|\n\s*$/g, "");
+		const args = params ? null : jsonObject(body) ?? (body.trim() ? null : {});
+		if (!params && !args) continue;
+		calls.push({
+			name,
+			params,
+			args
+		});
+		out += chunk.slice(at, m.index);
+		at = end;
+		OPENER.lastIndex = end;
+	}
+	return out + chunk.slice(at);
+}
+const tidy = (text) => text.replace(WRAPPER, "").replace(STRAY_CLOSER, "").replace(/\n{3,}/g, "\n\n");
+/** Finds tool calls written as text; `rest` is the text with every call and its wrapper markup removed. */
+function extractTextToolCalls(content, toolNames = []) {
+	const calls = [];
+	if (!content || !/<|\[TOOL_CALLS\]/.test(content)) return {
+		rest: content,
+		calls
+	};
+	const names = new Set(toolNames);
+	return {
+		rest: outsideFences(content, (chunk) => tidy(extractFrom(chunk, names, calls))).trim(),
+		calls
+	};
+}
+/**
+* Removes tool-call markup from text meant for the user. While `streaming`, an unfinished opener at the very end
+* (e.g. "<show_ca" or "<tool_call>\n<function=") is hidden too, so the half-written call never flashes on screen.
+*/
+function stripToolMarkup(content, toolNames = [], streaming = false) {
+	if (!content) return content;
+	let rest = extractTextToolCalls(content, toolNames).rest;
+	if (streaming && !/```[^`]*$/.test(rest.replace(/```[\s\S]*?```/g, ""))) {
+		const names = [...toolNames].map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+		const open = new RegExp(`(?:<(?:tool_call|function_calls|function[=\\s]|invoke\\s|parameter[=\\s]${names.length ? `|(?:${names.join("|")})>` : ""})|\\[TOOL_CALLS\\])[\\s\\S]*$|<[\\w=|/]*$`, "i").exec(rest);
+		if (open) rest = rest.slice(0, open.index).trimEnd();
+	}
+	return rest;
+}
 // src/services/providerTransport.ts
 /**
 * Every request to the AI provider goes through here. The default provider is OpenRouter; the user can
@@ -417,7 +527,10 @@ async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT
 			const errorBody = await res.json().catch(() => ({}));
 			throw new Error(providerErrorMessage(errorBody, res.status));
 		}
-		return completionFrom(tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream") ? await readCompletionStream(res.body, tuning.onText, resetStall, tuning.onReasoning) : await res.json(), toolChoice === "none" ? [] : tools);
+		const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
+		const toolNames = tools.map((t) => t.function.name);
+		const onText = (text) => tuning.onText(stripToolMarkup(text, toolNames, true));
+		return completionFrom(streamed ? await readCompletionStream(res.body, onText, resetStall, tuning.onReasoning) : await res.json(), toolChoice === "none" ? [] : tools);
 	} finally {
 		clearTimeout(stallTimer);
 	}
@@ -502,60 +615,38 @@ async function readCompletionStream(body, onText, onChunk = () => {}, onReasonin
 	}] };
 }
 /**
-* Some models (Qwen-family and others behind providers that don't parse their tool calls) write a tool call as
-* text instead of sending it as one. This turns well-formed calls to tools that were actually offered back into
-* real calls, with each argument typed by the tool's schema; anything else stays text. Two formats:
-*   <tool_call><function=NAME><parameter=KEY>VALUE</parameter>…</function></tool_call>
-*   <tool_call>{"name": "NAME", "arguments": {…}}</tool_call>
+* Turns tool calls a model wrote as text (see utils/toolMarkup) back into real calls when they name a tool that was
+* actually offered, with each argument typed by the tool's schema. Calls to anything else are dropped. The returned
+* content never contains tool-call markup.
 */
 function recoverTextToolCalls(content, tools = []) {
 	const byName = new Map(tools.map((t) => [t.function.name, t]));
-	const calls = [];
-	if (!byName.size || !/<tool_call>|<function=/.test(content)) return {
-		content,
-		toolCalls: calls
-	};
+	const { rest, calls: found } = extractTextToolCalls(content, byName.keys());
 	const typed = (tool, key, raw) => {
 		const schema = (tool.function.parameters?.properties || {})[key] || {};
-		const value = raw.replace(/^\n|\n$/g, "");
-		if (schema.type === "string" || !schema.type && !/^[\[{]/.test(value.trim())) return value;
+		if (schema.type === "string" || !schema.type && !/^[\[{]/.test(raw.trim())) return raw;
 		try {
-			return JSON.parse(value.trim());
+			return JSON.parse(raw.trim());
 		} catch {
-			return value;
+			return raw;
 		}
 	};
-	const blocks = content.match(/<tool_call>[\s\S]*?<\/tool_call>|<function=[^>\n]+>[\s\S]*?<\/function>/g) || [];
-	let rest = content;
-	for (const block of blocks) {
-		let name = "", args = null;
-		const fn = /<function=([^>\n]+)>([\s\S]*?)<\/function>/.exec(block);
-		if (fn) {
-			name = fn[1].trim();
-			const tool = byName.get(name);
-			if (tool) {
-				args = {};
-				for (const p of fn[2].matchAll(/<parameter=([^>\n]+)>([\s\S]*?)<\/parameter>/g)) args[p[1].trim()] = typed(tool, p[1].trim(), p[2]);
-			}
-		} else try {
-			const json = JSON.parse(block.replace(/<\/?tool_call>/g, "").trim());
-			name = String(json?.name || "");
-			const a = typeof json?.arguments === "string" ? JSON.parse(json.arguments) : json?.arguments ?? json?.parameters ?? {};
-			if (byName.has(name) && a && typeof a === "object" && !Array.isArray(a)) args = a;
-		} catch {}
-		if (!args) continue;
+	const calls = [];
+	for (const call of found) {
+		const tool = byName.get(call.name);
+		if (!tool) continue;
+		const args = call.args ?? Object.fromEntries(Object.entries(call.params || {}).map(([k, v]) => [k, typed(tool, k, v)]));
 		calls.push({
 			id: `call-text-${Date.now()}-${calls.length}`,
 			type: "function",
 			function: {
-				name,
+				name: call.name,
 				arguments: JSON.stringify(args)
 			}
 		});
-		rest = rest.replace(block, "");
 	}
 	return {
-		content: rest.replace(/<\/?tool_call>/g, "").trim(),
+		content: rest,
 		toolCalls: calls
 	};
 }
@@ -578,16 +669,14 @@ function completionFrom(data, tools = []) {
 			arguments: msg.function_call.arguments
 		}
 	}];
-	if (!toolCalls?.length && typeof msg?.content === "string") {
-		const recovered = recoverTextToolCalls(msg.content, tools);
-		if (recovered.toolCalls.length) return {
-			content: recovered.content || null,
-			toolCalls: recovered.toolCalls,
-			...Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}
-		};
+	let content = msg?.content || null;
+	if (typeof content === "string") {
+		const recovered = recoverTextToolCalls(content, tools);
+		content = recovered.content || null;
+		if (!toolCalls?.length && recovered.toolCalls.length) toolCalls = recovered.toolCalls;
 	}
 	return {
-		content: msg?.content || null,
+		content,
 		toolCalls,
 		...Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}
 	};
@@ -10796,13 +10885,20 @@ function checklistItem(raw) {
 	};
 }
 function quizQuestion(raw) {
-	const question = text(raw?.question, 400), options = texts(raw?.options, 6, 200);
-	if (!question || options.length < 2 || !Number.isInteger(raw.answer) || raw.answer < 0 || raw.answer >= options.length) return void 0;
-	const why = text(raw.why, 400);
+	const question = text(raw?.question ?? raw?.prompt, 400), options = texts(raw?.options ?? raw?.choices, 6, 200);
+	let answer = [
+		raw?.answer,
+		raw?.answerIndex,
+		raw?.correctIndex,
+		raw?.correct
+	].find(Number.isInteger);
+	if (answer === void 0 && typeof raw?.answer === "string") answer = options.indexOf(raw.answer.trim());
+	if (!question || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) return void 0;
+	const why = text(raw.why ?? raw.explanation, 400);
 	return {
 		question,
 		options,
-		answer: raw.answer,
+		answer,
 		...why ? { why } : {}
 	};
 }
@@ -11941,7 +12037,7 @@ var AutonomousBrainAgent = class {
 					})))}`
 				}
 			];
-			const answerOf = (c) => (c.content || "").replace(/<tool_call>[\s\S]*?(<\/tool_call>|$)/g, "").replace(/<function=[\s\S]*?(<\/function>|$)/g, "").trim();
+			const answerOf = (c) => stripToolMarkup(c.content || "", tools.map((t) => t.function.name));
 			let answer = answerOf(await queryOpenRouterWithTools(finalMessages, tools, key, model, void 0, "none", signal, { onText: options.onText }, options.providerBase));
 			if (!answer) {
 				options.onText?.("");
