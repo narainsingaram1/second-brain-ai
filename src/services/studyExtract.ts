@@ -42,7 +42,7 @@ export function kindOf(file: { name: string; type: string }): StudyDocumentKind 
   return null;
 }
 
-async function pdfText(data: ArrayBuffer, progress?: (s: string) => void) {
+export async function pdfText(data: ArrayBuffer, progress?: (s: string) => void) {
   const pdfjs = await import("pdfjs-dist");
   const worker = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
   pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
@@ -66,7 +66,7 @@ async function pdfText(data: ArrayBuffer, progress?: (s: string) => void) {
   return { text: pages.join("\n\n"), pages: count };
 }
 
-async function officeText(data: ArrayBuffer, kind: "docx" | "pptx") {
+export async function officeText(data: ArrayBuffer, kind: "docx" | "pptx") {
   const { default: JSZip } = await import("jszip");
   const zip = await JSZip.loadAsync(data);
   if (kind === "docx") {

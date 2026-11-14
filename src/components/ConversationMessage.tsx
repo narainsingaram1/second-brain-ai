@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { FormEvent, KeyboardEvent, useLayoutEffect, useRef, useState } from "react";
 import { ApprovalCard } from "./ApprovalCard";
 import { ActionPreviewCard } from "./ActionPreviewCard";
 import {
@@ -8,6 +8,10 @@ import {
   CheckSquare,
   Check,
   Copy,
+  GitBranch,
+  Pencil,
+  Quote,
+  RotateCcw,
   ThumbsUp,
   ThumbsDown,
   Database,
@@ -30,7 +34,7 @@ import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "
 import { getLocalDateString } from "../utils/habitStreaks";
 import { MarkdownView } from "./MarkdownView";
 import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences";
-import { MessageImages } from "./ImageAttachments";
+import { MessageFiles, MessageImages } from "./ImageAttachments";
 import { AgentActivity, useSmoothText, wasStreaming } from "./AgentActivity";
 import { IrisCard } from "./IrisCard";
 import { IRIS_UI_FENCE, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
@@ -61,7 +65,96 @@ function getFollowUpIcon(text: string, index: number): LucideIcon {
   return fallbacks[index % fallbacks.length];
 }
 
-export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp, cards }: { cards?: CardHandlers; followUps?: { items: string[]; loading: boolean }; onFollowUp?: (text: string) => void; message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
+/** What the reader can do with a message: copy, quote into the composer, edit and resend, regenerate. */
+export interface MessageActions {
+  /** Puts a Markdown quote of this text into the composer. */
+  onQuote?: (text: string) => void;
+  /** User messages: resend with new text. `branch` keeps the original conversation. */
+  onEdit?: (text: string, branch: boolean) => Promise<void> | void;
+  /** Assistant messages: answer the question again. */
+  onRegenerate?: () => void;
+  /** Branching keeps a copy in Recent conversations, which temporary chats do not have. */
+  canBranch?: boolean;
+  /** A reply is in progress, so edits and regeneration wait. */
+  busy?: boolean;
+  /** Later messages exist and would be replaced. */
+  hasLater?: boolean;
+}
+
+/** Copies text, falling back to a hidden text field where the Clipboard API is blocked (some webviews). */
+export async function copyText(text: string): Promise<void> {
+  try { await navigator.clipboard.writeText(text); return; } catch { /* Try the older way below. */ }
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.cssText = "position:fixed;top:0;left:0;opacity:0;pointer-events:none";
+  document.body.appendChild(field);
+  const selection = document.getSelection(), previous = selection?.rangeCount ? selection.getRangeAt(0) : null;
+  field.select();
+  const ok = document.execCommand("copy");
+  field.remove();
+  if (previous) { selection?.removeAllRanges(); selection?.addRange(previous); }
+  if (!ok) throw new Error("Copy failed");
+}
+
+/** The selected text when the selection lies inside `root`, else "". */
+export function selectionWithin(root: HTMLElement | null): string {
+  const selection = typeof window === "undefined" ? null : window.getSelection();
+  if (!root || !selection || selection.isCollapsed || !selection.rangeCount) return "";
+  const range = selection.getRangeAt(0);
+  return root.contains(range.commonAncestorContainer) ? selection.toString().trim() : "";
+}
+
+/** A user's message as typed, with Markdown quote lines ("> …") shown as quotes. */
+export function UserText({ text }: { text: string }) {
+  const groups: { quote: boolean; lines: string[] }[] = [];
+  for (const line of text.split("\n")) {
+    const quote = /^>\s?/.test(line);
+    const last = groups[groups.length - 1];
+    const value = quote ? line.replace(/^>\s?/, "") : line;
+    if (last && last.quote === quote) last.lines.push(value); else groups.push({ quote, lines: [value] });
+  }
+  return <>{groups.map((group, index) => group.quote
+    ? <blockquote key={index} className="chat-user-quote">{group.lines.join("\n")}</blockquote>
+    : <span key={index}>{group.lines.join("\n").replace(/^\n+|\n+$/g, "")}</span>)}</>;
+}
+
+function MessageEditor({ initial, canBranch, onCancel, onSubmit }: { initial: string; canBranch?: boolean; onCancel: () => void; onSubmit: (text: string, branch: boolean) => void }) {
+  const [text, setText] = useState(initial);
+  const [branch, setBranch] = useState(false);
+  const area = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const element = area.current;
+    if (!element) return;
+    element.style.height = "0px";
+    element.style.height = `${Math.min(element.scrollHeight, 320)}px`;
+  }, [text]);
+  useLayoutEffect(() => { const element = area.current; element?.focus(); element?.setSelectionRange(element.value.length, element.value.length); }, []);
+  const submit = (event?: FormEvent) => { event?.preventDefault(); if (text.trim()) onSubmit(text.trim(), branch); };
+  const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Escape") { event.preventDefault(); onCancel(); }
+    else if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); }
+  };
+  return <form className="chat-message-editor" onSubmit={submit}>
+    <textarea ref={area} value={text} onChange={event => setText(event.target.value)} onKeyDown={keyDown} aria-label="Edit message" rows={1} />
+    <div className="chat-message-editor-bar">
+      {canBranch ? <label className="chat-branch-toggle" title="Keep the original conversation in Recent conversations and continue from here in a new one">
+        <input type="checkbox" checked={branch} onChange={event => setBranch(event.target.checked)} />
+        <GitBranch size={13} aria-hidden="true" />
+        <span>Branch chat</span>
+      </label> : <span />}
+      <div className="flex items-center gap-2">
+        <button type="button" className="chat-editor-cancel" onClick={onCancel}>Cancel</button>
+        <button type="submit" className="chat-editor-send" disabled={!text.trim()}>{branch ? "Send in new chat" : "Send"}</button>
+      </div>
+    </div>
+    <p className="chat-message-editor-hint">{branch ? "The original conversation stays in Recent conversations." : "Messages after this one are replaced by the new answer."}</p>
+  </form>;
+}
+
+export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp, cards, actions }: { cards?: CardHandlers; actions?: MessageActions; followUps?: { items: string[]; loading: boolean }; onFollowUp?: (text: string) => void; message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
+  const root = useRef<HTMLElement>(null);
+  const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<ChatSource | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -71,8 +164,17 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
   const [continued] = useState(() => !streaming && wasStreaming(message.id));
   const shown = useSmoothText(message.id, message.content, !!streaming);
   const copy = async () => {
-    try { await navigator.clipboard.writeText(humanContent()); setCopied(true); } catch { setError("Copy failed. Select the text to copy it."); }
+    try {
+      await copyText(message.role === "user" ? message.content : humanContent());
+      setCopied(true);
+      setError("");
+      setTimeout(() => setCopied(false), 1600);
+    } catch { setError("Copy failed. Select the text to copy it."); }
   };
+  /** Quotes the selected part of this message, or all of it. */
+  const quote = () => actions?.onQuote?.(selectionWithin(root.current) || (message.role === "user" ? message.content : humanContent()));
+  // Keeps the text selection when the quote button is pressed.
+  const keepSelection = (event: { preventDefault: () => void }) => event.preventDefault();
   const save = () => {
     if (!onSaveNote || saved) return;
     const content = humanContent(), title = conversationTitle(state?.chatHistory || []) === "New conversation" ? "Conversation note" : conversationTitle(state?.chatHistory || []);
@@ -80,11 +182,26 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
     onSaveNote({ id: crypto.randomUUID(), subject: title, title, content, summary: content.slice(0, 180), status: "Synthesized", startDate: today, endDate: today, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
     setSaved(true);
   };
-  if (message.role === "user") return <article data-message-id={message.id} className="chat-user-message">
+  if (message.role === "user") return <article ref={root} data-message-id={message.id} className={`chat-user-message ${editing ? "is-editing" : ""}`}>
     {message.attachments?.length ? <MessageImages attachments={message.attachments} /> : null}
-    {message.content && <div>{message.content}</div>}
+    {message.files?.length ? <MessageFiles files={message.files} /> : null}
+    {editing && actions?.onEdit ? <MessageEditor initial={message.content} canBranch={actions.canBranch} onCancel={() => setEditing(false)}
+      onSubmit={(text, branch) => { setEditing(false); void actions.onEdit!(text, branch); }} />
+      : message.content && <div className="chat-user-bubble"><UserText text={message.content} /></div>}
+    {!editing && <div className="chat-user-actions">
+      {message.content && <button type="button" onClick={copy} className="chat-icon-button" aria-label={copied ? "Copied prompt" : "Copy prompt"} title={copied ? "Copied" : "Copy prompt"}>
+        {copied ? <Check size={14} /> : <Copy size={14} strokeWidth={1.6} />}
+      </button>}
+      {actions?.onQuote && message.content && <button type="button" onMouseDown={keepSelection} onClick={quote} className="chat-icon-button" aria-label="Quote in reply" title="Quote in reply (or select part of the message first)">
+        <Quote size={14} strokeWidth={1.6} />
+      </button>}
+      {actions?.onEdit && <button type="button" onClick={() => setEditing(true)} disabled={actions.busy} className="chat-icon-button" aria-label="Edit message" title={actions.busy ? "Wait for the reply to finish" : "Edit and resend"}>
+        <Pencil size={14} strokeWidth={1.6} />
+      </button>}
+      {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
+    </div>}
   </article>;
-  return <article data-message-id={message.id} className={`chat-assistant-message ${streaming ? "is-streaming" : ""} ${continued ? "is-continued" : ""}`} aria-busy={streaming || undefined}>
+  return <article ref={root} data-message-id={message.id} className={`chat-assistant-message ${streaming ? "is-streaming" : ""} ${continued ? "is-continued" : ""}`} aria-busy={streaming || undefined}>
     <header className="chat-assistant-header">
       <div className={`chat-assistant-avatar-wrap ${streaming ? "is-typing" : ""}`} title="Iris">
         <span className="chat-assistant-avatar" aria-hidden="true" />
@@ -186,6 +303,11 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
           <button type="button" onClick={copy} className="chat-icon-button" aria-label={copied ? "Copied response" : "Copy response"} title={copied ? "Copied" : "Copy response"}>
             {copied ? <Check size={15} /> : <Copy size={15} strokeWidth={1.6} />}
           </button>
+          {actions?.onQuote && message.content && (
+            <button type="button" onMouseDown={keepSelection} onClick={quote} className="chat-icon-button" aria-label="Quote in reply" title="Quote in reply (or select part of the answer first)">
+              <Quote size={15} strokeWidth={1.6} />
+            </button>
+          )}
           {onSaveNote && (
             <button type="button" onClick={save} disabled={saved} className="chat-icon-button" aria-label={saved ? "Saved to notes" : "Save response as note"} title={saved ? "Saved to notes" : "Save as note"}>
               {saved ? <Check size={15} /> : <Bookmark size={15} strokeWidth={1.6} />}
@@ -209,6 +331,12 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
           >
             <ThumbsDown size={15} strokeWidth={1.6} fill={feedback === "dislike" ? "currentColor" : "none"} />
           </button>
+          {actions?.onRegenerate && (
+            <button type="button" onClick={actions.onRegenerate} disabled={actions.busy} className="chat-icon-button" aria-label="Regenerate response"
+              title={actions.busy ? "Wait for the reply to finish" : actions.hasLater ? "Regenerate (replaces the messages after it)" : "Regenerate response"}>
+              <RotateCcw size={15} strokeWidth={1.6} />
+            </button>
+          )}
           {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
         </div>
       )}

@@ -1,7 +1,8 @@
 import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { boundConversations } from "../utils/conversationBudget";
-import { attachmentOf, rememberImage } from "../utils/imageInput";
+import { attachmentOf, rememberImage, sessionImage, type PreparedImage } from "../utils/imageInput";
+import { rememberFileText, savedFile, sessionFileText } from "../utils/chatFiles";
 import { AgentStep, AIMessage, ApprovalRequest, AuditLogEntry, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
@@ -63,6 +64,12 @@ export interface BrainConversation {
   stop: () => void;
   startNew: () => void;
   resume: (id: string) => void;
+  /**
+   * Sends a user message again, optionally with new text, and answers it afresh. For an assistant message, its
+   * question is asked again (regenerate). Later messages are dropped, unless `branch` keeps the original
+   * conversation in the archive and continues in a new one.
+   */
+  resubmit?: (messageId: string, prompt?: string, options?: { branch?: boolean }) => Promise<AgentExecutionResult | undefined>;
   temporary?: boolean;
   setTemporary?: (temporary: boolean) => void;
   messages?: AIMessage[];
@@ -246,7 +253,8 @@ export function useBrainConversation(
     return saved!;
   };
   changeMemoryRef.current = changeMemory;
-  const run: RunConversation = async (prompt, options = {}) => {
+  /** One turn. `carried` keeps an edited message's images when only their description is left. */
+  const runTurn = async (prompt: string, options: Parameters<RunConversation>[1] = {}, carried: Pick<AIMessage, "attachments" | "imageDescription"> = {}): Promise<AgentExecutionResult> => {
     if (active.current)
       throw new Error(
         "A conversation is already running. Stop it before sending another message.",
@@ -268,13 +276,19 @@ export function useBrainConversation(
       new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     const images = options.images || [];
     images.forEach(rememberImage);
+    const files = options.files || [];
+    files.forEach(rememberFileText);
+    // The turn reads the whole extracted text; saved conversations keep a capped copy.
     const user: AIMessage = {
       id: crypto.randomUUID(),
       role: "user",
       content: prompt,
       timestamp: timestamp(),
-      ...(images.length ? { attachments: images.map(attachmentOf) } : {}),
+      ...(images.length ? { attachments: images.map(attachmentOf) } : carried.attachments?.length ? { attachments: carried.attachments } : {}),
+      ...(!images.length && carried.imageDescription ? { imageDescription: carried.imageDescription } : {}),
+      ...(files.length ? { files } : {}),
     };
+    const saved: AIMessage = files.length ? { ...user, files: files.map(savedFile) } : user;
     const conversationId = workspace.conversationId || crypto.randomUUID();
     const initial = temporary
       ? {
@@ -285,13 +299,13 @@ export function useBrainConversation(
         }
       : { ...workspace, conversationId };
     if (temporary) {
-      tempLatest.current = [...tempLatest.current, user];
+      tempLatest.current = [...tempLatest.current, saved];
       setTemporaryMessages(tempLatest.current);
     } else
       publish({
         ...workspace,
         conversationId,
-        chatHistory: [...workspace.chatHistory, user],
+        chatHistory: [...workspace.chatHistory, saved],
       });
     // Streamed text is applied at most once per frame, so long answers do not re-render per token.
     const assistantId = crypto.randomUUID();
@@ -572,7 +586,7 @@ export function useBrainConversation(
           });
         // Temporary chats are never read. Everything else joins the background queue, which batches it.
         if (!temporary && (result.status === "complete" || result.status === "partial"))
-          learner.current?.enqueue([{ message: user, reply: result.queryAnswer, conversationId: initial.conversationId || "current" }]);
+          learner.current?.enqueue([{ message: saved, reply: result.queryAnswer, conversationId: initial.conversationId || "current" }]);
         // Anything waiting on approval already has its next step on screen.
         if ((result.status === "complete" || result.status === "partial") && !result.approvals?.length && initial.openRouterKey?.trim()) {
           const request = new AbortController();
@@ -597,6 +611,27 @@ export function useBrainConversation(
         setActivity([]);
       }
     }
+  };
+  const run: RunConversation = (prompt, options) => runTurn(prompt, options);
+  const resubmit = async (messageId: string, prompt?: string, { branch = false }: { branch?: boolean } = {}) => {
+    const current = latest.current;
+    if (active.current || !current) return undefined;
+    const history = temporary ? tempLatest.current : current.chatHistory;
+    let index = history.findIndex(m => m.id === messageId);
+    while (index >= 0 && history[index].role !== "user") index--;
+    if (index < 0) return undefined;
+    const original = history[index], kept = history.slice(0, index);
+    const text = prompt ?? original.content;
+    // Images still held this session are looked at again; otherwise the earlier reading of them is kept.
+    const images = (original.attachments || []).flatMap((a): PreparedImage[] => { const dataUrl = sessionImage(a.id); return dataUrl ? [{ ...a, dataUrl }] : []; });
+    const allImages = !!original.attachments?.length && images.length === original.attachments.length;
+    const files = original.files?.map(f => ({ ...f, text: sessionFileText(f.id) || f.text }));
+    clearFollowUps();
+    if (temporary) { tempLatest.current = kept; setTemporaryMessages(kept); }
+    else if (branch) publish({ ...current, conversations: archiveCurrent(current), conversationId: crypto.randomUUID(), chatHistory: kept });
+    else publish({ ...current, chatHistory: kept });
+    return runTurn(text, { ...(allImages ? { images } : {}), ...(files?.length ? { files } : {}) },
+      allImages ? {} : { attachments: original.attachments, imageDescription: original.imageDescription });
   };
   const switchConversation = (id?: string) => {
     if (active.current || !latest.current) return;
@@ -728,6 +763,7 @@ export function useBrainConversation(
   };
   return {
     run,
+    resubmit,
     decideApproval,
     addCardTasks,
     setCardState,

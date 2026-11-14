@@ -347,6 +347,27 @@ export interface ImageAttachment {
   thumbnail?: string;
 }
 
+export type ChatFileKind = "pdf" | "docx" | "pptx" | "xlsx" | "csv" | "text" | "rtf";
+/**
+ * A document attached to a chat message (PDF, Word, Excel, CSV, slides, text). Its extracted text is what the
+ * model reads, always as untrusted data. Saved messages keep a capped excerpt; the full text stays in memory.
+ */
+export interface FileAttachment {
+  id: string;
+  name: string;
+  mimeType: string;
+  /** Size of the original file in bytes. */
+  size: number;
+  kind: ChatFileKind;
+  text: string;
+  /** Characters extracted before any cap. */
+  chars: number;
+  /** Pages, slides or sheets, when the format has them. */
+  pages?: number;
+  /** Part of the document was left out because it was too long. */
+  truncated?: boolean;
+}
+
 /** One thing the assistant did while working on a reply, shown live and kept with the reply. */
 export type AgentStepKind = "think" | "prepare" | "records" | "web" | "email" | "calendar" | "change" | "memory" | "image" | "approval" | "write" | "plan" | "browser" | "desktop";
 export type AgentPlanStatus = "pending" | "in_progress" | "done" | "skipped" | "blocked";
@@ -384,6 +405,8 @@ export interface AppliedAction {
 export interface AIMessage {
   sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
   attachments?: ImageAttachment[];
+  /** Documents attached to a user message, with their extracted text. */
+  files?: FileAttachment[];
   /** Text description of the attachments from the vision model, kept so follow-ups work after reload. */
   imageDescription?: string;
   id: string;
