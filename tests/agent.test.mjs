@@ -401,7 +401,8 @@ test('providers that ignore disabled tools cannot start another execution loop',
   let count = 0;
   globalThis.fetch = async () => { count++; return Response.json(response(null, [call('query_records', { type: 'task', countOnly: true })])); };
   const result = await AutonomousBrainAgent.execute('Review tasks', state());
-  assert.equal(count, 4); assert.equal(result.status, 'error'); assert.match(result.queryAnswer, /provider did not return an answer/i);
+  // Three rounds, the forced answer, one plain retry without tools; then an honest partial reply, never another loop.
+  assert.equal(count, 5); assert.equal(result.status, 'partial'); assert.match(result.queryAnswer, /didn't write a summary/);
 });
 
 test('equivalent read arguments cannot evade progress checks by changing key order or defaults', async () => {
@@ -897,4 +898,44 @@ test('tool calls a model writes as text are run as real calls, typed by the tool
   assert.ok(requests[1].messages.some(m => m.role === 'tool'), 'the written call ran');
   assert.equal(result.queryAnswer, 'You have no notes about scooters yet.');
   assert.ok(!result.queryAnswer.includes('<tool_call>'));
+});
+
+const sse = obj => `data: ${JSON.stringify(obj)}\n\ndata: [DONE]\n\n`;
+const textReply = text => sse({ choices: [{ delta: { content: text }, finish_reason: 'stop' }] });
+const callReply = (name, args) => sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: `c-${Math.random()}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] });
+const blankState = () => ({ userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Inbox'], subsections: { Inbox: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' });
+async function runWith(replies, options = {}, prompt = 'Find scooters') {
+  const requests = [];
+  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift() ?? textReply(''), { headers: { 'content-type': 'text/event-stream' } }); };
+  const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+  const result = await AutonomousBrainAgent.execute(prompt, blankState(), 'k', 'm', { onText: () => {}, ...options });
+  return { result, requests };
+}
+
+test('the final answer survives a model that keeps writing tool calls once tools are off', async () => {
+  const toolText = '<tool_call>\n<function=search_records>\n<parameter=query>\nscooter\n</parameter>\n</function>\n</tool_call>';
+  const { result, requests } = await runWith([textReply(toolText), textReply('The Hover-1 Alpha is the best value.')], { budget: { steps: 1 } });
+  assert.equal(result.queryAnswer, 'The Hover-1 Alpha is the best value.');
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].tool_choice, 'none');
+  assert.equal(requests[1].tools, undefined, 'the retry lists no tools');
+  assert.ok(!requests[1].messages.some(m => m.role === 'tool' || m.tool_calls), 'and carries no tool history');
+});
+
+test('if the model writes no answer at all, the reply says what was done instead of failing', async () => {
+  const { result } = await runWith([textReply(''), textReply('')], { budget: { steps: 1 } });
+  assert.notEqual(result.status, 'error');
+  assert.match(result.queryAnswer, /didn't write a summary/);
+  assert.match(result.queryAnswer, /Ask me to continue/);
+});
+
+test('browsing keeps going through a few failed steps instead of giving up after two', async () => {
+  let looks = 0;
+  const external = { definitions: [{ type: 'function', function: { name: 'browser_look', description: '', parameters: { type: 'object', properties: { tabId: { type: 'integer' } }, required: ['tabId'], additionalProperties: false } } }],
+    instructions: '', execute: async () => { looks++; if (looks <= 3) throw new Error('Something is covering that element (Cookie banner).'); return { output: { pageOf: 1, tabId: 1, url: 'https://www.walmart.com/', elements: '' }, summary: 'Looked at walmart.com' }; } };
+  const replies = [1, 2, 3, 4].map(() => callReply('browser_look', { tabId: 1 })).concat([textReply('Added the Hover-1 Alpha to your cart.')]);
+  const { result, requests } = await runWith(replies, { externalTools: external }, 'Go to walmart.com and add a scooter to my cart');
+  assert.equal(looks, 4, 'three failures, then it got through');
+  assert.equal(result.queryAnswer, 'Added the Hover-1 Alpha to your cart.');
+  assert.ok(requests.every(r => r.tool_choice !== 'none'), 'never forced to wrap up');
 });
