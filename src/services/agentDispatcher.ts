@@ -292,6 +292,22 @@ function imageParts(images: { name: string; dataUrl: string }[]): OpenRouterCont
   ]);
 }
 
+/**
+ * What an earlier reply did with tools (pages opened, records searched), as a note the model sees with that reply.
+ * Without it a follow-up only sees the reply text, and the model forgets it was on a site and can go back there.
+ */
+export const STEPS_NOTE = "What you did for this reply (your tool steps; not shown to the user)";
+export function activityDigest(steps: AgentStep[] = []): string {
+  const lines = steps.filter(s => !s.hidden && !["think", "plan", "write", "prepare"].includes(s.kind)).map(s => {
+    const link = (s.items || []).map(item => item.split("|")[1]).find(url => url && /^https?:\/\//.test(url));
+    return `${s.label}${link ? ` (${link})` : ""}${s.status === "error" ? " (failed)" : ""}`;
+  });
+  if (!lines.length) return "";
+  const text = lines.slice(-10).join("; ");
+  return `\n[${STEPS_NOTE}: ${text.length > 800 ? `${text.slice(0, 799)}…` : text}]`;
+}
+const STEPS_NOTE_ECHO = new RegExp(`\\n?\\[${STEPS_NOTE.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}:[^\\]]*\\]`, "g");
+
 function boundedMessages(state: BrainState, prompt: string, options: AgentOptions, messageId: string, vision = false, filesText = ""): OpenRouterMessage[] {
   let remaining = 48000;
   let historyImages = 0;
@@ -302,6 +318,7 @@ function boundedMessages(state: BrainState, prompt: string, options: AgentOption
     // Keep the transcript human: no internal IDs or JSON. Referenced records are listed once in context instead.
     const clean = message.role === "assistant" ? message.content.replace(CITATION, "") : message.content;
     let content: string = clean.length > 10000 ? clean.slice(0, 8000) + "\n[Long message shortened; recall_conversation has the full text.]" : clean;
+    if (message.role === "assistant") content += activityDigest(message.activity);
     let parts: OpenRouterContentPart[] | undefined;
     if (message.role === "user" && message.attachments?.length) {
       // Recent images stay viewable for follow-ups this session; older or reloaded ones become a note.
@@ -434,7 +451,7 @@ export class AutonomousBrainAgent {
       actionType: actions.length ? "compound" : "query_brain", entityType: actions.length ? "compound" : "query",
       headline: status === "complete" || status === "partial" ? "Synapse" : status === "cancelled" ? "Stopped" : "Assistant unavailable",
       explanation: actions.length ? `${actions.length} change${actions.length === 1 ? "" : "s"} saved` : memoryWrites ? `${memoryWrites} memory change${memoryWrites === 1 ? "" : "s"} saved` : status === "complete" ? "" : "No changes saved",
-      queryAnswer: cards.length && (status === "complete" || status === "partial") ? [answer.trim(), ...cards.map(card => `\`\`\`${IRIS_UI_FENCE}\n${card}\n\`\`\``)].join("\n\n") : answer, actions, citations: [...sources.values()], status, rememberedIds, ...(memoryErrors.size ? { memoryNotice: [...new Set(memoryErrors.values())].join(" ") } : {}),
+      queryAnswer: cards.length && (status === "complete" || status === "partial") ? [answer.replace(STEPS_NOTE_ECHO, "").trim(), ...cards.map(card => `\`\`\`${IRIS_UI_FENCE}\n${card}\n\`\`\``)].join("\n\n") : answer.replace(STEPS_NOTE_ECHO, ""), actions, citations: [...sources.values()], status, rememberedIds, ...(memoryErrors.size ? { memoryNotice: [...new Set(memoryErrors.values())].join(" ") } : {}),
       ...(imageDescription ? { imageDescription } : {}),
     });
     if (!key.trim()) return finish("Connect an AI provider in Settings to start a conversation. Your records have not been changed.", "error");

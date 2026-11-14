@@ -372,6 +372,7 @@ async function authenticate(request) {
 		client
 	};
 }
+typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
 ({}).VITE_GOOGLE_ONLY;
 ({}).VITE_AUTH_PROVIDER;
 const url = {}.VITE_SUPABASE_URL || "";

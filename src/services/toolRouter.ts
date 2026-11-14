@@ -127,6 +127,7 @@ export function createAgentRouter(options: RouterOptions) {
     }
     const gates = steps.filter(s => s.action === "type" && s.text).flatMap(s => carriedFrom(String(s.text), target))
       .filter((h, i, all) => all.indexOf(h) === i).map(h => `This copies text read on ${sourceName(h)} into ${bundle}.`);
+    if (changing && policy.confirmEverything) gates.unshift("You asked to approve every step in Mac apps.");
     let approval: AuditApproval = tier === 0 ? "auto" : "toast";
     if (gates.length) {
       tier = 2;
@@ -171,6 +172,7 @@ export function createAgentRouter(options: RouterOptions) {
 
       const gates: string[] = [];
       if (tier >= 1 && decision.floor >= 2) gates.push(`You asked to approve every change on ${host}.`);
+      else if (tier >= 1 && policy.confirmEverything) gates.push("You asked to approve every step on websites.");
       for (const s of steps) {
         if (s.action !== "type" || !s.text) continue;
         const sources = carriedFrom(String(s.text), host);
