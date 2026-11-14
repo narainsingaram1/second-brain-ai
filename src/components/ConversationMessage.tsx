@@ -210,16 +210,6 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
       </div>
       <div className="chat-assistant-meta">
         <span className="chat-assistant-name">Iris</span>
-        {streaming && (
-          <span className="chat-typing-status">
-            <span>typing</span>
-            <span className="chat-typing-dots">
-              <span className="chat-typing-dot" />
-              <span className="chat-typing-dot" />
-              <span className="chat-typing-dot" />
-            </span>
-          </span>
-        )}
       </div>
     </header>
     <div className="chat-answer min-w-0">
