@@ -226,7 +226,8 @@ export async function queryOpenRouterWithTools(
 
     const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
     const data = streamed ? await readCompletionStream(res.body!, tuning.onText!, resetStall, tuning.onReasoning) : await res.json();
-    return completionFrom(data, tools);
+    // With tools switched off, written tool calls are not calls: never turn them into some.
+    return completionFrom(data, toolChoice === "none" ? [] : tools);
   } finally {
     clearTimeout(stallTimer);
   }
