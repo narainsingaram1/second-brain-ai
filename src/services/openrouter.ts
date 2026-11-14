@@ -423,7 +423,9 @@ export async function queryOpenRouter(
   apiKey: string,
   model: string = DEFAULT_MODEL,
   systemPrompt?: string,
-  options: { temperature?: number; maxTokens?: number; json?: boolean; signal?: AbortSignal; timeoutMs?: number; providerBase?: string } = {}
+  options: { temperature?: number; maxTokens?: number; json?: boolean; signal?: AbortSignal; timeoutMs?: number; providerBase?: string;
+    /** Streams the reply and reports the text so far, for live progress on long generations. */
+    onText?: (textSoFar: string) => void } = {}
 ): Promise<string> {
   if (!apiKey) {
     throw new Error("No AI provider key provided. Please configure it in Settings.");
@@ -441,6 +443,7 @@ export async function queryOpenRouter(
     temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens ?? 2000,
     ...(options.json ? { response_format: { type: "json_object" } } : {}),
+    ...(options.onText ? { stream: true } : {}),
   }, options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.timeoutMs ?? 60000)]) : AbortSignal.timeout(options.timeoutMs ?? 60000), options.providerBase);
 
   if (!res.ok) {
@@ -448,7 +451,8 @@ export async function queryOpenRouter(
     throw new Error(providerErrorMessage(errorBody, res.status));
   }
 
-  const data = await res.json();
+  const streamed = options.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
+  const data = streamed ? await readCompletionStream(res.body!, options.onText!) : await res.json();
   if (data.error) throw new Error(providerErrorMessage(data));
   const choice = data.choices?.[0];
   const content = choice?.message?.content;

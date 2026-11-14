@@ -1,11 +1,13 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { ArrowRight, BookOpen, Check, FileText, GraduationCap, Layers, ListChecks, Plus, X } from "lucide-react";
 import type { BrainState, Course, Workspace } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
-import { bestScore, courseTasks, dueCards, linkCourseToTasks, studyOf, upsert, withStudy } from "../../utils/study";
+import { bestScore, courseLabel, courseTasks, dueCards, linkCourseToTasks, studyOf, upsert, withStudy } from "../../utils/study";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import { formatPercent, summarize } from "../../utils/grades";
 import { CourseView } from "./CourseView";
+import { dismissStudyJob, useStudyJobs } from "../../services/studyJobs";
+import { isRunning, StudyJobToasts } from "./StudyJobs";
 import type { TaskActions } from "./TasksPanel";
 import "../../academic.css";
 
@@ -22,6 +24,15 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk, taskActio
   const courses = study.courses.filter((c) => c.workspaceId === workspace.id);
   const [courseId, setCourseId] = useState<string | null>(null);
   const [editor, setEditor] = useState<Course | "new" | null>(null);
+  const [openItem, setOpenItem] = useState<{ kind: "deck" | "quiz"; id?: string } | null>(null);
+  const clearOpenItem = useCallback(() => setOpenItem(null), []);
+  const jobs = useStudyJobs(state.userId || "guest").filter((j) => study.courses.some((c) => c.id === j.courseId && c.workspaceId === workspace.id));
+  const toasts = <StudyJobToasts jobs={jobs} courseName={(id) => courseLabel(study.courses.find((c) => c.id === id) ?? { name: "this course" } as Course)}
+    onOpen={(job) => {
+      setCourseId(job.courseId);
+      setOpenItem({ kind: job.kind === "quiz" ? "quiz" : "deck", id: job.status === "done" ? job.resultId : undefined });
+      if (job.status === "done") dismissStudyJob(job.id);
+    }} />;
   const course = courses.find((c) => c.id === courseId);
   const today = getLocalDateString();
   const courseIds = new Set(courses.map((c) => c.id));
@@ -38,8 +49,10 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk, taskActio
   if (course)
     return (
       <>
-        <CourseView state={state} course={course} onChange={onChange} onAsk={onAsk} taskActions={taskActions} onBack={() => setCourseId(null)} onEdit={() => setEditor(course)} />
+        <CourseView state={state} course={course} onChange={onChange} onAsk={onAsk} taskActions={taskActions} onBack={() => setCourseId(null)} onEdit={() => setEditor(course)}
+          openItem={openItem} onOpenedItem={clearOpenItem} />
         {editor && <CourseEditor course={editor === "new" ? undefined : editor} workspaceId={workspace.id} onSave={saveCourse} onClose={() => setEditor(null)} />}
+        {toasts}
       </>
     );
 
@@ -90,6 +103,10 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk, taskActio
                     <span className={dueHere ? "ac-due" : ""}><Layers size={13} />{dueHere ? `${dueHere} due` : `${courseDecks.length} decks`}</span>
                     <span><ListChecks size={13} />{scores.length ? `best ${Math.max(...scores)}%` : `${quizzes.length} quizzes`}</span>
                     {openTasks > 0 && <span><Check size={13} />{openTasks} open tasks</span>}
+                    {jobs.filter((j) => j.courseId === c.id && isRunning(j)).slice(0, 1).map((j) => (
+                      <span key={j.id} className="ac-course-working"><span className="ac-tab-working" aria-hidden="true"><i /></span>
+                        {j.kind === "quiz" ? "Writing quiz" : "Writing cards"}{j.written ? ` · ${j.written}/${j.count}` : "…"}</span>
+                    ))}
                   </div>
                 </button>
               );
@@ -105,6 +122,7 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk, taskActio
         )}
       </div>
       {editor && <CourseEditor course={editor === "new" ? undefined : editor} workspaceId={workspace.id} onSave={saveCourse} onClose={() => setEditor(null)} />}
+      {toasts}
     </div>
   );
 }

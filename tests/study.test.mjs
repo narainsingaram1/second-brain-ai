@@ -181,3 +181,69 @@ test("study mutations validate, store in study state, and create a workspace whe
   assert.equal(withQuiz.study.quizzes.length, 1);
   assert.ok(tools.BRAIN_TOOLS.some((t) => t.function.name === "create_quiz"));
 });
+
+test("quiz generation runs in the background, reports real progress and saves into the right account", async () => {
+  const jobsApi = await server.ssrLoadModule("/src/services/studyJobs.ts");
+  await saveDocumentText("u1", "d1", "h", "AVL trees rebalance with rotations after inserts.").catch(() => {});
+  const questions = Array.from({ length: 3 }, (_, i) => ({ type: "mcq", prompt: `Q${i}?`, choices: ["a", "b", "c", "d"], answerIndex: 1, explanation: `Because ${i}.`, doc: 1 }));
+  const json = JSON.stringify({ questions });
+  // The provider streams the JSON in small pieces, so progress can be counted as questions are finished.
+  let release;
+  const gate = new Promise((r) => { release = r; });
+  globalThis.fetch = async () => new Response(new ReadableStream({ async start(c) {
+    const enc = new TextEncoder();
+    const pieces = json.match(/.{1,40}/g);
+    for (const [i, piece] of pieces.entries()) {
+      c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: piece } }] })}\n\n`));
+      if (i === Math.floor(pieces.length / 2)) await gate;
+    }
+    c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`));
+    c.close();
+  } }), { headers: { "content-type": "text/event-stream" } });
+  let state = base();
+  const onChange = (update) => { state = update(state); };
+  const id = jobsApi.startStudyJob({ kind: "quiz", userId: "u1", course, docs: [doc], title: "AVL practice", count: 3,
+    options: { difficulty: "exam", format: "mcq" }, apiKey: "k", model: "m", onChange });
+  const job = () => jobsApi.studyJobs().find((j) => j.id === id);
+  assert.equal(job().status, "reading", "the dialog can close right away: the job is already listed");
+  for (let i = 0; i < 50 && !(job().status === "writing" && job().written > 0); i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(job().status, "writing");
+  assert.ok(job().written >= 1 && job().written < 3, `partial progress, got ${job().written}`);
+  release();
+  for (let i = 0; i < 50 && job().status !== "done"; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(job().status, "done");
+  assert.equal(job().written, 3);
+  const quiz = state.study.quizzes.find((q) => q.id === job().resultId);
+  assert.equal(quiz.title, "AVL practice");
+  assert.equal(quiz.questions.length, 3);
+  jobsApi.dismissStudyJob(id);
+  assert.equal(jobsApi.studyJobs().length, 0);
+
+  // A failure stays listed with its reason and can be retried; a result never lands in another account.
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: "Rate limited" } }), { status: 429 });
+  let other = { ...base(), userId: "someone-else" };
+  const failed = jobsApi.startStudyJob({ kind: "quiz", userId: "u1", course, docs: [doc], title: "Again", count: 3,
+    options: { format: "mcq" }, apiKey: "k", model: "m", onChange: (update) => { other = update(other); } });
+  const failedJob = () => jobsApi.studyJobs().find((j) => j.id === failed);
+  for (let i = 0; i < 50 && failedJob().status !== "error"; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(failedJob().status, "error");
+  assert.match(failedJob().error, /Rate limited|429/);
+  globalThis.fetch = async () => new Response(JSON.stringify({ choices: [{ message: { content: json }, finish_reason: "stop" }] }), { headers: { "content-type": "application/json" } });
+  jobsApi.retryStudyJob(failed);
+  for (let i = 0; i < 50 && failedJob().status !== "done"; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(failedJob().status, "done", "retry works, also without a streaming provider");
+  assert.equal(other.study.quizzes.length, 0, "the other account's state is untouched");
+  jobsApi.dismissStudyJob(failed);
+
+  // Cancelling removes the job and saves nothing.
+  globalThis.fetch = (_url, init) => new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)));
+  const before = state.study.quizzes.length;
+  const cancelled = jobsApi.startStudyJob({ kind: "flashcards", userId: "u1", course, docs: [doc], title: "Cards", count: 10,
+    options: { format: "mixed" }, apiKey: "k", model: "m", onChange });
+  await new Promise((r) => setTimeout(r, 20));
+  jobsApi.cancelStudyJob(cancelled);
+  await new Promise((r) => setTimeout(r, 20));
+  assert.equal(jobsApi.studyJobs().length, 0);
+  assert.equal(state.study.quizzes.length, before);
+  assert.equal(state.study.decks.length, base().study.decks?.length ?? 0);
+});
