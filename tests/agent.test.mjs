@@ -1027,3 +1027,16 @@ test('browsing keeps going through a few failed steps instead of giving up after
   assert.equal(result.queryAnswer, 'Added the Hover-1 Alpha to your cart.');
   assert.ok(requests.every(r => r.tool_choice !== 'none'), 'never forced to wrap up');
 });
+
+test('create_goal accepts the fields the goal form has and explains rejected arguments', () => {
+  const s = state();
+  const parse = args => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === 'create_goal').function.parameters);
+  const goal = prepareMutation('create_goal', parse({ title: 'BS/MS in Computer Science at Georgia Tech', sector: 'academics', timeframe: 'long_term',
+    description: 'Five-year BS/MS track', status: 'in_progress', targetDate: '2027-03-01', milestones: ['Research requirements', 'Request recommendation letters'] }), s).record;
+  assert.equal(goal.description, 'Five-year BS/MS track'); assert.equal(goal.status, 'in_progress'); assert.equal(goal.milestones.length, 2);
+  assert.throws(() => prepareMutation('create_goal', parse({ title: 'X', sector: 'academics', timeframe: 'yearly', targetDate: 'Spring 2027' }), s), /Invalid calendar date/);
+  assert.throws(() => parse({ title: 'X', sector: 'academics', timeframe: 'yearly', priority: 'high' }), /Unknown arguments\.priority\. Allowed fields: .*description/);
+  assert.throws(() => parse({ title: 'X', sector: 'education', timeframe: 'yearly' }), /Use one of: career, academics/);
+  const moved = prepareMutation('update_goal', { goalId: goal.id, sector: 'career', timeframe: 'yearly', newDescription: 'Changed' }, { ...s, goals: [goal] }).record;
+  assert.equal(moved.sector, 'career'); assert.equal(moved.timeframe, 'yearly'); assert.equal(moved.description, 'Changed');
+});
