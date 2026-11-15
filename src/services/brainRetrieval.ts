@@ -199,18 +199,25 @@ export function tokenize(text: string): string[] {
     .filter(t => !STOP_WORDS.has(t) && (t.length > 1 || /\d/.test(t)))
     .map(t => t.length > 4 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t);
 }
+/** A passage's distinct terms, their counts and its length: all BM25 needs, so unchanged passages are tokenized once. */
+export interface TermCounts { length: number; terms: string[]; counts: number[] }
+export function termCounts(tokens: string[]): TermCounts {
+  const tf = new Map<string, number>();
+  for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+  return { length: tokens.length, terms: [...tf.keys()], counts: [...tf.values()] };
+}
 /** Okapi BM25: rare terms count more than common ones, and long passages do not win by size. */
 export function bm25(docs: string[][], query: string[], k1 = 1.2, b = 0.75): number[] {
+  return bm25Counts(docs.map(termCounts), query, k1, b);
+}
+export function bm25Counts(docs: TermCounts[], query: string[], k1 = 1.2, b = 0.75): number[] {
   const terms = [...new Set(query)];
   if (!terms.length || !docs.length) return docs.map(() => 0);
-  const wanted = new Set(terms);
   const avg = docs.reduce((n, d) => n + d.length, 0) / docs.length || 1;
-  const tfs = docs.map(doc => { const tf = new Map<string, number>(); for (const t of doc) if (wanted.has(t)) tf.set(t, (tf.get(t) || 0) + 1); return tf; });
-  const idf = new Map(terms.map(t => { const df = tfs.reduce((n, tf) => n + (tf.has(t) ? 1 : 0), 0); return [t, Math.log(1 + (docs.length - df + 0.5) / (df + 0.5))]; }));
-  return tfs.map((tf, i) => terms.reduce((score, t) => {
-    const f = tf.get(t) || 0;
-    return score + (f ? idf.get(t)! * (f * (k1 + 1)) / (f + k1 * (1 - b + b * docs[i].length / avg)) : 0);
-  }, 0));
+  // One lookup per passage and query term; the frequencies are reused for IDF and scoring.
+  const freq = docs.map(d => terms.map(t => { const at = d.terms.indexOf(t); return at < 0 ? 0 : d.counts[at]; }));
+  const idf = terms.map((_, j) => { const df = freq.reduce((n, f) => n + (f[j] ? 1 : 0), 0); return Math.log(1 + (docs.length - df + 0.5) / (df + 0.5)); });
+  return freq.map((f, i) => f.reduce((score, n, j) => score + (n ? idf[j] * (n * (k1 + 1)) / (n + k1 * (1 - b + b * docs[i].length / avg)) : 0), 0));
 }
 
 // Separate, content-addressed neural index. Never mixes embedding spaces or accounts.
@@ -268,11 +275,23 @@ const passageVectors = new Map<string, { snippet: string; key: string; vector?: 
 const MAX_PASSAGE_VECTORS = 8000;
 // Recent query vectors, so typing in search boxes and repeated agent searches do not re-embed.
 const queryVectors = new Map<string, number[]>();
+// Term counts for unchanged passages, keyed by slot and checked against the passage text, so a
+// search only tokenizes passages that are new or edited since the last one.
+const passageTerms = new Map<string, { title: string; snippet: string; counts: TermCounts }>();
+function passageCounts({ source, slot }: Passage): TermCounts {
+  const known = passageTerms.get(slot);
+  if (known && known.snippet === source.snippet && known.title === source.title) return known.counts;
+  const counts = termCounts([...tokenize(source.snippet), ...tokenize(source.title)]);
+  passageTerms.delete(slot);
+  passageTerms.set(slot, { title: source.title, snippet: source.snippet, counts });
+  return counts;
+}
 
 /** Drops in-memory vectors and query embeddings, e.g. on sign-out. The on-disk cache is keyed by account. */
 export function clearRetrievalMemory(): void {
   passageVectors.clear();
   queryVectors.clear();
+  passageTerms.clear();
 }
 
 type Passage = { source: Source; slot: string; date?: string };
@@ -326,7 +345,8 @@ export async function rankPassages(state: BrainState, query: string, type: Recor
   const items = passages(state, type, ctx);
   if (!items.length || !query.trim()) return { ranked: [] as RankedPassage[], searched: items.length, neural: false, warning: undefined as string | undefined };
   const queryTerms = tokenize(query);
-  const lexical = bm25(items.map(({ source }) => [...tokenize(source.snippet), ...tokenize(source.title)]), queryTerms);
+  const lexical = bm25Counts(items.map(passageCounts), queryTerms);
+  while (passageTerms.size > MAX_PASSAGE_VECTORS) passageTerms.delete(passageTerms.keys().next().value!);
   let neural: number[] | undefined;
   let warning: string | undefined;
   try {

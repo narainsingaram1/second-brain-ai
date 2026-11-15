@@ -832,3 +832,23 @@ export async function persistBrainState(input: BrainState | (() => BrainState), 
   });
   return persistQueue;
 }
+
+// Account whose "save the latest state" is queued but has not read the state yet, and its promise.
+let waitingLatestSave: { userId?: string; done: Promise<void> } | null = null;
+/**
+ * Saves whatever `latest()` returns when the write starts. While such a save is still waiting behind
+ * another write, further requests for the same account join it instead of queueing another full write
+ * of the same state, so slow stores (network, large workspaces) never build a backlog of identical saves.
+ */
+export function persistLatestBrainState(latest: () => BrainState, userId?: string): Promise<void> {
+  if (waitingLatestSave && waitingLatestSave.userId === userId) return waitingLatestSave.done;
+  const entry: { userId?: string; done: Promise<void> } = { userId, done: Promise.resolve() };
+  entry.done = persistBrainState(() => {
+    if (waitingLatestSave === entry) waitingLatestSave = null;
+    return latest();
+  }, userId);
+  // A save that fails before it starts must not leave later requests joined to it.
+  entry.done.catch(() => {}).finally(() => { if (waitingLatestSave === entry) waitingLatestSave = null; });
+  waitingLatestSave = entry;
+  return entry.done;
+}

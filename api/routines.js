@@ -4988,25 +4988,28 @@ const STOP_WORDS = new Set("a an and are as at be been but by can could did do d
 function tokenize(text) {
 	return (text.toLocaleLowerCase().match(/[\p{L}\p{N}]+/gu) || []).filter((t) => !STOP_WORDS.has(t) && (t.length > 1 || /\d/.test(t))).map((t) => t.length > 4 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t);
 }
-/** Okapi BM25: rare terms count more than common ones, and long passages do not win by size. */
-function bm25(docs, query, k1 = 1.2, b = .75) {
+function termCounts(tokens) {
+	const tf = /* @__PURE__ */ new Map();
+	for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+	return {
+		length: tokens.length,
+		terms: [...tf.keys()],
+		counts: [...tf.values()]
+	};
+}
+function bm25Counts(docs, query, k1 = 1.2, b = .75) {
 	const terms = [...new Set(query)];
 	if (!terms.length || !docs.length) return docs.map(() => 0);
-	const wanted = new Set(terms);
 	const avg = docs.reduce((n, d) => n + d.length, 0) / docs.length || 1;
-	const tfs = docs.map((doc) => {
-		const tf = /* @__PURE__ */ new Map();
-		for (const t of doc) if (wanted.has(t)) tf.set(t, (tf.get(t) || 0) + 1);
-		return tf;
-	});
-	const idf = new Map(terms.map((t) => {
-		const df = tfs.reduce((n, tf) => n + (tf.has(t) ? 1 : 0), 0);
-		return [t, Math.log(1 + (docs.length - df + .5) / (df + .5))];
+	const freq = docs.map((d) => terms.map((t) => {
+		const at = d.terms.indexOf(t);
+		return at < 0 ? 0 : d.counts[at];
 	}));
-	return tfs.map((tf, i) => terms.reduce((score, t) => {
-		const f = tf.get(t) || 0;
-		return score + (f ? idf.get(t) * (f * (k1 + 1)) / (f + k1 * (1 - b + b * docs[i].length / avg)) : 0);
-	}, 0));
+	const idf = terms.map((_, j) => {
+		const df = freq.reduce((n, f) => n + (f[j] ? 1 : 0), 0);
+		return Math.log(1 + (docs.length - df + .5) / (df + .5));
+	});
+	return freq.map((f, i) => f.reduce((score, n, j) => score + (n ? idf[j] * (n * (k1 + 1)) / (n + k1 * (1 - b + b * docs[i].length / avg)) : 0), 0));
 }
 const MODEL = "openai/text-embedding-3-small";
 let dbPromise$1;
@@ -5068,6 +5071,19 @@ function cosine(a, b) {
 const passageVectors = /* @__PURE__ */ new Map();
 const MAX_PASSAGE_VECTORS = 8e3;
 const queryVectors$1 = /* @__PURE__ */ new Map();
+const passageTerms = /* @__PURE__ */ new Map();
+function passageCounts({ source, slot }) {
+	const known = passageTerms.get(slot);
+	if (known && known.snippet === source.snippet && known.title === source.title) return known.counts;
+	const counts = termCounts([...tokenize(source.snippet), ...tokenize(source.title)]);
+	passageTerms.delete(slot);
+	passageTerms.set(slot, {
+		title: source.title,
+		snippet: source.snippet,
+		counts
+	});
+	return counts;
+}
 function passages(state, type, ctx) {
 	return records(state, type, ctx).flatMap((record) => chunks(record).map((source, i) => ({
 		source,
@@ -5133,7 +5149,8 @@ async function rankPassages(state, query, type, key, signal, progress, ctx) {
 		warning: void 0
 	};
 	const queryTerms = tokenize(query);
-	const lexical = bm25(items.map(({ source }) => [...tokenize(source.snippet), ...tokenize(source.title)]), queryTerms);
+	const lexical = bm25Counts(items.map(passageCounts), queryTerms);
+	while (passageTerms.size > MAX_PASSAGE_VECTORS) passageTerms.delete(passageTerms.keys().next().value);
 	let neural;
 	let warning;
 	try {
