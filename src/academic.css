@@ -409,3 +409,11 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-choice > span.ac-choice-text {
   width: auto; height: auto; display: block; flex: 1; min-width: 0; background: none; border-radius: 0; font-weight: 400; overflow-wrap: anywhere;
 }
+
+/* Diagrams generated for questions and cards */
+.ac-diagram { display: flex; justify-content: center; padding: 12px; border-radius: 10px; border: 1px solid var(--workspace-line); background: var(--workspace-panel); overflow-x: auto; }
+.ac-diagram svg { max-width: 100%; height: auto; }
+.ac-diagram.is-loading { min-height: 120px; background: var(--workspace-raised); }
+.ac-svg { background: #ffffff; }
+.ac-svg img { max-width: 100%; max-height: 360px; }
+.ac-rich-block { display: block; width: 100%; margin: 8px 0; font-size: 13px; font-weight: 400; }

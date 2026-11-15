@@ -106,7 +106,7 @@ const questionSchema = { type: "object", properties: {
   choices: { type: "array", items: s_, minItems: 2, maxItems: 6, description: "Multiple choice only: 4 options." },
   answerIndex: { type: "integer", minimum: 0, description: "Multiple choice only: zero-based index of the correct choice." },
   answer: d_("Short answer: the model answer. Multiple choice: optional, the correct choice text."),
-  exhibit: d_("Optional markdown shown above the choices: the code (fenced, with its language), table or text diagram the question asks about. Never reveals the answer."),
+  exhibit: d_("Optional markdown shown above the choices, written new for this question: code (fenced, with its language), a table, a ```mermaid diagram (flowchart, tree, graph, state machine) or a small ```svg figure. Never reveals the answer."),
   explanation: d_("Why the answer is right."),
   sourceDocumentId: d_("ID of the course document this question is based on."),
 }, required: ["type", "prompt"], additionalProperties: false };
@@ -144,7 +144,7 @@ const STUDY_TOOLS: OpenRouterTool[] = [
     title: d_("Deck title, required for a new deck."),
     cards: { type: "array", items: cardSchema, minItems: 1, maxItems: 60 },
   }, ["cards"]),
-  fn("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Test the subject (apply, trace, predict output, compare), never course logistics like due dates or office hours; put code, tables or diagrams a question is about in its exhibit. Use when the user asks for a quiz, practice test or exam prep questions.", {
+  fn("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Test the subject (apply, trace, predict output, compare), never course logistics like due dates or office hours. Write new scenarios rather than copying the material's own practice problems, and put code, tables or diagrams a question is about in its exhibit. Use when the user asks for a quiz, practice test or exam prep questions.", {
     courseId: d_("ID of the course."),
     title: s_,
     questions: { type: "array", items: questionSchema, minItems: 1, maxItems: 40 },

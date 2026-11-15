@@ -37,6 +37,7 @@
     "date-fns": "^4.4.0",
     "jszip": "^3.10.1",
     "lucide-react": "^1.61.0",
+    "mermaid": "12.2.0",
     "pdfjs-dist": "^4.10.38",
     "postcss": "^8.5.31",
     "react": "^19.1.0",

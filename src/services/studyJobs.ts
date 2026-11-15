@@ -9,7 +9,7 @@ import { generateFlashcards, generateQuiz, type SourceDoc, type StudyOptions } f
  * keep working (or leave the course) while it runs. Progress is shown wherever the workspace lists study items.
  */
 export type StudyJobKind = "quiz" | "flashcards";
-export type StudyJobStatus = "reading" | "writing" | "checking" | "saving" | "done" | "error";
+export type StudyJobStatus = "reading" | "planning" | "writing" | "checking" | "replacing" | "saving" | "done" | "error";
 export interface StudyJob {
   id: string;
   kind: StudyJobKind;
@@ -84,7 +84,7 @@ async function run(id: string, input: StudyJobInput, signal: AbortSignal) {
       input.onChange((prev) => ((prev.userId || "guest") === input.userId ? update(prev) : prev));
     let resultId: string;
     if (input.kind === "quiz") {
-      const questions = await generateQuiz(sources, options, input.apiKey, input.model, signal, { onProgress, onStage: () => patch(id, { status: "checking" }) });
+      const questions = await generateQuiz(sources, options, input.apiKey, input.model, signal, { onProgress, onStage: (status) => patch(id, { status }) });
       signal.throwIfAborted();
       patch(id, { status: "saving", written: questions.length });
       const quiz: Quiz = { id: crypto.randomUUID(), courseId: input.course.id, title: input.title, sourceDocIds, questions, attempts: [], createdAt: now };

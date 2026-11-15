@@ -10,7 +10,7 @@ const server = await createServer({
 after(() => server.close());
 const study = await server.ssrLoadModule("/src/utils/study.ts");
 const { officeXmlText, kindOf, slideImageTargets, repeatedImages, pageNeedsVision, looksLikeLogistics, LOGISTICS_TAG } = await server.ssrLoadModule("/src/services/studyExtract.ts");
-const { selectSource, applyReviews, balanceAnswers, uniqueQuestions } = await server.ssrLoadModule("/src/services/studyAI.ts");
+const { selectSource, applyReviews, balanceAnswers, uniqueQuestions, copiesMaterial, shingles } = await server.ssrLoadModule("/src/services/studyAI.ts");
 const { records, searchRecords } = await server.ssrLoadModule("/src/services/brainRetrieval.ts");
 const { saveDocumentText } = await server.ssrLoadModule("/src/services/studyDocuments.ts");
 const tools = await server.ssrLoadModule("/src/services/brainTools.ts");
@@ -190,13 +190,22 @@ test("quiz generation runs in the background, reports real progress and saves in
   // The provider streams the JSON in small pieces, so progress can be counted as questions are finished.
   let release;
   const gate = new Promise((r) => { release = r; });
-  // After writing, a second model checks each question: here it drops the second one.
+  // Before writing, the model plans the skills; after, a second model checks each question (here dropping the second).
   const reviewed = [];
+  const planned = [];
   let releaseReview;
   const reviewGate = new Promise((r) => { releaseReview = r; });
-  globalThis.fetch = async (_url, init) => !JSON.parse(init.body).stream ? (reviewed.push(JSON.parse(init.body)), await reviewGate,
-    new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reviews: [{ n: 1, verdict: "keep" }, { n: 2, verdict: "drop" }, { n: 3, verdict: "keep" }] }) } }] }), { headers: { "content-type": "application/json" } }))
-    : new Response(new ReadableStream({ async start(c) {
+  const reply = (content) => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(content) } }] }), { headers: { "content-type": "application/json" } });
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.stream) return streamed();
+    if (/designing an exam/.test(body.messages[0].content)) { planned.push(body); return reply({ skills: [{ skill: "Choose the rotation that rebalances an AVL tree", scenarios: ["a new insert sequence"], visual: "diagram", doc: 1 }] }); }
+    reviewed.push(body);
+    await reviewGate;
+    return reply({ reviews: [{ n: 1, verdict: "keep" }, { n: 2, verdict: "drop" }, { n: 3, verdict: "keep" }] });
+  };
+  let written = 0;
+  const streamed = () => (written++, new Response(new ReadableStream({ async start(c) {
     const enc = new TextEncoder();
     const pieces = json.match(/.{1,40}/g);
     for (const [i, piece] of pieces.entries()) {
@@ -205,7 +214,7 @@ test("quiz generation runs in the background, reports real progress and saves in
     }
     c.enqueue(enc.encode(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: "stop" }] })}\n\ndata: [DONE]\n\n`));
     c.close();
-  } }), { headers: { "content-type": "text/event-stream" } });
+  } }), { headers: { "content-type": "text/event-stream" } }));
   let state = base();
   const onChange = (update) => { state = update(state); };
   const id = jobsApi.startStudyJob({ kind: "quiz", userId: "u1", course, docs: [doc], title: "AVL practice", count: 3,
@@ -219,6 +228,7 @@ test("quiz generation runs in the background, reports real progress and saves in
   for (let i = 0; i < 50 && job().status !== "checking"; i++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(job().status, "checking", "answers are checked before the quiz is saved");
   assert.match(reviewed[0].messages.at(-1).content, /AVL trees rebalance/, "the checker sees the material");
+  assert.equal(planned.length, 1, "skills are planned before writing");
   releaseReview();
   for (let i = 0; i < 50 && job().status !== "done"; i++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(job().status, "done");
@@ -323,4 +333,15 @@ test("questions keep their exhibit, and the assistant can add one", () => {
   assert.equal(kept.extraction, 2); assert.equal(kept.visualPages, 18);
   const m = tools.prepareMutation("create_quiz", { courseId: "c1", title: "C preprocessor", questions: [{ type: "mcq", prompt: "What does it print?", exhibit: "```c\n#if 0\n```", choices: ["A", "B", "C", "D"], answerIndex: 1 }] }, base());
   assert.match(m.record.questions[0].exhibit, /#if 0/);
+});
+
+test("questions that reuse the material's own problems are caught; new scenarios are not", () => {
+  const material = shingles(contentSlide + "\n" + logisticsSlide);
+  const copied = { id: "1", type: "short", prompt: "What does this print?", answer: "Hello world!", exhibit: "```c\n#define VERBOSE 0\n#if VERBOSE\nprintf(\"Debug\");\n#else\nprintf(\"Hello world!\");\n#endif\n```" };
+  const renamed = { ...copied, exhibit: "```c\n#define VERBOSE 0\n#if VERBOSE\nprintf(\"Debug\");\n#else\nprintf(\"Hi there!\");\n#endif\n```" };
+  const fresh = { ...copied, exhibit: "```c\n#define LEVEL 2\n#if LEVEL > 1 && defined(TRACE)\nputs(\"trace\");\n#elif LEVEL\nputs(\"level\");\n#endif\n```" };
+  assert.equal(copiesMaterial(copied, material), true);
+  assert.equal(copiesMaterial(renamed, material), true, "changing one string is still a copy");
+  assert.equal(copiesMaterial(fresh, material), false);
+  assert.equal(copiesMaterial({ id: "2", type: "short", prompt: "What does this print?", answer: "x" }, material), false, "short generic prompts don't count");
 });
