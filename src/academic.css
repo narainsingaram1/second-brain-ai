@@ -417,3 +417,43 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-svg { background: #ffffff; }
 .ac-svg img { max-width: 100%; max-height: 360px; }
 .ac-rich-block { display: block; width: 100%; margin: 8px 0; font-size: 13px; font-weight: 400; }
+
+/* Readable questions: prompt, code, answers */
+.ac-prompt { font-size: 16px; font-weight: 500; line-height: 1.55; letter-spacing: -0.01em; color: var(--workspace-ink); }
+.ac-prompt .ac-rich-text { white-space: pre-wrap; }
+.ac-prompt .ac-code, .ac-choice .ac-code { font-size: 0.88em; white-space: nowrap; }
+.ac-short textarea.is-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 14px; resize: none; }
+.ac-feedback .ac-rich-block { margin: 6px 0; }
+.ac-feedback.is-unchecked { background: var(--workspace-tint); }
+.ac-feedback.is-unchecked > strong { color: var(--workspace-accent); }
+.ac-model-answer { display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.ac-model-answer > span:first-child { font-size: 12px; font-weight: 500; color: var(--workspace-muted); }
+.ac-model-answer .ac-rich-text { font-weight: 500; }
+.ac-explanation { width: 100%; color: var(--workspace-secondary); }
+.ac-self-grade { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; }
+
+/* Code blocks in study content */
+.ac-codeblock {
+  --tok-keyword: #7c3aed; --tok-string: #0f7b4f; --tok-number: #b45309; --tok-comment: #8a8f98; --tok-preprocessor: #be185d; --tok-register: #1d4ed8;
+  margin: 0; width: 100%; border: 1px solid var(--workspace-line); border-radius: 10px; overflow: hidden; background: var(--workspace-raised); text-align: left;
+}
+.dark .ac-codeblock {
+  --tok-keyword: #c4a5ff; --tok-string: #8fd6a8; --tok-number: #f6b26b; --tok-comment: #7d8590; --tok-preprocessor: #f38ba8; --tok-register: #89b4fa;
+}
+.ac-codeblock figcaption {
+  padding: 6px 12px; font-size: 11px; font-weight: 500; color: var(--workspace-muted); border-bottom: 1px solid var(--workspace-line); background: var(--workspace-panel);
+}
+.ac-codeblock pre { margin: 0; padding: 10px 0; overflow-x: auto; }
+.ac-codeblock code {
+  display: block; min-width: max-content; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13.5px; line-height: 1.65;
+  font-weight: 400; letter-spacing: 0; color: var(--workspace-ink); white-space: pre;
+}
+.ac-code-line { display: flex; padding: 0 14px; }
+.ac-line-no { width: 2.4em; flex-shrink: 0; padding-right: 12px; text-align: right; color: var(--workspace-muted); opacity: 0.6; user-select: none; }
+.ac-tok-keyword { color: var(--tok-keyword); font-weight: 500; }
+.ac-tok-string { color: var(--tok-string); }
+.ac-tok-number { color: var(--tok-number); }
+.ac-tok-comment { color: var(--tok-comment); font-style: italic; }
+.ac-tok-preprocessor { color: var(--tok-preprocessor); }
+.ac-tok-register { color: var(--tok-register); }
+.ac-flashcard .ac-codeblock { font-size: 13px; }

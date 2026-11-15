@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { Check, ListChecks, Loader2, MessageCircle, Play, PenLine, Trash2, X } from "lucide-react";
 import type { BrainState, Course, Quiz, QuizQuestion } from "../../types";
 import { bestScore, courseLabel, newCard, studyOf, withStudy } from "../../utils/study";
-import { gradeShortAnswer } from "../../services/studyAI";
+import { gradeShortAnswer, localGrade } from "../../services/studyAI";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import type { StudyProps, StudyUpdate } from "./AcademicWorkspace";
 import type { StudyJob } from "../../services/studyJobs";
 import { StudyJobRow } from "./StudyJobs";
 import { MarkdownView } from "../MarkdownView";
-import { StudyText } from "./StudyText";
+import { StudyRich, StudyText } from "./StudyText";
 import { studyFence } from "./StudyDiagram";
 
 
@@ -65,7 +65,8 @@ export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQ
   );
 }
 
-type Answer = { correct: boolean; response: string; feedback?: string };
+/** unchecked: grading couldn't run, so the student compares with the model answer and decides. */
+type Answer = { correct: boolean; response: string; feedback?: string; unchecked?: boolean };
 
 function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { state: BrainState; course: Course; quiz: Quiz; only?: string[]; onChange: StudyUpdate; onAsk: (p: string) => void; onClose: () => void }) {
   const [questions] = useState<QuizQuestion[]>(() => (only ? quiz.questions.filter((q) => only.includes(q.id)) : quiz.questions));
@@ -92,11 +93,16 @@ function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { s
     setIndex((i) => i + 1);
   };
   async function checkShort() {
-    if (!question || !draft.trim()) return;
-    if (!state.openRouterKey) return record(question, { correct: false, response: draft, feedback: "Compare with the model answer below and judge for yourself." });
+    if (!question || !draft.trim() || grading) return;
+    // Definite values are matched right away; only a grader that actually ran can mark an answer wrong.
+    if (localGrade(question, draft)) return record(question, { correct: true, response: draft });
+    if (!state.openRouterKey) return record(question, { correct: false, unchecked: true, response: draft });
     setGrading(true);
-    try { record(question, { ...(await gradeShortAnswer(question, draft, state.openRouterKey)), response: draft }); }
-    catch { record(question, { correct: false, response: draft, feedback: "Automatic grading failed; compare with the model answer below." }); }
+    try { record(question, { ...(await gradeShortAnswer(question, draft, state.openRouterKey, state.selectedModel)), response: draft }); }
+    catch (err) {
+      console.warn("[Study] Short-answer grading failed:", err);
+      record(question, { correct: false, unchecked: true, response: draft });
+    }
     finally { setGrading(false); }
   }
   const missedToDeck = () => {
@@ -118,7 +124,7 @@ function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { s
         <div className="ac-progress"><span style={{ width: `${(Math.min(index, questions.length) / Math.max(1, questions.length)) * 100}%` }} /></div>
         {!finished && question ? (
           <div className="ac-question">
-            <h3><StudyText text={question.prompt} /></h3>
+            <div className="ac-prompt"><StudyRich text={question.prompt} /></div>
             {question.exhibit && <div className="ac-exhibit"><MarkdownView content={question.exhibit} renderFence={studyFence} /></div>}
             {question.type === "mcq" ? (
               <div className="ac-choices">
@@ -133,21 +139,30 @@ function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { s
               </div>
             ) : (
               <div className="ac-short">
-                <textarea value={answer ? answer.response : draft} disabled={!!answer} rows={3} placeholder="Your answer" onChange={(e) => setDraft(e.target.value)} />
+                <textarea value={answer ? answer.response : draft} disabled={!!answer} rows={question.accept?.length ? 1 : 3}
+                  className={question.accept?.length ? "is-value" : undefined} placeholder={question.accept?.length ? "Your answer (Enter to check)" : "Your answer"}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey && (question.accept?.length || e.metaKey || e.ctrlKey)) { e.preventDefault(); checkShort(); } }} />
                 {!answer && <button className="ws-button ws-primary" disabled={!draft.trim() || grading} onClick={checkShort}>{grading ? <><Loader2 size={14} className="ac-spin" />Checking…</> : "Check answer"}</button>}
               </div>
             )}
             {answer && (
-              <div className={`ac-feedback ${answer.correct ? "is-correct" : "is-wrong"}`}>
-                <strong>{answer.correct ? "Correct" : "Not quite"}</strong>
-                {answer.feedback && <p>{answer.feedback}</p>}
-                {question.type === "short" && <p><b>Model answer:</b> {question.answer}</p>}
-                {question.explanation && <p>{question.explanation}</p>}
-                {question.type === "short" && !answer.correct && <button className="ws-text-button" onClick={() => record(question, { ...answer, correct: true })}>I was right, count it</button>}
+              <div className={`ac-feedback ${answer.unchecked ? "is-unchecked" : answer.correct ? "is-correct" : "is-wrong"}`}>
+                <strong>{answer.unchecked ? "Compare with the model answer" : answer.correct ? "Correct" : "Not quite"}</strong>
+                {answer.unchecked && <p>Your answer couldn't be checked automatically, so you decide whether it matches.</p>}
+                {answer.feedback && <p><StudyText text={answer.feedback} /></p>}
+                {question.type === "short" && <div className="ac-model-answer"><span>Model answer</span><StudyRich text={question.answer} /></div>}
+                {question.explanation && <div className="ac-explanation"><StudyRich text={question.explanation} /></div>}
+                {answer.unchecked ? (
+                  <div className="ac-self-grade">
+                    <button className="ws-button ws-secondary" onClick={() => record(question, { ...answer, unchecked: false, correct: true })}><Check size={14} />I got it right</button>
+                    <button className="ws-button ws-secondary" onClick={() => record(question, { ...answer, unchecked: false, correct: false })}><X size={14} />I got it wrong</button>
+                  </div>
+                ) : question.type === "short" && !answer.correct && <button className="ws-text-button" onClick={() => record(question, { ...answer, correct: true })}>I was right, count it</button>}
               </div>
             )}
             <div className="ac-grades">
-              {answer && <button className="ws-button ws-primary" onClick={next}>{index + 1 >= questions.length ? "See results" : "Next question"}</button>}
+              {answer && !answer.unchecked && <button className="ws-button ws-primary" onClick={next}>{index + 1 >= questions.length ? "See results" : "Next question"}</button>}
             </div>
           </div>
         ) : (

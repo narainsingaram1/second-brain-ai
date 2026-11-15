@@ -44,6 +44,7 @@ import { AppSkeleton } from "./components/AppSkeleton";
 import { rememberedTab, rememberTab, rememberTheme } from "./utils/startupMemory";
 import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation";
 import { referenceTitle } from "./utils/chatPresentation";
+import { removeFolder, syncWorkspaceFolders } from "./utils/noteFolders";
 
 // Pages other than the chat load on first visit (and are prefetched once the app is idle), so startup
 // only parses the code for the chat, the shell and the dialogs.
@@ -78,6 +79,9 @@ export const App: React.FC = () => {
   const [state, setState] = useState<BrainState | null>(null);
   const [session, setSession] = useState<AuthSession>({ currentUser: null, isGuest: true });
   const [activeTab, setActiveTab] = useState<string>(rememberedTab);
+  /** Folder the Notes page opens at when another page sends you there. */
+  const [notesFolder, setNotesFolder] = useState<string | null>(null);
+  useEffect(() => { if (activeTab !== "knowledge") setNotesFolder(null); }, [activeTab]);
   useEffect(() => rememberTab(activeTab), [activeTab]);
   const theme = state?.theme;
   useEffect(() => { if (theme) rememberTheme(theme); }, [theme]);
@@ -205,6 +209,13 @@ export const App: React.FC = () => {
     try { await conversation.run(prompt, images?.length ? { images } : undefined); }
     catch (error) { setChatLaunchError(error instanceof Error ? error.message : "Could not send your message. Try again."); }
   };
+
+  // Every workspace owns a notes folder that follows its name and color.
+  const workspaceKey = state?.workspaces?.map(w => `${w.id}:${w.name}:${w.color}:${w.notes ? 1 : 0}`).join("|") || "";
+  const workspaceFolderKey = state?.noteFolders?.filter(f => f.workspaceId).map(f => `${f.workspaceId}:${f.name}:${f.color}:${f.parentId || ""}`).join("|") || "";
+  useEffect(() => {
+    setState(prev => (prev ? syncWorkspaceFolders(prev) : prev));
+  }, [workspaceKey, workspaceFolderKey]);
 
   // Course document text lives outside the snapshot; load it so the assistant can search and read it.
   const studyDocumentKey = state?.study?.documents.map(d => d.id).join(",") || "";
@@ -946,28 +957,33 @@ export const App: React.FC = () => {
     if (folderObj) {
       recordMutation("Deleted Folder", "knowledge", folderObj.name);
     }
-    setState((prev) => {
-      if (!prev) return null;
-      const currentFolders = prev.noteFolders || [];
-      const parentId = folderObj?.parentId || null;
+    if (folderObj?.workspaceId) return; // A workspace's folder goes away only with the workspace.
+    // Notes and subfolders inside move up a level; nothing is lost.
+    setState((prev) => (prev ? removeFolder(prev, id) : null));
+  };
 
-      // Safely move child notes inside deleted folder to parent folder or root
-      const updatedNotes = prev.knowledgeItems.map((note) =>
-        note.folderId === id ? { ...note, folderId: parentId } : note
-      );
-
-      // Move any child subfolders to parent folder
-      const updatedFolders = currentFolders
-        .filter((f) => f.id !== id)
-        .map((f) => (f.parentId === id ? { ...f, parentId } : f));
-
-      return {
-        ...prev,
-        knowledgeItems: updatedNotes,
-        noteFolders: updatedFolders,
-      };
+  const handleGenerateTasks = (newTasks: { title: string; priority?: string }[]) => {
+    if (!state) return;
+    const today = new Date().toISOString().split("T")[0];
+    newTasks.forEach((t) => {
+      const sec = state.sections[0] || "Academic";
+      const sub = state.subsections[sec]?.[0] || "General";
+      const task: Task = normalizeTask({
+        id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        title: t.title,
+        dueDate: today,
+        priority: (t.priority as any) || "medium",
+        section: sec,
+        subsection: sub,
+        status: "not_started",
+        completed: false,
+      });
+      handleSaveTask(task);
     });
   };
+
+  const noteActions = { onSaveNote: handleSaveKnowledge, onDeleteNote: handleDeleteKnowledge, onSaveFolder: handleSaveFolder, onDeleteFolder: handleDeleteFolder, onGenerateTasks: handleGenerateTasks,
+    onOpenFolder: (folderId: string) => { setNotesFolder(folderId); setActiveTab("knowledge"); } };
 
   // OpenRouter Key & Model
   const handleSaveOpenRouterKey = (key: string) => {
@@ -1073,6 +1089,7 @@ export const App: React.FC = () => {
                 onAsk={prompt => { void askAssistant(prompt); }}
                 onChange={update => setState(prev => prev ? update(prev) : prev)}
                 taskActions={{ onToggle: handleToggleTask, onEdit: openEditTask, onNew: openNewTask }}
+                noteActions={noteActions}
               />}
               {/* ========================================================= */}
               {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
@@ -1164,32 +1181,19 @@ export const App: React.FC = () => {
               {/* ========================================================= */}
               {activeTab === "knowledge" && (
                 <NotesWorkspace
+                  key={notesFolder || "notes"}
+                  initialFolderId={notesFolder}
                   items={state.knowledgeItems}
                   folders={state.noteFolders || []}
+                  workspaces={state.workspaces || []}
+                  onOpenWorkspace={(id) => setActiveTab(`workspace:${id}`)}
                   onSaveNote={handleSaveKnowledge}
                   onDeleteNote={handleDeleteKnowledge}
                   onSaveFolder={handleSaveFolder}
                   onDeleteFolder={handleDeleteFolder}
                   openRouterKey={state.openRouterKey}
                   selectedModel={state.selectedModel}
-                  onGenerateTasks={(newTasks) => {
-                    const today = new Date().toISOString().split("T")[0];
-                    newTasks.forEach((t) => {
-                      const sec = state.sections[0] || "Academic";
-                      const sub = state.subsections[sec]?.[0] || "General";
-                      const task: Task = normalizeTask({
-                        id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-                        title: t.title,
-                        dueDate: today,
-                        priority: (t.priority as any) || "medium",
-                        section: sec,
-                        subsection: sub,
-                        status: "not_started",
-                        completed: false,
-                      });
-                      handleSaveTask(task);
-                    });
-                  }}
+                  onGenerateTasks={handleGenerateTasks}
                   initialSelectedNote={activeEditKnowledge}
                   onClearInitialSelectedNote={() => setActiveEditKnowledge(null)}
                 />

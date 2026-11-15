@@ -15,17 +15,38 @@ function compactMessage(message: AIMessage): AIMessage {
  * Keeps the most recent archived conversations within a count and size budget so the
  * workspace stays responsive. Newest threads are kept first.
  */
+// Every save bounds the archive. Threads are immutable, so a thread's compacted form and size are computed
+// once, and an unchanged archive array returns its earlier result without re-serializing up to the budget.
+const compacted = new WeakMap<ConversationThread, { compact: ConversationThread; size: number }>();
+const bounded = new WeakMap<ConversationThread[], ConversationThread[]>();
+function compactOf(thread: ConversationThread) {
+  let known = compacted.get(thread);
+  if (!known) {
+    const compact = thread.messages.some(m => (m.sources?.length || 0) > MAX_SOURCES_PER_MESSAGE)
+      ? { ...thread, messages: thread.messages.map(compactMessage) }
+      : thread;
+    known = { compact, size: JSON.stringify(compact).length };
+    compacted.set(thread, known);
+  }
+  return known;
+}
+
 export function boundConversations(threads: ConversationThread[] | undefined): ConversationThread[] {
   if (!threads?.length) return [];
+  const known = bounded.get(threads);
+  if (known) return known;
+  const result = boundUncached(threads);
+  bounded.set(threads, result);
+  return result;
+}
+
+function boundUncached(threads: ConversationThread[]): ConversationThread[] {
   const sorted = [...threads].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || ""));
   const kept: ConversationThread[] = [];
   let used = 0;
   for (const thread of sorted) {
     if (kept.length >= MAX_ARCHIVED_CONVERSATIONS) break;
-    const compact = thread.messages.some(m => (m.sources?.length || 0) > MAX_SOURCES_PER_MESSAGE)
-      ? { ...thread, messages: thread.messages.map(compactMessage) }
-      : thread;
-    const size = JSON.stringify(compact).length;
+    const { compact, size } = compactOf(thread);
     if (used + size > ARCHIVE_CHAR_BUDGET) {
       if (kept.length) break;
       // The newest thread alone is too large: keep its most recent messages that fit.

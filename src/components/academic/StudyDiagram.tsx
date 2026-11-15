@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { StudyCode } from "./StudyCode";
 
 let mermaidReady: Promise<typeof import("mermaid").default> | undefined;
 let renderCount = 0;
@@ -36,10 +37,10 @@ export function SvgFigure({ code }: { code: string }) {
   return <div className="ac-diagram ac-svg"><img alt="Figure" src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(code)}`} /></div>;
 }
 
-/** Fence renderer for study content: mermaid and svg fences become pictures; everything else stays code. */
-export function studyFence(language: string, code: string, complete: boolean): ReactNode | undefined {
+/** Fence renderer for study content: mermaid and svg fences become pictures; code gets line numbers and colors. */
+export function studyFence(language: string, code: string, complete: boolean): ReactNode {
   const lang = language.trim().toLowerCase();
-  if (lang !== "mermaid" && lang !== "svg") return undefined;
+  if (lang !== "mermaid" && lang !== "svg") return <StudyCode code={code} language={lang} />;
   if (!complete) return <div className="ac-diagram is-loading" aria-label="Drawing diagram" />;
   return lang === "mermaid" ? <MermaidDiagram code={code} /> : <SvgFigure code={code} />;
 }

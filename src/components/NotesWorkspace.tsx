@@ -1,28 +1,26 @@
-import React, { useState, useMemo } from "react";
-import { KnowledgeItem, NoteFolder, NoteFolderColor } from "../types";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowUpRight, ChevronRight, Clock, Copy, FileText, Folder, FolderInput, FolderPlus, Home, LayoutGrid,
+  List as ListIcon, Palette, PanelLeft, Pencil, Pin, PinOff, Plus, Search, Trash2, X,
+} from "lucide-react";
+import type { KnowledgeItem, NoteFolder, Workspace } from "../types";
 import { NoteEditor } from "./NoteEditor";
 import { FolderModal } from "./FolderModal";
-import {
-  Folder,
-  FolderPlus,
-  Plus,
-  Search,
-  ChevronRight,
-  ArrowLeft,
-  Grid,
-  List as ListIcon,
-  Pin,
-  MoreHorizontal,
-  FileText,
-  Trash2,
-  Copy,
-  Edit2,
-  FolderOpen,
-} from "lucide-react";
+import { FolderTree, RenameInput, WorkspaceGlyph, type DropBinding } from "./notes/FolderTree";
+import { Menu, MenuDivider, MenuItem, MoveToList, byName } from "./notes/Menu";
+import { folderMoveBlocked, folderPath, subtreeIds } from "../utils/noteFolders";
+import "../notes.css";
 
 interface NotesWorkspaceProps {
   items: KnowledgeItem[];
   folders: NoteFolder[];
+  workspaces?: Workspace[];
+  /** Show only this folder and what's inside it (a workspace's Notes tab). */
+  rootFolderId?: string;
+  /** Folder to open first. */
+  initialFolderId?: string | null;
+  onOpenWorkspace?: (workspaceId: string) => void;
+  onOpenInNotes?: (folderId: string) => void;
   onSaveNote: (note: KnowledgeItem) => void;
   onDeleteNote: (id: string) => void;
   onSaveFolder: (folder: NoteFolder) => void;
@@ -34,183 +32,302 @@ interface NotesWorkspaceProps {
   onClearInitialSelectedNote?: () => void;
 }
 
+type View = { kind: "folder"; id: string | null } | { kind: "all" } | { kind: "pinned" };
+type Sort = "updated" | "created" | "title";
+type DragItem = { kind: "note" | "folder"; id: string };
+interface Toast { message: string; undo?: () => void }
+
+const ROOT_KEY = "__root__";
+const store = {
+  get<T>(key: string, fallback: T): T {
+    try { const raw = localStorage.getItem(`synapse.notes.${key}`); return raw ? (JSON.parse(raw) as T) : fallback; } catch { return fallback; }
+  },
+  set(key: string, value: unknown) { try { localStorage.setItem(`synapse.notes.${key}`, JSON.stringify(value)); } catch { /* storage unavailable */ } },
+};
+
+const titleOf = (n: KnowledgeItem) => n.title || n.subject || "Untitled";
+const plainText = (n: KnowledgeItem) =>
+  (n.content || (n.summary && n.summary !== titleOf(n) ? n.summary : ""))
+    .replace(/<\/(p|h\d|li|div|blockquote)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/^\s*(#{1,6}|>|[-*+]\s\[[ x]\]|[-*+]|\d+\.)\s+/gm, "").replace(/(\*\*|__|`{1,3}|~~)/g, "")
+    .replace(/[ \t]+/g, " ").replace(/\n{2,}/g, "\n").trim();
+const wordCount = (text: string) => (text ? text.split(/\s+/).filter(Boolean).length : 0);
+function when(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const diff = Math.round((day(now) - day(d)) / 86400000);
+  if (diff === 0) return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  if (diff === 1) return "Yesterday";
+  if (diff < 7) return d.toLocaleDateString([], { weekday: "long" });
+  return d.toLocaleDateString([], { month: "short", day: "numeric", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+}
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
 export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
-  items,
-  folders,
-  onSaveNote,
-  onDeleteNote,
-  onSaveFolder,
-  onDeleteFolder,
-  openRouterKey,
-  selectedModel,
-  onGenerateTasks,
-  initialSelectedNote,
-  onClearInitialSelectedNote,
+  items, folders, workspaces = [], rootFolderId, initialFolderId, onOpenWorkspace, onOpenInNotes,
+  onSaveNote, onDeleteNote, onSaveFolder, onDeleteFolder, openRouterKey, selectedModel, onGenerateTasks,
+  initialSelectedNote, onClearInitialSelectedNote,
 }) => {
-  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const scopeRoot = rootFolderId ?? null;
+  const rootFolder = rootFolderId ? folders.find(f => f.id === rootFolderId) : undefined;
+  const scoped = !!rootFolderId;
+  const prefix = scoped ? "ws." : "";
+
+  const [view, setView] = useState<View>({ kind: "folder", id: initialFolderId ?? scopeRoot });
   const [selectedNote, setSelectedNote] = useState<KnowledgeItem | null>(initialSelectedNote || null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [query, setQuery] = useState("");
+  const [layout, setLayout] = useState<"grid" | "list">(() => store.get(`${prefix}layout`, "grid"));
+  const [sort, setSort] = useState<Sort>(() => store.get(`${prefix}sort`, "updated"));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(store.get<string[]>("expanded", [])));
+  const [sideOpen, setSideOpen] = useState(false);
+  const [renaming, setRenaming] = useState<{ id: string; where: "tree" | "grid" } | null>(null);
+  const renamingId = renaming?.id ?? null;
+  const setRenamingId = (id: string | null, where: "tree" | "grid" = "grid") => setRenaming(id ? { id, where } : null);
+  const [drag, setDrag] = useState<DragItem | null>(null);
+  const [over, setOver] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [folderModal, setFolderModal] = useState<{ folder: NoteFolder | null; parentId: string | null } | null>(null);
+  const itemsRef = useRef(items); itemsRef.current = items;
+  const foldersRef = useRef(folders); foldersRef.current = folders;
+  const toastTimer = useRef<number | undefined>(undefined);
 
-  // Folder modal state
-  const [isFolderModalOpen, setIsFolderModalOpen] = useState(false);
-  const [editingFolder, setEditingFolder] = useState<NoteFolder | null>(null);
-  const [folderModalParentId, setFolderModalParentId] = useState<string | null>(null);
+  useEffect(() => store.set(`${prefix}layout`, layout), [layout, prefix]);
+  useEffect(() => store.set(`${prefix}sort`, sort), [sort, prefix]);
+  useEffect(() => store.set("expanded", [...expanded]), [expanded]);
+  useEffect(() => () => window.clearTimeout(toastTimer.current), []);
 
-  // Active note menu dropdown state
-  const [openNoteMenuId, setOpenNoteMenuId] = useState<string | null>(null);
-  const [openFolderMenuId, setOpenFolderMenuId] = useState<string | null>(null);
-
-  // Sync initialSelectedNote prop if passed
-  React.useEffect(() => {
-    if (initialSelectedNote) {
-      setSelectedNote(initialSelectedNote);
-      if (initialSelectedNote.folderId) {
-        setCurrentFolderId(initialSelectedNote.folderId);
-      }
-    }
+  useEffect(() => {
+    if (!initialSelectedNote) return;
+    setSelectedNote(initialSelectedNote);
+    if (initialSelectedNote.folderId) setView({ kind: "folder", id: initialSelectedNote.folderId });
   }, [initialSelectedNote]);
 
-  // Folder styling helper
-  const getFolderColorClass = (color?: NoteFolderColor) => {
-    switch (color) {
-      case "amber":
-        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
-      case "emerald":
-        return "bg-raised0/10 text-[var(--workspace-success)] border-line";
-      case "purple":
-        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
-      case "rose":
-        return "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20";
-      case "cyan":
-        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
-      case "indigo":
-        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
-      case "slate":
-        return "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20";
-      default:
-        return "bg-raised0/10 text-muted dark:text-slate-400 border-line";
+  // ---- Scope ------------------------------------------------------------------------------------
+  const folderIds = useMemo(() => new Set(folders.map(f => f.id)), [folders]);
+  const inScope = useMemo(() => (scoped ? subtreeIds(folders, rootFolderId!) : null), [folders, rootFolderId, scoped]);
+  const scopeFolders = useMemo(() => (inScope ? folders.filter(f => inScope.has(f.id)) : folders), [folders, inScope]);
+  /** A note's folder, treating a missing folder as "no folder". */
+  const folderOfNote = (n: KnowledgeItem) => (n.folderId && folderIds.has(n.folderId) ? n.folderId : null);
+  const scopeNotes = useMemo(
+    () => (inScope ? items.filter(n => n.folderId && inScope.has(n.folderId)) : items),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, inScope, folderIds],
+  );
+
+  // Notes per folder, counting everything inside its subfolders too.
+  const counts = useMemo(() => {
+    const map = new Map<string, number>();
+    const parent = new Map(folders.map(f => [f.id, f.parentId || null]));
+    for (const n of items) {
+      const seen = new Set<string>();
+      for (let p = n.folderId && parent.has(n.folderId) ? n.folderId : null; p && !seen.has(p); p = parent.get(p) || null) {
+        seen.add(p);
+        map.set(p, (map.get(p) || 0) + 1);
+      }
     }
-  };
+    return map;
+  }, [items, folders]);
 
-  // Compute breadcrumb trail for navigation
-  const breadcrumbs = useMemo(() => {
-    const trail: { id: string | null; name: string }[] = [{ id: null, name: "Notes" }];
-    let curr = folders.find((f) => f.id === currentFolderId);
-    const parentList: { id: string; name: string }[] = [];
-    while (curr) {
-      parentList.unshift({ id: curr.id, name: curr.name });
-      curr = folders.find((f) => f.id === curr?.parentId);
-    }
-    return [...trail, ...parentList];
-  }, [currentFolderId, folders]);
+  const currentId = view.kind === "folder" ? view.id : null;
+  const currentFolder = currentId ? folders.find(f => f.id === currentId) : undefined;
+  const workspaceOf = (f?: NoteFolder) => (f?.workspaceId ? workspaces.find(w => w.id === f.workspaceId) : undefined);
+  const nameOf = (id: string | null) => (id ? folders.find(f => f.id === id)?.name || "folder" : "Notes");
 
-  // Current folder object
-  const currentFolder = folders.find((f) => f.id === currentFolderId);
+  // If the open folder disappears (deleted elsewhere), fall back to the scope's top.
+  useEffect(() => {
+    if (view.kind === "folder" && view.id && !folderIds.has(view.id)) setView({ kind: "folder", id: scopeRoot });
+  }, [view, folderIds, scopeRoot]);
 
-  // Filter subfolders of current folder
-  const currentSubfolders = useMemo(() => {
-    return folders.filter((f) => f.parentId === currentFolderId);
-  }, [folders, currentFolderId]);
+  // Keep the open folder visible in the tree.
+  useEffect(() => {
+    if (!currentId) return;
+    const ancestors = folderPath(folders, currentId).slice(0, -1).map(f => f.id);
+    if (ancestors.some(id => !expanded.has(id))) setExpanded(prev => new Set([...prev, ...ancestors]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentId]);
 
-  // Filter notes in current folder (or search across all notes)
-  const currentNotes = useMemo(() => {
-    let filtered = items;
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        (n) =>
-          (n.title || n.subject || "").toLowerCase().includes(q) ||
-          (n.content || "").toLowerCase().includes(q) ||
-          (n.summary || "").toLowerCase().includes(q) ||
-          (n.tags || []).some((t) => t.toLowerCase().includes(q))
-      );
-    } else {
-      filtered = filtered.filter((n) => (n.folderId || null) === currentFolderId);
-    }
+  const crumbs = useMemo(() => {
+    if (!currentId) return [];
+    const path = folderPath(folders, currentId);
+    return scoped ? path.slice(Math.max(0, path.findIndex(f => f.id === rootFolderId))) : path;
+  }, [folders, currentId, scoped, rootFolderId]);
 
-    // Sort: pinned first, then newest updated
-    return [...filtered].sort((a, b) => {
-      if (a.pinned && !b.pinned) return -1;
-      if (!a.pinned && b.pinned) return 1;
-      const dateA = a.updatedAt || a.createdAt || "";
-      const dateB = b.updatedAt || b.createdAt || "";
-      return dateB.localeCompare(dateA);
+  const subfolders = useMemo(
+    () => (view.kind === "folder" && !query ? scopeFolders.filter(f => (f.parentId || null) === currentId && f.id !== rootFolderId).sort(byName) : []),
+    [scopeFolders, currentId, view.kind, query, rootFolderId],
+  );
+  const matchingFolders = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? scopeFolders.filter(f => f.id !== rootFolderId && f.name.toLowerCase().includes(q)).sort(byName) : [];
+  }, [scopeFolders, query, rootFolderId]);
+
+  const notes = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list: KnowledgeItem[];
+    if (q) list = scopeNotes.filter(n => `${titleOf(n)}\n${plainText(n)}\n${(n.tags || []).join(" ")}`.toLowerCase().includes(q));
+    else if (view.kind === "all") list = scopeNotes;
+    else if (view.kind === "pinned") list = scopeNotes.filter(n => n.pinned);
+    else list = items.filter(n => folderOfNote(n) === currentId);
+    const key = (n: KnowledgeItem) => (sort === "created" ? n.createdAt || "" : n.updatedAt || n.createdAt || "");
+    return [...list].sort((a, b) => {
+      if (view.kind !== "pinned" && !!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
+      if (sort === "title") return titleOf(a).localeCompare(titleOf(b), undefined, { numeric: true, sensitivity: "base" });
+      return key(b).localeCompare(key(a));
     });
-  }, [items, currentFolderId, searchQuery]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, scopeNotes, view, currentId, query, sort, folderIds]);
 
-  // Create new note directly in current folder
-  const handleCreateNewNote = () => {
-    const today = new Date().toISOString().split("T")[0];
-    const newNote: KnowledgeItem = {
-      id: `note-${Date.now()}`,
-      title: "Untitled Note",
-      subject: "Untitled Note",
-      content: "",
-      summary: "",
-      folderId: currentFolderId,
-      status: "Synthesized",
-      startDate: today,
-      endDate: today,
-      domain: currentFolder ? currentFolder.name : "General",
-      coverGradient: "bg-blue-600",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      tags: [],
-      pinned: false,
-      favorite: false,
+  const pinnedCount = scopeNotes.filter(n => n.pinned).length;
+  const looseCount = scoped ? items.filter(n => n.folderId === rootFolderId).length : items.filter(n => !folderOfNote(n)).length;
+
+  // ---- Actions ----------------------------------------------------------------------------------
+  const showToast = (message: string, undo?: () => void) => {
+    window.clearTimeout(toastTimer.current);
+    setToast({ message, undo });
+    toastTimer.current = window.setTimeout(() => setToast(null), 6000);
+  };
+  const go = (next: View) => { setView(next); setQuery(""); setSideOpen(false); };
+  const toggle = (id: string, open?: boolean) =>
+    setExpanded(prev => { const s = new Set(prev); (open ?? !s.has(id)) ? s.add(id) : s.delete(id); return s; });
+
+  const createNote = () => {
+    const now = new Date().toISOString();
+    const folderId = view.kind === "folder" ? currentId : scopeRoot;
+    const note: KnowledgeItem = {
+      id: `note-${Date.now()}`, title: "Untitled", subject: "Untitled", content: "", summary: "", folderId,
+      status: "Synthesized", startDate: now.slice(0, 10), endDate: now.slice(0, 10), domain: nameOf(folderId),
+      createdAt: now, updatedAt: now, tags: [], pinned: false, favorite: false,
     };
-
-    onSaveNote(newNote);
-    setSelectedNote(newNote);
+    onSaveNote(note);
+    setSelectedNote(note);
   };
 
-  // Duplicate a note
-  const handleDuplicateNote = (noteToDup: KnowledgeItem) => {
-    const dup: KnowledgeItem = {
-      ...noteToDup,
-      id: `note-${Date.now()}`,
-      title: `${noteToDup.title || noteToDup.subject} (Copy)`,
-      subject: `${noteToDup.title || noteToDup.subject} (Copy)`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      pinned: false,
-    };
-    onSaveNote(dup);
-    setOpenNoteMenuId(null);
+  const createFolder = (parentId: string | null) => {
+    const siblings = new Set(folders.filter(f => (f.parentId || null) === parentId).map(f => f.name.toLowerCase()));
+    let name = "New folder";
+    for (let i = 2; siblings.has(name.toLowerCase()); i++) name = `New folder ${i}`;
+    const now = new Date().toISOString();
+    const parent = folders.find(f => f.id === parentId);
+    const folder: NoteFolder = { id: `folder-${Date.now()}`, name, parentId, color: parent?.workspaceId ? "slate" : parent?.color || "slate", createdAt: now, updatedAt: now };
+    onSaveFolder(folder);
+    if (parentId) toggle(parentId, true);
+    setView({ kind: "folder", id: parentId });
+    setQuery("");
+    setRenamingId(folder.id);
   };
 
-  // Toggle Pin on a note
-  const handleTogglePin = (noteToPin: KnowledgeItem) => {
-    const updated: KnowledgeItem = {
-      ...noteToPin,
-      pinned: !noteToPin.pinned,
-      updatedAt: new Date().toISOString(),
-    };
-    onSaveNote(updated);
+  const renameFolder = (id: string, name: string | null) => {
+    setRenamingId(null);
+    const f = foldersRef.current.find(x => x.id === id);
+    if (f && name && name !== f.name && !f.workspaceId) onSaveFolder({ ...f, name, updatedAt: new Date().toISOString() });
   };
 
-  // If a note is selected, render the rich NoteEditor!
+  const deleteFolder = (f: NoteFolder) => {
+    const n = counts.get(f.id) || 0;
+    const subs = folders.filter(x => x.parentId === f.id).length;
+    const inside = [n && plural(n, "note"), subs && plural(subs, "subfolder")].filter(Boolean).join(" and ");
+    if (!confirm(`Delete “${f.name}”?${inside ? ` Its ${inside} move up to ${nameOf(f.parentId || null)}.` : ""}`)) return;
+    if (currentId === f.id) setView({ kind: "folder", id: f.parentId || scopeRoot });
+    onDeleteFolder(f.id);
+  };
+
+  const deleteNote = (n: KnowledgeItem) => {
+    if (confirm(`Delete “${titleOf(n)}”? This can't be undone.`)) onDeleteNote(n.id);
+  };
+
+  const duplicateNote = (n: KnowledgeItem) => {
+    const now = new Date().toISOString();
+    onSaveNote({ ...n, id: `note-${Date.now()}`, title: `${titleOf(n)} copy`, subject: `${titleOf(n)} copy`, createdAt: now, updatedAt: now, pinned: false });
+    showToast(`Duplicated “${titleOf(n)}”`);
+  };
+
+  const togglePin = (n: KnowledgeItem) => onSaveNote({ ...n, pinned: !n.pinned, updatedAt: new Date().toISOString() });
+
+  // ---- Moving (drag and drop, or "Move to…") -----------------------------------------------------
+  const canMove = (item: DragItem, target: string | null) => {
+    if (item.kind === "note") {
+      const n = items.find(x => x.id === item.id);
+      return !!n && folderOfNote(n) !== target;
+    }
+    const f = folders.find(x => x.id === item.id);
+    return !!f && item.id !== target && (f.parentId || null) !== target && !folderMoveBlocked(folders, item.id, target);
+  };
+
+  const move = (item: DragItem, target: string | null) => {
+    if (!canMove(item, target)) return;
+    const where = target === null ? "Notes" : nameOf(target);
+    if (item.kind === "note") {
+      const n = items.find(x => x.id === item.id)!;
+      const from = n.folderId || null;
+      onSaveNote({ ...n, folderId: target });
+      showToast(`Moved “${titleOf(n)}” to ${where}`, () => {
+        const latest = itemsRef.current.find(x => x.id === n.id);
+        if (latest) onSaveNote({ ...latest, folderId: from });
+      });
+    } else {
+      const f = folders.find(x => x.id === item.id)!;
+      const from = f.parentId || null;
+      onSaveFolder({ ...f, parentId: target, updatedAt: new Date().toISOString() });
+      if (target) toggle(target, true);
+      showToast(`Moved “${f.name}” to ${where}`, () => {
+        const latest = foldersRef.current.find(x => x.id === f.id);
+        if (latest && !folderMoveBlocked(foldersRef.current, f.id, from)) onSaveFolder({ ...latest, parentId: from, updatedAt: new Date().toISOString() });
+      });
+    }
+  };
+
+  const targetOf = (key: string) => (key === ROOT_KEY ? scopeRoot : key);
+  const drop = (key: string): DropBinding => ({
+    onDragOver: e => {
+      if (!drag) return;
+      if (canMove(drag, targetOf(key))) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }
+      if (over !== key) setOver(key);
+    },
+    onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(o => (o === key ? null : o)); },
+    onDrop: e => {
+      e.preventDefault();
+      e.stopPropagation();
+      const item = drag;
+      setOver(null);
+      setDrag(null);
+      if (item) move(item, targetOf(key));
+    },
+    "data-drop": drag && over === key ? (canMove(drag, targetOf(key)) ? "ok" : "no") : undefined,
+  });
+  const dragSource = (kind: DragItem["kind"], id: string) => ({
+    draggable: true,
+    onDragStart: (e: React.DragEvent) => {
+      e.stopPropagation();
+      e.dataTransfer.effectAllowed = "move";
+      const label = kind === "note" ? titleOf(items.find(n => n.id === id)!) : folders.find(f => f.id === id)?.name || "";
+      e.dataTransfer.setData("text/plain", label);
+      // Changing the page during dragstart can cancel the drag in some browsers, so mark it a tick later.
+      window.setTimeout(() => setDrag({ kind, id }), 0);
+    },
+    onDragEnd: () => { setDrag(null); setOver(null); },
+  });
+
+  const moveMenu = (item: DragItem, current: string | null, close: () => void, back: () => void) => (
+    <MoveToList folders={scopeFolders} rootId={scopeRoot} rootLabel={scoped ? rootFolder?.name || "Workspace" : "Notes (no folder)"}
+      currentId={current} blocked={target => !canMove(item, target)} onBack={back}
+      onPick={target => { close(); move(item, target); }} />
+  );
+
+  // ---- Open note -----------------------------------------------------------------------------------
   if (selectedNote) {
     return (
       <div className="note-page">
         <NoteEditor
           key={selectedNote.id}
           note={selectedNote}
-          folders={folders}
-          onSave={(updated) => {
-            onSaveNote(updated);
-            setSelectedNote(updated);
-          }}
-          onDelete={(id) => {
-            onDeleteNote(id);
-            setSelectedNote(null);
-            if (onClearInitialSelectedNote) onClearInitialSelectedNote();
-          }}
-          onBack={() => {
-            setSelectedNote(null);
-            if (onClearInitialSelectedNote) onClearInitialSelectedNote();
-          }}
+          folders={scopeFolders}
+          onSave={updated => { onSaveNote(updated); setSelectedNote(updated); }}
+          onDelete={id => { onDeleteNote(id); setSelectedNote(null); onClearInitialSelectedNote?.(); }}
+          onBack={() => { setSelectedNote(null); onClearInitialSelectedNote?.(); }}
           openRouterKey={openRouterKey}
           selectedModel={selectedModel}
           onGenerateTasks={onGenerateTasks}
@@ -219,510 +336,279 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
     );
   }
 
-  return (
-    <div className="w-full max-w-6xl mx-auto space-y-8 animate-fade-in pb-16">
-      {/* Top Header & Breadcrumbs */}
-      <div className="page-heading">
-        <div>
-          {/* Breadcrumb Navigation */}
-          {breadcrumbs.length > 1 && <div className="flex items-center gap-1.5 flex-wrap text-[13px] text-slate-400 mb-2">
-            {breadcrumbs.map((crumb, idx) => {
-              const isLast = idx === breadcrumbs.length - 1;
-              return (
-                <React.Fragment key={crumb.id || "root"}>
-                  <button
-                    onClick={() => {
-                      setCurrentFolderId(crumb.id);
-                      setSearchQuery("");
-                    }}
-                    className={`hover:text-ink dark:hover:text-white transition-colors flex items-center gap-1 ${
-                      isLast
-                        ? "text-ink font-extrabold"
-                        : "text-slate-400 dark:text-slate-500"
-                    }`}
-                  >
-                    {idx === 0 && <FolderOpen className="w-3.5 h-3.5 text-muted inline mr-0.5" />}
-                    <span>{crumb.name}</span>
-                  </button>
-                  {!isLast && <ChevronRight className="w-3 h-3 text-slate-300 dark:text-slate-600" />}
-                </React.Fragment>
-              );
-            })}
-          </div>}
+  // ---- Pieces ------------------------------------------------------------------------------------
+  const folderMenu = (f: NoteFolder) => (
+    <Menu label={`Options for ${f.name}`}>
+      {({ close, page, setPage }) => page === "move" ? moveMenu({ kind: "folder", id: f.id }, f.parentId || null, close, () => setPage("main")) : (
+        <>
+          {f.workspaceId && onOpenWorkspace && !scoped && <MenuItem icon={ArrowUpRight} onSelect={() => { close(); onOpenWorkspace(f.workspaceId!); }}>Open workspace</MenuItem>}
+          <MenuItem icon={FolderPlus} onSelect={() => { close(); createFolder(f.id); }}>New folder inside</MenuItem>
+          {!f.workspaceId && <>
+            <MenuItem icon={Pencil} onSelect={() => { close(); setRenamingId(f.id); }}>Rename</MenuItem>
+            <MenuItem icon={Palette} onSelect={() => { close(); setFolderModal({ folder: f, parentId: f.parentId || null }); }}>Color & location</MenuItem>
+            <MenuItem icon={FolderInput} onSelect={() => setPage("move")}>Move to…</MenuItem>
+            <MenuDivider />
+            <MenuItem icon={Trash2} danger onSelect={() => { close(); deleteFolder(f); }}>Delete folder</MenuItem>
+          </>}
+        </>
+      )}
+    </Menu>
+  );
 
-          <h1 className="page-title flex items-center gap-2">
-            <span>{currentFolder ? currentFolder.name : "Notes"}</span>
-          </h1>
-          <p className="text-sm text-secondary mt-2">
-            {currentNotes.length} notes {currentSubfolders.length > 0 ? `· ${currentSubfolders.length} folders` : ""}
-          </p>
+  const noteMenu = (n: KnowledgeItem) => (
+    <Menu label={`Options for ${titleOf(n)}`}>
+      {({ close, page, setPage }) => page === "move" ? moveMenu({ kind: "note", id: n.id }, folderOfNote(n), close, () => setPage("main")) : (
+        <>
+          <MenuItem icon={n.pinned ? PinOff : Pin} onSelect={() => { close(); togglePin(n); }}>{n.pinned ? "Unpin" : "Pin to top"}</MenuItem>
+          <MenuItem icon={FolderInput} onSelect={() => setPage("move")}>Move to…</MenuItem>
+          <MenuItem icon={Copy} onSelect={() => { close(); duplicateNote(n); }}>Duplicate</MenuItem>
+          <MenuDivider />
+          <MenuItem icon={Trash2} danger onSelect={() => { close(); deleteNote(n); }}>Delete note</MenuItem>
+        </>
+      )}
+    </Menu>
+  );
+
+  const folderChip = (n: KnowledgeItem) => {
+    const id = folderOfNote(n);
+    if (!id || id === rootFolderId) return null;
+    const f = folders.find(x => x.id === id)!;
+    return <span className="nx-chip"><span className={`nx-dot nx-c-${f.color || "slate"}`} />{f.name}</span>;
+  };
+  const showLocation = view.kind !== "folder" || !!query;
+
+  const folderTile = (f: NoteFolder) => {
+    const ws = workspaceOf(f);
+    const subs = folders.filter(x => x.parentId === f.id).length;
+    const n = counts.get(f.id) || 0;
+    return (
+      <div key={f.id} className={`nx-folder ${drag?.id === f.id ? "is-dragging" : ""}`} role="button" tabIndex={0}
+        {...drop(f.id)} {...(f.workspaceId ? {} : dragSource("folder", f.id))}
+        onClick={() => renamingId !== f.id && go({ kind: "folder", id: f.id })}
+        onKeyDown={e => { if (e.key === "Enter" && renamingId !== f.id) go({ kind: "folder", id: f.id }); }}>
+        <span className={`nx-folder-icon nx-c-${f.color || "slate"}`}>{ws ? <WorkspaceGlyph workspace={ws} size={18} /> : <Folder size={18} />}</span>
+        <div className="nx-folder-text">
+          {renaming?.id === f.id && renaming.where === "grid"
+            ? <RenameInput initial={f.name} onDone={name => renameFolder(f.id, name)} className="nx-rename nx-rename-tile" />
+            : <strong title={f.name}>{f.name}</strong>}
+          <span>{[plural(n, "note"), subs ? plural(subs, "folder") : ""].filter(Boolean).join(" · ")}</span>
+        </div>
+        {folderMenu(f)}
+      </div>
+    );
+  };
+
+  const noteCard = (n: KnowledgeItem) => {
+    const text = plainText(n);
+    return (
+      <article key={n.id} className={`nx-card ${drag?.id === n.id ? "is-dragging" : ""}`} tabIndex={0} {...dragSource("note", n.id)}
+        onClick={() => setSelectedNote(n)} onKeyDown={e => { if (e.key === "Enter") setSelectedNote(n); }}>
+        <div className="nx-card-top">
+          <h3>{titleOf(n)}</h3>
+          {n.pinned && <Pin size={13} className="nx-pin" aria-label="Pinned" />}
+          {noteMenu(n)}
+        </div>
+        <p className={text ? "" : "is-empty"}>{text || "Empty note"}</p>
+        <footer>
+          {showLocation && folderChip(n)}
+          {(n.tags || []).slice(0, 2).map(t => <span key={t} className="nx-tag">#{t}</span>)}
+          <time>{when(n.updatedAt || n.createdAt)}</time>
+        </footer>
+      </article>
+    );
+  };
+
+  const noteRow = (n: KnowledgeItem) => {
+    const text = plainText(n);
+    return (
+      <div key={n.id} className={`nx-row ${drag?.id === n.id ? "is-dragging" : ""}`} role="button" tabIndex={0} {...dragSource("note", n.id)}
+        onClick={() => setSelectedNote(n)} onKeyDown={e => { if (e.key === "Enter") setSelectedNote(n); }}>
+        <FileText size={16} className="nx-row-icon" />
+        <div className="nx-row-main">
+          <strong>{titleOf(n)}{n.pinned && <Pin size={12} className="nx-pin" aria-label="Pinned" />}</strong>
+          <span>{text.split("\n")[0] || "Empty note"}</span>
+        </div>
+        <div className="nx-row-meta">
+          {showLocation && folderChip(n)}
+          <span className="nx-row-words">{plural(wordCount(text), "word")}</span>
+          <time>{when(n.updatedAt || n.createdAt)}</time>
+        </div>
+        {noteMenu(n)}
+      </div>
+    );
+  };
+
+  const treeProps = {
+    folders: scopeFolders, activeId: currentId, expanded, counts, workspaces, renamingId: renaming?.where === "tree" ? renaming.id : null,
+    onToggle: toggle, onOpen: (id: string) => go({ kind: "folder", id }), onNewSubfolder: createFolder,
+    onRenameStart: (id: string) => setRenamingId(id, "tree"), onRenameDone: renameFolder, drop, drag: dragSource,
+  };
+  const workspaceFolders = scoped ? [] : folders.filter(f => f.workspaceId && !f.parentId);
+
+  // ---- Heading text ------------------------------------------------------------------------------
+  const currentWs = workspaceOf(currentFolder);
+  const atScopeRoot = view.kind === "folder" && currentId === scopeRoot;
+  const title = query ? "Search" : view.kind === "all" ? "All notes" : view.kind === "pinned" ? "Pinned" : scoped && atScopeRoot ? "Notes" : currentFolder?.name || "Notes";
+  const subtitle = query
+    ? `${plural(notes.length, "note")}${matchingFolders.length ? ` and ${plural(matchingFolders.length, "folder")}` : ""} match “${query.trim()}”`
+    : view.kind === "folder"
+      ? [subfolders.length ? plural(subfolders.length, "folder") : "", plural(notes.length, "note")].filter(Boolean).join(" · ")
+      : plural(notes.length, "note");
+
+  const empty = !notes.length && !subfolders.length && !matchingFolders.length;
+
+  return (
+    <div className={`nx ${scoped ? "nx-scoped" : ""} ${drag ? "is-dragging" : ""}`}>
+      <aside className={`nx-side ${sideOpen ? "is-open" : ""}`} aria-label="Folders">
+        <label className="nx-search">
+          <Search size={15} />
+          <input type="search" placeholder={scoped ? "Search these notes" : "Search notes"} value={query} onChange={e => setQuery(e.target.value)} />
+          {query && <button type="button" aria-label="Clear search" onClick={() => setQuery("")}><X size={14} /></button>}
+        </label>
+
+        <nav className="nx-nav">
+          <button type="button" className={`nx-nav-row ${atScopeRoot && !query ? "is-active" : ""}`} {...drop(ROOT_KEY)} onClick={() => go({ kind: "folder", id: scopeRoot })}>
+            <Home size={15} /><span>{scoped ? rootFolder?.name || "Notes" : "Notes"}</span><em>{looseCount || ""}</em>
+          </button>
+          <button type="button" className={`nx-nav-row ${view.kind === "all" && !query ? "is-active" : ""}`} onClick={() => go({ kind: "all" })}>
+            <Clock size={15} /><span>All notes</span><em>{scopeNotes.length || ""}</em>
+          </button>
+          <button type="button" className={`nx-nav-row ${view.kind === "pinned" && !query ? "is-active" : ""}`} onClick={() => go({ kind: "pinned" })}>
+            <Pin size={15} /><span>Pinned</span><em>{pinnedCount || ""}</em>
+          </button>
+        </nav>
+
+        {workspaceFolders.length > 0 && (
+          <section className="nx-side-group">
+            <h2>Workspaces</h2>
+            <FolderTree {...treeProps} parentId={null} only={f => !!f.workspaceId} />
+          </section>
+        )}
+        <section className="nx-side-group">
+          <h2>
+            Folders
+            <button type="button" className="nx-icon-btn" aria-label="New folder" onClick={() => createFolder(scopeRoot)}><Plus size={14} /></button>
+          </h2>
+          {scopeFolders.some(f => (f.parentId || null) === scopeRoot && !f.workspaceId)
+            ? <FolderTree {...treeProps} parentId={scopeRoot} only={f => !f.workspaceId} />
+            : <p className="nx-side-empty">No folders yet</p>}
+        </section>
+        {scoped && rootFolderId && onOpenInNotes && (
+          <button type="button" className="nx-side-link" onClick={() => onOpenInNotes(currentId || rootFolderId)}>
+            Open in Notes <ArrowUpRight size={14} />
+          </button>
+        )}
+      </aside>
+
+      <main className="nx-main">
+        <header className="nx-head">
+          <div className="nx-head-text">
+            {crumbs.length > (scoped ? 1 : 0) && !query && view.kind === "folder" && (
+              <nav className="nx-crumbs" aria-label="Folder path">
+                {!scoped && <><button type="button" {...drop(ROOT_KEY)} onClick={() => go({ kind: "folder", id: null })}>Notes</button><ChevronRight size={13} /></>}
+                {crumbs.slice(0, -1).map((f, i) => (
+                  <React.Fragment key={f.id}>
+                    <button type="button" {...drop(scoped && i === 0 ? ROOT_KEY : f.id)} onClick={() => go({ kind: "folder", id: f.id })}>{scoped && i === 0 ? "Notes" : f.name}</button>
+                    <ChevronRight size={13} />
+                  </React.Fragment>
+                ))}
+              </nav>
+            )}
+            <h1>
+              {view.kind === "folder" && currentFolder && !atScopeRoot && <span className={`nx-title-dot nx-c-${currentFolder.color || "slate"}`} />}
+              {title}
+            </h1>
+            <p>
+              {subtitle}
+              {currentWs && !scoped && onOpenWorkspace && !query && view.kind === "folder" && (
+                <button type="button" className="nx-inline-link" onClick={() => onOpenWorkspace(currentWs.id)}>
+                  Open {currentWs.name} workspace <ArrowUpRight size={13} />
+                </button>
+              )}
+            </p>
+          </div>
+          <div className="nx-head-actions">
+            <button type="button" className="nx-btn nx-side-toggle" aria-expanded={sideOpen} onClick={() => setSideOpen(v => !v)}>
+              <PanelLeft size={15} /> Folders
+            </button>
+            {view.kind === "folder" && !query && (
+              <button type="button" className="nx-btn" onClick={() => createFolder(currentId)}><FolderPlus size={15} /> New folder</button>
+            )}
+            <button type="button" className="nx-btn nx-btn-primary" onClick={createNote}><Plus size={15} /> New note</button>
+          </div>
+        </header>
+
+        <div className="nx-toolbar">
+          <span className="nx-hint">{drag ? "Drop on a folder to move it there" : "Drag notes and folders onto a folder to move them"}</span>
+          <label className="nx-sort">
+            <span className="sr-only">Sort notes</span>
+            <select value={sort} onChange={e => setSort(e.target.value as Sort)}>
+              <option value="updated">Last edited</option>
+              <option value="created">Date created</option>
+              <option value="title">Title</option>
+            </select>
+          </label>
+          <div className="nx-seg" role="group" aria-label="Layout">
+            <button type="button" aria-pressed={layout === "grid"} aria-label="Cards" onClick={() => setLayout("grid")}><LayoutGrid size={15} /></button>
+            <button type="button" aria-pressed={layout === "list"} aria-label="List" onClick={() => setLayout("list")}><ListIcon size={15} /></button>
+          </div>
         </div>
 
-        {/* Right Search, View Toggle, New Folder, New Note */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Search Bar */}
-          <div className="flex items-center bg-raised rounded-full px-3 py-1.5 text-xs text-slate-500 border border-slate-200/50 dark:border-slate-700/50">
-            <Search className="w-3.5 h-3.5 mr-1.5 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search notes"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="bg-transparent focus:outline-none text-ink w-28 sm:w-36 text-xs"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 ml-1 text-xs"
-              >
-                ✕
-              </button>
+        {!query && view.kind === "folder" && currentId === null && !scoped && subfolders.some(f => f.workspaceId) && (
+          <section className="nx-section">
+            <h2>Workspaces</h2>
+            <div className="nx-folders">{subfolders.filter(f => f.workspaceId).map(folderTile)}</div>
+          </section>
+        )}
+        {(query ? matchingFolders : subfolders.filter(f => !f.workspaceId)).length > 0 && (
+          <section className="nx-section">
+            <h2>Folders</h2>
+            <div className="nx-folders">{(query ? matchingFolders : subfolders.filter(f => !f.workspaceId)).map(folderTile)}</div>
+          </section>
+        )}
+
+        {notes.length > 0 && (
+          <section className="nx-section">
+            {(subfolders.length > 0 || matchingFolders.length > 0) && <h2>Notes</h2>}
+            {layout === "grid"
+              ? <div className="nx-cards">{notes.map(noteCard)}</div>
+              : <div className="nx-rows">{notes.map(noteRow)}</div>}
+          </section>
+        )}
+
+        {empty && (
+          <div className="nx-empty" {...(view.kind === "folder" && !query ? drop(currentId === scopeRoot ? ROOT_KEY : currentId!) : {})}>
+            <span className="nx-empty-icon">{query ? <Search size={20} /> : view.kind === "pinned" ? <Pin size={20} /> : <FileText size={20} />}</span>
+            <h3>{query ? "Nothing matches" : view.kind === "pinned" ? "No pinned notes" : view.kind === "all" ? "No notes yet" : "This folder is empty"}</h3>
+            <p>{query ? "Try a different word, or check the spelling." : view.kind === "pinned" ? "Pin a note from its menu to keep it here." : "Write a note here, or drop notes onto this folder in the sidebar."}</p>
+            {!query && view.kind !== "pinned" && (
+              <div className="nx-empty-actions">
+                <button type="button" className="nx-btn nx-btn-primary" onClick={createNote}><Plus size={15} /> New note</button>
+                {view.kind === "folder" && <button type="button" className="nx-btn" onClick={() => createFolder(currentId)}><FolderPlus size={15} /> New folder</button>}
+              </div>
             )}
           </div>
+        )}
+      </main>
 
-          {/* Grid vs List View */}
-          <div className="flex items-center bg-raised p-0.5 rounded-full border border-slate-200/50 dark:border-slate-700/50">
-            <button
-              onClick={() => setViewMode("grid")}
-              className={`p-1.5 rounded-full transition-colors ${
-                viewMode === "grid"
-                  ? "bg-white dark:bg-slate-700 text-ink shadow-xs"
-                  : "text-slate-400 hover:text-slate-700"
-              }`}
-              title="Grid View"
-            >
-              <Grid className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={() => setViewMode("list")}
-              className={`p-1.5 rounded-full transition-colors ${
-                viewMode === "list"
-                  ? "bg-white dark:bg-slate-700 text-ink shadow-xs"
-                  : "text-slate-400 hover:text-slate-700"
-              }`}
-              title="List View"
-            >
-              <ListIcon className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* New Folder Button */}
-          <button
-            onClick={() => {
-              setEditingFolder(null);
-              setFolderModalParentId(currentFolderId);
-              setIsFolderModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold transition-all border border-slate-200 dark:border-slate-700"
-            title="New folder"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-muted" />
-            <span className="hidden sm:inline">New folder</span>
-          </button>
-
-          {/* New Note Button */}
-          <button
-            onClick={handleCreateNewNote}
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary hover:opacity-90 text-white text-xs font-bold shadow-sm transition-all"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New note</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Up Level Button (if inside a subfolder) */}
-      {currentFolder && (
-        <div className="flex items-center justify-between pb-1">
-          <button
-            onClick={() => setCurrentFolderId(currentFolder.parentId)}
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-ink dark:hover:text-white transition-colors"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Up one level</span>
-          </button>
-
-          {/* Quick Folder Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                setEditingFolder(currentFolder);
-                setFolderModalParentId(currentFolder.parentId);
-                setIsFolderModalOpen(true);
-              }}
-              className="flex items-center gap-1 text-[11px] font-semibold text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 px-2.5 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-            >
-              <Edit2 className="w-3 h-3" />
-              <span>Rename folder</span>
-            </button>
-          </div>
+      {toast && (
+        <div className="nx-toast" role="status">
+          <span>{toast.message}</span>
+          {toast.undo && <button type="button" onClick={() => { toast.undo!(); setToast(null); }}>Undo</button>}
+          <button type="button" aria-label="Dismiss" onClick={() => setToast(null)}><X size={14} /></button>
         </div>
       )}
 
-      {/* ========================================================= */}
-      {/* SECTION 1: SUBFOLDERS ("put multiple folders in each")    */}
-      {/* ========================================================= */}
-      {!searchQuery && currentSubfolders.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-              Folders
-            </h3>
-            <span className="text-[11px] font-mono text-slate-400">
-              {currentSubfolders.length}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 sm:gap-4">
-            {currentSubfolders.map((folder) => {
-              const notesCount = items.filter((n) => n.folderId === folder.id).length;
-              const subCount = folders.filter((f) => f.parentId === folder.id).length;
-              const colorCls = getFolderColorClass(folder.color);
-
-              return (
-                <div
-                  key={folder.id}
-                  onClick={() => setCurrentFolderId(folder.id)}
-                  className="group relative flex items-center justify-between p-3.5 rounded-2xl bg-panel border border-line shadow-xs hover:shadow-md hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div
-                      className={`w-9 h-9 rounded-xl border flex items-center justify-center shrink-0 transition-transform ${colorCls}`}
-                    >
-                      <Folder className="w-4 h-4 fill-current/20" />
-                    </div>
-                    <div className="min-w-0">
-                      <h4 className="text-xs font-bold text-ink truncate">
-                        {folder.name}
-                      </h4>
-                      <p className="text-[11px] text-slate-400 truncate mt-0.5">
-                        {notesCount} {notesCount === 1 ? "note" : "notes"}
-                        {subCount > 0 ? ` · ${subCount} folders` : ""}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Folder Options Menu */}
-                  <div className="relative">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setOpenFolderMenuId(openFolderMenuId === folder.id ? null : folder.id);
-                      }}
-                      className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <MoreHorizontal className="w-3.5 h-3.5" />
-                    </button>
-
-                    {openFolderMenuId === folder.id && (
-                      <div
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute right-0 mt-1 w-44 bg-panel rounded-2xl border border-line shadow-xl p-1 z-30 flex flex-col gap-0.5 text-xs font-semibold animate-fade-in"
-                      >
-                        <button
-                          onClick={() => {
-                            setOpenFolderMenuId(null);
-                            setEditingFolder(folder);
-                            setFolderModalParentId(folder.parentId);
-                            setIsFolderModalOpen(true);
-                          }}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
-                        >
-                          <Edit2 className="w-3 h-3 text-slate-400" />
-                          <span>Rename / color</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setOpenFolderMenuId(null);
-                            setEditingFolder(null);
-                            setFolderModalParentId(folder.id);
-                            setIsFolderModalOpen(true);
-                          }}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
-                        >
-                          <FolderPlus className="w-3 h-3 text-muted" />
-                          <span>New subfolder</span>
-                        </button>
-
-                        <button
-                          onClick={() => {
-                            setOpenFolderMenuId(null);
-                            if (confirm(`Delete folder "${folder.name}"? Notes inside will be moved to root.`)) {
-                              onDeleteFolder(folder.id);
-                            }
-                          }}
-                          className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 text-left"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                          <span>Delete folder</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* SECTION 2: NOTES LIST OR GRID                            */}
-      {/* ========================================================= */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400">
-            {searchQuery ? `Search Results for "${searchQuery}"` : "Notes"}
-          </h3>
-          <span className="text-[11px] font-mono text-slate-400">
-            {currentNotes.length}
-          </span>
-        </div>
-
-        {/* Empty State */}
-        {currentNotes.length === 0 && currentSubfolders.length === 0 && (
-          <div className="p-12 text-center rounded-3xl border border-dashed border-line bg-slate-50/50 dark:bg-slate-900/20 space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-raised text-muted mx-auto flex items-center justify-center">
-              <FileText className="w-6 h-6" />
-            </div>
-            <h4 className="text-sm font-bold text-ink">
-              {searchQuery ? "No notes found matching your search" : "This folder is empty"}
-            </h4>
-            <p className="text-xs text-slate-400 max-w-sm mx-auto">
-              {searchQuery
-                ? "Try searching for a different keyword or create a new note."
-                : "Create a note to start writing ideas, code, or study guides in this folder."}
-            </p>
-            <div className="pt-2 flex items-center justify-center gap-2">
-              <button
-                onClick={handleCreateNewNote}
-                className="px-4 py-2 rounded-full bg-blue-600 hover:bg-slate-1000 text-white text-xs font-bold shadow-md transition-all"
-              >
-                + Create Note
-              </button>
-              <button
-                onClick={() => {
-                  setEditingFolder(null);
-                  setFolderModalParentId(currentFolderId);
-                  setIsFolderModalOpen(true);
-                }}
-                className="px-4 py-2 rounded-full bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-200 text-xs font-bold transition-all"
-              >
-                + Create Subfolder
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* GRID VIEW: Sleek Note Cards */}
-        {viewMode === "grid" && currentNotes.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
-            {currentNotes.map((note) => {
-              const noteTitle = note.title || note.subject || "Untitled Note";
-              const noteText = note.content ?? note.summary ?? "No content yet...";
-              const noteFolderObj = folders.find((f) => f.id === note.folderId);
-              const previewLines = noteText.replace(/^[#\-*>\s`]+/gm, "").slice(0, 140);
-              const isPinned = Boolean(note.pinned);
-
-              return (
-                <div
-                  key={note.id}
-                  onClick={() => setSelectedNote(note)}
-                  className="group relative flex flex-col justify-between p-5 rounded-3xl bg-panel border border-line shadow-xs hover:shadow-lg hover:border-slate-300 dark:hover:border-slate-700 cursor-pointer transition-all min-h-[170px]"
-                >
-                  <div className="space-y-2.5">
-                    {/* Top Row: Folder Badge & Pin / Menu */}
-                    <div className="flex items-center justify-between">
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-400 dark:text-slate-500 bg-raised px-2.5 py-0.5 rounded-full">
-                        <Folder className="w-2.5 h-2.5 text-muted" />
-                        <span>{noteFolderObj ? noteFolderObj.name : "Root"}</span>
-                      </span>
-
-                      <div className="flex items-center gap-1">
-                        {isPinned && (
-                          <span className="p-1 text-muted" title="Pinned Note">
-                            <Pin className="w-3 h-3 " />
-                          </span>
-                        )}
-
-                        <div className="relative">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenNoteMenuId(openNoteMenuId === note.id ? null : note.id);
-                            }}
-                            className="p-1 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <MoreHorizontal className="w-3.5 h-3.5" />
-                          </button>
-
-                          {openNoteMenuId === note.id && (
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute right-0 mt-1 w-44 bg-panel rounded-2xl border border-line shadow-xl p-1 z-30 flex flex-col gap-0.5 text-xs font-semibold animate-fade-in"
-                            >
-                              <button
-                                onClick={() => {
-                                  setOpenNoteMenuId(null);
-                                  handleTogglePin(note);
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
-                              >
-                                <Pin className="w-3 h-3 text-muted" />
-                                <span>{isPinned ? "Unpin Note" : "Pin Note"}</span>
-                              </button>
-
-                              <button
-                                onClick={() => handleDuplicateNote(note)}
-                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-left"
-                              >
-                                <Copy className="w-3 h-3 text-muted" />
-                                <span>Duplicate</span>
-                              </button>
-
-                              <button
-                                onClick={() => {
-                                  setOpenNoteMenuId(null);
-                                  if (confirm(`Delete note "${noteTitle}"?`)) {
-                                    onDeleteNote(note.id);
-                                  }
-                                }}
-                                className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-rose-50 dark:hover:bg-rose-950/40 text-rose-500 text-left"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                <span>Delete note</span>
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Title */}
-                    <h4 className="text-sm font-extrabold text-ink line-clamp-1 group-hover:text-ink dark:group-hover:text-slate-900 transition-colors">
-                      {noteTitle}
-                    </h4>
-
-                    {/* Preview Text */}
-                    <p className="text-xs text-muted line-clamp-3 leading-relaxed font-normal">
-                      {previewLines || "No content typed yet. Click to start writing..."}
-                    </p>
-                  </div>
-
-                  {/* Bottom Metadata: Tags & Date */}
-                  <div className="pt-3 mt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-                    <div className="flex items-center gap-1 overflow-hidden">
-                      {note.tags && note.tags.length > 0 ? (
-                        note.tags.slice(0, 2).map((t) => (
-                          <span
-                            key={t}
-                            className="bg-raised px-2 py-0.5 rounded-md text-[11px] font-medium truncate max-w-[80px]"
-                          >
-                            #{t}
-                          </span>
-                        ))
-                      ) : (
-                        <span>Markdown</span>
-                      )}
-                    </div>
-                    <span className="shrink-0">
-                      {note.updatedAt
-                        ? new Date(note.updatedAt).toLocaleDateString([], {
-                            month: "short",
-                            day: "numeric",
-                          })
-                        : "Today"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* LIST VIEW: Compact File Manager Table */}
-        {viewMode === "list" && currentNotes.length > 0 && (
-          <div className="bg-panel rounded-3xl border border-line overflow-hidden shadow-xs">
-            <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
-              {currentNotes.map((note) => {
-                const noteTitle = note.title || note.subject || "Untitled Note";
-                const noteText = note.content ?? note.summary ?? "";
-                const noteFolderObj = folders.find((f) => f.id === note.folderId);
-                const words = noteText.trim().split(/\s+/).filter(Boolean).length;
-
-                return (
-                  <div
-                    key={note.id}
-                    onClick={() => setSelectedNote(note)}
-                    className="group flex items-center justify-between p-3.5 sm:px-5 hover:bg-slate-50/80 dark:hover:bg-slate-800/40 cursor-pointer transition-colors"
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <FileText className="w-4 h-4 text-slate-400 group-hover:text-ink shrink-0 transition-colors" />
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h4 className="text-xs font-bold text-ink truncate">
-                            {noteTitle}
-                          </h4>
-                          {note.pinned && (
-                            <Pin className="w-2.5 h-2.5 text-muted  shrink-0" />
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-400 truncate max-w-md">
-                          {noteText.slice(0, 80) || "Empty note"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-4 text-xs text-slate-400 shrink-0">
-                      <span className="hidden md:inline text-[11px] bg-raised px-2 py-0.5 rounded-full font-medium">
-                        {noteFolderObj ? noteFolderObj.name : "Root"}
-                      </span>
-                      <span className="hidden sm:inline text-[11px] font-mono">
-                        {words} words
-                      </span>
-                      <span className="text-[11px]">
-                        {note.updatedAt
-                          ? new Date(note.updatedAt).toLocaleDateString([], {
-                              month: "short",
-                              day: "numeric",
-                            })
-                          : "Today"}
-                      </span>
-
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (confirm(`Delete note "${noteTitle}"?`)) {
-                            onDeleteNote(note.id);
-                          }
-                        }}
-                        className="p-1 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-400 hover:text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                        title="Delete note"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Folder Creation / Edit Modal */}
       <FolderModal
-        isOpen={isFolderModalOpen}
-        onClose={() => {
-          setIsFolderModalOpen(false);
-          setEditingFolder(null);
-        }}
-        folder={editingFolder}
-        folders={folders}
-        defaultParentId={folderModalParentId}
+        isOpen={!!folderModal}
+        onClose={() => setFolderModal(null)}
+        folder={folderModal?.folder || null}
+        folders={scopeFolders}
+        rootId={scopeRoot}
+        rootLabel={scoped ? rootFolder?.name || "Workspace" : "Top level"}
+        defaultParentId={folderModal?.parentId ?? scopeRoot}
         onSave={onSaveFolder}
-        onDelete={onDeleteFolder}
+        onDelete={id => { const f = folders.find(x => x.id === id); if (f) deleteFolder(f); }}
       />
     </div>
   );

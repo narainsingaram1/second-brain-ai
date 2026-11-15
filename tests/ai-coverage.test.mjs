@@ -136,8 +136,11 @@ test('Workspaces: create, add entries to the new one, update notes, delete with 
   let s = r.state; const ws = r.m.record.id;
   s = run(s, 'create_tracker_item', { kind: 'job_application', title: 'PM Intern', company: 'Figma', workspaceId: ws }).state;
   assert.equal(s.trackerItems[0].workspaceId, ws);
-  s = run(s, 'update_workspace', { workspaceId: ws, appendNotes: 'Target 30 applications.', color: 'green' }).state;
-  assert.equal(s.workspaces[1].notes, 'Target 30 applications.');
+  s = run(s, 'update_workspace', { workspaceId: ws, color: 'green' }).state;
+  const wsFolder = s.noteFolders.find(f => f.workspaceId === ws);
+  assert.equal(wsFolder.name, 'Summer Recruiting'); assert.equal(wsFolder.color, 'emerald');
+  s = run(s, 'create_note', { title: 'Plan', content: 'Target 30 applications.', workspaceId: ws }).state;
+  assert.equal(s.knowledgeItems[0].folderId, wsFolder.id);
   assert.throws(() => prepareMutation('create_tracker_item', { kind: 'leetcode', title: 'x', workspaceId: run(s, 'create_workspace', { name: 'Ideas', template: 'blank' }).m.record.id }, run(s, 'create_workspace', { name: 'Ideas', template: 'blank' }).state));
   s = run(s, 'delete_workspace', { workspaceId: ws }).state;
   assert.equal(s.workspaces.length, 1); assert.equal(s.trackerItems.length, 0);
@@ -185,6 +188,29 @@ test('Note folders: create, nest, rename; deleting one keeps its notes', () => {
   s = run(s, 'delete_note_folder', { folderId: child }).state;
   assert.equal(s.knowledgeItems[0].folderId, parent); assert.equal(s.noteFolders.length, 1);
   s = run(s, 'delete_note', { noteId: s.knowledgeItems[0].id }).state; assert.equal(s.knowledgeItems.length, 0);
+});
+
+test('Workspace notes folders: made with the workspace, protected, and kept when it is deleted', () => {
+  let r = run(emptyState(), 'create_workspace', { name: 'Thesis', template: 'blank' });
+  let s = r.state; const ws = r.m.record.id;
+  const folder = s.noteFolders.find(f => f.workspaceId === ws);
+  assert.ok(folder, 'a new workspace gets its own notes folder'); assert.equal(folder.parentId, null);
+  r = run(s, 'create_note_folder', { name: 'Chapters', workspaceId: ws }); s = r.state; const chapters = r.m.record.id;
+  assert.equal(r.m.record.parentId, folder.id);
+  s = run(s, 'create_note', { title: 'Intro', content: 'Draft', folderId: chapters }).state;
+  const note = s.knowledgeItems[0].id;
+  assert.throws(() => prepareMutation('delete_note_folder', { folderId: folder.id }, s), /workspace/);
+  assert.throws(() => prepareMutation('update_note_folder', { folderId: folder.id, newName: 'X' }, s), /workspace/);
+  assert.throws(() => prepareMutation('update_note_folder', { folderId: chapters, parentId: chapters }, s), /inside itself/);
+  s = run(s, 'update_note', { noteId: note, folderId: 'root' }).state;
+  assert.equal(s.knowledgeItems[0].folderId, null);
+  s = run(s, 'update_note', { noteId: note, workspaceId: ws }).state;
+  assert.equal(s.knowledgeItems[0].folderId, folder.id);
+  s = run(s, 'update_workspace', { workspaceId: ws, newName: 'Dissertation' }).state;
+  assert.equal(s.noteFolders.find(f => f.id === folder.id).name, 'Dissertation', 'the folder follows the workspace name');
+  s = run(s, 'delete_workspace', { workspaceId: ws }).state;
+  assert.equal(s.knowledgeItems.length, 1, 'deleting a workspace keeps its notes');
+  assert.equal(s.noteFolders.find(f => f.id === folder.id).workspaceId, undefined);
 });
 
 test('Courses, decks and quizzes can be edited and deleted', () => {

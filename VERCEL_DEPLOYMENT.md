@@ -182,6 +182,7 @@ Text the assistant from Telegram and get reminders there. Hosted accounts only.
    - `SUPABASE_SERVICE_ROLE_KEY`: from Supabase, Project Settings > API. It lets the server find which account a chat belongs to and open a short session as that user. Everything the assistant does then runs as that user under row-level security.
    - `CRON_SECRET`: a long random value (`openssl rand -hex 32`).
    - `PUBLIC_APP_URL` (optional): only if Telegram should use a domain other than the Vercel production domain.
+   - `SUPABASE_JWT_SECRET` (optional, recommended): from Supabase, Project Settings > API > JWT secret. With it, reminders, routines and Telegram act as each user with a short token signed on the server, instead of creating a sign-in session for every account (four Auth requests each, which can hit Auth rate limits). If the project does not accept the token, the server falls back to sign-in sessions on its own.
 4. In the app, open Settings and choose **Connect Telegram**. This registers the webhook and opens the bot.
 5. Schedule reminders. Enable the `pg_cron` and `pg_net` extensions in Supabase (Database > Extensions), then run this once in the SQL editor with your domain and `CRON_SECRET`:
 

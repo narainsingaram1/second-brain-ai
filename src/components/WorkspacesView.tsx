@@ -56,6 +56,9 @@ import { ApplicationOverview, ResumeDownload } from "./career/ApplicationOvervie
 import { ApplicationActions } from "./career/ApplicationActions";
 import { filterApplications, type ApplicationSort } from "../utils/careerApplications";
 import { resumeVersionLabel, withApplicationResume } from "../utils/resumes";
+import { NotesWorkspace } from "./NotesWorkspace";
+import { folderOfWorkspace } from "../utils/noteFolders";
+import type { KnowledgeItem, NoteFolder } from "../types";
 import "../workspaces.css";
 import "../career.css";
 
@@ -68,6 +71,16 @@ interface Props {
   onNavigate: (tab: string) => void;
   onAsk: (prompt: string) => void;
   taskActions: TaskActions;
+  noteActions: NoteActions;
+}
+export interface NoteActions {
+  onSaveNote: (note: KnowledgeItem) => void;
+  onDeleteNote: (id: string) => void;
+  onSaveFolder: (folder: NoteFolder) => void;
+  onDeleteFolder: (id: string) => void;
+  onGenerateTasks?: (tasks: { title: string; priority?: string }[]) => void;
+  /** Opens the Notes page at this folder. */
+  onOpenFolder?: (folderId: string) => void;
 }
 type Panel = "overview" | "leetcode" | "job_application" | "notes";
 const stagesFor = (kind: TrackerKind) =>
@@ -151,6 +164,7 @@ export function WorkspacesView({
   onNavigate,
   onAsk,
   taskActions,
+  noteActions,
 }: Props) {
   const workspaces = state.workspaces || [];
   const workspace = workspaces.find((item) => item.id === workspaceId);
@@ -1153,41 +1167,7 @@ export function WorkspacesView({
               </>
             )}
             {panel === "notes" && (
-              <div className="ws-panel ws-notes">
-                <div className="ws-panel-heading">
-                  <div>
-                    <h2>Workspace notes</h2>
-                    <p>
-                      {workspace.template === "career"
-                        ? "Interview prep, useful links, and the things you want to remember."
-                        : "Plans, ideas, and next steps. All in one place."}
-                    </p>
-                  </div>
-                  <span className="ws-note-hint">Saves as you type</span>
-                </div>
-                <label className="sr-only" htmlFor="workspace-notes">
-                  Workspace notes
-                </label>
-                <textarea
-                  id="workspace-notes"
-                  maxLength={200000}
-                  value={workspace.notes}
-                  placeholder={
-                    workspace.template === "career"
-                      ? "Interview prep\n\nWhat I’m working on…\n\nUseful links\n\nNext steps"
-                      : "What are you working toward?\n\nStart writing here…"
-                  }
-                  onChange={(event) => {
-                    const notes = event.target.value;
-                    onChange((prev) => ({
-                      ...prev,
-                      workspaces: (prev.workspaces || []).map((space) =>
-                        space.id === workspace.id ? { ...space, notes } : space,
-                      ),
-                    }));
-                  }}
-                />
-              </div>
+              <WorkspaceNotes state={state} workspace={workspace} actions={noteActions} />
             )}
           </section>
         </>
@@ -1229,7 +1209,7 @@ export function WorkspacesView({
             </h2>
             <p>
               {"template" in deleteTarget
-                ? "This removes this workspace, its notes, tracker entries, and any courses with their materials, flashcards and quizzes. Your other workspaces stay intact."
+                ? "This removes this workspace, its tracker entries, and any courses with their materials, flashcards and quizzes. Its notes stay in Notes as an ordinary folder. Your other workspaces stay intact."
                 : "This entry and its practice history will be permanently removed."}
             </p>
             <div className="ws-dialog-actions">
@@ -1270,6 +1250,31 @@ export function WorkspacesView({
           </div>
         </DialogBackdrop>
       )}
+    </div>
+  );
+}
+
+function WorkspaceNotes({ state, workspace, actions }: { state: BrainState; workspace: Workspace; actions: NoteActions }) {
+  const folder = folderOfWorkspace(state.noteFolders || [], workspace.id);
+  // The folder is made as soon as the workspace exists; this covers the moment before that lands.
+  if (!folder) return <div className="ws-panel page-loading" role="status" aria-label="Preparing notes" style={{ minHeight: 240 }} />;
+  return (
+    <div className="ws-notes-browser">
+      <NotesWorkspace
+        key={folder.id}
+        rootFolderId={folder.id}
+        items={state.knowledgeItems}
+        folders={state.noteFolders || []}
+        workspaces={state.workspaces || []}
+        onSaveNote={actions.onSaveNote}
+        onDeleteNote={actions.onDeleteNote}
+        onSaveFolder={actions.onSaveFolder}
+        onDeleteFolder={actions.onDeleteFolder}
+        onGenerateTasks={actions.onGenerateTasks}
+        onOpenInNotes={actions.onOpenFolder}
+        openRouterKey={state.openRouterKey}
+        selectedModel={state.selectedModel}
+      />
     </div>
   );
 }

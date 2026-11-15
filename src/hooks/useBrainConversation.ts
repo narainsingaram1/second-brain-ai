@@ -545,12 +545,14 @@ export function useBrainConversation(
           role: "assistant",
           content: result.queryAnswer,
           timestamp: timestamp(),
-          sources: result.citations.map(({ id, type, title, offset }) => ({
+          sources: result.citations.map(({ id, type, title, offset, url }) => ({
             id,
             type,
             title,
             offset,
+            ...(url ? { url } : {}),
           })),
+          ...(result.usage ? { usage: result.usage } : {}),
           rememberedIds: result.rememberedIds,
           memoryNotice: result.memoryNotice,
           ...(result.approvals?.length ? { approvals: result.approvals } : {}),

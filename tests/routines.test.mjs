@@ -179,3 +179,15 @@ test('the user can run a routine now and read its history', async () => {
     assert.equal(history.runs.length, 1);
   } finally { globalThis.fetch = realFetch; await db.close(); }
 });
+
+test('scheduler session tokens carry the claims row-level security reads and verify with the project secret', async () => {
+  const { userAccessToken } = await load('/server/lib/admin.ts');
+  const secret = 'test-jwt-secret-with-enough-length-0123456789';
+  const token = await userAccessToken(owner, secret, 1_800_000_000);
+  const [header, body, signature] = token.split('.');
+  const decode = part => JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
+  assert.deepEqual(decode(header), { alg: 'HS256', typ: 'JWT' });
+  assert.deepEqual(decode(body), { sub: owner, role: 'authenticated', aud: 'authenticated', iat: 1_800_000_000, exp: 1_800_000_000 + 900 });
+  const { createHmac } = await import('node:crypto');
+  assert.equal(signature, createHmac('sha256', secret).update(`${header}.${body}`).digest('base64url'));
+});

@@ -10,7 +10,7 @@ const server = await createServer({
 after(() => server.close());
 const study = await server.ssrLoadModule("/src/utils/study.ts");
 const { officeXmlText, kindOf, slideImageTargets, repeatedImages, pageNeedsVision, looksLikeLogistics, LOGISTICS_TAG } = await server.ssrLoadModule("/src/services/studyExtract.ts");
-const { selectSource, applyReviews, balanceAnswers, uniqueQuestions, copiesMaterial, shingles } = await server.ssrLoadModule("/src/services/studyAI.ts");
+const { selectSource, applyReviews, balanceAnswers, uniqueQuestions, copiesMaterial, shingles, localGrade, gradeShortAnswer } = await server.ssrLoadModule("/src/services/studyAI.ts");
 const { records, searchRecords } = await server.ssrLoadModule("/src/services/brainRetrieval.ts");
 const { saveDocumentText } = await server.ssrLoadModule("/src/services/studyDocuments.ts");
 const tools = await server.ssrLoadModule("/src/services/brainTools.ts");
@@ -344,4 +344,36 @@ test("questions that reuse the material's own problems are caught; new scenarios
   assert.equal(copiesMaterial(renamed, material), true, "changing one string is still a copy");
   assert.equal(copiesMaterial(fresh, material), false);
   assert.equal(copiesMaterial({ id: "2", type: "short", prompt: "What does this print?", answer: "x" }, material), false, "short generic prompts don't count");
+});
+
+test("value answers are graded without a model, and never marked wrong when grading can't run", async () => {
+  // The model answer from the HALF(1 + 1) question: the value, then its reasoning.
+  const half = { id: "h", type: "short", prompt: "Given `#define HALF(x) (x / 2)`, what is the value of `HALF(1 + 1)`?",
+    answer: "1. The macro substitutes textually, producing `1 + 1 / 2`; integer division runs before addition, so it is `1 + 0 = 1`." };
+  assert.equal(localGrade(half, "1"), true);
+  assert.equal(localGrade(half, " 1. "), true);
+  assert.equal(localGrade(half, "2"), null, "a different value is left to the grader, not marked wrong here");
+  assert.equal(localGrade({ ...half, answer: "26", accept: ["0x1A", "26"] }, "0x1a"), true);
+  assert.equal(localGrade({ ...half, answer: "B 66" }, '"B 66"'), true);
+  // The fast model failing (e.g. not offered by the provider) falls back to the chosen model.
+  const asked = [];
+  globalThis.fetch = async (_url, init) => {
+    const body = JSON.parse(init.body);
+    asked.push(body.model);
+    if (body.model.includes("haiku")) return new Response(JSON.stringify({ error: { message: "No such model" } }), { status: 404 });
+    return new Response(JSON.stringify({ choices: [{ message: { content: '{"correct":true,"feedback":"Right: the argument is not parenthesized."}' } }] }), { headers: { "content-type": "application/json" } });
+  };
+  const verdict = await gradeShortAnswer(half, "one", "k", "anthropic/claude-sonnet-5.5");
+  assert.equal(verdict.correct, true);
+  assert.deepEqual(asked, ["anthropic/claude-haiku-5.5", "anthropic/claude-sonnet-5.5"]);
+  globalThis.fetch = async () => new Response("{}", { status: 500 });
+  await assert.rejects(gradeShortAnswer(half, "one", "k", "anthropic/claude-sonnet-5.5"), "a grader that can't run throws instead of returning 'wrong'");
+});
+
+test("code exhibits that lost their fence are shown as code again", () => {
+  assert.equal(study.normalizeExhibit("c\nprintf(\"%x %c %d\", 10, 'A' + 1, 'A');"), "```c\nprintf(\"%x %c %d\", 10, 'A' + 1, 'A');\n```");
+  assert.equal(study.normalizeExhibit("int x = 5;\nint *p = &x;"), "```\nint x = 5;\nint *p = &x;\n```");
+  assert.equal(study.normalizeExhibit("| Address | Region |\n|---|---|\n| x3000 | ? |"), "| Address | Region |\n|---|---|\n| x3000 | ? |", "tables stay tables");
+  assert.equal(study.normalizeExhibit("```c\nint x;\n```"), "```c\nint x;\n```");
+  assert.equal(study.normalizeQuestion({ type: "short", prompt: "Output?", answer: "a 66", accept: ["a 66", "a 66", ""], exhibit: "c\nputs(\"hi\");" }).exhibit.startsWith("```c"), true);
 });

@@ -34,6 +34,7 @@ import { ChatSource, conversationTitle, readableMessage, referenceTitle } from "
 import { getLocalDateString } from "../utils/habitStreaks";
 import { MarkdownView } from "./MarkdownView";
 import { RecordIcon, RecordPreview, SourceReferences } from "./SourceReferences";
+import { UsageMeta } from "./UsageMeta";
 import { MessageFiles, MessageImages } from "./ImageAttachments";
 import { AgentActivity, useSmoothText, wasStreaming } from "./AgentActivity";
 import { IrisCard } from "./IrisCard";
@@ -330,6 +331,7 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
             </button>
           )}
           {error && <span role="alert" className="text-xs text-red-500">{error}</span>}
+          {message.usage && <UsageMeta usage={message.usage} />}
         </div>
       )}
     </div>

@@ -649,6 +649,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
     parentId: f.parentId || null,
     color: f.color || "blue",
     icon: f.icon,
+    ...(typeof f.workspaceId === "string" && f.workspaceId ? { workspaceId: f.workspaceId } : {}),
     createdAt: f.createdAt || new Date().toISOString(),
     updatedAt: f.updatedAt,
   }));
@@ -729,10 +730,68 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 /**
  * Persists brain state canonically with versioned envelope, avoiding triple-store race conditions.
  */
+// State is immutable, so a record normalized once stays normalized. Caching by object keeps each saved record's
+// identity stable across saves: record sync's serializer cache (keyed by object) then skips unchanged records
+// instead of re-serializing every task on every save.
+const normalizedTasks = new WeakMap<object, Task>();
+function normalizeTaskOnce(task: Task): Task {
+  let normalized = normalizedTasks.get(task);
+  if (!normalized) {
+    normalized = normalizeTask(task);
+    normalizedTasks.set(task, normalized);
+    normalizedTasks.set(normalized, normalized);
+  }
+  return normalized;
+}
+const normalizedTaskLists = new WeakMap<Task[], Task[]>();
+function normalizeTasksOnce(tasks: Task[]): Task[] {
+  let list = normalizedTaskLists.get(tasks);
+  if (!list) { list = tasks.map(normalizeTaskOnce); normalizedTaskLists.set(tasks, list); }
+  return list;
+}
+const normalizedMemory = new WeakMap<object, ReturnType<typeof normalizeAgentMemory>>();
+function normalizeMemoryOnce(memory: BrainState["agentMemory"]) {
+  if (!memory || typeof memory !== "object") return normalizeAgentMemory(memory);
+  let normalized = normalizedMemory.get(memory);
+  if (!normalized) {
+    normalized = normalizeAgentMemory(memory);
+    normalizedMemory.set(memory, normalized);
+    normalizedMemory.set(normalized, normalized);
+  }
+  return normalized;
+}
+
+// The desktop app's per-account IndexedDB copy is a backup for switching accounts; the native file is the
+// canonical store. Copying the whole workspace into IndexedDB is a full structured clone on the main thread,
+// so it waits for an idle moment and only the newest pending copy is written.
+let pendingMirror: { userId: string; state: BrainState; onDone: () => void } | null = null;
+let mirrorTimer: ReturnType<typeof setTimeout> | number | undefined;
+function runMirror() {
+  mirrorTimer = undefined;
+  const job = pendingMirror;
+  pendingMirror = null;
+  if (job) saveUserStateToDB(job.userId, job.state).then(store => { if (store === "indexed_db") job.onDone(); }).catch(() => {});
+}
+function mirrorToIndexedDB(userId: string, state: BrainState, onDone: () => void) {
+  // A different account's copy is written now, so switching accounts never drops the previous one's latest copy.
+  if (pendingMirror && pendingMirror.userId !== userId) {
+    if (mirrorTimer !== undefined) {
+      if (typeof cancelIdleCallback === "function" && typeof mirrorTimer === "number") cancelIdleCallback(mirrorTimer);
+      clearTimeout(mirrorTimer as ReturnType<typeof setTimeout>);
+    }
+    runMirror();
+  }
+  pendingMirror = { userId, state, onDone };
+  if (mirrorTimer !== undefined) return;
+  mirrorTimer = typeof requestIdleCallback === "function"
+    ? requestIdleCallback(runMirror, { timeout: 5000 })
+    : setTimeout(runMirror, 1500);
+}
+
 async function persistNow(state: BrainState, targetUserId: string): Promise<void> {
-  const cleanState = { ...state, tasks: state.tasks.map(t => normalizeTask(t)), userId: targetUserId,
+  const cleanState = { ...state, tasks: normalizeTasksOnce(state.tasks), userId: targetUserId,
     conversations: boundConversations(state.conversations),
-    agentMemory: normalizeAgentMemory(state.agentMemory) };
+    agentMemory: normalizeMemoryOnce(state.agentMemory) };
     if (cloudEnabled) {
       await saveCloud(cleanState);
       if (managedAuthEnabled) {
@@ -775,7 +834,7 @@ async function persistNow(state: BrainState, targetUserId: string): Promise<void
         import("@tauri-apps/api/core").then(({ invoke }) => invoke("save_openrouter_api_key", { apiKey: key })).then(() => { lastSavedNativeKey = key; }).catch(() => {});
       }
       // Per-account record lets other desktop accounts load their own workspace.
-      saveUserStateToDB(targetUserId, cleanState).then(store => { if (store === "indexed_db") clearStaleCopies(); }).catch(() => {});
+      mirrorToIndexedDB(targetUserId, cleanState, clearStaleCopies);
     } else {
       // 1. CANONICAL PRIMARY FOR WEB: IndexedDB (falls back to a per-user localStorage copy inside).
       let store: Awaited<ReturnType<typeof saveUserStateToDB>> | undefined;

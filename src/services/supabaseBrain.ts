@@ -66,13 +66,19 @@ export function supabaseRecordTransport(userId: string, client: SupabaseClient<a
     },
     async readRecords(sinceSeq) {
       const rows: StoredRecord[] = [];
-      for (let from = 0; ; from += PAGE) {
+      // Keyset pages: each page starts after the last seq seen (seq is unique, from one sequence), so every page
+      // is an index range scan on (user_id, seq). Offset pages re-read every earlier row and slow down as accounts grow.
+      let cursor = sinceSeq;
+      for (;;) {
         let query = client.from("brain_records").select("collection,id,data,revision,seq,ord,deleted").eq("user_id", userId);
-        query = sinceSeq === undefined ? query.eq("deleted", false) : query.gt("seq", sinceSeq);
-        const { data, error } = await query.order("seq").range(from, from + PAGE - 1);
+        if (sinceSeq === undefined) query = query.eq("deleted", false);
+        if (cursor !== undefined) query = query.gt("seq", cursor);
+        const { data, error } = await query.order("seq").limit(PAGE);
         if (error) throw fail("load your records");
-        rows.push(...(data || []).map(r => ({ ...r, collection: r.collection as RecordCollection, revision: Number(r.revision), seq: Number(r.seq), ord: Number(r.ord) })));
-        if (!data || data.length < PAGE) return rows;
+        const page = (data || []).map(r => ({ ...r, collection: r.collection as RecordCollection, revision: Number(r.revision), seq: Number(r.seq), ord: Number(r.ord) }));
+        rows.push(...page);
+        if (page.length < PAGE) return rows;
+        cursor = page[page.length - 1].seq;
       }
     },
     async saveRecords(changes) {

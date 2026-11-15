@@ -22,7 +22,9 @@ window.fetch = async (_url, init) => {
   await new Promise(resolve => setTimeout(resolve, 600));
   const request = JSON.parse(String((init as RequestInit | undefined)?.body || "{}"));
   const lastUser = [...(request.messages || [])].reverse().find((m: { role: string }) => m.role === "user");
-  const userText = typeof lastUser?.content === "string" ? lastUser.content : "";
+  // The newest message is sent as text parts (turn context first), so read every text part.
+  const userText = typeof lastUser?.content === "string" ? lastUser.content
+    : Array.isArray(lastUser?.content) ? lastUser.content.map((p: { type?: string; text?: string }) => (p.type === "text" ? p.text || "" : "")).join("\n") : "";
   const forced = request.tool_choice?.function?.name;
   const suggestion = (args: unknown) => Response.json({ choices: [{ message: { content: null, tool_calls: [{ id: "fx-suggest", type: "function", function: { name: forced, arguments: JSON.stringify(args) } }] }, finish_reason: "tool_calls" }] });
   if (forced === "suggest_follow_ups") return suggestion({ followUps: ["Make it due this Friday", "Move it to SWE Applications", "What else should I update on my profile?"] });
@@ -41,7 +43,7 @@ window.fetch = async (_url, init) => {
   // A message mentioning LC-3 shows the full activity: streamed reasoning, a records search and a web
   // search (the provider's web plugin), then more reasoning and a streamed answer.
   if (/lc-?3/i.test(userText)) {
-    if (request.plugins) return Response.json({ choices: [{ message: { content: "LC-3 is a teaching ISA with 15 opcodes and 8 registers [Wikipedia](https://en.wikipedia.org/wiki/Little_Computer_3).",
+    if (request.plugins) return Response.json({ usage: { prompt_tokens: 2400, completion_tokens: 180, cost: 0.0021 }, choices: [{ message: { content: "LC-3 is a teaching ISA with 15 opcodes and 8 registers [Wikipedia](https://en.wikipedia.org/wiki/Little_Computer_3).",
       annotations: [{ type: "url_citation", url_citation: { url: "https://en.wikipedia.org/wiki/Little_Computer_3", title: "Little Computer 3 - Wikipedia" } }, { type: "url_citation", url_citation: { url: "https://www.cs.colostate.edu/~cs270/.Fall20/resources/PattPatelAppA.pdf", title: "LC-3 ISA reference (Patt & Patel)" } }] } }] });
     const answered = (request.messages || []).some((m: { role: string }) => m.role === "tool");
     const thinking = answered
@@ -62,7 +64,9 @@ window.fetch = async (_url, init) => {
       const end = answered ? { delta: {}, finish_reason: "stop" }
         : { delta: { tool_calls: [{ index: 0, id: "fx-search", function: { name: "search_records", arguments: JSON.stringify({ query: "LC-3 assembly" }) } },
             { index: 1, id: "fx-web", function: { name: "web_search", arguments: JSON.stringify({ query: "LC-3 ISA compared to x86 assembly" }) } }] }, finish_reason: "tool_calls" };
-      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [end] })}\n\ndata: [DONE]\n\n`));
+      // Usage arrives on its own last chunk, with no choices, as OpenRouter sends it.
+      const usage = { prompt_tokens: answered ? 9800 : 7200, completion_tokens: answered ? 420 : 90, prompt_tokens_details: { cached_tokens: answered ? 6800 : 0 }, cost: answered ? 0.0124 : 0.0068 };
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [end] })}\n\ndata: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`));
       controller.close();
     } });
     return new Response(body, { headers: { "content-type": "text/event-stream" } });

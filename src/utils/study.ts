@@ -78,10 +78,27 @@ export function normalizeStudy(value: unknown): StudyState {
   return { courses, folders, documents, decks, quizzes };
 }
 
+const CODE_LANGS = /^(c|h|cpp|c\+\+|java|python|py|js|javascript|ts|typescript|asm|lc3|lc-3|assembly|bash|sh|sql|rust|go|kotlin|swift|ruby|text|plaintext)$/i;
+/**
+ * Models sometimes drop the fence around exhibit code (sending "c\nprintf(...)"), which then shows as loose text.
+ * Restores the fence when the first line is a bare language name or the text is clearly code.
+ */
+export function normalizeExhibit(value: unknown): string {
+  const text = typeof value === "string" ? value.replace(/^\s*\n|\s+$/g, "") : "";
+  if (!text.trim() || text.includes("```")) return text.trim();
+  const [first, ...rest] = text.split("\n");
+  if (CODE_LANGS.test(first.trim()) && rest.join("").trim()) return `\`\`\`${first.trim().toLowerCase()}\n${rest.join("\n")}\n\`\`\``;
+  const lines = text.split("\n");
+  const table = lines.filter((l) => /^\s*\|.*\|\s*$/.test(l)).length >= 2;
+  const codeLike = lines.filter((l) => /[;{}]\s*$|^\s*#\s*(include|define|if|ifdef|ifndef|else|endif)\b|^\s*(int|char|void|return|for|while|if)\b|\w+\s*\(.*\)\s*;|^\s*(ADD|AND|NOT|BR\w*|LD\w?|ST\w?|LEA|TRAP|JSR|JMP|RET|HALT|\.ORIG|\.FILL|\.END)\b/.test(l)).length;
+  return !table && codeLike >= Math.max(1, Math.ceil(lines.length / 3)) ? `\`\`\`\n${text}\n\`\`\`` : text.trim();
+}
+
 export function normalizeQuestion(q: any): QuizQuestion | null {
   if (!q || typeof q !== "object" || !str(q.prompt)) return null;
   const id = typeof q.id === "string" && q.id ? q.id : crypto.randomUUID();
-  const base = { id, prompt: str(q.prompt), ...(str(q.exhibit, 6000) ? { exhibit: str(q.exhibit, 6000) } : {}), ...(str(q.explanation) ? { explanation: str(q.explanation) } : {}),
+  const exhibit = normalizeExhibit(q.exhibit).slice(0, 6000);
+  const base = { id, prompt: str(q.prompt), ...(exhibit ? { exhibit } : {}), ...(str(q.explanation) ? { explanation: str(q.explanation) } : {}),
     ...(typeof q.sourceDocId === "string" ? { sourceDocId: q.sourceDocId } : {}) };
   const choices = Array.isArray(q.choices) ? q.choices.map((c: unknown) => str(c, 500)).filter(Boolean).slice(0, 6) : [];
   if (q.type !== "short" && choices.length >= 2) {
@@ -90,7 +107,8 @@ export function normalizeQuestion(q: any): QuizQuestion | null {
     if (index < 0) return null;
     return { ...base, type: "mcq", choices, answerIndex: index, answer: choices[index] };
   }
-  return str(q.answer) ? { ...base, type: "short", answer: str(q.answer) } : null;
+  const accept = Array.isArray(q.accept) ? [...new Set(q.accept.map((a: unknown) => str(a, 200)).filter(Boolean))].slice(0, 10) as string[] : [];
+  return str(q.answer) ? { ...base, type: "short", answer: str(q.answer), ...(accept.length ? { accept } : {}) } : null;
 }
 
 export function newCard(front: string, back: string, sourceDocId?: string, today = getLocalDateString()): Flashcard {

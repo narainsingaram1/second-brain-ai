@@ -1,3 +1,4 @@
+import { normalizeExhibit } from "./study";
 import type { Habit, IrisCardState, Task } from "../types";
 import { getLocalDateString } from "./habitStreaks";
 import { extractTextToolCalls } from "./toolMarkup";
@@ -59,7 +60,7 @@ function quizQuestion(raw: any): QuizQuestion | undefined {
   let answer = [raw?.answer, raw?.answerIndex, raw?.correctIndex, raw?.correct].find(Number.isInteger);
   if (answer === undefined && typeof raw?.answer === "string") answer = options.indexOf(raw.answer.trim());
   if (!question || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) return undefined;
-  const why = text(raw.why ?? raw.explanation, 400), exhibit = text(raw.exhibit, 4000);
+  const why = text(raw.why ?? raw.explanation, 400), exhibit = text(normalizeExhibit(raw.exhibit), 4000);
   return { question, options, answer, ...(exhibit ? { exhibit } : {}), ...(why ? { why } : {}) };
 }
 

@@ -113,10 +113,47 @@ test('web search uses the provider web plugin and returns its sources', async ()
       { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'bad' } }] } }] });
   };
   const out = await web.webSearch('georgia tech football next game', 'sk-test', 'test-model', signal());
-  assert.deepEqual(body.plugins, [{ id: 'web', max_results: 5 }]);
+  assert.deepEqual(body.plugins, [{ id: 'web', max_results: 8 }]);
   assert.equal(body.model, 'test-model');
+  assert.deepEqual(body.usage, { include: true }, 'OpenRouter is asked for the cost');
   assert.match(out.summary, /Clemson/);
   assert.deepEqual(out.sources, [{ title: 'Schedule', url: 'https://ramblinwreck.com/s' }]);
+});
+
+test('web search hands the assistant each source with its excerpt, and keeps cost out of what the model sees', async () => {
+  globalThis.fetch = async () => Response.json({
+    usage: { prompt_tokens: 900, completion_tokens: 120, cost: 0.004 },
+    choices: [{ message: { content: 'Summary.', annotations: [
+      { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'NYL Interview Question | Glassdoor', content: '  The interview consists of three sections.\n The first part focuses on coding fundamentals.' } },
+      { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'dup' } }] } }] });
+  const set = web.webToolset(access({}), 'k', 'm');
+  const res = await set.execute('web_search', { query: 'nyl intern interview' }, signal());
+  assert.deepEqual(res.usage, { inputTokens: 900, outputTokens: 120, cost: 0.004 });
+  assert.equal(res.output.usage, undefined, 'the model never sees billing');
+  assert.deepEqual(res.output.sources, [{ title: 'NYL Interview Question | Glassdoor', url: 'https://www.glassdoor.com/Interview/q.htm',
+    excerpt: 'The interview consists of three sections. The first part focuses on coding fundamentals.' }]);
+  assert.match(res.output.tip, /another phrasing/);
+});
+
+test('a reply that searched the web lists those pages as linked sources, and records time, tokens and cost', async () => {
+  const replies = [
+    { usage: { prompt_tokens: 1000, completion_tokens: 20, cost: 0.01 }, choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ id: 's1', type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ query: 'nyl tdav interview' }) } }] } }] },
+    { usage: { prompt_tokens: 500, completion_tokens: 80, cost: 0.002 }, choices: [{ message: { content: 'Found one report.', annotations: [
+      { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'Interview Questions | Glassdoor', content: 'Three sections.' } }] } }] },
+    { usage: { prompt_tokens: 1400, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 900 } }, choices: [{ finish_reason: 'stop', message: { content: 'One report on [Glassdoor](https://www.glassdoor.com/Interview/q.htm) mentions three sections.' } }] },
+  ];
+  globalThis.fetch = async () => Response.json(replies.shift());
+  const state = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], sections: [], subsections: {}, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
+  const result = await AutonomousBrainAgent.execute('look up the nyl tdav interview', state, 'k', 'm', { externalTools: web.webToolset(access({}), 'k', 'm') });
+  assert.equal(result.status, 'complete');
+  const page = result.citations.find(c => c.type === 'web');
+  assert.equal(page.url, 'https://www.glassdoor.com/Interview/q.htm');
+  assert.equal(page.title, 'Interview Questions | Glassdoor');
+  assert.equal(result.usage.calls, 2); assert.equal(result.usage.webSearches, 1);
+  assert.equal(result.usage.inputTokens, 2900); assert.equal(result.usage.outputTokens, 160); assert.equal(result.usage.cachedTokens, 900);
+  assert.ok(Math.abs(result.usage.cost - 0.012) < 1e-9);
+  assert.equal(result.usage.costComplete, false, 'one request reported no cost, so the total is a lower bound');
+  assert.ok(result.usage.ms >= 0);
 });
 
 test('web tools are reads whose content is untrusted', () => {

@@ -59,6 +59,13 @@ export function pgStore(db, userId, PreferencesConflict, HttpError) {
     async completeAction(id, ok, result) { await db.query('select public.complete_action($1, $2, $3::jsonb)', [id, ok, JSON.stringify(result ?? null)]); },
     async getEmbedding(key) { return (await one('select vector from public.passage_embeddings where key = $1', [key]))?.vector; },
     async putEmbedding(key, vector) { await db.query('insert into public.passage_embeddings (user_id, key, vector) values ($1, $2, $3) on conflict do nothing', [userId, key, vector]); },
+    embeddingQueries: 0,
+    async getEmbeddings(keys) {
+      this.embeddingQueries++;
+      const rows = (await db.query('select key, vector from public.passage_embeddings where key = any($1::text[])', [keys])).rows;
+      return new Map(rows.map(r => [r.key, r.vector]));
+    },
+    async putEmbeddings(entries) { for (const [key, vector] of entries) await this.putEmbedding(key, vector); },
     async getConnection(provider) {
       const r = await one('select * from public.connections where provider = $1', [provider]);
       return r ? { provider: r.provider, accountEmail: r.account_email, scopes: r.scopes, status: r.status, connectedAt: String(r.connected_at), lastUsedAt: r.last_used_at && String(r.last_used_at), lastError: r.last_error } : null;

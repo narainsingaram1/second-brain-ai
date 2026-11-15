@@ -48,6 +48,35 @@ fn get_storage_dir() -> PathBuf {
     dir
 }
 
+static WRITE_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Replaces `path` without ever leaving it half-written: the data goes to a temporary file in the same
+/// directory, is flushed to disk, and is then renamed over the old file (an atomic step on one filesystem).
+/// A crash mid-save leaves the previous complete file in place instead of a truncated one.
+fn write_atomic(path: &std::path::Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let n = WRITE_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let name = path.file_name().and_then(|f| f.to_str()).unwrap_or("data");
+    let tmp = path.with_file_name(format!(".{}.{}.{}.tmp", name, std::process::id(), n));
+    let result = (|| {
+        let mut file = fs::File::create(&tmp)?;
+        file.write_all(data)?;
+        file.sync_all()?;
+        fs::rename(&tmp, path)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Runs blocking file work off the main thread, so saving a large workspace never stalls the window.
+async fn off_main<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("Save task failed: {}", e))?
+}
+
 fn get_vault_path() -> PathBuf {
     get_storage_dir().join("vector_vault.json")
 }
@@ -71,10 +100,13 @@ fn save_all_chunks(chunks: &[VectorChunk]) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn save_brain_data(data: String) -> Result<bool, String> {
-    let path = get_storage_dir().join("brain_state.json");
-    fs::write(&path, data).map_err(|e| format!("Failed to save data: {}", e))?;
-    Ok(true)
+async fn save_brain_data(data: String) -> Result<bool, String> {
+    off_main(move || {
+        let path = get_storage_dir().join("brain_state.json");
+        write_atomic(&path, data.as_bytes()).map_err(|e| format!("Failed to save data: {}", e))?;
+        Ok(true)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -126,16 +158,19 @@ fn export_backup(content: String, filename: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn save_user_state(user_id: String, data: String) -> Result<bool, String> {
-    let dir = get_storage_dir().join("users");
-    let _ = fs::create_dir_all(&dir);
-    let safe_id: String = user_id
-        .chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
-    let path = dir.join(format!("{}.json", safe_id));
-    fs::write(&path, data).map_err(|e| format!("Failed to save user state: {}", e))?;
-    Ok(true)
+async fn save_user_state(user_id: String, data: String) -> Result<bool, String> {
+    off_main(move || {
+        let dir = get_storage_dir().join("users");
+        let _ = fs::create_dir_all(&dir);
+        let safe_id: String = user_id
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+        let path = dir.join(format!("{}.json", safe_id));
+        write_atomic(&path, data.as_bytes()).map_err(|e| format!("Failed to save user state: {}", e))?;
+        Ok(true)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -155,13 +190,14 @@ fn load_user_state(user_id: String) -> Result<Option<String>, String> {
 }
 
 #[tauri::command]
-fn save_auth_database(users_json: String, session_json: String) -> Result<bool, String> {
-    let dir = get_storage_dir();
-    let path_users = dir.join("auth_users.json");
-    let path_session = dir.join("auth_session.json");
-    fs::write(&path_users, users_json).map_err(|e| format!("Failed to save auth users: {}", e))?;
-    fs::write(&path_session, session_json).map_err(|e| format!("Failed to save auth session: {}", e))?;
-    Ok(true)
+async fn save_auth_database(users_json: String, session_json: String) -> Result<bool, String> {
+    off_main(move || {
+        let dir = get_storage_dir();
+        write_atomic(&dir.join("auth_users.json"), users_json.as_bytes()).map_err(|e| format!("Failed to save auth users: {}", e))?;
+        write_atomic(&dir.join("auth_session.json"), session_json.as_bytes()).map_err(|e| format!("Failed to save auth session: {}", e))?;
+        Ok(true)
+    })
+    .await
 }
 
 #[tauri::command]

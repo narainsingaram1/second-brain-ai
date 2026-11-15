@@ -135,3 +135,14 @@ export function describeResult(name: string, args: Record<string, any>, output: 
   }
   return {};
 }
+
+/**
+ * Step items are "title|url" or just a title. Page titles often contain "|" themselves ("Interview Questions | Glassdoor"),
+ * so the link is whatever follows the last "|", and only when it really is a web address.
+ */
+export function splitStepItem(item: string): { title: string; url?: string } {
+  const at = item.lastIndexOf("|");
+  const url = at >= 0 ? item.slice(at + 1).trim() : "";
+  if (at < 0 || !/^https?:\/\/\S+$/i.test(url)) return { title: item };
+  return { title: item.slice(0, at).trim(), url };
+}

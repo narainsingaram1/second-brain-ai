@@ -98,6 +98,32 @@ test("cached keyword search matches a fresh index and follows edits and deletion
   assert.deepEqual(await search(state([task("budget", "Quarterly budget review")]), "graph exam"), []);
 });
 
+test("a search looks up every passage's cached vector in one batch, not one request per passage", async () => {
+  const many = state(Array.from({ length: 300 }, (_, i) => task(`t${i}`, `Task number ${i}`, `Details for item ${i}`)));
+  const vector = [1, 0, 0];
+  let single = 0, batches = 0, keysSeen = 0;
+  const cache = {
+    get: async () => { single++; return vector; },
+    put: async () => {},
+    getMany: async keys => { batches++; keysSeen += keys.length; return new Map(keys.map(k => [k, vector])); },
+    putMany: async () => {},
+  };
+  const fetch = globalThis.fetch;
+  // Only the query itself is embedded; every passage vector comes from the cache.
+  globalThis.fetch = async (_url, opts) => new Response(JSON.stringify({ data: JSON.parse(opts.body).input.map((_, index) => ({ index, embedding: vector })) }), { status: 200 });
+  try {
+    retrieval.clearRetrievalMemory();
+    const result = await retrieval.rankPassages(many, "task number 7", undefined, "test-key", undefined, undefined, { embeddingCache: cache });
+    assert.equal(result.neural, true);
+    assert.equal(single, 0);
+    assert.equal(batches, 1);
+    assert.equal(keysSeen, 300);
+    // Warm: vectors are in memory, so the cache is not consulted again.
+    await retrieval.rankPassages(many, "task number 8", undefined, "test-key", undefined, undefined, { embeddingCache: cache });
+    assert.equal(batches, 1);
+  } finally { globalThis.fetch = fetch; retrieval.clearRetrievalMemory(); }
+});
+
 test("bm25 over cached term counts scores exactly like bm25 over tokens", () => {
   const docs = ["the graph exam covers graphs and heaps", "budget meeting notes", "exam exam exam review", ""].map(retrieval.tokenize);
   const query = retrieval.tokenize("graph exam review");
