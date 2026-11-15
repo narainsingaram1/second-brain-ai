@@ -7,6 +7,7 @@ import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import type { StudyProps, StudyUpdate } from "./AcademicWorkspace";
 import type { StudyJob } from "../../services/studyJobs";
 import { StudyJobRow } from "./StudyJobs";
+import { StudyRich } from "./StudyText";
 
 export function DecksPanel({ state, course, onChange, onAsk, onGenerate, openDeckId, onOpened, jobs = [] }: StudyProps & {
   course: Course; onGenerate: () => void; openDeckId?: string; onOpened: () => void; jobs?: StudyJob[];
@@ -144,8 +145,8 @@ function StudySession({ deck, all, onChange, docName, onClose }: { deck: Flashca
           <>
             <button className={`ac-flashcard ${flipped ? "is-flipped" : ""}`} onClick={() => setFlipped((f) => !f)} aria-live="polite">
               <small>{flipped ? "Answer" : "Question"}</small>
-              <strong>{card.front}</strong>
-              {flipped && <p>{card.back}</p>}
+              <strong><StudyRich text={card.front} /></strong>
+              {flipped && <p><StudyRich text={card.back} /></p>}
               {flipped && docName(card.sourceDocId) && <em>{docName(card.sourceDocId)}</em>}
               {!flipped && <span className="ac-hint">Click or press Space to reveal</span>}
             </button>

@@ -116,7 +116,7 @@ export async function extractChatFile(file: File, progress?: (message: string) =
   try {
     if (kind === "pdf") {
       const { pdfText } = await import("./studyExtract");
-      result = await pdfText(await file.arrayBuffer(), progress);
+      result = await pdfText(await file.arrayBuffer(), { progress });
     } else if (kind === "docx" || kind === "pptx") {
       const { officeText } = await import("./studyExtract");
       result = await officeText(await file.arrayBuffer(), kind);

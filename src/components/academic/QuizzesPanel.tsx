@@ -7,6 +7,9 @@ import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import type { StudyProps, StudyUpdate } from "./AcademicWorkspace";
 import type { StudyJob } from "../../services/studyJobs";
 import { StudyJobRow } from "./StudyJobs";
+import { MarkdownView } from "../MarkdownView";
+import { StudyText } from "./StudyText";
+
 
 export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQuizId, onOpened, jobs = [] }: StudyProps & {
   course: Course; onGenerate: () => void; openQuizId?: string; onOpened: () => void; jobs?: StudyJob[];
@@ -97,7 +100,7 @@ function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { s
   }
   const missedToDeck = () => {
     const now = new Date().toISOString();
-    const cards = missed.map((q) => newCard(q.prompt, q.answer + (q.explanation ? `\n\n${q.explanation}` : ""), q.sourceDocId));
+    const cards = missed.map((q) => newCard(q.exhibit ? `${q.prompt}\n\n${q.exhibit}` : q.prompt, q.answer + (q.explanation ? `\n\n${q.explanation}` : ""), q.sourceDocId));
     onChange((prev) => withStudy(prev, (s) => ({ decks: [...s.decks, { id: crypto.randomUUID(), courseId: course.id, title: `Missed: ${quiz.title}`,
       sourceDocIds: quiz.sourceDocIds, cards, createdAt: now, updatedAt: now }] })));
     setSavedDeck(true);
@@ -114,14 +117,15 @@ function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { s
         <div className="ac-progress"><span style={{ width: `${(Math.min(index, questions.length) / Math.max(1, questions.length)) * 100}%` }} /></div>
         {!finished && question ? (
           <div className="ac-question">
-            <h3>{question.prompt}</h3>
+            <h3><StudyText text={question.prompt} /></h3>
+            {question.exhibit && <div className="ac-exhibit"><MarkdownView content={question.exhibit} /></div>}
             {question.type === "mcq" ? (
               <div className="ac-choices">
                 {question.choices!.map((choice, i) => {
                   const cls = !answer ? "" : i === question.answerIndex ? "is-correct" : answer.response === String(i) ? "is-wrong" : "is-muted";
                   return (
                     <button key={i} className={`ac-choice ${cls}`} disabled={!!answer} onClick={() => record(question, { correct: i === question.answerIndex, response: String(i) })}>
-                      <span>{String.fromCharCode(65 + i)}</span>{choice}{cls === "is-correct" && <Check size={15} />}
+                      <span>{String.fromCharCode(65 + i)}</span><span className="ac-choice-text"><StudyText text={choice} /></span>{cls === "is-correct" && <Check size={15} />}
                     </button>
                   );
                 })}

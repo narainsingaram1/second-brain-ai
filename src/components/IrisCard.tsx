@@ -6,6 +6,8 @@ import type { CardChange } from "../services/irisCards";
 import { findRecord, referenceTitle } from "../utils/chatPresentation";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { RecordIcon } from "./SourceReferences";
+import { MarkdownView } from "./MarkdownView";
+import { StudyText } from "./academic/StudyText";
 import { habitWeeklyTarget, habitWeeks, parseIrisUi, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
 
 export interface IrisCardActions {
@@ -114,11 +116,12 @@ function Quiz({ spec, saved, actions }: CardProps<Extract<IrisUiSpec, { type: "q
     <header className="iris-card-head"><h3>{spec.title}</h3>{question && <span className="iris-tabular">{step + 1} of {total}</span>}</header>
     <div className="iris-progress" aria-hidden="true">{spec.questions.map((q, i) => <span key={i} className={answers[i] === undefined ? "" : answers[i] === q.answer ? "is-right" : "is-wrong"} />)}</div>
     {question ? <div className="iris-quiz-body">
-      <p className="iris-question">{question.question}</p>
+      <p className="iris-question"><StudyText text={question.question} /></p>
+      {question.exhibit && <div className="iris-exhibit"><MarkdownView content={question.exhibit} /></div>}
       <div className="iris-options">{question.options.map((option, index) => {
         const right = answered && index === question.answer, wrong = answered && index === answers[step] && !right;
         return <button type="button" key={index} className={`iris-option ${right ? "is-right" : ""} ${wrong ? "is-wrong" : ""}`} disabled={answered || !actions.interactive || !actions.onChange} onClick={() => answer(index)}>
-          <span>{option}</span>{right ? <Check size={16} aria-label="Correct" /> : wrong ? <X size={16} aria-label="Your answer, incorrect" /> : null}
+          <span><StudyText text={option} /></span>{right ? <Check size={16} aria-label="Correct" /> : wrong ? <X size={16} aria-label="Your answer, incorrect" /> : null}
         </button>;
       })}</div>
       {answered && <div className="iris-quiz-after" aria-live="polite">

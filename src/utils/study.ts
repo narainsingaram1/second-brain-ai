@@ -50,7 +50,9 @@ export function normalizeStudy(value: unknown): StudyState {
     id: d.id, courseId: d.courseId, folderId: typeof d.folderId === "string" && folderIds.has(d.folderId) ? d.folderId : null,
     name: str(d.name, 200) || "Untitled document", kind: DOC_KINDS.includes(d.kind) ? d.kind : "text",
     size: num(d.size, 0), ...(Number.isFinite(d.pages) ? { pages: d.pages } : {}), chars: num(d.chars, 0), hash: str(d.hash, 128),
-    ...(str(d.summary) ? { summary: str(d.summary) } : {}), createdAt: str(d.createdAt) || now,
+    ...(str(d.summary) ? { summary: str(d.summary) } : {}),
+    ...(Number.isInteger(d.extraction) && d.extraction > 0 ? { extraction: d.extraction } : {}),
+    ...(Number.isInteger(d.visualPages) && d.visualPages > 0 ? { visualPages: d.visualPages } : {}), createdAt: str(d.createdAt) || now,
   })));
   const today = getLocalDateString();
   const decks: FlashcardDeck[] = unique(list("decks").filter((d) => courseIds.has(d.courseId)).map((d) => ({
@@ -79,7 +81,7 @@ export function normalizeStudy(value: unknown): StudyState {
 export function normalizeQuestion(q: any): QuizQuestion | null {
   if (!q || typeof q !== "object" || !str(q.prompt)) return null;
   const id = typeof q.id === "string" && q.id ? q.id : crypto.randomUUID();
-  const base = { id, prompt: str(q.prompt), ...(str(q.explanation) ? { explanation: str(q.explanation) } : {}),
+  const base = { id, prompt: str(q.prompt), ...(str(q.exhibit, 6000) ? { exhibit: str(q.exhibit, 6000) } : {}), ...(str(q.explanation) ? { explanation: str(q.explanation) } : {}),
     ...(typeof q.sourceDocId === "string" ? { sourceDocId: q.sourceDocId } : {}) };
   const choices = Array.isArray(q.choices) ? q.choices.map((c: unknown) => str(c, 500)).filter(Boolean).slice(0, 6) : [];
   if (q.type !== "short" && choices.length >= 2) {

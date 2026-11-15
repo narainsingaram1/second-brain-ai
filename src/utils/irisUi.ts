@@ -8,7 +8,8 @@ export type { IrisCardState };
 export const IRIS_UI_FENCE = "iris-ui";
 
 export interface ChecklistItem { title: string; dueDate?: string; dueTime?: string; priority?: Task["priority"]; section?: string; subsection?: string }
-export interface QuizQuestion { question: string; options: string[]; answer: number; why?: string }
+/** exhibit: markdown (a code block, table or text diagram) the question is about, shown above the options. */
+export interface QuizQuestion { question: string; options: string[]; answer: number; exhibit?: string; why?: string }
 export interface RecordRef { type: string; id: string }
 export interface CompareOption { title: string; summary?: string; pros: string[]; cons: string[] }
 export type IrisUiSpec =
@@ -58,8 +59,8 @@ function quizQuestion(raw: any): QuizQuestion | undefined {
   let answer = [raw?.answer, raw?.answerIndex, raw?.correctIndex, raw?.correct].find(Number.isInteger);
   if (answer === undefined && typeof raw?.answer === "string") answer = options.indexOf(raw.answer.trim());
   if (!question || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) return undefined;
-  const why = text(raw.why ?? raw.explanation, 400);
-  return { question, options, answer, ...(why ? { why } : {}) };
+  const why = text(raw.why ?? raw.explanation, 400), exhibit = text(raw.exhibit, 4000);
+  return { question, options, answer, ...(exhibit ? { exhibit } : {}), ...(why ? { why } : {}) };
 }
 
 /** The model's output is untrusted: returns a clean spec, or null when the block can't be shown. */
@@ -143,7 +144,7 @@ function describe(spec: IrisUiSpec): string {
     case "steps": return [...heading, ...spec.items.map((i, n) => `${n + 1}. ${i.title}${i.detail ? ` — ${i.detail}` : ""}`)].join("\n");
     case "checklist": return [spec.title, ...spec.items.map(i => `- ${i.title}${i.dueDate ? ` (${i.dueDate})` : ""}`)].join("\n");
     case "choices": return [...(spec.question ? [spec.question] : []), ...spec.options.map(o => `- ${o}`)].join("\n");
-    case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map(o => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
+    case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}${q.exhibit ? `\n${q.exhibit}` : ""}\n${q.options.map(o => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
     case "chart": return "";
   }
 }
