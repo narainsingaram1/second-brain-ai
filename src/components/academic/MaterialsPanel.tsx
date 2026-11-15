@@ -3,7 +3,7 @@ import type { DragEvent, ReactElement } from "react";
 import { AlertCircle, Check, ChevronRight, File, FileImage, FileText, Folder, FolderPlus, Layers, ListChecks, Loader2, MessageCircle, Pencil, Presentation, Search, Trash2, Upload, X } from "lucide-react";
 import type { Course, StudyDocument, StudyFolder } from "../../types";
 import { courseLabel, folderSubtree, removeFolder, studyOf, upsert, withStudy } from "../../utils/study";
-import { ACCEPTED_UPLOADS, extractDocument } from "../../services/studyExtract";
+import { ACCEPTED_UPLOADS, EXTRACTION_VERSION, extractDocument, kindOf } from "../../services/studyExtract";
 import { deleteDocumentTexts, loadDocumentText, saveDocumentText } from "../../services/studyDocuments";
 import { summarizeDocument } from "../../services/studyAI";
 import { digest } from "../../services/brainRetrieval";
@@ -16,6 +16,8 @@ type Scope = "all" | "unfiled" | string; // string = folder ID
 interface Upload { id: string; name: string; status: string; error?: string }
 
 const KIND_ICON = { pdf: FileText, docx: FileText, pptx: Presentation, text: File, image: FileImage } as const;
+/** Slides and PDFs read before images were understood: diagrams, screenshots and handwriting are missing. */
+const textOnly = (d: StudyDocument) => (d.kind === "pdf" || d.kind === "pptx") && (d.extraction || 1) < EXTRACTION_VERSION;
 const sizeLabel = (bytes: number) => bytes > 1e6 ? `${(bytes / 1e6).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1e3))} KB`;
 
 export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: StudyProps & { course: Course; onGenerate: (r: GenerateRequest) => void }) {
@@ -40,10 +42,15 @@ export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: S
   const targetFolder = scope === "all" || scope === "unfiled" ? null : scope;
   const setUpload = (id: string, change: Partial<Upload>) => setUploads((u) => u.map((x) => (x.id === id ? { ...x, ...change } : x)));
 
-  async function upload(files: File[]) {
-    const known = new Set(docs.map((d) => d.hash));
+  /**
+   * Reads and saves files. A file that replaces an existing document (picked with "Re-read", or the same name as a
+   * document read before images were understood) keeps that document's ID, so quizzes and decks still point at it.
+   */
+  async function upload(files: File[], replacing?: StudyDocument) {
+    const known = new Set(docs.filter((d) => d.id !== replacing?.id).map((d) => d.hash));
     for (const file of files) {
-      const id = crypto.randomUUID();
+      const older = replacing || docs.find((d) => d.name === file.name && (d.extraction || 1) < EXTRACTION_VERSION && d.kind === kindOf(file));
+      const id = older?.id || crypto.randomUUID();
       setUploads((u) => [...u, { id, name: file.name, status: "Reading…" }]);
       try {
         const out = await extractDocument(file, { apiKey: state.openRouterKey, visionModel: getVisionModel(), progress: (status) => setUpload(id, { status }) });
@@ -52,9 +59,10 @@ export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: S
         known.add(hash);
         setUpload(id, { status: "Saving…" });
         await saveDocumentText(userId, id, hash, out.text);
-        const doc: StudyDocument = { id, courseId: course.id, folderId: targetFolder, name: file.name, kind: out.kind, size: file.size,
-          ...(out.pages ? { pages: out.pages } : {}), chars: out.text.length, hash, createdAt: new Date().toISOString() };
-        onChange((prev) => withStudy(prev, (s) => ({ documents: [...s.documents, doc] })));
+        const doc: StudyDocument = { id, courseId: course.id, folderId: older ? older.folderId : targetFolder, name: file.name, kind: out.kind, size: file.size,
+          ...(out.pages ? { pages: out.pages } : {}), chars: out.text.length, hash, extraction: out.extraction,
+          ...(out.visualPages ? { visualPages: out.visualPages } : {}), createdAt: older?.createdAt || new Date().toISOString() };
+        onChange((prev) => withStudy(prev, (s) => ({ documents: upsert(s.documents, doc) })));
         setUploads((u) => u.filter((x) => x.id !== id));
         if (out.truncated) setUploads((u) => [...u, { id: crypto.randomUUID(), name: file.name, status: "", error: "Very long document: only the first 1,000,000 characters were kept." }]);
         if (state.openRouterKey) summarizeDocument(file.name, out.text, state.openRouterKey)
@@ -65,6 +73,9 @@ export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: S
       }
     }
   }
+  const [rereading, setRereading] = useState<StudyDocument | null>(null);
+  const rereadInput = useRef<HTMLInputElement>(null);
+  const reread = (doc: StudyDocument) => { setRereading(doc); rereadInput.current?.click(); };
   const onDrop = (event: DragEvent) => {
     event.preventDefault();
     setDragging(false);
@@ -120,6 +131,12 @@ export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: S
             </>}
             <button className="ws-button ws-primary" onClick={() => fileInput.current?.click()}><Upload size={15} />Upload</button>
             <input ref={fileInput} type="file" multiple hidden accept={ACCEPTED_UPLOADS} onChange={(e) => { if (e.target.files?.length) upload([...e.target.files]); e.target.value = ""; }} />
+            <input ref={rereadInput} type="file" hidden accept={ACCEPTED_UPLOADS} onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file && rereading) upload([file], rereading);
+              setRereading(null);
+              e.target.value = "";
+            }} />
           </div>
         </div>
         {uploads.map((u) => (
@@ -143,9 +160,10 @@ export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: S
                   <span className={`ac-doc-icon ac-kind-${d.kind}`}><Icon size={16} /></span>
                   <button className="ac-doc-main" onClick={() => setPreview(d)}>
                     <strong>{d.name}</strong>
-                    <small>{[d.kind.toUpperCase(), d.pages ? `${d.pages} ${d.kind === "pptx" ? "slides" : "pages"}` : "", sizeLabel(d.size), new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })].filter(Boolean).join(" · ")}</small>
+                    <small>{[d.kind.toUpperCase(), d.pages ? `${d.pages} ${d.kind === "pptx" ? "slides" : "pages"}` : "", sizeLabel(d.size), d.visualPages ? `${d.visualPages} with visuals read` : textOnly(d) ? "text only" : "", new Date(d.createdAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })].filter(Boolean).join(" · ")}</small>
                     {d.summary && <p>{d.summary}</p>}
                   </button>
+                  {textOnly(d) && <button className="ws-text-button ac-reread" title="Pick the original file again so its slide images, diagrams and handwriting are read too" onClick={() => reread(d)}>Re-read visuals</button>}
                   <select className="ac-move" aria-label={`Move ${d.name} to folder`} value={d.folderId || ""} onChange={(e) => moveDoc(d.id, e.target.value || null)}>
                     <option value="">Unfiled</option>
                     {folders.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
@@ -175,6 +193,7 @@ export function MaterialsPanel({ state, course, onChange, onAsk, onGenerate }: S
       {preview && <DocumentPreview doc={preview} userId={userId} onClose={() => setPreview(null)}
         onAsk={() => { onAsk(`Help me study "${preview.name}" from ${courseLabel(course)}. Read it and walk me through the key ideas, then quiz me with a couple of questions.`); setPreview(null); }}
         onGenerate={(kind) => { onGenerate({ kind, documentIds: [preview.id] }); setPreview(null); }}
+        onReread={textOnly(preview) ? () => { reread(preview); setPreview(null); } : undefined}
         onDelete={() => { deleteDocs([preview.id]); setPreview(null); }} />}
     </div>
   );
@@ -197,7 +216,7 @@ function FolderEditor({ folder, onSave, onClose }: { folder?: StudyFolder; onSav
   );
 }
 
-function DocumentPreview({ doc, userId, onClose, onAsk, onGenerate, onDelete }: { doc: StudyDocument; userId: string; onClose: () => void; onAsk: () => void; onGenerate: (k: "flashcards" | "quiz") => void; onDelete: () => void }) {
+function DocumentPreview({ doc, userId, onClose, onAsk, onGenerate, onDelete, onReread }: { doc: StudyDocument; userId: string; onClose: () => void; onAsk: () => void; onGenerate: (k: "flashcards" | "quiz") => void; onDelete: () => void; onReread?: () => void }) {
   const [text, setText] = useState<string | null | undefined>(undefined);
   const [limit, setLimit] = useState(20000);
   useEffect(() => {
@@ -215,6 +234,10 @@ function DocumentPreview({ doc, userId, onClose, onAsk, onGenerate, onDelete }: 
           </div>
           <button className="ws-icon-button" aria-label="Close preview" onClick={onClose}><X size={19} /></button>
         </div>
+        {onReread && <div className="ac-reread-note">
+          <span>Only this file's typed text was read, so slide images, diagrams and handwriting are missing from quizzes and flashcards.</span>
+          <button className="ws-button ws-secondary" onClick={onReread}>Re-read with visuals</button>
+        </div>}
         <div className="ac-preview-body">
           {text === undefined ? <p className="ac-hint"><Loader2 size={14} className="ac-spin" /> Loading…</p>
             : text === null ? <p className="ac-hint">The text for this document isn’t on this device yet. It was uploaded on another device; sign in there or upload it again.</p>

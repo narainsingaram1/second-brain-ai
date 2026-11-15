@@ -1599,6 +1599,7 @@ function normalizeQuestion(q) {
 	const base = {
 		id: typeof q.id === "string" && q.id ? q.id : crypto.randomUUID(),
 		prompt: str$1(q.prompt),
+		...str$1(q.exhibit, 6e3) ? { exhibit: str$1(q.exhibit, 6e3) } : {},
 		...str$1(q.explanation) ? { explanation: str$1(q.explanation) } : {},
 		...typeof q.sourceDocId === "string" ? { sourceDocId: q.sourceDocId } : {}
 	};
@@ -7454,6 +7455,7 @@ const questionSchema = {
 			description: "Multiple choice only: zero-based index of the correct choice."
 		},
 		answer: d_("Short answer: the model answer. Multiple choice: optional, the correct choice text."),
+		exhibit: d_("Optional markdown shown above the choices: the code (fenced, with its language), table or text diagram the question asks about. Never reveals the answer."),
 		explanation: d_("Why the answer is right."),
 		sourceDocumentId: d_("ID of the course document this question is based on.")
 	},
@@ -7540,7 +7542,7 @@ const STUDY_TOOLS = [
 			maxItems: 60
 		}
 	}, ["cards"]),
-	fn$1("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Use when the user asks for a quiz, practice test or exam prep questions.", {
+	fn$1("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Test the subject (apply, trace, predict output, compare), never course logistics like due dates or office hours; put code, tables or diagrams a question is about in its exhibit. Use when the user asks for a quiz, practice test or exam prep questions.", {
 		courseId: d_("ID of the course."),
 		title: s_,
 		questions: {
@@ -10330,11 +10332,12 @@ function quizQuestion(raw) {
 	].find(Number.isInteger);
 	if (answer === void 0 && typeof raw?.answer === "string") answer = options.indexOf(raw.answer.trim());
 	if (!question || options.length < 2 || !Number.isInteger(answer) || answer < 0 || answer >= options.length) return void 0;
-	const why = text(raw.why ?? raw.explanation, 400);
+	const why = text(raw.why ?? raw.explanation, 400), exhibit = text(raw.exhibit, 4e3);
 	return {
 		question,
 		options,
 		answer,
+		...exhibit ? { exhibit } : {},
 		...why ? { why } : {}
 	};
 }
@@ -10484,7 +10487,7 @@ function describe(spec) {
 		case "steps": return [...heading, ...spec.items.map((i, n) => `${n + 1}. ${i.title}${i.detail ? ` — ${i.detail}` : ""}`)].join("\n");
 		case "checklist": return [spec.title, ...spec.items.map((i) => `- ${i.title}${i.dueDate ? ` (${i.dueDate})` : ""}`)].join("\n");
 		case "choices": return [...spec.question ? [spec.question] : [], ...spec.options.map((o) => `- ${o}`)].join("\n");
-		case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}\n${q.options.map((o) => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
+		case "quiz": return [spec.title, ...spec.questions.map((q, i) => `${i + 1}. ${q.question}${q.exhibit ? `\n${q.exhibit}` : ""}\n${q.options.map((o) => `   - ${o}`).join("\n")}\n   Answer: ${q.options[q.answer]}`)].join("\n");
 		case "chart": return "";
 	}
 }
@@ -11027,7 +11030,7 @@ Show interactive cards by calling show_card with the card as one JSON object. Wr
   - steps: an ordered how-to, study plan or process the user works through and ticks off. {"type":"steps","title":"Prep for the midterm","items":[{"title":"Redo quiz 3","detail":"Focus on recursion"}]} Up to 12.
   - checklist: proposing new tasks, such as turning a plan or a list of deadlines into tasks. {"type":"checklist","title":"This week's plan","section":"Academic","subsection":"CS 2110","items":[{"title":"Review chapter 4","dueDate":"2026-11-11","dueTime":"17:00","priority":"high"}]} Up to 12 items; section, subsection, dueDate, dueTime and priority are optional and items may set their own section. Never invent dates. A checklist only proposes: nothing is saved until the user ticks rows and presses Add, so do not also call create_task and do not say the tasks were added. When the user plainly asks you to add specific tasks, call create_task instead.
   - choices: a clarifying or next-step question with a few clear answers; the tapped option is sent as the user's reply. {"type":"choices","question":"Which should we start with?","options":["Exam prep","Problem set"]} 2 to 6 short options. Use it instead of ending with a question the user would answer with one of a few phrases.
-  - quiz: practice with two or more questions, grounded in the user's materials when the subject is theirs. {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]} answer is the 0-based index of the correct option. Up to 10 questions.
+  - quiz: practice with two or more questions, grounded in the user's materials when the subject is theirs. {"type":"quiz","title":"LC-3 TRAP routines","questions":[{"question":"Which TRAP halts the program?","options":["x20","x25"],"answer":1,"why":"x25 is HALT."}]} answer is the 0-based index of the correct option. Up to 10 questions. Test understanding (apply, trace, predict output), not course logistics; add "exhibit" (markdown: a fenced code block, table or text diagram) when a question is about something to look at.
   - chart: how a habit is going over time. {"type":"chart","habitId":"EXACT_HABIT_ID","weeks":8} The numbers come from the habit's real history. Weeks is 4 to 12.
 - Example. User: "what should I focus on today?" In one response, write one sentence on the real priority and why, and call show_card with a records card with the two to four tasks that matter today, each with a short note, optionally plus a choices card offering to plan the time or start with the first one.
 

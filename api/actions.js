@@ -340,6 +340,7 @@ function normalizeQuestion(q) {
 	const base = {
 		id: typeof q.id === "string" && q.id ? q.id : crypto.randomUUID(),
 		prompt: str$1(q.prompt),
+		...str$1(q.exhibit, 6e3) ? { exhibit: str$1(q.exhibit, 6e3) } : {},
 		...str$1(q.explanation) ? { explanation: str$1(q.explanation) } : {},
 		...typeof q.sourceDocId === "string" ? { sourceDocId: q.sourceDocId } : {}
 	};
@@ -1555,6 +1556,7 @@ const questionSchema = {
 			description: "Multiple choice only: zero-based index of the correct choice."
 		},
 		answer: d_("Short answer: the model answer. Multiple choice: optional, the correct choice text."),
+		exhibit: d_("Optional markdown shown above the choices: the code (fenced, with its language), table or text diagram the question asks about. Never reveals the answer."),
 		explanation: d_("Why the answer is right."),
 		sourceDocumentId: d_("ID of the course document this question is based on.")
 	},
@@ -1641,7 +1643,7 @@ const STUDY_TOOLS = [
 			maxItems: 60
 		}
 	}, ["cards"]),
-	fn$4("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Use when the user asks for a quiz, practice test or exam prep questions.", {
+	fn$4("create_quiz", "Create a practice quiz for a course from its materials. Read the relevant course documents first; multiple choice questions have 4 choices with one correct answerIndex; short answer questions have a model answer. Test the subject (apply, trace, predict output, compare), never course logistics like due dates or office hours; put code, tables or diagrams a question is about in its exhibit. Use when the user asks for a quiz, practice test or exam prep questions.", {
 		courseId: d_("ID of the course."),
 		title: s_,
 		questions: {

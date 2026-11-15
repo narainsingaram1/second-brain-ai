@@ -136,6 +136,10 @@ export interface StudyDocument {
   chars: number; // length of the extracted text
   hash: string; // SHA-256 of the extracted text
   summary?: string;
+  /** How the text was read: 2+ includes slide images, diagrams and handwriting; missing or 1 means text layer only. */
+  extraction?: number;
+  /** Pages or slides whose images were transcribed. */
+  visualPages?: number;
   createdAt: string;
 }
 
@@ -169,6 +173,8 @@ export interface QuizQuestion {
   choices?: string[]; // mcq only
   answerIndex?: number; // mcq only
   answer: string; // correct choice text, or the model answer for short questions
+  /** Markdown shown with the question: the code, table or diagram it asks about. Never reveals the answer. */
+  exhibit?: string;
   explanation?: string;
   sourceDocId?: string;
 }

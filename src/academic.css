@@ -386,3 +386,26 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 @keyframes ac-toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } }
 @media (prefers-reduced-motion: reduce) { .ac-job-icon.is-live::after, .ac-job-bar.is-indeterminate > span, .ac-tab-working i { animation: none; } .ac-fresh, .ac-toast { animation: none; } }
 .ac-job.is-error .ac-doc-icon { color: var(--ws-rose); background: color-mix(in srgb, var(--ws-rose) 12%, transparent); }
+
+/* Re-reading materials whose images were never read */
+.ac-reread { flex-shrink: 0; font-size: 12px; }
+.ac-reread-note {
+  display: flex; align-items: center; gap: 12px; margin: 0 25px 14px; padding: 10px 12px; border-radius: 10px;
+  background: var(--workspace-tint); color: var(--workspace-secondary); font-size: 13px; line-height: 1.5;
+}
+.ac-reread-note span { flex: 1; }
+
+/* Code, tables and diagrams inside questions and flashcards */
+.ac-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 5px; background: var(--workspace-raised); }
+.ac-code-block {
+  display: block; width: 100%; margin: 8px 0; padding: 10px 12px; border-radius: 8px; text-align: left; overflow-x: auto; white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.55; font-weight: 400; letter-spacing: 0;
+  background: var(--workspace-raised); border: 1px solid var(--workspace-line);
+}
+.ac-rich-text { display: block; white-space: pre-wrap; }
+.ac-exhibit { min-width: 0; font-size: 14px; }
+.ac-exhibit > * { margin: 0; }
+.ac-exhibit .chat-table-container { margin: 0; }
+.ac-choice > span.ac-choice-text {
+  width: auto; height: auto; display: block; flex: 1; min-width: 0; background: none; border-radius: 0; font-weight: 400; overflow-wrap: anywhere;
+}

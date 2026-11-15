@@ -9,8 +9,8 @@ const server = await createServer({
 });
 after(() => server.close());
 const study = await server.ssrLoadModule("/src/utils/study.ts");
-const { officeXmlText, kindOf } = await server.ssrLoadModule("/src/services/studyExtract.ts");
-const { selectSource } = await server.ssrLoadModule("/src/services/studyAI.ts");
+const { officeXmlText, kindOf, slideImageTargets, repeatedImages, pageNeedsVision, looksLikeLogistics, LOGISTICS_TAG } = await server.ssrLoadModule("/src/services/studyExtract.ts");
+const { selectSource, applyReviews, balanceAnswers, uniqueQuestions } = await server.ssrLoadModule("/src/services/studyAI.ts");
 const { records, searchRecords } = await server.ssrLoadModule("/src/services/brainRetrieval.ts");
 const { saveDocumentText } = await server.ssrLoadModule("/src/services/studyDocuments.ts");
 const tools = await server.ssrLoadModule("/src/services/brainTools.ts");
@@ -190,7 +190,13 @@ test("quiz generation runs in the background, reports real progress and saves in
   // The provider streams the JSON in small pieces, so progress can be counted as questions are finished.
   let release;
   const gate = new Promise((r) => { release = r; });
-  globalThis.fetch = async () => new Response(new ReadableStream({ async start(c) {
+  // After writing, a second model checks each question: here it drops the second one.
+  const reviewed = [];
+  let releaseReview;
+  const reviewGate = new Promise((r) => { releaseReview = r; });
+  globalThis.fetch = async (_url, init) => !JSON.parse(init.body).stream ? (reviewed.push(JSON.parse(init.body)), await reviewGate,
+    new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ reviews: [{ n: 1, verdict: "keep" }, { n: 2, verdict: "drop" }, { n: 3, verdict: "keep" }] }) } }] }), { headers: { "content-type": "application/json" } }))
+    : new Response(new ReadableStream({ async start(c) {
     const enc = new TextEncoder();
     const pieces = json.match(/.{1,40}/g);
     for (const [i, piece] of pieces.entries()) {
@@ -210,12 +216,16 @@ test("quiz generation runs in the background, reports real progress and saves in
   assert.equal(job().status, "writing");
   assert.ok(job().written >= 1 && job().written < 3, `partial progress, got ${job().written}`);
   release();
+  for (let i = 0; i < 50 && job().status !== "checking"; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(job().status, "checking", "answers are checked before the quiz is saved");
+  assert.match(reviewed[0].messages.at(-1).content, /AVL trees rebalance/, "the checker sees the material");
+  releaseReview();
   for (let i = 0; i < 50 && job().status !== "done"; i++) await new Promise((r) => setTimeout(r, 5));
   assert.equal(job().status, "done");
-  assert.equal(job().written, 3);
+  assert.equal(job().written, 2);
   const quiz = state.study.quizzes.find((q) => q.id === job().resultId);
   assert.equal(quiz.title, "AVL practice");
-  assert.equal(quiz.questions.length, 3);
+  assert.deepEqual(quiz.questions.map((q) => q.prompt), ["Q0?", "Q2?"]);
   jobsApi.dismissStudyJob(id);
   assert.equal(jobsApi.studyJobs().length, 0);
 
@@ -246,4 +256,71 @@ test("quiz generation runs in the background, reports real progress and saves in
   assert.equal(jobsApi.studyJobs().length, 0);
   assert.equal(state.study.quizzes.length, before);
   assert.equal(state.study.decks.length, base().study.decks?.length ?? 0);
+});
+
+// Lab 19 style deck: announcement slides as text, the actual problems as screenshots.
+test("slide images: per-slide targets, and template art on many slides is ignored", () => {
+  const rels = `<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout" Target="../slideLayouts/slideLayout2.xml"/>
+    <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image10.png"/>
+    <Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="https://example.com/x.png" TargetMode="External"/></Relationships>`;
+  assert.deepEqual(slideImageTargets(rels), ["ppt/media/image10.png"]);
+  const decorative = repeatedImages([["ppt/media/image4.png"], ["ppt/media/image4.png"], ["ppt/media/image4.png", "ppt/media/image5.png"], ["ppt/media/image10.png"]]);
+  assert.deepEqual([...decorative], ["ppt/media/image4.png"]);
+});
+
+test("PDF pages with screenshots, drawings or handwriting go to the vision model", () => {
+  assert.equal(pageNeedsVision({ textChars: 2400, largeImages: 0, paths: 3 }), false, "a page of plain text");
+  assert.equal(pageNeedsVision({ textChars: 2400, largeImages: 1, paths: 0 }), true, "a screenshot of code");
+  assert.equal(pageNeedsVision({ textChars: 900, largeImages: 0, paths: 400 }), true, "GoodNotes ink strokes");
+  assert.equal(pageNeedsVision({ textChars: 40, largeImages: 0, paths: 0 }), true, "almost no text");
+});
+
+const logisticsSlide = "## Slide 4\n\nProject 4\n\nDue Sunday, November 15th\n\nAssignment located on Canvas, submit on Gradescope\n\nCome to office hours in CCB 208A or post on Piazza";
+const contentSlide = "## Slide 12\n\nPreprocessor Directives\n\n### What the slide shows\n\n```c\n#define VERBOSE 0\n#if VERBOSE\nprintf(\"Debug\");\n#else\nprintf(\"Hello world!\");\n#endif\n```";
+
+test("course logistics are recognized and kept out of quiz material", () => {
+  assert.equal(looksLikeLogistics(logisticsSlide), true);
+  assert.equal(looksLikeLogistics(contentSlide), false);
+  // An older document (text layer only, no labels) relies on the wording.
+  const old = { ...doc, name: "Lab 19 Slides.pptx", kind: "pptx" };
+  const picked = selectSource([{ doc: old, text: `${logisticsSlide}\n${contentSlide}` }]);
+  assert.match(picked, /VERBOSE/);
+  assert.doesNotMatch(picked, /Gradescope/);
+  // A newly read document trusts its labels.
+  const fresh = { ...old, extraction: 2 };
+  const labeled = `## Slide 3 ${LOGISTICS_TAG}\n\nQuiz 3: how was it?\n${contentSlide}`;
+  assert.doesNotMatch(selectSource([{ doc: fresh, text: labeled }]), /Quiz 3/);
+  // Asking about deadlines, or a document that is only logistics, still works.
+  assert.match(selectSource([{ doc: old, text: `${logisticsSlide}\n${contentSlide}` }], "when is project 4 due"), /Gradescope/);
+  assert.match(selectSource([{ doc: old, text: logisticsSlide }]), /Gradescope/);
+});
+
+const mcq = (prompt, answerIndex = 0, extra = {}) => ({ id: prompt, type: "mcq", prompt, choices: ["a", "b", "c", "d"], answerIndex, answer: ["a", "b", "c", "d"][answerIndex], ...extra });
+
+test("the review drops bad questions and corrects wrong answer keys", () => {
+  const qs = [mcq("When is Project 4 due?"), mcq("What does it print?", 0, { exhibit: "```c\nprintf(\"%d\", 2110);\n```" }), { id: "s", type: "short", prompt: "Why a TRAP?", answer: "x", explanation: "old" }, mcq("Untouched")];
+  const out = applyReviews(qs, [{ n: 1, verdict: "drop" }, { n: 2, verdict: "fix", answerIndex: 3, explanation: "It prints 2110." }, { n: 3, verdict: "fix", answer: "To request an OS service" }]);
+  assert.deepEqual(out.map((q) => q.prompt), ["What does it print?", "Why a TRAP?", "Untouched"]);
+  assert.equal(out[0].answerIndex, 3); assert.equal(out[0].answer, "d"); assert.equal(out[0].explanation, "It prints 2110.");
+  assert.equal(out[1].answer, "To request an OS service");
+  assert.equal(applyReviews([mcq("x")], [{ n: 1, verdict: "fix", answerIndex: 9 }]).length, 0, "a fix pointing nowhere drops the question");
+});
+
+test("correct answers are spread across positions and repeats removed", () => {
+  const qs = Array.from({ length: 8 }, (_, i) => mcq(`Q${i}`, 0));
+  const balanced = balanceAnswers(qs, () => 0);
+  assert.deepEqual(balanced.map((q) => q.answerIndex), [0, 1, 2, 3, 0, 1, 2, 3]);
+  for (const q of balanced) assert.equal(q.choices[q.answerIndex], "a", "the correct choice moved with its index");
+  const ordered = { ...mcq("Order", 0), choices: ["x", "y", "Both of the above", "z"] };
+  assert.equal(balanceAnswers([ordered], () => 0.6)[0].answerIndex, 0, "choices that refer to each other keep their order");
+  assert.equal(uniqueQuestions([mcq("Same  prompt"), mcq("same prompt"), mcq("Other")]).length, 2);
+});
+
+test("questions keep their exhibit, and the assistant can add one", () => {
+  const q = study.normalizeQuestion({ type: "short", prompt: "What does this print?", exhibit: "```c\nprintf(\"I love CS %d!\\n\", 2110);\n```", answer: "I love CS 2110!" });
+  assert.match(q.exhibit, /printf/);
+  const kept = study.normalizeStudy({ ...base().study, documents: [{ ...doc, extraction: 2, visualPages: 18 }] }).documents[0];
+  assert.equal(kept.extraction, 2); assert.equal(kept.visualPages, 18);
+  const m = tools.prepareMutation("create_quiz", { courseId: "c1", title: "C preprocessor", questions: [{ type: "mcq", prompt: "What does it print?", exhibit: "```c\n#if 0\n```", choices: ["A", "B", "C", "D"], answerIndex: 1 }] }, base());
+  assert.match(m.record.questions[0].exhibit, /#if 0/);
 });
