@@ -984,7 +984,7 @@ const HEALTH_METRICS = [
 		agg: "last",
 		min: 20,
 		max: 400,
-		decimals: 1,
+		decimals: 2,
 		hae: ["weight_body_mass"],
 		description: "Body weight in kg."
 	},

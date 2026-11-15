@@ -358,16 +358,16 @@ async function providerFetch(endpoint, apiKey, body, signal, base) {
 	});
 }
 // src/utils/usage.ts
-const num = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0;
+const num$1 = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : void 0;
 /** Reads an OpenAI-style `usage` object (OpenRouter adds `cost` in dollars). Undefined when there is nothing usable. */
 function readUsage(raw) {
 	if (!raw || typeof raw !== "object") return void 0;
-	const input = num(raw.prompt_tokens) ?? num(raw.input_tokens);
-	const output = num(raw.completion_tokens) ?? num(raw.output_tokens);
+	const input = num$1(raw.prompt_tokens) ?? num$1(raw.input_tokens);
+	const output = num$1(raw.completion_tokens) ?? num$1(raw.output_tokens);
 	if (input === void 0 && output === void 0) return void 0;
-	const cached = num(raw.prompt_tokens_details?.cached_tokens) ?? num(raw.input_tokens_details?.cached_tokens);
-	const reasoning = num(raw.completion_tokens_details?.reasoning_tokens) ?? num(raw.output_tokens_details?.reasoning_tokens);
-	const cost = num(raw.cost) ?? num(raw.total_cost);
+	const cached = num$1(raw.prompt_tokens_details?.cached_tokens) ?? num$1(raw.input_tokens_details?.cached_tokens);
+	const reasoning = num$1(raw.completion_tokens_details?.reasoning_tokens) ?? num$1(raw.output_tokens_details?.reasoning_tokens);
+	const cost = num$1(raw.cost) ?? num$1(raw.total_cost);
 	return {
 		inputTokens: input ?? 0,
 		outputTokens: output ?? 0,
@@ -2811,6 +2811,8 @@ const RECORD_COLLECTIONS = [
 	"trackerItems",
 	"workspaces",
 	"healthDays",
+	"workouts",
+	"workoutPlans",
 	"noteFolders",
 	"routines",
 	"conversations",
@@ -3946,9 +3948,9 @@ async function providerKey(deps, store) {
 // server/lib/googleApi.ts
 const CAL = "https://www.googleapis.com/calendar/v3/calendars/primary/events";
 const GMAIL = "https://gmail.googleapis.com/gmail/v1/users/me";
-const DATE$1 = /^\d{4}-\d{2}-\d{2}$/;
+const DATE$2 = /^\d{4}-\d{2}-\d{2}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
-function addDays$3(date, days) {
+function addDays$4(date, days) {
 	const d = /* @__PURE__ */ new Date(`${date}T12:00:00Z`);
 	d.setUTCDate(d.getUTCDate() + days);
 	return d.toISOString().slice(0, 10);
@@ -3964,11 +3966,11 @@ function validTimeZone(zone) {
 }
 /** Events on the primary calendar between two local dates (inclusive), in the given time zone. */
 async function listEvents(google, from, to, timeZone, max = 250) {
-	if (!DATE$1.test(from) || !DATE$1.test(to) || to < from) throw new HttpError(400, "Use a valid date range (YYYY-MM-DD).");
+	if (!DATE$2.test(from) || !DATE$2.test(to) || to < from) throw new HttpError(400, "Use a valid date range (YYYY-MM-DD).");
 	if (Date.parse(to) - Date.parse(from) > 53568e5) throw new HttpError(400, "Ask for at most two months of events at once.");
 	const params = new URLSearchParams({
-		timeMin: `${addDays$3(from, -1)}T00:00:00Z`,
-		timeMax: `${addDays$3(to, 2)}T00:00:00Z`,
+		timeMin: `${addDays$4(from, -1)}T00:00:00Z`,
+		timeMax: `${addDays$4(to, 2)}T00:00:00Z`,
 		singleEvents: "true",
 		orderBy: "startTime",
 		timeZone,
@@ -3988,7 +3990,7 @@ async function listEvents(google, from, to, timeZone, max = 250) {
 			...typeof e.htmlLink === "string" && e.htmlLink.startsWith("https://") ? { link: e.htmlLink } : {}
 		};
 		if (allDay) {
-			const last = addDays$3(String(end), -1);
+			const last = addDays$4(String(end), -1);
 			if (last > event.date) event.endDate = last;
 		} else {
 			event.startTime = start.slice(11, 16);
@@ -4005,7 +4007,7 @@ function validateNewEvent(args, timeZone) {
 	const startTime = args.startTime === void 0 ? void 0 : String(args.startTime);
 	const endTime = args.endTime === void 0 ? void 0 : String(args.endTime);
 	if (!title || title.length > 300) throw new Error("Give the event a title (up to 300 characters).");
-	if (!DATE$1.test(date)) throw new Error("Use a date in YYYY-MM-DD.");
+	if (!DATE$2.test(date)) throw new Error("Use a date in YYYY-MM-DD.");
 	if (startTime && !TIME.test(startTime) || endTime && !TIME.test(endTime)) throw new Error("Use 24-hour HH:MM times.");
 	if (!!startTime !== !!endTime) throw new Error("Give both a start and an end time, or neither for an all-day event.");
 	if (startTime && endTime && endTime <= startTime) throw new Error("The end time must be after the start time.");
@@ -4033,7 +4035,7 @@ async function createEvent(google, event) {
 		location: event.location,
 		description: event.description,
 		start: when(event.startTime),
-		end: event.endTime ? when(event.endTime) : { date: addDays$3(event.date, 1) },
+		end: event.endTime ? when(event.endTime) : { date: addDays$4(event.date, 1) },
 		...event.attendees ? { attendees: event.attendees.map((email) => ({ email })) } : {}
 	};
 	const created = await google.json(`${CAL}?sendUpdates=${event.attendees ? "all" : "none"}`, {
@@ -5410,7 +5412,7 @@ const HEALTH_METRICS = [
 		agg: "last",
 		min: 20,
 		max: 400,
-		decimals: 1,
+		decimals: 2,
 		hae: ["weight_body_mass"],
 		description: "Body weight in kg."
 	},
@@ -5496,10 +5498,10 @@ const HEALTH_METRIC_KEYS = HEALTH_METRICS.map((m) => m.key);
 const METRIC_BY_KEY = new Map(HEALTH_METRICS.map((m) => [m.key, m]));
 const healthMetric = (key) => METRIC_BY_KEY.get(key);
 const healthDayId = (date) => `health-${date}`;
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE$1 = /^\d{4}-\d{2}-\d{2}$/;
 const LOCAL_TIME = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/;
 const isHealthDate = (value) => {
-	if (typeof value !== "string" || !DATE.test(value)) return false;
+	if (typeof value !== "string" || !DATE$1.test(value)) return false;
 	const time = Date.parse(`${value}T12:00:00Z`);
 	return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
 };
@@ -5584,6 +5586,8 @@ function normalizeHealthProfile(value) {
 	if (maxHr !== void 0) profile.maxHr = maxHr;
 	if (born !== void 0) profile.birthYear = born;
 	if (p.sex === "female" || p.sex === "male") profile.sex = p.sex;
+	if (p.weightUnit === "kg" || p.weightUnit === "lb") profile.weightUnit = p.weightUnit;
+	if (typeof p.goalWeightKg === "number" && p.goalWeightKg >= 20 && p.goalWeightKg <= 400) profile.goalWeightKg = Math.round(p.goalWeightKg * 100) / 100;
 	return Object.keys(profile).length ? profile : void 0;
 }
 // src/utils/events.ts
@@ -5681,6 +5685,26 @@ function recordProse(type, d) {
 			}).filter(Boolean);
 			return lines(`Health on ${d.date}`, ...metrics, d.sleepStart && d.sleepEnd && `Slept ${d.sleepStart.slice(11)} to ${d.sleepEnd.slice(11)}`, Array.isArray(d.workouts) && d.workouts.length > 0 && `Workouts: ${d.workouts.map((w) => `${w.type} ${w.minutes} min${w.avgHr ? ` avg ${w.avgHr} bpm` : ""}`).join("; ")}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.note && `Note: ${d.note}`);
 		}
+		case "workout": {
+			const set = (s) => [
+				s.kind && s.kind !== "working" ? `${s.kind} ` : "",
+				s.weightKg ? `${s.weightKg} kg × ` : "",
+				s.reps ? `${s.reps}` : "",
+				s.seconds ? ` ${s.seconds}s` : "",
+				s.distanceKm ? ` ${s.distanceKm} km` : "",
+				s.rpe ? ` @RPE ${s.rpe}` : ""
+			].join("").trim();
+			return lines(`Workout: ${d.name} on ${d.date}${d.durationMin ? `, ${d.durationMin} min` : ""}${d.startedAt && !d.finishedAt ? " (in progress)" : ""}`, ...Array.isArray(d.exercises) ? d.exercises.map((e) => `${e.name}: ${(e.sets || []).map(set).filter(Boolean).join(", ") || "no sets"}${e.note ? ` (${e.note})` : ""}`) : [], d.note && `Note: ${d.note}`);
+		}
+		case "workout_plan": return lines(`Training plan: ${d.name}${d.active ? " (active)" : ""}`, d.description, ...Array.isArray(d.days) ? d.days.map((day) => `${day.name} [day:${day.id}]${day.weekdays?.length ? ` on ${day.weekdays.map((n) => [
+			"Sun",
+			"Mon",
+			"Tue",
+			"Wed",
+			"Thu",
+			"Fri",
+			"Sat"
+		][n]).join("/")}` : ""}: ${(day.exercises || []).map((e) => `${e.name} ${e.sets}×${e.reps}`).join(", ")}`) : []);
 		case "tracker": {
 			const fields = Object.entries(d.fields || {}).filter(([, v]) => typeof v === "string" && v.trim() && !/^https?:/i.test(v) || typeof v === "number").map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
 			return lines(`${String(d.kind || "tracker").replace(/_/g, " ")}: ${d.title}`, d.subject && d.subject !== d.title && `Subject: ${d.subject}`, `Status: ${String(d.status).replace(/_/g, " ")}`, ...fields, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.notes && `Notes: ${d.notes}`);
@@ -5832,6 +5856,23 @@ function records(state, type, ctx) {
 			title: `Health ${data.date}`,
 			date: data.date,
 			data,
+			source: data
+		})),
+		...(state.workouts || []).map((data) => ({
+			type: "workout",
+			title: `${data.name} ${data.date}`,
+			date: data.date,
+			data,
+			source: data
+		})),
+		...(state.workoutPlans || []).map((data) => ({
+			type: "workout_plan",
+			title: data.name,
+			date: void 0,
+			data: {
+				...data,
+				status: data.active ? "in_progress" : "on_hold"
+			},
 			source: data
 		})),
 		...(state.trackerItems || []).map((data) => ({
@@ -6555,12 +6596,12 @@ function readTrackerFields(kind, args) {
 // src/utils/healthMetrics.ts
 const BASELINE_DAYS = 28;
 const MIN_BASELINE = 7;
-const addDays$2 = (date, days) => {
+const addDays$3 = (date, days) => {
 	const d = /* @__PURE__ */ new Date(`${date}T12:00:00Z`);
 	d.setUTCDate(d.getUTCDate() + days);
 	return d.toISOString().slice(0, 10);
 };
-const daysBetween = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5);
+const daysBetween$1 = (a, b) => Math.round((Date.parse(`${b}T12:00:00Z`) - Date.parse(`${a}T12:00:00Z`)) / 864e5);
 const clamp$1 = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const mean$1 = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 const round$1 = (v, d = 0) => Math.round(v * 10 ** d) / 10 ** d;
@@ -6593,7 +6634,7 @@ function maxHeartRate(days, profile, today) {
 		value: profile.maxHr,
 		source: "your setting"
 	};
-	const since = addDays$2(today, -365);
+	const since = addDays$3(today, -365);
 	let seen = 0;
 	for (const d of days) {
 		if (d.date < since) continue;
@@ -6653,13 +6694,13 @@ function computeHealth(input, profile, today = localToday()) {
 	};
 	if (!days.length) return empty;
 	const first = days[0].date;
-	const span = daysBetween(first, today);
-	const dates = Array.from({ length: span + 1 }, (_, i) => addDays$2(first, i));
+	const span = daysBetween$1(first, today);
+	const dates = Array.from({ length: span + 1 }, (_, i) => addDays$3(first, i));
 	const value = (date, key) => byDate.get(date)?.metrics[key];
 	const window = (date, key, transform = (v) => v) => {
 		const xs = [];
 		for (let i = 1; i <= BASELINE_DAYS; i++) {
-			const v = value(addDays$2(date, -i), key);
+			const v = value(addDays$3(date, -i), key);
 			if (v !== void 0) xs.push(transform(v));
 		}
 		return xs;
@@ -6700,18 +6741,18 @@ function computeHealth(input, profile, today = localToday()) {
 		});
 	}
 	const latest = days[days.length - 1];
-	const recovery = recoveryByDate.get(today) || (daysBetween(latest.date, today) <= 1 ? recoveryByDate.get(latest.date) : void 0);
+	const recovery = recoveryByDate.get(today) || (daysBetween$1(latest.date, today) <= 1 ? recoveryByDate.get(latest.date) : void 0);
 	const ratio = fitness >= 5 ? fatigue / fitness : void 0;
 	const zone = ratio === void 0 ? void 0 : ratio < .8 ? "Detraining" : ratio <= 1.3 ? "Productive" : ratio <= 1.5 ? "High" : "Spike";
 	let weekLoad = 0;
-	for (let i = 0; i < 7; i++) weekLoad += loads.get(addDays$2(today, -i)) || 0;
+	for (let i = 0; i < 7; i++) weekLoad += loads.get(addDays$3(today, -i)) || 0;
 	let debt = 0;
 	for (let i = 0; i < 14; i++) {
-		const s = value(addDays$2(today, -i), "sleepMin");
+		const s = value(addDays$3(today, -i), "sleepMin");
 		if (s !== void 0) debt += .85 ** i * (goalMin - s);
 	}
-	const last7Sleep = Array.from({ length: 7 }, (_, i) => value(addDays$2(today, -i), "sleepMin")).filter((v) => v !== void 0);
-	const nights = Array.from({ length: 14 }, (_, i) => byDate.get(addDays$2(today, -i))).filter((d) => !!d?.sleepStart && !!d.sleepEnd);
+	const last7Sleep = Array.from({ length: 7 }, (_, i) => value(addDays$3(today, -i), "sleepMin")).filter((v) => v !== void 0);
+	const nights = Array.from({ length: 14 }, (_, i) => byDate.get(addDays$3(today, -i))).filter((d) => !!d?.sleepStart && !!d.sleepEnd);
 	let regularity;
 	if (nights.length >= 5) {
 		const beds = nights.map((n) => bedMinutes$1(n.sleepStart)), wakes = nights.map((n) => minutesOf$1(n.sleepEnd));
@@ -6729,11 +6770,11 @@ function computeHealth(input, profile, today = localToday()) {
 	const stepsToday = value(today, "steps");
 	let streak = 0;
 	for (let i = stepsToday !== void 0 && stepsToday >= stepGoal ? 0 : 1;; i++) {
-		const s = value(addDays$2(today, -i), "steps");
+		const s = value(addDays$3(today, -i), "steps");
 		if (s === void 0 || s < stepGoal) break;
 		streak++;
 	}
-	const steps7 = Array.from({ length: 7 }, (_, i) => value(addDays$2(today, -i - 1), "steps")).filter((v) => v !== void 0);
+	const steps7 = Array.from({ length: 7 }, (_, i) => value(addDays$3(today, -i - 1), "steps")).filter((v) => v !== void 0);
 	const baselines = {};
 	const lnHrv = stats(window(today, "hrv", Math.log));
 	if (lnHrv) baselines.hrv = {
@@ -6787,7 +6828,7 @@ function computeHealth(input, profile, today = localToday()) {
 		},
 		trends: trends(today, value),
 		vo2: vo2Trend(days, today),
-		strain: strainSignals(today, byDate.get(today) || (daysBetween(latest.date, today) <= 1 ? latest : void 0), window),
+		strain: strainSignals(today, byDate.get(today) || (daysBetween$1(latest.date, today) <= 1 ? latest : void 0), window),
 		tagEffects: tagEffects(days, recoveryByDate),
 		baselines
 	};
@@ -6899,7 +6940,7 @@ function trends(today, value) {
 	for (const { key, higherIsBetter } of TREND_KEYS) {
 		const recent = [], base = [];
 		for (let i = 0; i < 35; i++) {
-			const v = value(addDays$2(today, -i), key);
+			const v = value(addDays$3(today, -i), key);
 			if (v !== void 0) (i < 7 ? recent : base).push(v);
 		}
 		if (recent.length < 3 || base.length < 7) continue;
@@ -6921,8 +6962,8 @@ function trends(today, value) {
 	return out;
 }
 function vo2Trend(days, today) {
-	const points = days.filter((d) => d.metrics.vo2max !== void 0 && d.date >= addDays$2(today, -120)).map((d) => ({
-		x: daysBetween(today, d.date),
+	const points = days.filter((d) => d.metrics.vo2max !== void 0 && d.date >= addDays$3(today, -120)).map((d) => ({
+		x: daysBetween$1(today, d.date),
 		y: d.metrics.vo2max
 	}));
 	const all = days.filter((d) => d.metrics.vo2max !== void 0);
@@ -6994,7 +7035,7 @@ function tagEffects(days, recovery) {
 			for (const d of days) {
 				const v = morning(d.date, key);
 				if (v === void 0) continue;
-				(dates.has(addDays$2(d.date, -1)) ? after : other).push(v);
+				(dates.has(addDays$3(d.date, -1)) ? after : other).push(v);
 			}
 			if (after.length < 3 || other.length < 7) continue;
 			const a = mean$1(after), o = mean$1(other);
@@ -7073,7 +7114,7 @@ function healthSummaryForAssistant(days, profile, today = localToday()) {
 *
 * Patterns are associations in one person's data, not proof of cause and not medical advice.
 */
-const addDays$1 = (date, days) => {
+const addDays$2 = (date, days) => {
 	const d = /* @__PURE__ */ new Date(`${date}T12:00:00Z`);
 	d.setUTCDate(d.getUTCDate() + days);
 	return d.toISOString().slice(0, 10);
@@ -7162,12 +7203,12 @@ const sleepLabel = (score) => score >= 85 ? "Excellent" : score >= 70 ? "Good" :
 function sleepNeedFor(date, byDate, loads, goalMin) {
 	let debt = 0;
 	for (let i = 1; i <= 14; i++) {
-		const s = byDate.get(addDays$1(date, -i))?.metrics.sleepMin;
+		const s = byDate.get(addDays$2(date, -i))?.metrics.sleepMin;
 		if (s !== void 0) debt += .85 ** (i - 1) * (goalMin - s);
 	}
 	debt = Math.max(0, debt);
 	const debtMin = Math.min(45, Math.round(debt * .15 / 5) * 5);
-	const trainingMin = Math.min(40, Math.round((loads.get(addDays$1(date, -1)) || 0) * .2 / 5) * 5);
+	const trainingMin = Math.min(40, Math.round((loads.get(addDays$2(date, -1)) || 0) * .2 / 5) * 5);
 	return {
 		totalMin: goalMin + debtMin + trainingMin,
 		goalMin,
@@ -7179,7 +7220,7 @@ function scoreNight(date, byDate, loads, goalMin) {
 	const day = byDate.get(date);
 	const sleepMin = day?.metrics.sleepMin;
 	if (!day || !sleepMin || sleepMin < 60) return void 0;
-	const prior = (n) => Array.from({ length: n }, (_, i) => byDate.get(addDays$1(date, -i - 1))).filter((d) => !!d);
+	const prior = (n) => Array.from({ length: n }, (_, i) => byDate.get(addDays$2(date, -i - 1))).filter((d) => !!d);
 	const prior28 = prior(28), prior14 = prior(14);
 	const need = sleepNeedFor(date, byDate, loads, goalMin);
 	const parts = [];
@@ -7557,12 +7598,12 @@ function computeDeepHealth(input, profile, date = localToday()) {
 	const byDate = new Map(days.map((d) => [d.date, d]));
 	const goalMin = profile?.sleepGoalMin || 480;
 	const loads = dailyLoads(days, profile, date);
-	const since = addDays$1(date, -179);
+	const since = addDays$2(date, -179);
 	const recent = days.filter((d) => d.date >= since);
 	const window = (d, key, t = (v) => v) => {
 		const xs = [];
 		for (let i = 1; i <= 28; i++) {
-			const v = byDate.get(addDays$1(d, -i))?.metrics[key];
+			const v = byDate.get(addDays$2(d, -i))?.metrics[key];
 			if (v !== void 0) xs.push(t(v));
 		}
 		return xs;
@@ -7581,7 +7622,7 @@ function computeDeepHealth(input, profile, date = localToday()) {
 			nightBy.set(d.date, n);
 		}
 	}
-	const last28 = nights.filter((n) => n.date < date && n.date >= addDays$1(date, -28));
+	const last28 = nights.filter((n) => n.date < date && n.date >= addDays$2(date, -28));
 	const avgOf = (xs) => {
 		const v = xs.filter((x) => x !== void 0);
 		return v.length >= 5 ? mean(v) : void 0;
@@ -7596,10 +7637,10 @@ function computeDeepHealth(input, profile, date = localToday()) {
 		wake: avgOf(last28.map((n) => n.wake))
 	};
 	const rows = recent.map((d) => {
-		const prev = byDate.get(addDays$1(d.date, -1));
+		const prev = byDate.get(addDays$2(d.date, -1));
 		const night = nightBy.get(d.date);
 		const ends = (prev?.workouts || []).map((w) => minutesOf(w.start) + w.minutes);
-		const beds = Array.from({ length: 14 }, (_, i) => byDate.get(addDays$1(d.date, -i - 1))?.sleepStart).filter((s) => !!s).map(bedMinutes);
+		const beds = Array.from({ length: 14 }, (_, i) => byDate.get(addDays$2(d.date, -i - 1))?.sleepStart).filter((s) => !!s).map(bedMinutes);
 		const bedtime = d.sleepStart ? bedMinutes(d.sleepStart) : void 0;
 		return {
 			date: d.date,
@@ -7640,7 +7681,7 @@ function computeDeepHealth(input, profile, date = localToday()) {
 		};
 	});
 	let jetlag;
-	const timed = nights.filter((n) => n.date >= addDays$1(date, -42) && n.bedtime !== void 0 && n.wake !== void 0);
+	const timed = nights.filter((n) => n.date >= addDays$2(date, -42) && n.bedtime !== void 0 && n.wake !== void 0);
 	const mid = (n) => {
 		const wake = n.wake + 1440;
 		return wake > n.bedtime ? (n.bedtime + wake) / 2 : void 0;
@@ -7678,7 +7719,7 @@ function computeDeepHealth(input, profile, date = localToday()) {
 		}
 	}
 	let drift;
-	const bedsIn = (a, b) => nights.filter((n) => n.bedtime !== void 0 && n.date > addDays$1(date, -b) && n.date <= addDays$1(date, -a)).map((n) => n.bedtime);
+	const bedsIn = (a, b) => nights.filter((n) => n.bedtime !== void 0 && n.date > addDays$2(date, -b) && n.date <= addDays$2(date, -a)).map((n) => n.bedtime);
 	const r14 = bedsIn(0, 14), b28 = bedsIn(14, 42);
 	if (r14.length >= 7 && b28.length >= 10) {
 		const r = median(r14), b = median(b28);
@@ -7690,14 +7731,14 @@ function computeDeepHealth(input, profile, date = localToday()) {
 	}
 	let debtTotal = 0;
 	for (let i = 0; i < 14; i++) {
-		const s = byDate.get(addDays$1(date, -i))?.metrics.sleepMin;
+		const s = byDate.get(addDays$2(date, -i))?.metrics.sleepMin;
 		if (s !== void 0) debtTotal += .85 ** i * (goalMin - s);
 	}
 	const debt = debtTotal >= 30 ? {
 		min: Math.round(debtTotal),
 		nightsToClear: Math.ceil(debtTotal / 30)
 	} : void 0;
-	const records = personalRecords(days, nights, goalMin);
+	const records = personalRecords$1(days, nights, goalMin);
 	const night = nightBy.get(date);
 	const insights = rank({
 		date,
@@ -7734,7 +7775,7 @@ function computeDeepHealth(input, profile, date = localToday()) {
 		insights
 	};
 }
-function personalRecords(days, nights, goalMin) {
+function personalRecords$1(days, nights, goalMin) {
 	const out = [];
 	const best = (key, label, fmt, low = false) => {
 		let pick;
@@ -7765,7 +7806,7 @@ function personalRecords(days, nights, goalMin) {
 	let prev = "";
 	for (const d of days) {
 		const ok = (d.metrics.sleepMin || 0) >= goalMin;
-		run = ok ? prev && addDays$1(prev, 1) === d.date ? run + 1 : 1 : 0;
+		run = ok ? prev && addDays$2(prev, 1) === d.date ? run + 1 : 1 : 0;
 		if (ok) prev = d.date;
 		else prev = "";
 		if (run > bestRun) {
@@ -7839,8 +7880,8 @@ function rank(ctx) {
 			body: `Over the last two weeks you've usually fallen asleep around ${clock$1(d.recent)}, vs ${clock$1(d.before)} in the month before.`
 		});
 	}
-	const s14 = ctx.nights.filter((n) => n.date > addDays$1(ctx.date, -14)).map((n) => n.score);
-	const s28 = ctx.nights.filter((n) => n.date <= addDays$1(ctx.date, -14) && n.date > addDays$1(ctx.date, -42)).map((n) => n.score);
+	const s14 = ctx.nights.filter((n) => n.date > addDays$2(ctx.date, -14)).map((n) => n.score);
+	const s28 = ctx.nights.filter((n) => n.date <= addDays$2(ctx.date, -14) && n.date > addDays$2(ctx.date, -42)).map((n) => n.score);
 	if (s14.length >= 7 && s28.length >= 10) {
 		const diff = Math.round(mean(s14) - mean(s28));
 		if (Math.abs(diff) >= 4) out.push({
@@ -7864,7 +7905,7 @@ function rank(ctx) {
 	for (const d of ctx.days) for (const t of d.tags || []) (tagged.get(t) || tagged.set(t, /* @__PURE__ */ new Set()).get(t)).add(d.date);
 	for (const [tag, dates] of tagged) {
 		const after = [], other = [];
-		for (const n of ctx.nights) (dates.has(addDays$1(n.date, -1)) ? after : other).push(n.score);
+		for (const n of ctx.nights) (dates.has(addDays$2(n.date, -1)) ? after : other).push(n.score);
 		if (after.length < 3 || other.length < 7) continue;
 		const diff = Math.round(mean(after) - mean(other));
 		if (Math.abs(diff) < 5) continue;
@@ -7877,7 +7918,7 @@ function rank(ctx) {
 			body: `Nights after "${tag}" days score ${Math.round(mean(after))}, vs ${Math.round(mean(other))} otherwise (${after.length} times).`
 		});
 	}
-	for (const r of ctx.records) if (r.date > addDays$1(ctx.date, -7) && r.date <= ctx.date) out.push({
+	for (const r of ctx.records) if (r.date > addDays$2(ctx.date, -7) && r.date <= ctx.date) out.push({
 		id: `rec-${r.key}`,
 		kind: "record",
 		title: `New record: ${r.label}`,
@@ -7911,6 +7952,13586 @@ function deepHealthForAssistant(days, profile, date = localToday()) {
 		bestBedtime: d.bestBedtime ? `${clock$1(d.bestBedtime.from)}–${clock$1(d.bestBedtime.to)} (recovery ${d.bestBedtime.recovery} vs ${d.bestBedtime.overall})` : void 0,
 		socialJetlagMin: d.jetlag?.minutes,
 		records: d.records.map((r) => `${r.label}: ${r.value} (${r.date})`)
+	};
+}
+// src/utils/exercises.ts
+const EXERCISES = [
+	[
+		"3_4_Sit-Up",
+		"3/4 Sit-Up",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"90_90_Hamstring",
+		"90/90 Hamstring",
+		"stretching",
+		"body only",
+		["hamstrings"],
+		["calves"],
+		"beginner",
+		"push",
+		"",
+		2
+	],
+	[
+		"Ab_Crunch_Machine",
+		"Ab Crunch Machine",
+		"strength",
+		"machine",
+		["abdominals"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Ab_Roller",
+		"Ab Roller",
+		"strength",
+		"other",
+		["abdominals"],
+		["shoulders"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Adductor",
+		"Adductor",
+		"stretching",
+		"foam roll",
+		["adductors"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Adductor_Groin",
+		"Adductor/Groin",
+		"stretching",
+		"",
+		["adductors"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Advanced_Kettlebell_Windmill",
+		"Advanced Kettlebell Windmill",
+		"strength",
+		"kettlebells",
+		["abdominals"],
+		[
+			"glutes",
+			"hamstrings",
+			"shoulders"
+		],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Air_Bike",
+		"Air Bike",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"All_Fours_Quad_Stretch",
+		"All Fours Quad Stretch",
+		"stretching",
+		"body only",
+		["quadriceps"],
+		["quadriceps"],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Alternate_Hammer_Curl",
+		"Alternate Hammer Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Alternate_Heel_Touchers",
+		"Alternate Heel Touchers",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Alternate_Incline_Dumbbell_Curl",
+		"Alternate Incline Dumbbell Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Alternate_Leg_Diagonal_Bound",
+		"Alternate Leg Diagonal Bound",
+		"plyometrics",
+		"",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Alternating_Cable_Shoulder_Press",
+		"Alternating Cable Shoulder Press",
+		"strength",
+		"cable",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Alternating_Deltoid_Raise",
+		"Alternating Deltoid Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Alternating_Floor_Press",
+		"Alternating Floor Press",
+		"strength",
+		"kettlebells",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Alternating_Hang_Clean",
+		"Alternating Hang Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"biceps",
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Alternating_Kettlebell_Press",
+		"Alternating Kettlebell Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Alternating_Kettlebell_Row",
+		"Alternating Kettlebell Row",
+		"strength",
+		"kettlebells",
+		["middle back"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Alternating_Renegade_Row",
+		"Alternating Renegade Row",
+		"strength",
+		"kettlebells",
+		["middle back"],
+		[
+			"abdominals",
+			"biceps",
+			"chest",
+			"lats",
+			"triceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Ankle_Circles",
+		"Ankle Circles",
+		"stretching",
+		"",
+		["calves"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Ankle_On_The_Knee",
+		"Ankle On The Knee",
+		"stretching",
+		"",
+		["glutes"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Anterior_Tibialis-SMR",
+		"Anterior Tibialis-SMR",
+		"stretching",
+		"other",
+		["calves"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Anti-Gravity_Press",
+		"Anti-Gravity Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		[
+			"middle back",
+			"traps",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-archer-push-up",
+		"Archer Push-Up",
+		"strength",
+		"body only",
+		["chest"],
+		["triceps", "shoulders"],
+		"expert",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Arm_Circles",
+		"Arm Circles",
+		"stretching",
+		"",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Arnold_Dumbbell_Press",
+		"Arnold Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Around_The_Worlds",
+		"Around The Worlds",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-assisted-dip-machine",
+		"Assisted Dip Machine",
+		"strength",
+		"machine",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"x-assisted-pull-up-machine",
+		"Assisted Pull-Up Machine",
+		"strength",
+		"machine",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		0
+	],
+	[
+		"Atlas_Stone_Trainer",
+		"Atlas Stone Trainer",
+		"strongman",
+		"other",
+		["lower back"],
+		[
+			"biceps",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Atlas_Stones",
+		"Atlas Stones",
+		"strongman",
+		"other",
+		["lower back"],
+		[
+			"abdominals",
+			"adductors",
+			"biceps",
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Axle_Deadlift",
+		"Axle Deadlift",
+		"strongman",
+		"other",
+		["lower back"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Back_Flyes_-_With_Bands",
+		"Back Flyes - With Bands",
+		"strength",
+		"bands",
+		["shoulders"],
+		["middle back", "triceps"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Backward_Drag",
+		"Backward Drag",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Backward_Medicine_Ball_Throw",
+		"Backward Medicine Ball Throw",
+		"plyometrics",
+		"medicine ball",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Balance_Board",
+		"Balance Board",
+		"strength",
+		"other",
+		["calves"],
+		["hamstrings", "quadriceps"],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Ball_Leg_Curl",
+		"Ball Leg Curl",
+		"strength",
+		"exercise ball",
+		["hamstrings"],
+		["calves", "glutes"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Band_Assisted_Pull-Up",
+		"Band Assisted Pull-Up",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"abdominals",
+			"forearms",
+			"middle back"
+		],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Band_Good_Morning",
+		"Band Good Morning",
+		"powerlifting",
+		"bands",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Band_Good_Morning_Pull_Through",
+		"Band Good Morning (Pull Through)",
+		"powerlifting",
+		"bands",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Band_Hip_Adductions",
+		"Band Hip Adductions",
+		"strength",
+		"bands",
+		["adductors"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Band_Pull_Apart",
+		"Band Pull Apart",
+		"strength",
+		"bands",
+		["shoulders"],
+		["middle back", "traps"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Band_Skull_Crusher",
+		"Band Skull Crusher",
+		"strength",
+		"bands",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Ab_Rollout",
+		"Barbell Ab Rollout",
+		"strength",
+		"barbell",
+		["abdominals"],
+		["lower back", "shoulders"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Ab_Rollout_-_On_Knees",
+		"Barbell Ab Rollout - On Knees",
+		"strength",
+		"barbell",
+		["abdominals"],
+		["lower back", "shoulders"],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Bench_Press_-_Medium_Grip",
+		"Barbell Bench Press - Medium Grip",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Curl",
+		"Barbell Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Curls_Lying_Against_An_Incline",
+		"Barbell Curls Lying Against An Incline",
+		"strength",
+		"barbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Deadlift",
+		"Barbell Deadlift",
+		"strength",
+		"barbell",
+		["lower back"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lats",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Full_Squat",
+		"Barbell Full Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Glute_Bridge",
+		"Barbell Glute Bridge",
+		"powerlifting",
+		"barbell",
+		["glutes"],
+		["calves", "hamstrings"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Guillotine_Bench_Press",
+		"Barbell Guillotine Bench Press",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Hack_Squat",
+		"Barbell Hack Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Hip_Thrust",
+		"Barbell Hip Thrust",
+		"powerlifting",
+		"barbell",
+		["glutes"],
+		["calves", "hamstrings"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Incline_Bench_Press_-_Medium_Grip",
+		"Barbell Incline Bench Press - Medium Grip",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Incline_Shoulder_Raise",
+		"Barbell Incline Shoulder Raise",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["chest"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Lunge",
+		"Barbell Lunge",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Rear_Delt_Row",
+		"Barbell Rear Delt Row",
+		"strength",
+		"barbell",
+		["shoulders"],
+		[
+			"biceps",
+			"lats",
+			"middle back"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Rollout_from_Bench",
+		"Barbell Rollout from Bench",
+		"strength",
+		"barbell",
+		["abdominals"],
+		[
+			"glutes",
+			"hamstrings",
+			"lats",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Seated_Calf_Raise",
+		"Barbell Seated Calf Raise",
+		"strength",
+		"barbell",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Shoulder_Press",
+		"Barbell Shoulder Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["chest", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Shrug",
+		"Barbell Shrug",
+		"strength",
+		"barbell",
+		["traps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Shrug_Behind_The_Back",
+		"Barbell Shrug Behind The Back",
+		"strength",
+		"barbell",
+		["traps"],
+		["forearms", "middle back"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Side_Bend",
+		"Barbell Side Bend",
+		"strength",
+		"barbell",
+		["abdominals"],
+		["lower back"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Barbell_Side_Split_Squat",
+		"Barbell Side Split Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Squat",
+		"Barbell Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Squat_To_A_Bench",
+		"Barbell Squat To A Bench",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Step_Ups",
+		"Barbell Step Ups",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Barbell_Walking_Lunge",
+		"Barbell Walking Lunge",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Battling_Ropes",
+		"Battling Ropes",
+		"strength",
+		"other",
+		["shoulders"],
+		["chest", "forearms"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bear_Crawl_Sled_Drags",
+		"Bear Crawl Sled Drags",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Behind_Head_Chest_Stretch",
+		"Behind Head Chest Stretch",
+		"stretching",
+		"other",
+		["chest"],
+		["shoulders"],
+		"expert",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"x-belt-squat",
+		"Belt Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Bench_Dips",
+		"Bench Dips",
+		"strength",
+		"body only",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bench_Jump",
+		"Bench Jump",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bench_Press_-_Powerlifting",
+		"Bench Press - Powerlifting",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		[
+			"chest",
+			"forearms",
+			"lats",
+			"shoulders"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bench_Press_-_With_Bands",
+		"Bench Press - With Bands",
+		"strength",
+		"bands",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bench_Press_with_Chains",
+		"Bench Press with Chains",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		[
+			"chest",
+			"lats",
+			"shoulders"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bench_Sprint",
+		"Bench Sprint",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bent_Over_Barbell_Row",
+		"Bent Over Barbell Row",
+		"strength",
+		"barbell",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent_Over_Dumbbell_Rear_Delt_Raise_With_Head_On_Bench",
+		"Bent Over Dumbbell Rear Delt Raise With Head On Bench",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Bent_Over_Low-Pulley_Side_Lateral",
+		"Bent Over Low-Pulley Side Lateral",
+		"strength",
+		"cable",
+		["shoulders"],
+		[
+			"lower back",
+			"middle back",
+			"traps"
+		],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Bent_Over_One-Arm_Long_Bar_Row",
+		"Bent Over One-Arm Long Bar Row",
+		"strength",
+		"barbell",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"lower back",
+			"traps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent_Over_Two-Arm_Long_Bar_Row",
+		"Bent Over Two-Arm Long Bar Row",
+		"strength",
+		"barbell",
+		["middle back"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent_Over_Two-Dumbbell_Row",
+		"Bent Over Two-Dumbbell Row",
+		"strength",
+		"dumbbell",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent_Over_Two-Dumbbell_Row_With_Palms_In",
+		"Bent Over Two-Dumbbell Row With Palms In",
+		"strength",
+		"dumbbell",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent_Press",
+		"Bent Press",
+		"strength",
+		"kettlebells",
+		["abdominals"],
+		[
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"triceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent-Arm_Barbell_Pullover",
+		"Bent-Arm Barbell Pullover",
+		"strength",
+		"barbell",
+		["lats"],
+		[
+			"chest",
+			"lats",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bent-Arm_Dumbbell_Pullover",
+		"Bent-Arm Dumbbell Pullover",
+		"strength",
+		"dumbbell",
+		["chest"],
+		[
+			"lats",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bent-Knee_Hip_Raise",
+		"Bent-Knee Hip Raise",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bicycling",
+		"Bicycling",
+		"cardio",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"Bicycling_Stationary",
+		"Bicycling, Stationary",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"x-bird-dog",
+		"Bird Dog",
+		"strength",
+		"body only",
+		["lower back"],
+		["abdominals", "glutes"],
+		"beginner",
+		"static",
+		"compound",
+		0
+	],
+	[
+		"Board_Press",
+		"Board Press",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		[
+			"chest",
+			"forearms",
+			"lats",
+			"shoulders"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Body_Tricep_Press",
+		"Body Tricep Press",
+		"strength",
+		"body only",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Body-Up",
+		"Body-Up",
+		"strength",
+		"body only",
+		["triceps"],
+		["abdominals", "forearms"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Bodyweight_Flyes",
+		"Bodyweight Flyes",
+		"strength",
+		"e-z curl bar",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Bodyweight_Mid_Row",
+		"Bodyweight Mid Row",
+		"strength",
+		"other",
+		["middle back"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-bodyweight-pistol-squat",
+		"Bodyweight Pistol Squat",
+		"strength",
+		"body only",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"expert",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Bodyweight_Squat",
+		"Bodyweight Squat",
+		"strength",
+		"body only",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bodyweight_Walking_Lunge",
+		"Bodyweight Walking Lunge",
+		"strength",
+		"",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Bosu_Ball_Cable_Crunch_With_Side_Bends",
+		"Bosu Ball Cable Crunch With Side Bends",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Bottoms_Up",
+		"Bottoms Up",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Bottoms-Up_Clean_From_The_Hang_Position",
+		"Bottoms-Up Clean From The Hang Position",
+		"strength",
+		"kettlebells",
+		["forearms"],
+		["biceps", "shoulders"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Box_Jump_Multiple_Response",
+		"Box Jump (Multiple Response)",
+		"plyometrics",
+		"other",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Box_Skip",
+		"Box Skip",
+		"plyometrics",
+		"other",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Box_Squat",
+		"Box Squat",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Box_Squat_with_Bands",
+		"Box Squat with Bands",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Box_Squat_with_Chains",
+		"Box Squat with Chains",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-boxing--heavy-bag",
+		"Boxing / Heavy Bag",
+		"cardio",
+		"other",
+		["shoulders"],
+		["abdominals", "chest"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Brachialis-SMR",
+		"Brachialis-SMR",
+		"stretching",
+		"foam roll",
+		["biceps"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Bradford_Rocky_Presses",
+		"Bradford/Rocky Presses",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-bulgarian-split-squat",
+		"Bulgarian Split Squat",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"x-burpee",
+		"Burpee",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"chest",
+			"shoulders",
+			"abdominals"
+		],
+		"beginner",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Butt_Lift_Bridge",
+		"Butt Lift (Bridge)",
+		"strength",
+		"body only",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Butt-Ups",
+		"Butt-Ups",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Butterfly",
+		"Butterfly",
+		"strength",
+		"machine",
+		["chest"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"x-cable-bicep-curl",
+		"Cable Bicep Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		0
+	],
+	[
+		"Cable_Chest_Press",
+		"Cable Chest Press",
+		"strength",
+		"cable",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Cable_Crossover",
+		"Cable Crossover",
+		"strength",
+		"cable",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Crunch",
+		"Cable Crunch",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Deadlifts",
+		"Cable Deadlifts",
+		"strength",
+		"cable",
+		["quadriceps"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-cable-glute-kickback",
+		"Cable Glute Kickback",
+		"strength",
+		"cable",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Cable_Hammer_Curls_-_Rope_Attachment",
+		"Cable Hammer Curls - Rope Attachment",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Hip_Adduction",
+		"Cable Hip Adduction",
+		"strength",
+		"cable",
+		["quadriceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Incline_Pushdown",
+		"Cable Incline Pushdown",
+		"strength",
+		"cable",
+		["lats"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Incline_Triceps_Extension",
+		"Cable Incline Triceps Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Internal_Rotation",
+		"Cable Internal Rotation",
+		"strength",
+		"cable",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Cable_Iron_Cross",
+		"Cable Iron Cross",
+		"strength",
+		"cable",
+		["chest"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Judo_Flip",
+		"Cable Judo Flip",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-cable-lateral-raise",
+		"Cable Lateral Raise",
+		"strength",
+		"cable",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Cable_Lying_Triceps_Extension",
+		"Cable Lying Triceps Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Cable_One_Arm_Tricep_Extension",
+		"Cable One Arm Tricep Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Preacher_Curl",
+		"Cable Preacher Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Rear_Delt_Fly",
+		"Cable Rear Delt Fly",
+		"strength",
+		"cable",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Reverse_Crunch",
+		"Cable Reverse Crunch",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Rope_Overhead_Triceps_Extension",
+		"Cable Rope Overhead Triceps Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Rope_Rear-Delt_Rows",
+		"Cable Rope Rear-Delt Rows",
+		"strength",
+		"cable",
+		["shoulders"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Cable_Russian_Twists",
+		"Cable Russian Twists",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Cable_Seated_Crunch",
+		"Cable Seated Crunch",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Seated_Lateral_Raise",
+		"Cable Seated Lateral Raise",
+		"strength",
+		"cable",
+		["shoulders"],
+		["middle back", "traps"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cable_Shoulder_Press",
+		"Cable Shoulder Press",
+		"strength",
+		"cable",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Cable_Shrugs",
+		"Cable Shrugs",
+		"strength",
+		"cable",
+		["traps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"x-cable-triceps-pushdown",
+		"Cable Triceps Pushdown",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Cable_Wrist_Curl",
+		"Cable Wrist Curl",
+		"strength",
+		"cable",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Calf_Press",
+		"Calf Press",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Calf_Press_On_The_Leg_Press_Machine",
+		"Calf Press On The Leg Press Machine",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Calf_Raise_On_A_Dumbbell",
+		"Calf Raise On A Dumbbell",
+		"strength",
+		"dumbbell",
+		["calves"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Calf_Raises_-_With_Bands",
+		"Calf Raises - With Bands",
+		"strength",
+		"bands",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Calf_Stretch_Elbows_Against_Wall",
+		"Calf Stretch Elbows Against Wall",
+		"stretching",
+		"",
+		["calves"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Calf_Stretch_Hands_Against_Wall",
+		"Calf Stretch Hands Against Wall",
+		"stretching",
+		"",
+		["calves"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Calf-Machine_Shoulder_Shrug",
+		"Calf-Machine Shoulder Shrug",
+		"strength",
+		"machine",
+		["traps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Calves-SMR",
+		"Calves-SMR",
+		"stretching",
+		"foam roll",
+		["calves"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Car_Deadlift",
+		"Car Deadlift",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Car_Drivers",
+		"Car Drivers",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["forearms"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Carioca_Quick_Step",
+		"Carioca Quick Step",
+		"plyometrics",
+		"",
+		["adductors"],
+		[
+			"abdominals",
+			"abductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"Cat_Stretch",
+		"Cat Stretch",
+		"stretching",
+		"",
+		["lower back"],
+		["middle back", "traps"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Catch_and_Overhead_Throw",
+		"Catch and Overhead Throw",
+		"plyometrics",
+		"medicine ball",
+		["lats"],
+		[
+			"abdominals",
+			"chest",
+			"shoulders"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chain_Handle_Extension",
+		"Chain Handle Extension",
+		"powerlifting",
+		"other",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Chain_Press",
+		"Chain Press",
+		"powerlifting",
+		"other",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chair_Leg_Extended_Stretch",
+		"Chair Leg Extended Stretch",
+		"stretching",
+		"other",
+		["hamstrings"],
+		["adductors"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Chair_Lower_Back_Stretch",
+		"Chair Lower Back Stretch",
+		"stretching",
+		"",
+		["lats"],
+		["lower back"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Chair_Squat",
+		"Chair Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chair_Upper_Body_Stretch",
+		"Chair Upper Body Stretch",
+		"stretching",
+		"other",
+		["shoulders"],
+		["biceps", "chest"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Chest_And_Front_Of_Shoulder_Stretch",
+		"Chest And Front Of Shoulder Stretch",
+		"stretching",
+		"other",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Chest_Push_multiple_response",
+		"Chest Push (multiple response)",
+		"plyometrics",
+		"medicine ball",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chest_Push_single_response",
+		"Chest Push (single response)",
+		"plyometrics",
+		"medicine ball",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chest_Push_from_3_point_stance",
+		"Chest Push from 3 point stance",
+		"plyometrics",
+		"medicine ball",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chest_Push_with_Run_Release",
+		"Chest Push with Run Release",
+		"plyometrics",
+		"medicine ball",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Chest_Stretch_on_Stability_Ball",
+		"Chest Stretch on Stability Ball",
+		"stretching",
+		"exercise ball",
+		["chest"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"x-chest-supported-dumbbell-row",
+		"Chest-Supported Dumbbell Row",
+		"strength",
+		"dumbbell",
+		["middle back"],
+		["lats", "biceps"],
+		"beginner",
+		"pull",
+		"compound",
+		0
+	],
+	[
+		"Childs_Pose",
+		"Child's Pose",
+		"stretching",
+		"",
+		["lower back"],
+		["glutes", "middle back"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Chin_To_Chest_Stretch",
+		"Chin To Chest Stretch",
+		"stretching",
+		"",
+		["neck"],
+		["traps"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Chin-Up",
+		"Chin-Up",
+		"strength",
+		"body only",
+		["lats"],
+		[
+			"biceps",
+			"forearms",
+			"middle back"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Circus_Bell",
+		"Circus Bell",
+		"strongman",
+		"other",
+		["shoulders"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps",
+			"triceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Clean",
+		"Clean",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Clean_and_Jerk",
+		"Clean and Jerk",
+		"olympic weightlifting",
+		"barbell",
+		["shoulders"],
+		[
+			"abdominals",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"traps",
+			"triceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Clean_and_Press",
+		"Clean and Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Clean_Deadlift",
+		"Clean Deadlift",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"forearms",
+			"glutes",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Clean_from_Blocks",
+		"Clean from Blocks",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Clean_Pull",
+		"Clean Pull",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Clean_Shrug",
+		"Clean Shrug",
+		"olympic weightlifting",
+		"barbell",
+		["traps"],
+		["forearms", "shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Clock_Push-Up",
+		"Clock Push-Up",
+		"strength",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Close-Grip_Barbell_Bench_Press",
+		"Close-Grip Barbell Bench Press",
+		"strength",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Close-Grip_Dumbbell_Press",
+		"Close-Grip Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Close-Grip_EZ_Bar_Curl",
+		"Close-Grip EZ Bar Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Close-Grip_EZ-Bar_Curl_with_Band",
+		"Close-Grip EZ-Bar Curl with Band",
+		"strength",
+		"e-z curl bar",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Close-Grip_EZ-Bar_Press",
+		"Close-Grip EZ-Bar Press",
+		"strength",
+		"e-z curl bar",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Close-Grip_Front_Lat_Pulldown",
+		"Close-Grip Front Lat Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Close-Grip_Push-Up_off_of_a_Dumbbell",
+		"Close-Grip Push-Up off of a Dumbbell",
+		"strength",
+		"body only",
+		["triceps"],
+		[
+			"abdominals",
+			"chest",
+			"shoulders"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Close-Grip_Standing_Barbell_Curl",
+		"Close-Grip Standing Barbell Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cocoons",
+		"Cocoons",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Conans_Wheel",
+		"Conan's Wheel",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"abdominals",
+			"biceps",
+			"calves",
+			"forearms",
+			"lower back",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Concentration_Curls",
+		"Concentration Curls",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"x-copenhagen-plank",
+		"Copenhagen Plank",
+		"strength",
+		"body only",
+		["adductors"],
+		["abdominals"],
+		"intermediate",
+		"static",
+		"isolation",
+		0
+	],
+	[
+		"Cross_Body_Hammer_Curl",
+		"Cross Body Hammer Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cross_Over_-_With_Bands",
+		"Cross Over - With Bands",
+		"strength",
+		"bands",
+		["chest"],
+		["biceps", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Cross-Body_Crunch",
+		"Cross-Body Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Crossover_Reverse_Lunge",
+		"Crossover Reverse Lunge",
+		"stretching",
+		"",
+		["lower back"],
+		[
+			"abdominals",
+			"abductors",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"intermediate",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Crucifix",
+		"Crucifix",
+		"strongman",
+		"other",
+		["shoulders"],
+		["forearms"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Crunch_-_Hands_Overhead",
+		"Crunch - Hands Overhead",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Crunch_-_Legs_On_Exercise_Ball",
+		"Crunch - Legs On Exercise Ball",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Crunches",
+		"Crunches",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Cuban_Press",
+		"Cuban Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["traps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dancers_Stretch",
+		"Dancer's Stretch",
+		"stretching",
+		"",
+		["lower back"],
+		["abductors", "glutes"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Dead_Bug",
+		"Dead Bug",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Deadlift_with_Bands",
+		"Deadlift with Bands",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Deadlift_with_Chains",
+		"Deadlift with Chains",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Decline_Barbell_Bench_Press",
+		"Decline Barbell Bench Press",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Decline_Close-Grip_Bench_To_Skull_Crusher",
+		"Decline Close-Grip Bench To Skull Crusher",
+		"strength",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Decline_Crunch",
+		"Decline Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Decline_Dumbbell_Bench_Press",
+		"Decline Dumbbell Bench Press",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Decline_Dumbbell_Flyes",
+		"Decline Dumbbell Flyes",
+		"strength",
+		"dumbbell",
+		["chest"],
+		[],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Decline_Dumbbell_Triceps_Extension",
+		"Decline Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Decline_EZ_Bar_Triceps_Extension",
+		"Decline EZ Bar Triceps Extension",
+		"strength",
+		"barbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Decline_Oblique_Crunch",
+		"Decline Oblique Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Decline_Push-Up",
+		"Decline Push-Up",
+		"strength",
+		"",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Decline_Reverse_Crunch",
+		"Decline Reverse Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Decline_Smith_Press",
+		"Decline Smith Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Deficit_Deadlift",
+		"Deficit Deadlift",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Depth_Jump_Leap",
+		"Depth Jump Leap",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-diamond-push-up",
+		"Diamond Push-Up",
+		"strength",
+		"body only",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Dip_Machine",
+		"Dip Machine",
+		"strength",
+		"machine",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dips_-_Chest_Version",
+		"Dips - Chest Version",
+		"strength",
+		"other",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dips_-_Triceps_Version",
+		"Dips - Triceps Version",
+		"strength",
+		"body only",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Donkey_Calf_Raises",
+		"Donkey Calf Raises",
+		"strength",
+		"other",
+		["calves"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Double_Kettlebell_Alternating_Hang_Clean",
+		"Double Kettlebell Alternating Hang Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"biceps",
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Double_Kettlebell_Jerk",
+		"Double Kettlebell Jerk",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Double_Kettlebell_Push_Press",
+		"Double Kettlebell Push Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Double_Kettlebell_Snatch",
+		"Double Kettlebell Snatch",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Double_Kettlebell_Windmill",
+		"Double Kettlebell Windmill",
+		"strength",
+		"kettlebells",
+		["abdominals"],
+		[
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Double_Leg_Butt_Kick",
+		"Double Leg Butt Kick",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Downward_Facing_Balance",
+		"Downward Facing Balance",
+		"strength",
+		"exercise ball",
+		["glutes"],
+		["abdominals", "hamstrings"],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Drag_Curl",
+		"Drag Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		["forearms"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-dragon-flag",
+		"Dragon Flag",
+		"strength",
+		"body only",
+		["abdominals"],
+		["lower back"],
+		"expert",
+		"static",
+		"compound",
+		0
+	],
+	[
+		"Drop_Push",
+		"Drop Push",
+		"plyometrics",
+		"other",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Alternate_Bicep_Curl",
+		"Dumbbell Alternate Bicep Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Bench_Press",
+		"Dumbbell Bench Press",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Bench_Press_with_Neutral_Grip",
+		"Dumbbell Bench Press with Neutral Grip",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Bicep_Curl",
+		"Dumbbell Bicep Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Clean",
+		"Dumbbell Clean",
+		"strength",
+		"dumbbell",
+		["hamstrings"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Floor_Press",
+		"Dumbbell Floor Press",
+		"powerlifting",
+		"dumbbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Flyes",
+		"Dumbbell Flyes",
+		"strength",
+		"dumbbell",
+		["chest"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Incline_Row",
+		"Dumbbell Incline Row",
+		"strength",
+		"dumbbell",
+		["middle back"],
+		[
+			"biceps",
+			"forearms",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Incline_Shoulder_Raise",
+		"Dumbbell Incline Shoulder Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"x-dumbbell-lateral-raise",
+		"Dumbbell Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Dumbbell_Lunges",
+		"Dumbbell Lunges",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Lying_One-Arm_Rear_Lateral_Raise",
+		"Dumbbell Lying One-Arm Rear Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["middle back"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Lying_Pronation",
+		"Dumbbell Lying Pronation",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Lying_Rear_Lateral_Raise",
+		"Dumbbell Lying Rear Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Lying_Supination",
+		"Dumbbell Lying Supination",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_One-Arm_Shoulder_Press",
+		"Dumbbell One-Arm Shoulder Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_One-Arm_Triceps_Extension",
+		"Dumbbell One-Arm Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_One-Arm_Upright_Row",
+		"Dumbbell One-Arm Upright Row",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["biceps", "traps"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Prone_Incline_Curl",
+		"Dumbbell Prone Incline Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Raise",
+		"Dumbbell Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["biceps"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Rear_Lunge",
+		"Dumbbell Rear Lunge",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-dumbbell-romanian-deadlift",
+		"Dumbbell Romanian Deadlift",
+		"strength",
+		"dumbbell",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"beginner",
+		"pull",
+		"compound",
+		0
+	],
+	[
+		"Dumbbell_Scaption",
+		"Dumbbell Scaption",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Seated_Box_Jump",
+		"Dumbbell Seated Box Jump",
+		"plyometrics",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Seated_One-Leg_Calf_Raise",
+		"Dumbbell Seated One-Leg Calf Raise",
+		"strength",
+		"dumbbell",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Shoulder_Press",
+		"Dumbbell Shoulder Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Shrug",
+		"Dumbbell Shrug",
+		"strength",
+		"dumbbell",
+		["traps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Side_Bend",
+		"Dumbbell Side Bend",
+		"strength",
+		"dumbbell",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Dumbbell_Squat",
+		"Dumbbell Squat",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Squat_To_A_Bench",
+		"Dumbbell Squat To A Bench",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Step_Ups",
+		"Dumbbell Step Ups",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Dumbbell_Tricep_Extension_-Pronated_Grip",
+		"Dumbbell Tricep Extension -Pronated Grip",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Dynamic_Back_Stretch",
+		"Dynamic Back Stretch",
+		"stretching",
+		"",
+		["lats"],
+		[],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Dynamic_Chest_Stretch",
+		"Dynamic Chest Stretch",
+		"stretching",
+		"",
+		["chest"],
+		["middle back"],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Elbow_Circles",
+		"Elbow Circles",
+		"stretching",
+		"",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Elbow_to_Knee",
+		"Elbow to Knee",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Elbows_Back",
+		"Elbows Back",
+		"stretching",
+		"",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Elevated_Back_Lunge",
+		"Elevated Back Lunge",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Elevated_Cable_Rows",
+		"Elevated Cable Rows",
+		"strength",
+		"cable",
+		["lats"],
+		["middle back", "traps"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Elliptical_Trainer",
+		"Elliptical Trainer",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"",
+		"",
+		2
+	],
+	[
+		"Exercise_Ball_Crunch",
+		"Exercise Ball Crunch",
+		"strength",
+		"exercise ball",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Exercise_Ball_Pull-In",
+		"Exercise Ball Pull-In",
+		"strength",
+		"exercise ball",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Extended_Range_One-Arm_Kettlebell_Floor_Press",
+		"Extended Range One-Arm Kettlebell Floor Press",
+		"strength",
+		"kettlebells",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"External_Rotation",
+		"External Rotation",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"External_Rotation_with_Band",
+		"External Rotation with Band",
+		"strength",
+		"bands",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"External_Rotation_with_Cable",
+		"External Rotation with Cable",
+		"strength",
+		"cable",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"EZ-Bar_Curl",
+		"EZ-Bar Curl",
+		"strength",
+		"e-z curl bar",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"EZ-Bar_Skullcrusher",
+		"EZ-Bar Skullcrusher",
+		"strength",
+		"e-z curl bar",
+		["triceps"],
+		["forearms"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Face_Pull",
+		"Face Pull",
+		"strength",
+		"cable",
+		["shoulders"],
+		["middle back"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Farmers_Walk",
+		"Farmer's Walk",
+		"strongman",
+		"other",
+		["forearms"],
+		[
+			"abdominals",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Fast_Skipping",
+		"Fast Skipping",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Finger_Curls",
+		"Finger Curls",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Flat_Bench_Cable_Flyes",
+		"Flat Bench Cable Flyes",
+		"strength",
+		"cable",
+		["chest"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Flat_Bench_Leg_Pull-In",
+		"Flat Bench Leg Pull-In",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Flat_Bench_Lying_Leg_Raise",
+		"Flat Bench Lying Leg Raise",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Flexor_Incline_Dumbbell_Curls",
+		"Flexor Incline Dumbbell Curls",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Floor_Glute-Ham_Raise",
+		"Floor Glute-Ham Raise",
+		"strength",
+		"",
+		["hamstrings"],
+		["calves", "glutes"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Floor_Press",
+		"Floor Press",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Floor_Press_with_Chains",
+		"Floor Press with Chains",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Flutter_Kicks",
+		"Flutter Kicks",
+		"strength",
+		"body only",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Foot-SMR",
+		"Foot-SMR",
+		"stretching",
+		"other",
+		["calves"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Forward_Drag_with_Press",
+		"Forward Drag with Press",
+		"strongman",
+		"other",
+		["chest"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Frankenstein_Squat",
+		"Frankenstein Squat",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Freehand_Jump_Squat",
+		"Freehand Jump Squat",
+		"strength",
+		"body only",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Frog_Hops",
+		"Frog Hops",
+		"stretching",
+		"",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Frog_Sit-Ups",
+		"Frog Sit-Ups",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Front_Barbell_Squat",
+		"Front Barbell Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Front_Barbell_Squat_To_A_Bench",
+		"Front Barbell Squat To A Bench",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Front_Box_Jump",
+		"Front Box Jump",
+		"plyometrics",
+		"other",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Front_Cable_Raise",
+		"Front Cable Raise",
+		"strength",
+		"cable",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Front_Cone_Hops_or_hurdle_hops",
+		"Front Cone Hops (or hurdle hops)",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Front_Dumbbell_Raise",
+		"Front Dumbbell Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Front_Incline_Dumbbell_Raise",
+		"Front Incline Dumbbell Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Front_Leg_Raises",
+		"Front Leg Raises",
+		"stretching",
+		"body only",
+		["hamstrings"],
+		[],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Front_Plate_Raise",
+		"Front Plate Raise",
+		"strength",
+		"other",
+		["shoulders"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Front_Raise_And_Pullover",
+		"Front Raise And Pullover",
+		"strength",
+		"barbell",
+		["chest"],
+		[
+			"lats",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Front_Squat_Clean_Grip",
+		"Front Squat (Clean Grip)",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Front_Squats_With_Two_Kettlebells",
+		"Front Squats With Two Kettlebells",
+		"strength",
+		"kettlebells",
+		["quadriceps"],
+		["calves", "glutes"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Front_Two-Dumbbell_Raise",
+		"Front Two-Dumbbell Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Full_Range-Of-Motion_Lat_Pulldown",
+		"Full Range-Of-Motion Lat Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Gironda_Sternum_Chins",
+		"Gironda Sternum Chins",
+		"strength",
+		"other",
+		["lats"],
+		["biceps", "middle back"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Glute_Ham_Raise",
+		"Glute Ham Raise",
+		"powerlifting",
+		"machine",
+		["hamstrings"],
+		["calves", "glutes"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Glute_Kickback",
+		"Glute Kickback",
+		"strength",
+		"body only",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Goblet_Squat",
+		"Goblet Squat",
+		"strength",
+		"kettlebells",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Good_Morning",
+		"Good Morning",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abdominals",
+			"glutes",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Good_Morning_off_Pins",
+		"Good Morning off Pins",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abdominals",
+			"glutes",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Gorilla_Chin_Crunch",
+		"Gorilla Chin/Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Groin_and_Back_Stretch",
+		"Groin and Back Stretch",
+		"stretching",
+		"",
+		["adductors"],
+		[],
+		"intermediate",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"Groiners",
+		"Groiners",
+		"stretching",
+		"body only",
+		["adductors"],
+		[],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Hack_Squat",
+		"Hack Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Hammer_Curls",
+		"Hammer Curls",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Hammer_Grip_Incline_DB_Bench_Press",
+		"Hammer Grip Incline DB Bench Press",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Hamstring_Stretch",
+		"Hamstring Stretch",
+		"stretching",
+		"",
+		["hamstrings"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Hamstring-SMR",
+		"Hamstring-SMR",
+		"stretching",
+		"foam roll",
+		["hamstrings"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Handstand_Push-Ups",
+		"Handstand Push-Ups",
+		"strength",
+		"body only",
+		["shoulders"],
+		["triceps"],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Hang_Clean",
+		"Hang Clean",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Hang_Clean_-_Below_the_Knees",
+		"Hang Clean - Below the Knees",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Hang_Snatch",
+		"Hang Snatch",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abdominals",
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Hang_Snatch_-_Below_Knees",
+		"Hang Snatch - Below Knees",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abdominals",
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Hanging_Bar_Good_Morning",
+		"Hanging Bar Good Morning",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abdominals",
+			"glutes",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Hanging_Leg_Raise",
+		"Hanging Leg Raise",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"expert",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Hanging_Pike",
+		"Hanging Pike",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Heaving_Snatch_Balance",
+		"Heaving Snatch Balance",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Heavy_Bag_Thrust",
+		"Heavy Bag Thrust",
+		"plyometrics",
+		"other",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"High_Cable_Curls",
+		"High Cable Curls",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-high-knees",
+		"High Knees",
+		"cardio",
+		"body only",
+		["quadriceps"],
+		["calves", "abdominals"],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"x-hiking",
+		"Hiking",
+		"cardio",
+		"body only",
+		["quadriceps"],
+		[
+			"glutes",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"x-hip-abduction-machine",
+		"Hip Abduction Machine",
+		"strength",
+		"machine",
+		["abductors"],
+		["glutes"],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"x-hip-adduction-machine",
+		"Hip Adduction Machine",
+		"strength",
+		"machine",
+		["adductors"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		0
+	],
+	[
+		"Hip_Circles_prone",
+		"Hip Circles (prone)",
+		"stretching",
+		"body only",
+		["abductors"],
+		["adductors"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Hip_Extension_with_Bands",
+		"Hip Extension with Bands",
+		"strength",
+		"bands",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Hip_Flexion_with_Band",
+		"Hip Flexion with Band",
+		"strength",
+		"bands",
+		["quadriceps"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Hip_Lift_with_Band",
+		"Hip Lift with Band",
+		"powerlifting",
+		"bands",
+		["glutes"],
+		["calves", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-hip-thrust-machine",
+		"Hip Thrust Machine",
+		"strength",
+		"machine",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"x-hollow-body-hold",
+		"Hollow Body Hold",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		0
+	],
+	[
+		"Hug_A_Ball",
+		"Hug A Ball",
+		"stretching",
+		"exercise ball",
+		["lower back"],
+		["calves", "glutes"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Hug_Knees_To_Chest",
+		"Hug Knees To Chest",
+		"stretching",
+		"",
+		["lower back"],
+		["glutes"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Hurdle_Hops",
+		"Hurdle Hops",
+		"plyometrics",
+		"other",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Hyperextensions_Back_Extensions",
+		"Hyperextensions (Back Extensions)",
+		"strength",
+		"other",
+		["lower back"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Hyperextensions_With_No_Hyperextension_Bench",
+		"Hyperextensions With No Hyperextension Bench",
+		"strength",
+		"body only",
+		["lower back"],
+		["glutes", "hamstrings"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Iliotibial_Tract-SMR",
+		"Iliotibial Tract-SMR",
+		"stretching",
+		"foam roll",
+		["abductors"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Inchworm",
+		"Inchworm",
+		"stretching",
+		"body only",
+		["hamstrings"],
+		[],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Incline_Barbell_Triceps_Extension",
+		"Incline Barbell Triceps Extension",
+		"strength",
+		"barbell",
+		["triceps"],
+		["forearms"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Incline_Bench_Pull",
+		"Incline Bench Pull",
+		"strength",
+		"barbell",
+		["middle back"],
+		["lats", "shoulders"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Incline_Cable_Chest_Press",
+		"Incline Cable Chest Press",
+		"strength",
+		"cable",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Cable_Flye",
+		"Incline Cable Flye",
+		"strength",
+		"cable",
+		["chest"],
+		["shoulders"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Incline_Dumbbell_Bench_With_Palms_Facing_In",
+		"Incline Dumbbell Bench With Palms Facing In",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Dumbbell_Curl",
+		"Incline Dumbbell Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Incline_Dumbbell_Flyes",
+		"Incline Dumbbell Flyes",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Dumbbell_Flyes_-_With_A_Twist",
+		"Incline Dumbbell Flyes - With A Twist",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Dumbbell_Press",
+		"Incline Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Hammer_Curls",
+		"Incline Hammer Curls",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Incline_Inner_Biceps_Curl",
+		"Incline Inner Biceps Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"",
+		"isolation",
+		2
+	],
+	[
+		"Incline_Push-Up",
+		"Incline Push-Up",
+		"strength",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Push-Up_Close-Grip",
+		"Incline Push-Up Close-Grip",
+		"strength",
+		"body only",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Push-Up_Depth_Jump",
+		"Incline Push-Up Depth Jump",
+		"plyometrics",
+		"other",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Push-Up_Medium",
+		"Incline Push-Up Medium",
+		"strength",
+		"body only",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Push-Up_Reverse_Grip",
+		"Incline Push-Up Reverse Grip",
+		"strength",
+		"body only",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Incline_Push-Up_Wide",
+		"Incline Push-Up Wide",
+		"strength",
+		"body only",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Intermediate_Groin_Stretch",
+		"Intermediate Groin Stretch",
+		"stretching",
+		"other",
+		["hamstrings"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Intermediate_Hip_Flexor_and_Quad_Stretch",
+		"Intermediate Hip Flexor and Quad Stretch",
+		"stretching",
+		"other",
+		["quadriceps"],
+		[],
+		"intermediate",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"Internal_Rotation_with_Band",
+		"Internal Rotation with Band",
+		"strength",
+		"bands",
+		["shoulders"],
+		[],
+		"beginner",
+		"",
+		"isolation",
+		2
+	],
+	[
+		"Inverted_Row",
+		"Inverted Row",
+		"strength",
+		"",
+		["middle back"],
+		["lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Inverted_Row_with_Straps",
+		"Inverted Row with Straps",
+		"strength",
+		"other",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Iron_Cross",
+		"Iron Cross",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[
+			"chest",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Iron_Crosses_stretch",
+		"Iron Crosses (stretch)",
+		"stretching",
+		"",
+		["quadriceps"],
+		[],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Isometric_Chest_Squeezes",
+		"Isometric Chest Squeezes",
+		"plyometrics",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"Isometric_Neck_Exercise_-_Front_And_Back",
+		"Isometric Neck Exercise - Front And Back",
+		"strength",
+		"body only",
+		["neck"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Isometric_Neck_Exercise_-_Sides",
+		"Isometric Neck Exercise - Sides",
+		"strength",
+		"body only",
+		["neck"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Isometric_Wipers",
+		"Isometric Wipers",
+		"strength",
+		"body only",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"IT_Band_and_Glute_Stretch",
+		"IT Band and Glute Stretch",
+		"stretching",
+		"other",
+		["abductors"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Jackknife_Sit-Up",
+		"Jackknife Sit-Up",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Janda_Sit-Up",
+		"Janda Sit-Up",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Jefferson_Squats",
+		"Jefferson Squats",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Jerk_Balance",
+		"Jerk Balance",
+		"olympic weightlifting",
+		"barbell",
+		["shoulders"],
+		[
+			"glutes",
+			"hamstrings",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Jerk_Dip_Squat",
+		"Jerk Dip Squat",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		["abdominals", "calves"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"JM_Press",
+		"JM Press",
+		"strength",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Jogging_Treadmill",
+		"Jogging, Treadmill",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"x-jump-rope",
+		"Jump Rope",
+		"cardio",
+		"other",
+		["calves"],
+		["quadriceps", "shoulders"],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"x-jumping-jacks",
+		"Jumping Jacks",
+		"cardio",
+		"body only",
+		["calves"],
+		["shoulders", "quadriceps"],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"Keg_Load",
+		"Keg Load",
+		"strongman",
+		"other",
+		["lower back"],
+		[
+			"abdominals",
+			"biceps",
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"middle back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Arnold_Press",
+		"Kettlebell Arnold Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Dead_Clean",
+		"Kettlebell Dead Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Figure_8",
+		"Kettlebell Figure 8",
+		"strength",
+		"kettlebells",
+		["abdominals"],
+		["hamstrings", "shoulders"],
+		"intermediate",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Kettlebell_Halo",
+		"Kettlebell Halo",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"traps",
+			"middle back",
+			"abdominals",
+			"triceps"
+		],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"Kettlebell_Halo_With_Overhead_Extension",
+		"Kettlebell Halo with Overhead Extension",
+		"strength",
+		"kettlebells",
+		["shoulders", "triceps"],
+		[
+			"traps",
+			"middle back",
+			"abdominals"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Kettlebell_Hang_Clean",
+		"Kettlebell Hang Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_One-Legged_Deadlift",
+		"Kettlebell One-Legged Deadlift",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Overhead_Triceps_Extension",
+		"Kettlebell Overhead Triceps Extension",
+		"strength",
+		"kettlebells",
+		["triceps"],
+		["shoulders", "abdominals"],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Kettlebell_Pass_Between_The_Legs",
+		"Kettlebell Pass Between The Legs",
+		"strength",
+		"kettlebells",
+		["abdominals"],
+		[
+			"glutes",
+			"hamstrings",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Pirate_Ships",
+		"Kettlebell Pirate Ships",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["abdominals"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Pistol_Squat",
+		"Kettlebell Pistol Squat",
+		"strength",
+		"kettlebells",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Seated_Press",
+		"Kettlebell Seated Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Seesaw_Press",
+		"Kettlebell Seesaw Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Sumo_High_Pull",
+		"Kettlebell Sumo High Pull",
+		"strength",
+		"kettlebells",
+		["traps"],
+		[
+			"adductors",
+			"glutes",
+			"hamstrings",
+			"quadriceps",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-kettlebell-swing",
+		"Kettlebell Swing",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"glutes",
+			"lower back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		0
+	],
+	[
+		"Kettlebell_Thruster",
+		"Kettlebell Thruster",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["quadriceps", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Turkish_Get-Up_Lunge_style",
+		"Kettlebell Turkish Get-Up (Lunge style)",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"abdominals",
+			"hamstrings",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Turkish_Get-Up_Squat_style",
+		"Kettlebell Turkish Get-Up (Squat style)",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"abdominals",
+			"calves",
+			"hamstrings",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kettlebell_Windmill",
+		"Kettlebell Windmill",
+		"strength",
+		"kettlebells",
+		["abdominals"],
+		[
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kipping_Muscle_Up",
+		"Kipping Muscle Up",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"abdominals",
+			"biceps",
+			"forearms",
+			"middle back",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Knee_Across_The_Body",
+		"Knee Across The Body",
+		"stretching",
+		"",
+		["glutes"],
+		["abductors", "lower back"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Knee_Circles",
+		"Knee Circles",
+		"stretching",
+		"body only",
+		["calves"],
+		["hamstrings", "quadriceps"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-knee-push-up",
+		"Knee Push-Up",
+		"strength",
+		"body only",
+		["chest"],
+		["triceps", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Knee_Tuck_Jump",
+		"Knee Tuck Jump",
+		"plyometrics",
+		"body only",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Knee_Hip_Raise_On_Parallel_Bars",
+		"Knee/Hip Raise On Parallel Bars",
+		"strength",
+		"other",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Kneeling_Arm_Drill",
+		"Kneeling Arm Drill",
+		"plyometrics",
+		"",
+		["shoulders"],
+		["abdominals"],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Kneeling_Cable_Crunch_With_Alternating_Oblique_Twists",
+		"Kneeling Cable Crunch With Alternating Oblique Twists",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Kneeling_Cable_Triceps_Extension",
+		"Kneeling Cable Triceps Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Kneeling_Forearm_Stretch",
+		"Kneeling Forearm Stretch",
+		"stretching",
+		"",
+		["forearms"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Kneeling_High_Pulley_Row",
+		"Kneeling High Pulley Row",
+		"strength",
+		"cable",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kneeling_Hip_Flexor",
+		"Kneeling Hip Flexor",
+		"stretching",
+		"",
+		["quadriceps"],
+		["quadriceps"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Kneeling_Jump_Squat",
+		"Kneeling Jump Squat",
+		"olympic weightlifting",
+		"barbell",
+		["glutes"],
+		[
+			"calves",
+			"hamstrings",
+			"quadriceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Kneeling_Single-Arm_High_Pulley_Row",
+		"Kneeling Single-Arm High Pulley Row",
+		"strength",
+		"cable",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Kneeling_Squat",
+		"Kneeling Squat",
+		"powerlifting",
+		"barbell",
+		["glutes"],
+		[
+			"abdominals",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-l-sit",
+		"L-Sit",
+		"strength",
+		"body only",
+		["abdominals"],
+		["triceps", "quadriceps"],
+		"expert",
+		"static",
+		"compound",
+		0
+	],
+	[
+		"Landmine_180s",
+		"Landmine 180's",
+		"strength",
+		"barbell",
+		["abdominals"],
+		[
+			"glutes",
+			"lower back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Landmine_Linear_Jammer",
+		"Landmine Linear Jammer",
+		"strength",
+		"barbell",
+		["shoulders"],
+		[
+			"abdominals",
+			"calves",
+			"chest",
+			"hamstrings",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-lat-pulldown",
+		"Lat Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		0
+	],
+	[
+		"Lateral_Bound",
+		"Lateral Bound",
+		"plyometrics",
+		"body only",
+		["adductors"],
+		[
+			"abductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Lateral_Box_Jump",
+		"Lateral Box Jump",
+		"plyometrics",
+		"other",
+		["adductors"],
+		[
+			"abductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Lateral_Cone_Hops",
+		"Lateral Cone Hops",
+		"plyometrics",
+		"other",
+		["adductors"],
+		[
+			"abductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Lateral_Raise_-_With_Bands",
+		"Lateral Raise - With Bands",
+		"strength",
+		"bands",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Latissimus_Dorsi-SMR",
+		"Latissimus Dorsi-SMR",
+		"stretching",
+		"foam roll",
+		["lats"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Leg_Extensions",
+		"Leg Extensions",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Leg_Lift",
+		"Leg Lift",
+		"strength",
+		"body only",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Leg_Press",
+		"Leg Press",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Leg_Pull-In",
+		"Leg Pull-In",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Leg-Over_Floor_Press",
+		"Leg-Over Floor Press",
+		"strength",
+		"kettlebells",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Leg-Up_Hamstring_Stretch",
+		"Leg-Up Hamstring Stretch",
+		"stretching",
+		"",
+		["hamstrings"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Leverage_Chest_Press",
+		"Leverage Chest Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Leverage_Deadlift",
+		"Leverage Deadlift",
+		"strength",
+		"machine",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Leverage_Decline_Chest_Press",
+		"Leverage Decline Chest Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Leverage_High_Row",
+		"Leverage High Row",
+		"strength",
+		"machine",
+		["middle back"],
+		["lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Leverage_Incline_Chest_Press",
+		"Leverage Incline Chest Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Leverage_Iso_Row",
+		"Leverage Iso Row",
+		"strength",
+		"machine",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Leverage_Shoulder_Press",
+		"Leverage Shoulder Press",
+		"strength",
+		"machine",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Leverage_Shrug",
+		"Leverage Shrug",
+		"strength",
+		"machine",
+		["traps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Linear_3-Part_Start_Technique",
+		"Linear 3-Part Start Technique",
+		"plyometrics",
+		"",
+		["hamstrings"],
+		["calves", "quadriceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Linear_Acceleration_Wall_Drill",
+		"Linear Acceleration Wall Drill",
+		"plyometrics",
+		"",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Linear_Depth_Jump",
+		"Linear Depth Jump",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Log_Lift",
+		"Log Lift",
+		"strongman",
+		"other",
+		["shoulders"],
+		[
+			"abdominals",
+			"chest",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"London_Bridges",
+		"London Bridges",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"biceps",
+			"forearms",
+			"middle back"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Looking_At_Ceiling",
+		"Looking At Ceiling",
+		"stretching",
+		"",
+		["quadriceps"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Low_Cable_Crossover",
+		"Low Cable Crossover",
+		"strength",
+		"cable",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Low_Cable_Triceps_Extension",
+		"Low Cable Triceps Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Low_Pulley_Row_To_Neck",
+		"Low Pulley Row To Neck",
+		"strength",
+		"cable",
+		["shoulders"],
+		[
+			"biceps",
+			"middle back",
+			"traps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Lower_Back_Curl",
+		"Lower Back Curl",
+		"stretching",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Lower_Back-SMR",
+		"Lower Back-SMR",
+		"stretching",
+		"foam roll",
+		["lower back"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Lunge_Pass_Through",
+		"Lunge Pass Through",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Lunge_Sprint",
+		"Lunge Sprint",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Lying_Bent_Leg_Groin",
+		"Lying Bent Leg Groin",
+		"stretching",
+		"other",
+		["adductors"],
+		[],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Lying_Cable_Curl",
+		"Lying Cable Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Cambered_Barbell_Row",
+		"Lying Cambered Barbell Row",
+		"strength",
+		"barbell",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"traps"
+		],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Close-Grip_Bar_Curl_On_High_Pulley",
+		"Lying Close-Grip Bar Curl On High Pulley",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Close-Grip_Barbell_Triceps_Extension_Behind_The_Head",
+		"Lying Close-Grip Barbell Triceps Extension Behind The Head",
+		"strength",
+		"barbell",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Close-Grip_Barbell_Triceps_Press_To_Chin",
+		"Lying Close-Grip Barbell Triceps Press To Chin",
+		"strength",
+		"e-z curl bar",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Crossover",
+		"Lying Crossover",
+		"stretching",
+		"body only",
+		["abductors"],
+		[],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Lying_Dumbbell_Tricep_Extension",
+		"Lying Dumbbell Tricep Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Face_Down_Plate_Neck_Resistance",
+		"Lying Face Down Plate Neck Resistance",
+		"strength",
+		"other",
+		["neck"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Face_Up_Plate_Neck_Resistance",
+		"Lying Face Up Plate Neck Resistance",
+		"strength",
+		"other",
+		["neck"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Glute",
+		"Lying Glute",
+		"stretching",
+		"body only",
+		["glutes"],
+		["abductors"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Lying_Hamstring",
+		"Lying Hamstring",
+		"stretching",
+		"other",
+		["hamstrings"],
+		["calves"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Lying_High_Bench_Barbell_Curl",
+		"Lying High Bench Barbell Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Leg_Curls",
+		"Lying Leg Curls",
+		"strength",
+		"machine",
+		["hamstrings"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Machine_Squat",
+		"Lying Machine Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Lying_One-Arm_Lateral_Raise",
+		"Lying One-Arm Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Prone_Quadriceps",
+		"Lying Prone Quadriceps",
+		"stretching",
+		"body only",
+		["quadriceps"],
+		[],
+		"expert",
+		"",
+		"",
+		2
+	],
+	[
+		"Lying_Rear_Delt_Raise",
+		"Lying Rear Delt Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_Supine_Dumbbell_Curl",
+		"Lying Supine Dumbbell Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Lying_T-Bar_Row",
+		"Lying T-Bar Row",
+		"strength",
+		"machine",
+		["middle back"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Lying_Triceps_Press",
+		"Lying Triceps Press",
+		"strength",
+		"e-z curl bar",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Machine_Bench_Press",
+		"Machine Bench Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Machine_Bicep_Curl",
+		"Machine Bicep Curl",
+		"strength",
+		"machine",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"x-machine-chest-press",
+		"Machine Chest Press",
+		"strength",
+		"machine",
+		["chest"],
+		["triceps", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"x-machine-lateral-raise",
+		"Machine Lateral Raise",
+		"strength",
+		"machine",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Machine_Preacher_Curls",
+		"Machine Preacher Curls",
+		"strength",
+		"machine",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"x-machine-row",
+		"Machine Row",
+		"strength",
+		"machine",
+		["middle back"],
+		["lats", "biceps"],
+		"beginner",
+		"pull",
+		"compound",
+		0
+	],
+	[
+		"Machine_Shoulder_Military_Press",
+		"Machine Shoulder (Military) Press",
+		"strength",
+		"machine",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-machine-shoulder-press",
+		"Machine Shoulder Press",
+		"strength",
+		"machine",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Machine_Triceps_Extension",
+		"Machine Triceps Extension",
+		"strength",
+		"machine",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Medicine_Ball_Chest_Pass",
+		"Medicine Ball Chest Pass",
+		"plyometrics",
+		"medicine ball",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Medicine_Ball_Full_Twist",
+		"Medicine Ball Full Twist",
+		"plyometrics",
+		"medicine ball",
+		["abdominals"],
+		["shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Medicine_Ball_Scoop_Throw",
+		"Medicine Ball Scoop Throw",
+		"plyometrics",
+		"medicine ball",
+		["shoulders"],
+		[
+			"abdominals",
+			"hamstrings",
+			"quadriceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Middle_Back_Shrug",
+		"Middle Back Shrug",
+		"strength",
+		"dumbbell",
+		["middle back"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Middle_Back_Stretch",
+		"Middle Back Stretch",
+		"stretching",
+		"",
+		["middle back"],
+		[
+			"abdominals",
+			"lats",
+			"lower back"
+		],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Mixed_Grip_Chin",
+		"Mixed Grip Chin",
+		"strength",
+		"other",
+		["middle back"],
+		["biceps", "lats"],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Monster_Walk",
+		"Monster Walk",
+		"strength",
+		"bands",
+		["abductors"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Mountain_Climbers",
+		"Mountain Climbers",
+		"plyometrics",
+		"",
+		["quadriceps"],
+		[
+			"chest",
+			"hamstrings",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Moving_Claw_Series",
+		"Moving Claw Series",
+		"plyometrics",
+		"",
+		["hamstrings"],
+		["calves", "quadriceps"],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Muscle_Snatch",
+		"Muscle Snatch",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Muscle_Up",
+		"Muscle Up",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"abdominals",
+			"biceps",
+			"forearms",
+			"middle back",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Narrow_Stance_Hack_Squats",
+		"Narrow Stance Hack Squats",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Narrow_Stance_Leg_Press",
+		"Narrow Stance Leg Press",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Narrow_Stance_Squats",
+		"Narrow Stance Squats",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Natural_Glute_Ham_Raise",
+		"Natural Glute Ham Raise",
+		"strength",
+		"body only",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Neck_Press",
+		"Neck Press",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Neck-SMR",
+		"Neck-SMR",
+		"stretching",
+		"other",
+		["neck"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"x-nordic-hamstring-curl",
+		"Nordic Hamstring Curl",
+		"strength",
+		"body only",
+		["hamstrings"],
+		["glutes"],
+		"expert",
+		"pull",
+		"isolation",
+		0
+	],
+	[
+		"Oblique_Crunches",
+		"Oblique Crunches",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Oblique_Crunches_-_On_The_Floor",
+		"Oblique Crunches - On The Floor",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Olympic_Squat",
+		"Olympic Squat",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"On_Your_Side_Quad_Stretch",
+		"On Your Side Quad Stretch",
+		"stretching",
+		"",
+		["quadriceps"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"On-Your-Back_Quad_Stretch",
+		"On-Your-Back Quad Stretch",
+		"stretching",
+		"other",
+		["quadriceps"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"One_Arm_Against_Wall",
+		"One Arm Against Wall",
+		"stretching",
+		"",
+		["lats"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"One_Arm_Chin-Up",
+		"One Arm Chin-Up",
+		"strength",
+		"other",
+		["middle back"],
+		[
+			"biceps",
+			"forearms",
+			"lats"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One_Arm_Dumbbell_Bench_Press",
+		"One Arm Dumbbell Bench Press",
+		"strength",
+		"dumbbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One_Arm_Dumbbell_Preacher_Curl",
+		"One Arm Dumbbell Preacher Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"One_Arm_Floor_Press",
+		"One Arm Floor Press",
+		"strength",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One_Arm_Lat_Pulldown",
+		"One Arm Lat Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One_Arm_Pronated_Dumbbell_Triceps_Extension",
+		"One Arm Pronated Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"One_Arm_Supinated_Dumbbell_Triceps_Extension",
+		"One Arm Supinated Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"One_Half_Locust",
+		"One Half Locust",
+		"stretching",
+		"",
+		["quadriceps"],
+		[
+			"abdominals",
+			"biceps",
+			"chest"
+		],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"One_Handed_Hang",
+		"One Handed Hang",
+		"stretching",
+		"other",
+		["lats"],
+		["biceps"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"One_Knee_To_Chest",
+		"One Knee To Chest",
+		"stretching",
+		"",
+		["glutes"],
+		["hamstrings", "lower back"],
+		"beginner",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"One_Leg_Barbell_Squat",
+		"One Leg Barbell Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Dumbbell_Row",
+		"One-Arm Dumbbell Row",
+		"strength",
+		"dumbbell",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Flat_Bench_Dumbbell_Flye",
+		"One-Arm Flat Bench Dumbbell Flye",
+		"strength",
+		"dumbbell",
+		["chest"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"One-Arm_High-Pulley_Cable_Side_Bends",
+		"One-Arm High-Pulley Cable Side Bends",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"One-Arm_Incline_Lateral_Raise",
+		"One-Arm Incline Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Clean",
+		"One-Arm Kettlebell Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"glutes",
+			"lower back",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Clean_and_Jerk",
+		"One-Arm Kettlebell Clean and Jerk",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Floor_Press",
+		"One-Arm Kettlebell Floor Press",
+		"strength",
+		"kettlebells",
+		["chest"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Jerk",
+		"One-Arm Kettlebell Jerk",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Military_Press_To_The_Side",
+		"One-Arm Kettlebell Military Press To The Side",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Para_Press",
+		"One-Arm Kettlebell Para Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Push_Press",
+		"One-Arm Kettlebell Push Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Row",
+		"One-Arm Kettlebell Row",
+		"strength",
+		"kettlebells",
+		["middle back"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Snatch",
+		"One-Arm Kettlebell Snatch",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps",
+			"triceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Split_Jerk",
+		"One-Arm Kettlebell Split Jerk",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"glutes",
+			"hamstrings",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Split_Snatch",
+		"One-Arm Kettlebell Split Snatch",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["hamstrings", "quadriceps"],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Kettlebell_Swings",
+		"One-Arm Kettlebell Swings",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Long_Bar_Row",
+		"One-Arm Long Bar Row",
+		"strength",
+		"barbell",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Medicine_Ball_Slam",
+		"One-Arm Medicine Ball Slam",
+		"strength",
+		"medicine ball",
+		["abdominals"],
+		["lats", "shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Open_Palm_Kettlebell_Clean",
+		"One-Arm Open Palm Kettlebell Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Overhead_Kettlebell_Squats",
+		"One-Arm Overhead Kettlebell Squats",
+		"strength",
+		"kettlebells",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Side_Deadlift",
+		"One-Arm Side Deadlift",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"One-Arm_Side_Laterals",
+		"One-Arm Side Laterals",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"One-Legged_Cable_Kickback",
+		"One-Legged Cable Kickback",
+		"strength",
+		"cable",
+		["glutes"],
+		["hamstrings"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Open_Palm_Kettlebell_Clean",
+		"Open Palm Kettlebell Clean",
+		"strength",
+		"kettlebells",
+		["hamstrings"],
+		[
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Otis-Up",
+		"Otis-Up",
+		"strength",
+		"other",
+		["abdominals"],
+		[
+			"chest",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-outdoor-cycling",
+		"Outdoor Cycling",
+		"cardio",
+		"other",
+		["quadriceps"],
+		[
+			"hamstrings",
+			"calves",
+			"glutes"
+		],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"x-outdoor-running",
+		"Outdoor Running",
+		"cardio",
+		"body only",
+		["quadriceps"],
+		[
+			"hamstrings",
+			"calves",
+			"glutes"
+		],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"Overhead_Cable_Curl",
+		"Overhead Cable Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Overhead_Lat",
+		"Overhead Lat",
+		"stretching",
+		"other",
+		["lats"],
+		["triceps"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"x-overhead-press",
+		"Overhead Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Overhead_Slam",
+		"Overhead Slam",
+		"plyometrics",
+		"medicine ball",
+		["lats"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Overhead_Squat",
+		"Overhead Squat",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"triceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Overhead_Stretch",
+		"Overhead Stretch",
+		"stretching",
+		"",
+		["abdominals"],
+		[
+			"chest",
+			"forearms",
+			"lats",
+			"triceps"
+		],
+		"beginner",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"Overhead_Triceps",
+		"Overhead Triceps",
+		"stretching",
+		"body only",
+		["triceps"],
+		["lats"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Pallof_Press",
+		"Pallof Press",
+		"strength",
+		"cable",
+		["abdominals"],
+		[
+			"chest",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Pallof_Press_With_Rotation",
+		"Pallof Press With Rotation",
+		"strength",
+		"cable",
+		["abdominals"],
+		[
+			"chest",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Palms-Down_Dumbbell_Wrist_Curl_Over_A_Bench",
+		"Palms-Down Dumbbell Wrist Curl Over A Bench",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Palms-Down_Wrist_Curl_Over_A_Bench",
+		"Palms-Down Wrist Curl Over A Bench",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Palms-Up_Barbell_Wrist_Curl_Over_A_Bench",
+		"Palms-Up Barbell Wrist Curl Over A Bench",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Palms-Up_Dumbbell_Wrist_Curl_Over_A_Bench",
+		"Palms-Up Dumbbell Wrist Curl Over A Bench",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Parallel_Bar_Dip",
+		"Parallel Bar Dip",
+		"strength",
+		"other",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-pec-deck-machine",
+		"Pec Deck Machine",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Pelvic_Tilt_Into_Bridge",
+		"Pelvic Tilt Into Bridge",
+		"stretching",
+		"",
+		["lower back"],
+		[],
+		"intermediate",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"x-pendulum-squat",
+		"Pendulum Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		["glutes"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Peroneals_Stretch",
+		"Peroneals Stretch",
+		"stretching",
+		"other",
+		["calves"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Peroneals-SMR",
+		"Peroneals-SMR",
+		"stretching",
+		"foam roll",
+		["calves"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Physioball_Hip_Bridge",
+		"Physioball Hip Bridge",
+		"strength",
+		"exercise ball",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-pigeon-pose",
+		"Pigeon Pose",
+		"stretching",
+		"body only",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"static",
+		"isolation",
+		0
+	],
+	[
+		"x-pike-push-up",
+		"Pike Push-Up",
+		"strength",
+		"body only",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"x-pilates",
+		"Pilates",
+		"strength",
+		"body only",
+		["abdominals"],
+		["glutes", "lower back"],
+		"beginner",
+		"static",
+		"compound",
+		0
+	],
+	[
+		"Pin_Presses",
+		"Pin Presses",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		[
+			"chest",
+			"forearms",
+			"lats",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Piriformis-SMR",
+		"Piriformis-SMR",
+		"stretching",
+		"foam roll",
+		["glutes"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Plank",
+		"Plank",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Plate_Pinch",
+		"Plate Pinch",
+		"strength",
+		"other",
+		["forearms"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Plate_Twist",
+		"Plate Twist",
+		"strength",
+		"other",
+		["abdominals"],
+		[],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Platform_Hamstring_Slides",
+		"Platform Hamstring Slides",
+		"strength",
+		"other",
+		["hamstrings"],
+		["glutes"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Plie_Dumbbell_Squat",
+		"Plie Dumbbell Squat",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Plyo_Kettlebell_Pushups",
+		"Plyo Kettlebell Pushups",
+		"strength",
+		"kettlebells",
+		["chest"],
+		["shoulders", "triceps"],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Plyo_Push-up",
+		"Plyo Push-up",
+		"plyometrics",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Posterior_Tibialis_Stretch",
+		"Posterior Tibialis Stretch",
+		"stretching",
+		"other",
+		["calves"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Power_Clean",
+		"Power Clean",
+		"strength",
+		"barbell",
+		["hamstrings"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Power_Clean_from_Blocks",
+		"Power Clean from Blocks",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		["quadriceps"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Power_Jerk",
+		"Power Jerk",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Power_Partials",
+		"Power Partials",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Power_Snatch",
+		"Power Snatch",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Power_Snatch_from_Blocks",
+		"Power Snatch from Blocks",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Power_Stairs",
+		"Power Stairs",
+		"strongman",
+		"other",
+		["hamstrings"],
+		[
+			"adductors",
+			"calves",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Preacher_Curl",
+		"Preacher Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Preacher_Hammer_Dumbbell_Curl",
+		"Preacher Hammer Dumbbell Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Press_Sit-Up",
+		"Press Sit-Up",
+		"strength",
+		"barbell",
+		["abdominals"],
+		[
+			"chest",
+			"shoulders",
+			"triceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Prone_Manual_Hamstring",
+		"Prone Manual Hamstring",
+		"strength",
+		"",
+		["hamstrings"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Prowler_Sprint",
+		"Prowler Sprint",
+		"cardio",
+		"other",
+		["hamstrings"],
+		[
+			"calves",
+			"chest",
+			"glutes",
+			"quadriceps",
+			"shoulders"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Pull_Through",
+		"Pull Through",
+		"strength",
+		"cable",
+		["glutes"],
+		["hamstrings", "lower back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Pullups",
+		"Pullups",
+		"strength",
+		"body only",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Push_Press",
+		"Push Press",
+		"olympic weightlifting",
+		"barbell",
+		["shoulders"],
+		["quadriceps", "triceps"],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Push_Press_-_Behind_the_Neck",
+		"Push Press - Behind the Neck",
+		"olympic weightlifting",
+		"barbell",
+		["shoulders"],
+		[
+			"calves",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Push_Up_to_Side_Plank",
+		"Push Up to Side Plank",
+		"strength",
+		"body only",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Push-Up_Wide",
+		"Push-Up Wide",
+		"strength",
+		"body only",
+		["chest"],
+		[
+			"abdominals",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Push-Ups_-_Close_Triceps_Position",
+		"Push-Ups - Close Triceps Position",
+		"strength",
+		"body only",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Push-Ups_With_Feet_Elevated",
+		"Push-Ups With Feet Elevated",
+		"strength",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Push-Ups_With_Feet_On_An_Exercise_Ball",
+		"Push-Ups With Feet On An Exercise Ball",
+		"strength",
+		"exercise ball",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Pushups",
+		"Pushups",
+		"strength",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Pushups_Close_and_Wide_Hand_Positions",
+		"Pushups (Close and Wide Hand Positions)",
+		"strength",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Pyramid",
+		"Pyramid",
+		"stretching",
+		"exercise ball",
+		["lower back"],
+		["shoulders"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Quad_Stretch",
+		"Quad Stretch",
+		"stretching",
+		"other",
+		["quadriceps"],
+		[],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Quadriceps-SMR",
+		"Quadriceps-SMR",
+		"stretching",
+		"foam roll",
+		["quadriceps"],
+		[],
+		"intermediate",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Quick_Leap",
+		"Quick Leap",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		["calves", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Rack_Delivery",
+		"Rack Delivery",
+		"olympic weightlifting",
+		"barbell",
+		["shoulders"],
+		["forearms", "traps"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Rack_Pull_with_Bands",
+		"Rack Pull with Bands",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Rack_Pulls",
+		"Rack Pulls",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Rear_Leg_Raises",
+		"Rear Leg Raises",
+		"stretching",
+		"body only",
+		["quadriceps"],
+		[],
+		"beginner",
+		"push",
+		"",
+		2
+	],
+	[
+		"Recumbent_Bike",
+		"Recumbent Bike",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"x-resistance-band-pull-apart",
+		"Resistance Band Pull-Apart",
+		"strength",
+		"bands",
+		["shoulders"],
+		["middle back"],
+		"beginner",
+		"pull",
+		"isolation",
+		0
+	],
+	[
+		"Return_Push_from_Stance",
+		"Return Push from Stance",
+		"plyometrics",
+		"medicine ball",
+		["shoulders"],
+		["chest", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Band_Bench_Press",
+		"Reverse Band Bench Press",
+		"powerlifting",
+		"barbell",
+		["triceps"],
+		[
+			"chest",
+			"forearms",
+			"lats",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Band_Box_Squat",
+		"Reverse Band Box Squat",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Band_Deadlift",
+		"Reverse Band Deadlift",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"quadriceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Band_Power_Squat",
+		"Reverse Band Power Squat",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Band_Sumo_Deadlift",
+		"Reverse Band Sumo Deadlift",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"forearms",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Barbell_Curl",
+		"Reverse Barbell Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Barbell_Preacher_Curls",
+		"Reverse Barbell Preacher Curls",
+		"strength",
+		"e-z curl bar",
+		["biceps"],
+		["forearms"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Cable_Curl",
+		"Reverse Cable Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Crunch",
+		"Reverse Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Flyes",
+		"Reverse Flyes",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Flyes_With_External_Rotation",
+		"Reverse Flyes With External Rotation",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Grip_Bent-Over_Rows",
+		"Reverse Grip Bent-Over Rows",
+		"strength",
+		"barbell",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Reverse_Grip_Triceps_Pushdown",
+		"Reverse Grip Triceps Pushdown",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Hyperextension",
+		"Reverse Hyperextension",
+		"strength",
+		"machine",
+		["hamstrings"],
+		["calves", "glutes"],
+		"intermediate",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Reverse_Machine_Flyes",
+		"Reverse Machine Flyes",
+		"strength",
+		"machine",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Plate_Curls",
+		"Reverse Plate Curls",
+		"strength",
+		"other",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Reverse_Triceps_Bench_Press",
+		"Reverse Triceps Bench Press",
+		"strength",
+		"barbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Rhomboids-SMR",
+		"Rhomboids-SMR",
+		"stretching",
+		"foam roll",
+		["middle back"],
+		["traps"],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Rickshaw_Carry",
+		"Rickshaw Carry",
+		"strongman",
+		"other",
+		["forearms"],
+		[
+			"abdominals",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Rickshaw_Deadlift",
+		"Rickshaw Deadlift",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Ring_Dips",
+		"Ring Dips",
+		"strength",
+		"other",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Rocket_Jump",
+		"Rocket Jump",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		["calves", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Rocking_Standing_Calf_Raise",
+		"Rocking Standing Calf Raise",
+		"strength",
+		"barbell",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Rocky_Pull-Ups_Pulldowns",
+		"Rocky Pull-Ups/Pulldowns",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Romanian_Deadlift",
+		"Romanian Deadlift",
+		"strength",
+		"barbell",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Romanian_Deadlift_from_Deficit",
+		"Romanian Deadlift from Deficit",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"forearms",
+			"glutes",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Rope_Climb",
+		"Rope Climb",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"biceps",
+			"forearms",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Rope_Crunch",
+		"Rope Crunch",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Rope_Jumping",
+		"Rope Jumping",
+		"cardio",
+		"other",
+		["quadriceps"],
+		["calves", "hamstrings"],
+		"intermediate",
+		"",
+		"",
+		2
+	],
+	[
+		"Rope_Straight-Arm_Pulldown",
+		"Rope Straight-Arm Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Round_The_World_Shoulder_Stretch",
+		"Round The World Shoulder Stretch",
+		"stretching",
+		"other",
+		["shoulders"],
+		["biceps", "chest"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Rowing_Stationary",
+		"Rowing, Stationary",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"biceps",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"middle back"
+		],
+		"intermediate",
+		"",
+		"",
+		2
+	],
+	[
+		"Runners_Stretch",
+		"Runner's Stretch",
+		"stretching",
+		"",
+		["hamstrings"],
+		["calves"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Running_Treadmill",
+		"Running, Treadmill",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"Russian_Twist",
+		"Russian Twist",
+		"strength",
+		"body only",
+		["abdominals"],
+		["lower back"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Sandbag_Load",
+		"Sandbag Load",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"abdominals",
+			"biceps",
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"middle back",
+			"shoulders",
+			"traps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Scapular_Pull-Up",
+		"Scapular Pull-Up",
+		"strength",
+		"",
+		["traps"],
+		["lats", "middle back"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Scissor_Kick",
+		"Scissor Kick",
+		"stretching",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Scissors_Jump",
+		"Scissors Jump",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Seated_Band_Hamstring_Curl",
+		"Seated Band Hamstring Curl",
+		"strength",
+		"other",
+		["hamstrings"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Barbell_Military_Press",
+		"Seated Barbell Military Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Seated_Barbell_Twist",
+		"Seated Barbell Twist",
+		"strength",
+		"barbell",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Bent-Over_One-Arm_Dumbbell_Triceps_Extension",
+		"Seated Bent-Over One-Arm Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Bent-Over_Rear_Delt_Raise",
+		"Seated Bent-Over Rear Delt Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Bent-Over_Two-Arm_Dumbbell_Triceps_Extension",
+		"Seated Bent-Over Two-Arm Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Biceps",
+		"Seated Biceps",
+		"stretching",
+		"body only",
+		["biceps"],
+		["chest", "shoulders"],
+		"expert",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Cable_Rows",
+		"Seated Cable Rows",
+		"strength",
+		"cable",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Seated_Cable_Shoulder_Press",
+		"Seated Cable Shoulder Press",
+		"strength",
+		"cable",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Seated_Calf_Raise",
+		"Seated Calf Raise",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Calf_Stretch",
+		"Seated Calf Stretch",
+		"stretching",
+		"",
+		["calves"],
+		["hamstrings", "lower back"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Seated_Close-Grip_Concentration_Barbell_Curl",
+		"Seated Close-Grip Concentration Barbell Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Dumbbell_Curl",
+		"Seated Dumbbell Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Dumbbell_Inner_Biceps_Curl",
+		"Seated Dumbbell Inner Biceps Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Dumbbell_Palms-Down_Wrist_Curl",
+		"Seated Dumbbell Palms-Down Wrist Curl",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Dumbbell_Palms-Up_Wrist_Curl",
+		"Seated Dumbbell Palms-Up Wrist Curl",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Dumbbell_Press",
+		"Seated Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Seated_Flat_Bench_Leg_Pull-In",
+		"Seated Flat Bench Leg Pull-In",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Seated_Floor_Hamstring_Stretch",
+		"Seated Floor Hamstring Stretch",
+		"stretching",
+		"",
+		["hamstrings"],
+		["calves"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Seated_Front_Deltoid",
+		"Seated Front Deltoid",
+		"stretching",
+		"body only",
+		["shoulders"],
+		["chest"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Seated_Glute",
+		"Seated Glute",
+		"stretching",
+		"body only",
+		["glutes"],
+		["adductors"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Seated_Good_Mornings",
+		"Seated Good Mornings",
+		"powerlifting",
+		"barbell",
+		["lower back"],
+		["glutes"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Seated_Hamstring",
+		"Seated Hamstring",
+		"stretching",
+		"",
+		["hamstrings"],
+		["calves"],
+		"expert",
+		"static",
+		"",
+		2
+	],
+	[
+		"Seated_Hamstring_and_Calf_Stretch",
+		"Seated Hamstring and Calf Stretch",
+		"stretching",
+		"other",
+		["hamstrings"],
+		["calves"],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Seated_Head_Harness_Neck_Resistance",
+		"Seated Head Harness Neck Resistance",
+		"strength",
+		"other",
+		["neck"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Leg_Curl",
+		"Seated Leg Curl",
+		"strength",
+		"machine",
+		["hamstrings"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Leg_Tucks",
+		"Seated Leg Tucks",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_One-arm_Cable_Pulley_Rows",
+		"Seated One-arm Cable Pulley Rows",
+		"strength",
+		"cable",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Seated_One-Arm_Dumbbell_Palms-Down_Wrist_Curl",
+		"Seated One-Arm Dumbbell Palms-Down Wrist Curl",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_One-Arm_Dumbbell_Palms-Up_Wrist_Curl",
+		"Seated One-Arm Dumbbell Palms-Up Wrist Curl",
+		"strength",
+		"dumbbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Overhead_Stretch",
+		"Seated Overhead Stretch",
+		"stretching",
+		"",
+		["abdominals"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Palm-Up_Barbell_Wrist_Curl",
+		"Seated Palm-Up Barbell Wrist Curl",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Palms-Down_Barbell_Wrist_Curl",
+		"Seated Palms-Down Barbell Wrist Curl",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Side_Lateral_Raise",
+		"Seated Side Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Triceps_Press",
+		"Seated Triceps Press",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Seated_Two-Arm_Palms-Up_Low-Pulley_Wrist_Curl",
+		"Seated Two-Arm Palms-Up Low-Pulley Wrist Curl",
+		"strength",
+		"cable",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"See-Saw_Press_Alternating_Side_Press",
+		"See-Saw Press (Alternating Side Press)",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["abdominals", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Shotgun_Row",
+		"Shotgun Row",
+		"strength",
+		"cable",
+		["lats"],
+		["biceps", "middle back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Shoulder_Circles",
+		"Shoulder Circles",
+		"stretching",
+		"",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Shoulder_Press_-_With_Bands",
+		"Shoulder Press - With Bands",
+		"strength",
+		"bands",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Shoulder_Raise",
+		"Shoulder Raise",
+		"stretching",
+		"",
+		["shoulders"],
+		["lats"],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Shoulder_Stretch",
+		"Shoulder Stretch",
+		"stretching",
+		"",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Side_Bridge",
+		"Side Bridge",
+		"strength",
+		"body only",
+		["abdominals"],
+		["shoulders"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Side_Hop-Sprint",
+		"Side Hop-Sprint",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Side_Jackknife",
+		"Side Jackknife",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Side_Lateral_Raise",
+		"Side Lateral Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Side_Laterals_to_Front_Raise",
+		"Side Laterals to Front Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Side_Leg_Raises",
+		"Side Leg Raises",
+		"stretching",
+		"body only",
+		["adductors"],
+		[],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Side_Lying_Groin_Stretch",
+		"Side Lying Groin Stretch",
+		"stretching",
+		"",
+		["adductors"],
+		["hamstrings"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Side_Neck_Stretch",
+		"Side Neck Stretch",
+		"stretching",
+		"",
+		["neck"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"x-side-plank",
+		"Side Plank",
+		"strength",
+		"body only",
+		["abdominals"],
+		["shoulders"],
+		"beginner",
+		"static",
+		"isolation",
+		0
+	],
+	[
+		"Side_Standing_Long_Jump",
+		"Side Standing Long Jump",
+		"plyometrics",
+		"",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Side_to_Side_Box_Shuffle",
+		"Side to Side Box Shuffle",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Side_To_Side_Chins",
+		"Side To Side Chins",
+		"strength",
+		"other",
+		["lats"],
+		[
+			"biceps",
+			"forearms",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Side_Wrist_Pull",
+		"Side Wrist Pull",
+		"stretching",
+		"",
+		["shoulders"],
+		["forearms", "lats"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Side-Lying_Floor_Stretch",
+		"Side-Lying Floor Stretch",
+		"stretching",
+		"",
+		["lats"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Single_Dumbbell_Raise",
+		"Single Dumbbell Raise",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["forearms", "traps"],
+		"beginner",
+		"",
+		"isolation",
+		2
+	],
+	[
+		"Single_Leg_Butt_Kick",
+		"Single Leg Butt Kick",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		["calves", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single_Leg_Glute_Bridge",
+		"Single Leg Glute Bridge",
+		"strength",
+		"body only",
+		["glutes"],
+		["hamstrings"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Single_Leg_Push-off",
+		"Single Leg Push-off",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		["calves", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single-Arm_Cable_Crossover",
+		"Single-Arm Cable Crossover",
+		"strength",
+		"cable",
+		["chest"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Single-Arm_Linear_Jammer",
+		"Single-Arm Linear Jammer",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["chest", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single-Arm_Push-Up",
+		"Single-Arm Push-Up",
+		"strength",
+		"body only",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single-Cone_Sprint_Drill",
+		"Single-Cone Sprint Drill",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"",
+		2
+	],
+	[
+		"Single-Leg_High_Box_Squat",
+		"Single-Leg High Box Squat",
+		"strength",
+		"other",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single-Leg_Hop_Progression",
+		"Single-Leg Hop Progression",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single-Leg_Lateral_Hop",
+		"Single-Leg Lateral Hop",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Single-Leg_Leg_Extension",
+		"Single-Leg Leg Extension",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Single-Leg_Stride_Jump",
+		"Single-Leg Stride Jump",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Sit_Squats",
+		"Sit Squats",
+		"stretching",
+		"",
+		["quadriceps"],
+		[
+			"abductors",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"",
+		2
+	],
+	[
+		"Sit-Up",
+		"Sit-Up",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Skating",
+		"Skating",
+		"cardio",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"",
+		"",
+		2
+	],
+	[
+		"Sled_Drag_-_Harness",
+		"Sled Drag - Harness",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Sled_Overhead_Backward_Walk",
+		"Sled Overhead Backward Walk",
+		"strength",
+		"other",
+		["shoulders"],
+		[
+			"calves",
+			"middle back",
+			"quadriceps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Sled_Overhead_Triceps_Extension",
+		"Sled Overhead Triceps Extension",
+		"strength",
+		"other",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Sled_Push",
+		"Sled Push",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"chest",
+			"glutes",
+			"hamstrings",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Sled_Reverse_Flye",
+		"Sled Reverse Flye",
+		"strength",
+		"other",
+		["shoulders"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Sled_Row",
+		"Sled Row",
+		"strength",
+		"other",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Sledgehammer_Swings",
+		"Sledgehammer Swings",
+		"plyometrics",
+		"other",
+		["abdominals"],
+		[
+			"calves",
+			"forearms",
+			"lats",
+			"middle back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Smith_Incline_Shoulder_Raise",
+		"Smith Incline Shoulder Raise",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["chest"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Smith_Machine_Behind_the_Back_Shrug",
+		"Smith Machine Behind the Back Shrug",
+		"strength",
+		"machine",
+		["traps"],
+		["shoulders"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Smith_Machine_Bench_Press",
+		"Smith Machine Bench Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Bent_Over_Row",
+		"Smith Machine Bent Over Row",
+		"strength",
+		"machine",
+		["middle back"],
+		[
+			"biceps",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Calf_Raise",
+		"Smith Machine Calf Raise",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Smith_Machine_Close-Grip_Bench_Press",
+		"Smith Machine Close-Grip Bench Press",
+		"strength",
+		"machine",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Decline_Press",
+		"Smith Machine Decline Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Hang_Power_Clean",
+		"Smith Machine Hang Power Clean",
+		"strength",
+		"machine",
+		["hamstrings"],
+		[
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Hip_Raise",
+		"Smith Machine Hip Raise",
+		"strength",
+		"machine",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Smith_Machine_Incline_Bench_Press",
+		"Smith Machine Incline Bench Press",
+		"strength",
+		"machine",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Leg_Press",
+		"Smith Machine Leg Press",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_One-Arm_Upright_Row",
+		"Smith Machine One-Arm Upright Row",
+		"strength",
+		"machine",
+		["shoulders"],
+		["biceps", "traps"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Overhead_Shoulder_Press",
+		"Smith Machine Overhead Shoulder Press",
+		"strength",
+		"machine",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Pistol_Squat",
+		"Smith Machine Pistol Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Reverse_Calf_Raises",
+		"Smith Machine Reverse Calf Raises",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Smith_Machine_Squat",
+		"Smith Machine Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Stiff-Legged_Deadlift",
+		"Smith Machine Stiff-Legged Deadlift",
+		"strength",
+		"machine",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Smith_Machine_Upright_Row",
+		"Smith Machine Upright Row",
+		"strength",
+		"machine",
+		["traps"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Smith_Single-Leg_Split_Squat",
+		"Smith Single-Leg Split Squat",
+		"strength",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Snatch",
+		"Snatch",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"biceps",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Snatch_Balance",
+		"Snatch Balance",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Snatch_Deadlift",
+		"Snatch Deadlift",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Snatch_from_Blocks",
+		"Snatch from Blocks",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Snatch_Pull",
+		"Snatch Pull",
+		"strength",
+		"barbell",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"lower back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Snatch_Shrug",
+		"Snatch Shrug",
+		"olympic weightlifting",
+		"barbell",
+		["traps"],
+		["forearms", "shoulders"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Speed_Band_Overhead_Triceps",
+		"Speed Band Overhead Triceps",
+		"strength",
+		"bands",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Speed_Box_Squat",
+		"Speed Box Squat",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Speed_Squats",
+		"Speed Squats",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Spell_Caster",
+		"Spell Caster",
+		"strength",
+		"dumbbell",
+		["abdominals"],
+		["glutes", "shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Spider_Crawl",
+		"Spider Crawl",
+		"strength",
+		"body only",
+		["abdominals"],
+		[
+			"chest",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Spider_Curl",
+		"Spider Curl",
+		"strength",
+		"e-z curl bar",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Spinal_Stretch",
+		"Spinal Stretch",
+		"stretching",
+		"",
+		["middle back"],
+		[
+			"lats",
+			"lower back",
+			"neck",
+			"traps"
+		],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Split_Clean",
+		"Split Clean",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Split_Jerk",
+		"Split Jerk",
+		"olympic weightlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Split_Jump",
+		"Split Jump",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Split_Snatch",
+		"Split Snatch",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"calves",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"quadriceps",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"expert",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Split_Squat_with_Dumbbells",
+		"Split Squat with Dumbbells",
+		"strength",
+		"dumbbell",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Split_Squats",
+		"Split Squats",
+		"stretching",
+		"",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"intermediate",
+		"push",
+		"",
+		2
+	],
+	[
+		"x-sprint-intervals",
+		"Sprint Intervals",
+		"cardio",
+		"body only",
+		["quadriceps"],
+		[
+			"hamstrings",
+			"glutes",
+			"calves"
+		],
+		"intermediate",
+		"",
+		"compound",
+		0
+	],
+	[
+		"Squat_Jerk",
+		"Squat Jerk",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders",
+			"triceps"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Squat_with_Bands",
+		"Squat with Bands",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Squat_with_Chains",
+		"Squat with Chains",
+		"powerlifting",
+		"barbell",
+		["quadriceps"],
+		[
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Squat_with_Plate_Movers",
+		"Squat with Plate Movers",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Squats_-_With_Bands",
+		"Squats - With Bands",
+		"strength",
+		"bands",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-stair-climbing",
+		"Stair Climbing",
+		"cardio",
+		"body only",
+		["quadriceps"],
+		["glutes", "calves"],
+		"beginner",
+		"push",
+		"compound",
+		0
+	],
+	[
+		"Stairmaster",
+		"Stairmaster",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"",
+		"",
+		2
+	],
+	[
+		"Standing_Alternating_Dumbbell_Press",
+		"Standing Alternating Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Barbell_Calf_Raise",
+		"Standing Barbell Calf Raise",
+		"strength",
+		"barbell",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Barbell_Press_Behind_Neck",
+		"Standing Barbell Press Behind Neck",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Bent-Over_One-Arm_Dumbbell_Triceps_Extension",
+		"Standing Bent-Over One-Arm Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Bent-Over_Two-Arm_Dumbbell_Triceps_Extension",
+		"Standing Bent-Over Two-Arm Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Biceps_Cable_Curl",
+		"Standing Biceps Cable Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Biceps_Stretch",
+		"Standing Biceps Stretch",
+		"stretching",
+		"other",
+		["biceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Bradford_Press",
+		"Standing Bradford Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Cable_Chest_Press",
+		"Standing Cable Chest Press",
+		"strength",
+		"cable",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Cable_Lift",
+		"Standing Cable Lift",
+		"strength",
+		"cable",
+		["abdominals"],
+		["shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Standing_Cable_Wood_Chop",
+		"Standing Cable Wood Chop",
+		"strength",
+		"cable",
+		["abdominals"],
+		["shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-standing-calf-raise-machine",
+		"Standing Calf Raise Machine",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		0
+	],
+	[
+		"Standing_Calf_Raises",
+		"Standing Calf Raises",
+		"strength",
+		"machine",
+		["calves"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Concentration_Curl",
+		"Standing Concentration Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Dumbbell_Calf_Raise",
+		"Standing Dumbbell Calf Raise",
+		"strength",
+		"dumbbell",
+		["calves"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Dumbbell_Press",
+		"Standing Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Dumbbell_Reverse_Curl",
+		"Standing Dumbbell Reverse Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Dumbbell_Straight-Arm_Front_Delt_Raise_Above_Head",
+		"Standing Dumbbell Straight-Arm Front Delt Raise Above Head",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Dumbbell_Triceps_Extension",
+		"Standing Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Dumbbell_Upright_Row",
+		"Standing Dumbbell Upright Row",
+		"strength",
+		"dumbbell",
+		["traps"],
+		["biceps", "shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Standing_Elevated_Quad_Stretch",
+		"Standing Elevated Quad Stretch",
+		"stretching",
+		"other",
+		["quadriceps"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Standing_Front_Barbell_Raise_Over_Head",
+		"Standing Front Barbell Raise Over Head",
+		"strength",
+		"barbell",
+		["shoulders"],
+		[],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Gastrocnemius_Calf_Stretch",
+		"Standing Gastrocnemius Calf Stretch",
+		"stretching",
+		"",
+		["calves"],
+		["hamstrings"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Standing_Hamstring_and_Calf_Stretch",
+		"Standing Hamstring and Calf Stretch",
+		"stretching",
+		"other",
+		["hamstrings"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Standing_Hip_Circles",
+		"Standing Hip Circles",
+		"stretching",
+		"body only",
+		["abductors"],
+		["adductors"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Hip_Flexors",
+		"Standing Hip Flexors",
+		"stretching",
+		"",
+		["quadriceps"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Inner-Biceps_Curl",
+		"Standing Inner-Biceps Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Lateral_Stretch",
+		"Standing Lateral Stretch",
+		"stretching",
+		"",
+		["abdominals"],
+		[],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Standing_Leg_Curl",
+		"Standing Leg Curl",
+		"strength",
+		"machine",
+		["hamstrings"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Long_Jump",
+		"Standing Long Jump",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Low-Pulley_Deltoid_Raise",
+		"Standing Low-Pulley Deltoid Raise",
+		"strength",
+		"cable",
+		["shoulders"],
+		["forearms"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Low-Pulley_One-Arm_Triceps_Extension",
+		"Standing Low-Pulley One-Arm Triceps Extension",
+		"strength",
+		"cable",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Military_Press",
+		"Standing Military Press",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Olympic_Plate_Hand_Squeeze",
+		"Standing Olympic Plate Hand Squeeze",
+		"strength",
+		"other",
+		["forearms"],
+		["biceps"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Standing_One-Arm_Cable_Curl",
+		"Standing One-Arm Cable Curl",
+		"strength",
+		"cable",
+		["biceps"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_One-Arm_Dumbbell_Curl_Over_Incline_Bench",
+		"Standing One-Arm Dumbbell Curl Over Incline Bench",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_One-Arm_Dumbbell_Triceps_Extension",
+		"Standing One-Arm Dumbbell Triceps Extension",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Overhead_Barbell_Triceps_Extension",
+		"Standing Overhead Barbell Triceps Extension",
+		"strength",
+		"barbell",
+		["triceps"],
+		["shoulders"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Palm-In_One-Arm_Dumbbell_Press",
+		"Standing Palm-In One-Arm Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Palms-In_Dumbbell_Press",
+		"Standing Palms-In Dumbbell Press",
+		"strength",
+		"dumbbell",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Standing_Palms-Up_Barbell_Behind_The_Back_Wrist_Curl",
+		"Standing Palms-Up Barbell Behind The Back Wrist Curl",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Pelvic_Tilt",
+		"Standing Pelvic Tilt",
+		"stretching",
+		"",
+		["lower back"],
+		["glutes"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Rope_Crunch",
+		"Standing Rope Crunch",
+		"strength",
+		"cable",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Soleus_And_Achilles_Stretch",
+		"Standing Soleus And Achilles Stretch",
+		"stretching",
+		"",
+		["calves"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Toe_Touches",
+		"Standing Toe Touches",
+		"stretching",
+		"",
+		["hamstrings"],
+		["calves"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Standing_Towel_Triceps_Extension",
+		"Standing Towel Triceps Extension",
+		"strength",
+		"body only",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Standing_Two-Arm_Overhead_Throw",
+		"Standing Two-Arm Overhead Throw",
+		"plyometrics",
+		"medicine ball",
+		["shoulders"],
+		["chest", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Star_Jump",
+		"Star Jump",
+		"plyometrics",
+		"body only",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"shoulders"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Step_Mill",
+		"Step Mill",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"",
+		"",
+		2
+	],
+	[
+		"Step-up_with_Knee_Raise",
+		"Step-up with Knee Raise",
+		"strength",
+		"body only",
+		["glutes"],
+		["hamstrings", "quadriceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Stiff_Leg_Barbell_Good_Morning",
+		"Stiff Leg Barbell Good Morning",
+		"strength",
+		"barbell",
+		["lower back"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Stiff-Legged_Barbell_Deadlift",
+		"Stiff-Legged Barbell Deadlift",
+		"strength",
+		"barbell",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Stiff-Legged_Dumbbell_Deadlift",
+		"Stiff-Legged Dumbbell Deadlift",
+		"strength",
+		"dumbbell",
+		["hamstrings"],
+		["glutes", "lower back"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Stomach_Vacuum",
+		"Stomach Vacuum",
+		"stretching",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Straight_Bar_Bench_Mid_Rows",
+		"Straight Bar Bench Mid Rows",
+		"strength",
+		"barbell",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Straight_Raises_on_Incline_Bench",
+		"Straight Raises on Incline Bench",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Straight-Arm_Dumbbell_Pullover",
+		"Straight-Arm Dumbbell Pullover",
+		"strength",
+		"dumbbell",
+		["chest"],
+		[
+			"lats",
+			"shoulders",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Straight-Arm_Pulldown",
+		"Straight-Arm Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Stride_Jump_Crossover",
+		"Stride Jump Crossover",
+		"plyometrics",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"hamstrings"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Sumo_Deadlift",
+		"Sumo Deadlift",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"adductors",
+			"forearms",
+			"glutes",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Sumo_Deadlift_with_Bands",
+		"Sumo Deadlift with Bands",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"adductors",
+			"forearms",
+			"glutes",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Sumo_Deadlift_with_Chains",
+		"Sumo Deadlift with Chains",
+		"powerlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"abductors",
+			"adductors",
+			"forearms",
+			"glutes",
+			"lower back",
+			"middle back",
+			"quadriceps",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Superman",
+		"Superman",
+		"stretching",
+		"body only",
+		["lower back"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"static",
+		"compound",
+		2
+	],
+	[
+		"Supine_Chest_Throw",
+		"Supine Chest Throw",
+		"plyometrics",
+		"medicine ball",
+		["triceps"],
+		["chest", "shoulders"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Supine_One-Arm_Overhead_Throw",
+		"Supine One-Arm Overhead Throw",
+		"plyometrics",
+		"medicine ball",
+		["abdominals"],
+		[
+			"chest",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Supine_Two-Arm_Overhead_Throw",
+		"Supine Two-Arm Overhead Throw",
+		"plyometrics",
+		"medicine ball",
+		["abdominals"],
+		[
+			"chest",
+			"lats",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Suspended_Fallout",
+		"Suspended Fallout",
+		"strength",
+		"other",
+		["abdominals"],
+		[
+			"chest",
+			"lower back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Suspended_Push-Up",
+		"Suspended Push-Up",
+		"strength",
+		"other",
+		["chest"],
+		["shoulders", "triceps"],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Suspended_Reverse_Crunch",
+		"Suspended Reverse Crunch",
+		"strength",
+		"other",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Suspended_Row",
+		"Suspended Row",
+		"strength",
+		"other",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Suspended_Split_Squat",
+		"Suspended Split Squat",
+		"strength",
+		"other",
+		["quadriceps"],
+		[
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Svend_Press",
+		"Svend Press",
+		"strength",
+		"other",
+		["chest"],
+		[
+			"forearms",
+			"shoulders",
+			"triceps"
+		],
+		"beginner",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"x-swimming",
+		"Swimming",
+		"cardio",
+		"other",
+		["lats"],
+		[
+			"shoulders",
+			"chest",
+			"quadriceps"
+		],
+		"intermediate",
+		"",
+		"compound",
+		0
+	],
+	[
+		"T-Bar_Row_with_Handle",
+		"T-Bar Row with Handle",
+		"strength",
+		"barbell",
+		["middle back"],
+		["biceps", "lats"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Tate_Press",
+		"Tate Press",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"The_Straddle",
+		"The Straddle",
+		"stretching",
+		"",
+		["hamstrings"],
+		["adductors", "calves"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Thigh_Abductor",
+		"Thigh Abductor",
+		"strength",
+		"machine",
+		["abductors"],
+		["glutes"],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Thigh_Adductor",
+		"Thigh Adductor",
+		"strength",
+		"machine",
+		["adductors"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Tire_Flip",
+		"Tire Flip",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"chest",
+			"forearms",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"shoulders",
+			"traps",
+			"triceps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Toe_Touchers",
+		"Toe Touchers",
+		"stretching",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Torso_Rotation",
+		"Torso Rotation",
+		"stretching",
+		"exercise ball",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Trail_Running_Walking",
+		"Trail Running/Walking",
+		"cardio",
+		"",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"Trap_Bar_Deadlift",
+		"Trap Bar Deadlift",
+		"strength",
+		"other",
+		["quadriceps"],
+		["glutes", "hamstrings"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Tricep_Dumbbell_Kickback",
+		"Tricep Dumbbell Kickback",
+		"strength",
+		"dumbbell",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Tricep_Side_Stretch",
+		"Tricep Side Stretch",
+		"stretching",
+		"",
+		["triceps"],
+		["shoulders"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Triceps_Overhead_Extension_with_Rope",
+		"Triceps Overhead Extension with Rope",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Triceps_Pushdown",
+		"Triceps Pushdown",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Triceps_Pushdown_-_Rope_Attachment",
+		"Triceps Pushdown - Rope Attachment",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Triceps_Pushdown_-_V-Bar_Attachment",
+		"Triceps Pushdown - V-Bar Attachment",
+		"strength",
+		"cable",
+		["triceps"],
+		[],
+		"beginner",
+		"push",
+		"isolation",
+		2
+	],
+	[
+		"Triceps_Stretch",
+		"Triceps Stretch",
+		"stretching",
+		"",
+		["triceps"],
+		["lats"],
+		"beginner",
+		"static",
+		"isolation",
+		2
+	],
+	[
+		"Tuck_Crunch",
+		"Tuck Crunch",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Two-Arm_Dumbbell_Preacher_Curl",
+		"Two-Arm Dumbbell Preacher Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Two-Arm_Kettlebell_Clean",
+		"Two-Arm Kettlebell Clean",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back",
+			"traps"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Two-Arm_Kettlebell_Jerk",
+		"Two-Arm Kettlebell Jerk",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		[
+			"calves",
+			"quadriceps",
+			"triceps"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Two-Arm_Kettlebell_Military_Press",
+		"Two-Arm Kettlebell Military Press",
+		"strength",
+		"kettlebells",
+		["shoulders"],
+		["triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Two-Arm_Kettlebell_Row",
+		"Two-Arm Kettlebell Row",
+		"strength",
+		"kettlebells",
+		["middle back"],
+		["biceps", "lats"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Underhand_Cable_Pulldowns",
+		"Underhand Cable Pulldowns",
+		"strength",
+		"cable",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Upper_Back_Stretch",
+		"Upper Back Stretch",
+		"stretching",
+		"",
+		["middle back"],
+		["middle back"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Upper_Back-Leg_Grab",
+		"Upper Back-Leg Grab",
+		"stretching",
+		"",
+		["hamstrings"],
+		["lower back", "middle back"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"Upright_Barbell_Row",
+		"Upright Barbell Row",
+		"strength",
+		"barbell",
+		["shoulders"],
+		["traps"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Upright_Cable_Row",
+		"Upright Cable Row",
+		"strength",
+		"cable",
+		["traps"],
+		["shoulders"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Upright_Row_-_With_Bands",
+		"Upright Row - With Bands",
+		"strength",
+		"bands",
+		["traps"],
+		["shoulders"],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Upward_Stretch",
+		"Upward Stretch",
+		"stretching",
+		"",
+		["shoulders"],
+		["chest", "lats"],
+		"beginner",
+		"static",
+		"",
+		2
+	],
+	[
+		"V-Bar_Pulldown",
+		"V-Bar Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"V-Bar_Pullup",
+		"V-Bar Pullup",
+		"strength",
+		"body only",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Vertical_Swing",
+		"Vertical Swing",
+		"plyometrics",
+		"dumbbell",
+		["hamstrings"],
+		[
+			"glutes",
+			"quadriceps",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"x-walking",
+		"Walking",
+		"cardio",
+		"body only",
+		["quadriceps"],
+		["calves", "glutes"],
+		"beginner",
+		"",
+		"compound",
+		0
+	],
+	[
+		"Walking_Treadmill",
+		"Walking, Treadmill",
+		"cardio",
+		"machine",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"beginner",
+		"",
+		"",
+		2
+	],
+	[
+		"x-wall-sit",
+		"Wall Sit",
+		"strength",
+		"body only",
+		["quadriceps"],
+		["glutes"],
+		"beginner",
+		"static",
+		"isolation",
+		0
+	],
+	[
+		"Weighted_Ball_Hyperextension",
+		"Weighted Ball Hyperextension",
+		"strength",
+		"exercise ball",
+		["lower back"],
+		[
+			"glutes",
+			"hamstrings",
+			"middle back"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Weighted_Ball_Side_Bend",
+		"Weighted Ball Side Bend",
+		"strength",
+		"exercise ball",
+		["abdominals"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Weighted_Bench_Dip",
+		"Weighted Bench Dip",
+		"strength",
+		"other",
+		["triceps"],
+		["chest", "shoulders"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Weighted_Crunches",
+		"Weighted Crunches",
+		"strength",
+		"medicine ball",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Weighted_Jump_Squat",
+		"Weighted Jump Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Weighted_Pull_Ups",
+		"Weighted Pull Ups",
+		"strength",
+		"other",
+		["lats"],
+		["biceps", "middle back"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Weighted_Sissy_Squat",
+		"Weighted Sissy Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Weighted_Sit-Ups_-_With_Bands",
+		"Weighted Sit-Ups - With Bands",
+		"strength",
+		"other",
+		["abdominals"],
+		[],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Weighted_Squat",
+		"Weighted Squat",
+		"strength",
+		"other",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Wide_Stance_Barbell_Squat",
+		"Wide Stance Barbell Squat",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Wide_Stance_Stiff_Legs",
+		"Wide Stance Stiff Legs",
+		"olympic weightlifting",
+		"barbell",
+		["hamstrings"],
+		[
+			"adductors",
+			"glutes",
+			"lower back"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Barbell_Bench_Press",
+		"Wide-Grip Barbell Bench Press",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Decline_Barbell_Bench_Press",
+		"Wide-Grip Decline Barbell Bench Press",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Decline_Barbell_Pullover",
+		"Wide-Grip Decline Barbell Pullover",
+		"strength",
+		"barbell",
+		["chest"],
+		["shoulders", "triceps"],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Lat_Pulldown",
+		"Wide-Grip Lat Pulldown",
+		"strength",
+		"cable",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Pulldown_Behind_The_Neck",
+		"Wide-Grip Pulldown Behind The Neck",
+		"strength",
+		"cable",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Rear_Pull-Up",
+		"Wide-Grip Rear Pull-Up",
+		"strength",
+		"body only",
+		["lats"],
+		[
+			"biceps",
+			"middle back",
+			"shoulders"
+		],
+		"intermediate",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Wide-Grip_Standing_Barbell_Curl",
+		"Wide-Grip Standing Barbell Curl",
+		"strength",
+		"barbell",
+		["biceps"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Wind_Sprints",
+		"Wind Sprints",
+		"strength",
+		"body only",
+		["abdominals"],
+		[],
+		"beginner",
+		"pull",
+		"compound",
+		2
+	],
+	[
+		"Windmills",
+		"Windmills",
+		"stretching",
+		"",
+		["abductors"],
+		[
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"pull",
+		"",
+		2
+	],
+	[
+		"Worlds_Greatest_Stretch",
+		"World's Greatest Stretch",
+		"stretching",
+		"",
+		["hamstrings"],
+		[
+			"calves",
+			"glutes",
+			"quadriceps"
+		],
+		"intermediate",
+		"static",
+		"",
+		2
+	],
+	[
+		"Wrist_Circles",
+		"Wrist Circles",
+		"stretching",
+		"body only",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Wrist_Roller",
+		"Wrist Roller",
+		"strength",
+		"other",
+		["forearms"],
+		["shoulders"],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Wrist_Rotations_with_Straight_Bar",
+		"Wrist Rotations with Straight Bar",
+		"strength",
+		"barbell",
+		["forearms"],
+		[],
+		"beginner",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"x-yoga-flow",
+		"Yoga Flow",
+		"stretching",
+		"body only",
+		["hamstrings"],
+		["shoulders", "lower back"],
+		"beginner",
+		"static",
+		"compound",
+		0
+	],
+	[
+		"Yoke_Walk",
+		"Yoke Walk",
+		"strongman",
+		"other",
+		["quadriceps"],
+		[
+			"abdominals",
+			"abductors",
+			"adductors",
+			"calves",
+			"glutes",
+			"hamstrings",
+			"lower back"
+		],
+		"intermediate",
+		"",
+		"compound",
+		2
+	],
+	[
+		"Zercher_Squats",
+		"Zercher Squats",
+		"strength",
+		"barbell",
+		["quadriceps"],
+		[
+			"calves",
+			"glutes",
+			"hamstrings"
+		],
+		"expert",
+		"push",
+		"compound",
+		2
+	],
+	[
+		"Zottman_Curl",
+		"Zottman Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	],
+	[
+		"Zottman_Preacher_Curl",
+		"Zottman Preacher Curl",
+		"strength",
+		"dumbbell",
+		["biceps"],
+		["forearms"],
+		"intermediate",
+		"pull",
+		"isolation",
+		2
+	]
+].map(([id, name, category, equipment, primary, secondary, level, force, mechanic, images]) => ({
+	id,
+	name,
+	category,
+	equipment,
+	primary,
+	secondary,
+	level,
+	force,
+	mechanic,
+	images
+}));
+const BY_ID = new Map(EXERCISES.map((e) => [e.id, e]));
+const MUSCLES = [
+	"chest",
+	"shoulders",
+	"triceps",
+	"lats",
+	"middle back",
+	"traps",
+	"biceps",
+	"forearms",
+	"lower back",
+	"abdominals",
+	"quadriceps",
+	"hamstrings",
+	"glutes",
+	"calves",
+	"adductors",
+	"abductors",
+	"neck"
+];
+const EQUIPMENT = [
+	"barbell",
+	"dumbbell",
+	"machine",
+	"cable",
+	"body only",
+	"kettlebells",
+	"bands",
+	"e-z curl bar",
+	"medicine ball",
+	"exercise ball",
+	"foam roll",
+	"other"
+];
+const CATEGORIES = [
+	"strength",
+	"powerlifting",
+	"olympic weightlifting",
+	"strongman",
+	"plyometrics",
+	"cardio",
+	"stretching"
+];
+const GROUP_OF = {
+	chest: "push",
+	shoulders: "push",
+	triceps: "push",
+	lats: "pull",
+	"middle back": "pull",
+	traps: "pull",
+	biceps: "pull",
+	forearms: "pull",
+	"lower back": "pull",
+	neck: "pull",
+	quadriceps: "legs",
+	hamstrings: "legs",
+	glutes: "legs",
+	calves: "legs",
+	adductors: "legs",
+	abductors: "legs",
+	abdominals: "core"
+};
+/** The moves most people mean; they rank first when a search matches several. */
+const POPULAR = /* @__PURE__ */ new Set([
+	"Barbell_Bench_Press_-_Medium_Grip",
+	"Barbell_Squat",
+	"Barbell_Deadlift",
+	"x-overhead-press",
+	"Pullups",
+	"Chin-Up",
+	"Bent_Over_Barbell_Row",
+	"Romanian_Deadlift",
+	"Incline_Dumbbell_Press",
+	"Dumbbell_Bench_Press",
+	"x-lat-pulldown",
+	"Seated_Cable_Rows",
+	"Leg_Press",
+	"Leg_Extensions",
+	"Lying_Leg_Curls",
+	"Seated_Leg_Curl",
+	"Barbell_Hip_Thrust",
+	"x-dumbbell-lateral-raise",
+	"Face_Pull",
+	"Barbell_Curl",
+	"Hammer_Curls",
+	"x-cable-triceps-pushdown",
+	"EZ-Bar_Skullcrusher",
+	"Dips_-_Triceps_Version",
+	"Pushups",
+	"Plank",
+	"Dumbbell_Shoulder_Press",
+	"Cable_Crossover",
+	"x-pec-deck-machine",
+	"Standing_Calf_Raises",
+	"x-bulgarian-split-squat",
+	"Dumbbell_Lunges",
+	"Goblet_Squat",
+	"Running_Treadmill",
+	"Bicycling_Stationary",
+	"Rowing_Stationary",
+	"x-outdoor-running",
+	"x-walking",
+	"Hanging_Leg_Raise",
+	"Cable_Crunch",
+	"Barbell_Shrug",
+	"Hack_Squat",
+	"One-Arm_Dumbbell_Row",
+	"x-kettlebell-swing",
+	"x-burpee",
+	"x-jump-rope",
+	"x-machine-chest-press",
+	"Preacher_Curl",
+	"Sumo_Deadlift",
+	"Dumbbell_Flyes",
+	"Reverse_Flyes",
+	"Elliptical_Trainer",
+	"Stairmaster",
+	"Bodyweight_Squat"
+]);
+/** Gym shorthand and everyday names for the moves they mean. */
+const ALIAS_NAMES = {
+	"bench": "Barbell_Bench_Press_-_Medium_Grip",
+	"bench press": "Barbell_Bench_Press_-_Medium_Grip",
+	"barbell bench press": "Barbell_Bench_Press_-_Medium_Grip",
+	"flat bench": "Barbell_Bench_Press_-_Medium_Grip",
+	"squat": "Barbell_Squat",
+	"back squat": "Barbell_Squat",
+	"deadlift": "Barbell_Deadlift",
+	"ohp": "x-overhead-press",
+	"military press": "Standing_Military_Press",
+	"shoulder press": "Dumbbell_Shoulder_Press",
+	"pull up": "Pullups",
+	"chin up": "Chin-Up",
+	"rdl": "Romanian_Deadlift",
+	"barbell row": "Bent_Over_Barbell_Row",
+	"bent over row": "Bent_Over_Barbell_Row",
+	"incline db press": "Incline_Dumbbell_Press",
+	"db bench": "Dumbbell_Bench_Press",
+	"dumbbell bench": "Dumbbell_Bench_Press",
+	"pulldown": "x-lat-pulldown",
+	"cable row": "Seated_Cable_Rows",
+	"seated row": "Seated_Cable_Rows",
+	"leg curl": "Lying_Leg_Curls",
+	"leg extension": "Leg_Extensions",
+	"hip thrust": "Barbell_Hip_Thrust",
+	"lateral raise": "x-dumbbell-lateral-raise",
+	"side raise": "x-dumbbell-lateral-raise",
+	"curl": "Barbell_Curl",
+	"bicep curl": "Barbell_Curl",
+	"hammer curl": "Hammer_Curls",
+	"triceps pushdown": "x-cable-triceps-pushdown",
+	"tricep pushdown": "x-cable-triceps-pushdown",
+	"pushdown": "x-cable-triceps-pushdown",
+	"skull crusher": "EZ-Bar_Skullcrusher",
+	"skullcrusher": "EZ-Bar_Skullcrusher",
+	"dip": "Dips_-_Triceps_Version",
+	"push up": "Pushups",
+	"calf raise": "Standing_Calf_Raises",
+	"lunge": "Dumbbell_Lunges",
+	"treadmill": "Running_Treadmill",
+	"run": "x-outdoor-running",
+	"running": "x-outdoor-running",
+	"jog": "x-outdoor-running",
+	"bike": "Bicycling_Stationary",
+	"cycling": "x-outdoor-cycling",
+	"rower": "Rowing_Stationary",
+	"walk": "x-walking",
+	"pec deck": "x-pec-deck-machine",
+	"chest fly": "Dumbbell_Flyes",
+	"fly": "Dumbbell_Flyes",
+	"shrug": "Barbell_Shrug",
+	"kb swing": "x-kettlebell-swing",
+	"rear delt fly": "Reverse_Flyes"
+};
+/** Lowercase letters and digits only, with a plural "s" dropped from each word, so "Push-Ups" and "pushup" match. */
+function exerciseKey(text) {
+	return text.toLocaleLowerCase().replace(/\bdb\b/g, "dumbbell").replace(/\bbb\b/g, "barbell").replace(/\bkb\b/g, "kettlebell").split(/[^a-z0-9]+/).filter(Boolean).map((w) => w.length >= 3 && w.endsWith("s") && !w.endsWith("ss") ? w.slice(0, -1) : w).join("");
+}
+const wordsOf = (name) => name.toLocaleLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map(exerciseKey);
+const ALIASES = Object.fromEntries(Object.entries(ALIAS_NAMES).map(([name, id]) => [exerciseKey(name), id]));
+const KEYED = EXERCISES.map((e) => ({
+	e,
+	key: exerciseKey(e.name),
+	words: wordsOf(e.name)
+}));
+const BY_KEY = new Map(KEYED.map((k) => [k.key, k.e]));
+const customExerciseId = (name) => `custom-${exerciseKey(name).slice(0, 60) || "exercise"}`;
+const isCustomExercise = (id) => id.startsWith("custom-");
+/** A library exercise, or a stand-in for a custom one the user named. */
+function exerciseById(id, name) {
+	const found = BY_ID.get(id);
+	if (found || !isCustomExercise(id)) return found;
+	return {
+		id,
+		name: name || id.slice(7),
+		category: "strength",
+		equipment: "other",
+		primary: [],
+		secondary: [],
+		level: "",
+		force: "",
+		mechanic: "",
+		images: 0,
+		custom: true
+	};
+}
+/** The library exercise this name means (exact name, or common shorthand like "RDL"), or undefined. */
+function findExercise(name) {
+	const key = exerciseKey(name);
+	if (!key) return void 0;
+	const alias = ALIASES[key];
+	return BY_KEY.get(key) || (alias ? BY_ID.get(alias) : void 0);
+}
+/** The library ID and display name to store for an exercise the user or assistant named. Unknown names become custom exercises. */
+function resolveExercise(name, exerciseId) {
+	const clean = name.trim().replace(/\s+/g, " ").slice(0, 80);
+	if (exerciseId && BY_ID.has(exerciseId)) return {
+		exerciseId,
+		name: BY_ID.get(exerciseId).name
+	};
+	if (exerciseId && isCustomExercise(exerciseId) && clean) return {
+		exerciseId,
+		name: clean
+	};
+	const found = findExercise(clean);
+	if (found) return {
+		exerciseId: found.id,
+		name: found.name
+	};
+	if (!clean) throw new Error("Name the exercise.");
+	return {
+		exerciseId: customExerciseId(clean),
+		name: clean
+	};
+}
+/** Library exercises matching words in any order ("db incline" finds Incline Dumbbell Press), best first. */
+function searchExercises(query, filter = {}, extra = []) {
+	const words = query.toLocaleLowerCase().split(/\s+/).map(exerciseKey).filter(Boolean);
+	const whole = exerciseKey(query);
+	const alias = ALIASES[whole];
+	const pool = [...extra.map((e) => ({
+		e,
+		key: exerciseKey(e.name),
+		words: wordsOf(e.name)
+	})), ...KEYED];
+	const hit = (w, key, nameWords) => w.length <= 3 ? nameWords.some((n) => n.startsWith(w)) : key.includes(w);
+	const scored = [];
+	for (const { e, key, words: nameWords } of pool) {
+		if (filter.muscle && !e.primary.includes(filter.muscle) && !e.secondary.includes(filter.muscle)) continue;
+		if (filter.equipment && e.equipment !== filter.equipment) continue;
+		if (filter.category && e.category !== filter.category) continue;
+		let score = 0;
+		if (!words.length) score = 1;
+		else if (key === whole || e.id === alias) score = 100;
+		else if (key.startsWith(whole)) score = 70;
+		else if (words.every((w) => hit(w, key, nameWords))) score = 40;
+		else continue;
+		if (POPULAR.has(e.id)) score += 15;
+		if (e.custom) score += 10;
+		if (filter.muscle && e.primary.includes(filter.muscle)) score += 5;
+		score -= Math.min(15, key.length / 4);
+		scored.push({
+			e,
+			score
+		});
+	}
+	const seen = /* @__PURE__ */ new Set();
+	return scored.sort((a, b) => b.score - a.score || a.e.name.localeCompare(b.e.name)).map((s) => s.e).filter((e) => !seen.has(e.id) && !!seen.add(e.id));
+}
+/** What a set records for this exercise: load and reps for most lifts, time for holds and stretches, distance for cardio. */
+function measureOf(e) {
+	if (!e) return "weight_reps";
+	if (e.category === "cardio") return "distance_time";
+	if (e.category === "stretching" || e.force === "static" && e.equipment === "body only") return "time";
+	if (e.equipment === "body only" || e.category === "plyometrics") return "reps";
+	return "weight_reps";
+}
+// src/utils/training.ts
+const KG_PER_LB = .45359237;
+const toUnit = (kg, unit) => unit === "lb" ? kg / KG_PER_LB : kg;
+const fromUnit = (value, unit) => unit === "lb" ? value * KG_PER_LB : value;
+/** A weight in the user's unit, to at most one decimal (whole numbers stay whole). */
+function fmtWeight(kg, unit, withUnit = true) {
+	if (kg === void 0) return "—";
+	const v = Math.round(toUnit(kg, unit) * 10) / 10;
+	return `${Number.isInteger(v) ? v : v.toFixed(1)}${withUnit ? ` ${unit}` : ""}`;
+}
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const num = (v, lo, hi, digits = 3) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? Math.round(v * 10 ** digits) / 10 ** digits : void 0;
+const text$1 = (v, max) => typeof v === "string" && v.trim() ? v.trim().slice(0, max) : void 0;
+const SET_KINDS = [
+	"warmup",
+	"working",
+	"drop",
+	"failure"
+];
+function normalizeSet(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const s = value;
+	const set = {};
+	const reps = num(s.reps, 0, 1e3, 0), weight = num(s.weightKg, 0, 1e3), seconds = num(s.seconds, 0, 86400, 0), dist = num(s.distanceKm, 0, 1e3, 3), rpe = num(s.rpe, 1, 10, 1);
+	if (reps !== void 0) set.reps = reps;
+	if (weight !== void 0) set.weightKg = weight;
+	if (seconds !== void 0) set.seconds = seconds;
+	if (dist !== void 0) set.distanceKm = dist;
+	if (rpe !== void 0) set.rpe = rpe;
+	if (typeof s.kind === "string" && SET_KINDS.includes(s.kind) && s.kind !== "working") set.kind = s.kind;
+	if (s.done === true) set.done = true;
+	return set;
+}
+function normalizeWorkoutExercise(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const e = value;
+	const name = text$1(e.name, 80), exerciseId = text$1(e.exerciseId, 120);
+	if (!name || !exerciseId) return void 0;
+	const out = {
+		id: text$1(e.id, 80) || crypto.randomUUID(),
+		exerciseId,
+		name,
+		sets: (Array.isArray(e.sets) ? e.sets : []).slice(0, 50).map(normalizeSet).filter((s) => !!s)
+	};
+	const note = text$1(e.note, 1e3);
+	if (note) out.note = note;
+	return out;
+}
+function normalizeWorkout(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const w = value;
+	const id = text$1(w.id, 200), date = typeof w.date === "string" && DATE.test(w.date) ? w.date : void 0;
+	if (!id || !date) return void 0;
+	const now = (/* @__PURE__ */ new Date()).toISOString();
+	const out = {
+		id,
+		date,
+		name: text$1(w.name, 120) || "Workout",
+		exercises: (Array.isArray(w.exercises) ? w.exercises : []).slice(0, 60).map(normalizeWorkoutExercise).filter((e) => !!e),
+		createdAt: text$1(w.createdAt, 40) || now,
+		updatedAt: text$1(w.updatedAt, 40) || now
+	};
+	for (const key of [
+		"planId",
+		"planDayId",
+		"startedAt",
+		"finishedAt"
+	]) {
+		const v = text$1(w[key], 200);
+		if (v) out[key] = v;
+	}
+	const duration = num(w.durationMin, 0, 1440, 0), note = text$1(w.note, 4e3);
+	if (duration !== void 0) out.durationMin = duration;
+	if (note) out.note = note;
+	return out;
+}
+const byDate = (a, b) => a.date.localeCompare(b.date) || (a.startedAt || a.createdAt).localeCompare(b.startedAt || b.createdAt);
+function normalizePlanExercise(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const e = value;
+	const name = text$1(e.name, 80), exerciseId = text$1(e.exerciseId, 120);
+	if (!name || !exerciseId) return void 0;
+	const out = {
+		id: text$1(e.id, 80) || crypto.randomUUID(),
+		exerciseId,
+		name,
+		sets: num(e.sets, 1, 20, 0) ?? 3,
+		reps: text$1(e.reps, 20) || "8-12"
+	};
+	const rest = num(e.restSec, 0, 1800, 0), note = text$1(e.note, 500);
+	if (rest !== void 0) out.restSec = rest;
+	if (note) out.note = note;
+	return out;
+}
+function normalizePlanDay(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const d = value;
+	const name = text$1(d.name, 60);
+	if (!name) return void 0;
+	const out = {
+		id: text$1(d.id, 80) || crypto.randomUUID(),
+		name,
+		exercises: (Array.isArray(d.exercises) ? d.exercises : []).slice(0, 30).map(normalizePlanExercise).filter((e) => !!e)
+	};
+	if (Array.isArray(d.weekdays)) {
+		const days = [...new Set(d.weekdays.filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))].sort();
+		if (days.length) out.weekdays = days;
+	}
+	return out;
+}
+function normalizeWorkoutPlan(value) {
+	if (!value || typeof value !== "object") return void 0;
+	const p = value;
+	const id = text$1(p.id, 200), name = text$1(p.name, 80);
+	if (!id || !name) return void 0;
+	const now = (/* @__PURE__ */ new Date()).toISOString();
+	const out = {
+		id,
+		name,
+		active: p.active === true,
+		days: (Array.isArray(p.days) ? p.days : []).slice(0, 14).map(normalizePlanDay).filter((d) => !!d),
+		createdAt: text$1(p.createdAt, 40) || now,
+		updatedAt: text$1(p.updatedAt, 40) || now
+	};
+	const description = text$1(p.description, 1e3);
+	if (description) out.description = description;
+	return out;
+}
+/** Estimated one-rep max (Epley). Only sets of 1 to 12 reps give a useful estimate. */
+function e1rm(weightKg, reps) {
+	if (!weightKg || !reps || reps < 1 || reps > 12) return void 0;
+	return reps === 1 ? weightKg : weightKg * (1 + reps / 30);
+}
+const isWorkingSet = (s) => s.kind !== "warmup";
+/** A set counts once it has something in it. Sets left empty in the logger are ignored. */
+const isLogged = (s) => !!(s.reps || s.seconds || s.distanceKm);
+const setVolume = (s) => (s.weightKg || 0) * (s.reps || 0);
+function performance(session, ex) {
+	const sets = ex.sets.filter((s) => isWorkingSet(s) && isLogged(s));
+	let top, best;
+	for (const s of sets) {
+		if (s.weightKg !== void 0 && (!top || s.weightKg > (top.weightKg || 0) || s.weightKg === top.weightKg && (s.reps || 0) > (top.reps || 0))) top = s;
+		const est = e1rm(s.weightKg, s.reps);
+		if (est !== void 0 && (best === void 0 || est > best)) best = est;
+	}
+	return {
+		date: session.date,
+		sessionId: session.id,
+		sets: sets.length,
+		topWeightKg: top?.weightKg,
+		topReps: top?.reps,
+		bestE1rm: best,
+		volumeKg: sets.reduce((n, s) => n + setVolume(s), 0),
+		maxReps: Math.max(0, ...sets.map((s) => s.reps || 0)),
+		totalReps: sets.reduce((n, s) => n + (s.reps || 0), 0),
+		bestSeconds: Math.max(0, ...sets.map((s) => s.seconds || 0)),
+		distanceKm: sets.reduce((n, s) => n + (s.distanceKm || 0), 0),
+		allSets: sets
+	};
+}
+/** Every logged session of one exercise, oldest first. */
+function exerciseHistory(workouts, exerciseId) {
+	const out = [];
+	for (const w of [...workouts].sort(byDate)) for (const ex of w.exercises) {
+		if (ex.exerciseId !== exerciseId) continue;
+		const p = performance(w, ex);
+		if (p.sets) out.push(p);
+	}
+	return out;
+}
+const sessionVolume = (w) => w.exercises.reduce((n, ex) => n + ex.sets.filter((s) => isWorkingSet(s) && isLogged(s)).reduce((m, s) => m + setVolume(s), 0), 0);
+const sessionSets = (w) => w.exercises.reduce((n, ex) => n + ex.sets.filter((s) => isWorkingSet(s) && isLogged(s)).length, 0);
+const isFinished = (w) => !!w.finishedAt || !w.startedAt;
+/** The exercises the user has logged, most recent first, with how often. */
+function loggedExercises(workouts) {
+	const map = /* @__PURE__ */ new Map();
+	for (const w of workouts) for (const ex of w.exercises) {
+		if (!ex.sets.some(isLogged)) continue;
+		const m = map.get(ex.exerciseId) || {
+			exerciseId: ex.exerciseId,
+			name: ex.name,
+			sessions: 0,
+			last: ""
+		};
+		m.sessions++;
+		if (w.date >= m.last) {
+			m.last = w.date;
+			m.name = ex.name;
+		}
+		map.set(ex.exerciseId, m);
+	}
+	return [...map.values()].sort((a, b) => b.last.localeCompare(a.last) || b.sessions - a.sessions);
+}
+/** Records each session set, in order. A record needs an earlier session of the same exercise to beat. */
+function personalRecords(workouts) {
+	const best = /* @__PURE__ */ new Map(), out = [];
+	for (const w of [...workouts].sort(byDate)) for (const ex of w.exercises) {
+		const p = performance(w, ex);
+		if (!p.sets) continue;
+		const prev = best.get(ex.exerciseId);
+		const now = {
+			e1rm: p.bestE1rm || 0,
+			weight: p.topWeightKg || 0,
+			reps: p.maxReps,
+			volume: p.volumeKg
+		};
+		if (prev) {
+			for (const kind of [
+				"e1rm",
+				"weight",
+				"reps",
+				"volume"
+			]) if (now[kind] > prev[kind] * (kind === "volume" ? 1.0001 : 1) && now[kind] > 0) {
+				if (kind === "reps" && p.topWeightKg) continue;
+				out.push({
+					exerciseId: ex.exerciseId,
+					name: ex.name,
+					kind,
+					value: now[kind],
+					previous: prev[kind] || void 0,
+					date: w.date,
+					...kind === "weight" ? {
+						valueKg: p.topWeightKg,
+						reps: p.topReps
+					} : {}
+				});
+			}
+		}
+		best.set(ex.exerciseId, prev ? Object.fromEntries(Object.keys(now).map((k) => [k, Math.max(prev[k], now[k])])) : now);
+	}
+	return out;
+}
+const dayMs = 864e5;
+const utc = (d) => Date.parse(`${d}T12:00:00Z`);
+const addDays$1 = (d, n) => new Date(utc(d) + n * dayMs).toISOString().slice(0, 10);
+const weekday = (d) => new Date(utc(d)).getUTCDay();
+/** Monday of the week the date is in. */
+const weekStart = (d) => addDays$1(d, -((weekday(d) + 6) % 7));
+const daysBetween = (a, b) => Math.round((utc(b) - utc(a)) / dayMs);
+/** Hard sets per muscle: a primary muscle counts the whole set, a secondary one half. */
+function muscleSets(workouts) {
+	const out = /* @__PURE__ */ new Map();
+	for (const w of workouts) for (const ex of w.exercises) {
+		const e = exerciseById(ex.exerciseId, ex.name);
+		const n = ex.sets.filter((s) => isWorkingSet(s) && isLogged(s)).length;
+		if (!e || !n) continue;
+		for (const m of e.primary) out.set(m, (out.get(m) || 0) + n);
+		for (const m of e.secondary) out.set(m, (out.get(m) || 0) + n / 2);
+	}
+	return out;
+}
+function groupSets(sets) {
+	const out = {
+		push: 0,
+		pull: 0,
+		legs: 0,
+		core: 0
+	};
+	for (const [m, n] of sets) out[GROUP_OF[m]] += n;
+	return out;
+}
+function weeklyStats(workouts, today, weeks = 12) {
+	const start = weekStart(today);
+	const out = Array.from({ length: weeks }, (_, i) => ({
+		week: addDays$1(start, -7 * (weeks - 1 - i)),
+		sessions: 0,
+		volumeKg: 0,
+		sets: 0,
+		minutes: 0
+	}));
+	const index = new Map(out.map((w, i) => [w.week, i]));
+	for (const w of workouts) {
+		const i = index.get(weekStart(w.date));
+		if (i === void 0 || !sessionSets(w)) continue;
+		out[i].sessions++;
+		out[i].volumeKg += sessionVolume(w);
+		out[i].sets += sessionSets(w);
+		out[i].minutes += w.durationMin || 0;
+	}
+	return out;
+}
+const activePlan = (plans) => (plans || []).find((p) => p.active);
+/** Sessions per week the plan asks for: its scheduled weekdays, or one per day of the split. */
+const planTarget = (plan) => !plan ? 0 : Math.min(7, plan.days.some((d) => d.weekdays?.length) ? new Set(plan.days.flatMap((d) => d.weekdays || [])).size : plan.days.length);
+/** What the plan has for a date: the day scheduled on that weekday, or the next day in the rotation after the last one done. */
+function planDayFor(plan, workouts, date) {
+	if (!plan?.days.length) return void 0;
+	const scheduled = plan.days.find((d) => d.weekdays?.includes(weekday(date)));
+	if (scheduled) return {
+		day: scheduled,
+		scheduled: true
+	};
+	if (plan.days.some((d) => d.weekdays?.length)) return void 0;
+	const last = [...workouts].sort(byDate).reverse().find((w) => w.planId === plan.id && w.date < date && w.planDayId);
+	const i = last ? plan.days.findIndex((d) => d.id === last.planDayId) : -1;
+	return {
+		day: plan.days[(i + 1) % plan.days.length],
+		scheduled: false
+	};
+}
+/** Least-squares slope of value per day. */
+function slope(points) {
+	if (points.length < 2) return void 0;
+	const mx = points.reduce((n, p) => n + p.x, 0) / points.length, my = points.reduce((n, p) => n + p.y, 0) / points.length;
+	const den = points.reduce((n, p) => n + (p.x - mx) ** 2, 0);
+	return den ? points.reduce((n, p) => n + (p.x - mx) * (p.y - my), 0) / den : void 0;
+}
+function exerciseTrends(workouts, today, windowDays = 84) {
+	const out = [];
+	for (const { exerciseId, name } of loggedExercises(workouts)) {
+		const hist = exerciseHistory(workouts, exerciseId).filter((p) => p.bestE1rm && daysBetween(p.date, today) <= windowDays);
+		if (hist.length < 3) continue;
+		const s = slope(hist.map((p) => ({
+			x: utc(p.date) / dayMs,
+			y: p.bestE1rm
+		})));
+		const mean = hist.reduce((n, p) => n + p.bestE1rm, 0) / hist.length;
+		const perWeekPct = s === void 0 ? 0 : s * 7 / mean * 100;
+		const top = Math.max(...hist.map((p) => p.bestE1rm));
+		const bestP = hist.find((p) => p.bestE1rm >= top * .995);
+		const weeksSinceBest = Math.floor(daysBetween(bestP.date, today) / 7);
+		const recent = hist.slice(-3);
+		const plateau = weeksSinceBest >= 3 && recent.every((p) => p.bestE1rm <= top * 1.005) && daysBetween(recent[0].date, recent[2].date) >= 7;
+		const status = perWeekPct >= .5 && !plateau ? "progressing" : perWeekPct <= -1 ? "declining" : plateau ? "plateau" : "steady";
+		out.push({
+			exerciseId,
+			name,
+			sessions: hist.length,
+			latestE1rm: hist[hist.length - 1].bestE1rm,
+			bestE1rm: top,
+			perWeekPct: Math.round(perWeekPct * 10) / 10,
+			status,
+			weeksSinceBest
+		});
+	}
+	return out.sort((a, b) => b.sessions - a.sessions);
+}
+/** Body weight from health days: a 7-day moving average and the rate over the last four weeks. */
+function weightTrend(days, today, goalKg) {
+	const raw = days.filter((d) => d.metrics.weightKg !== void 0 && d.date <= today).map((d) => ({
+		date: d.date,
+		kg: d.metrics.weightKg
+	})).sort((a, b) => a.date.localeCompare(b.date));
+	const points = raw.map((p, i) => {
+		const win = raw.slice(0, i + 1).filter((q) => daysBetween(q.date, p.date) < 7);
+		return {
+			...p,
+			avg: Math.round(win.reduce((n, q) => n + q.kg, 0) / win.length * 100) / 100
+		};
+	});
+	const latest = points[points.length - 1];
+	const recent = points.filter((p) => daysBetween(p.date, today) <= 28);
+	const s = recent.length >= 3 && daysBetween(recent[0].date, recent[recent.length - 1].date) >= 7 ? slope(recent.map((p) => ({
+		x: utc(p.date) / dayMs,
+		y: p.kg
+	}))) : void 0;
+	const perWeekKg = s === void 0 ? void 0 : Math.round(s * 7 * 100) / 100;
+	const before = [...points].reverse().find((p) => daysBetween(p.date, today) >= 30);
+	let goalDate;
+	if (goalKg && latest && perWeekKg && Math.sign(goalKg - latest.avg) === Math.sign(perWeekKg) && Math.abs(perWeekKg) >= .05) {
+		const weeks = (goalKg - latest.avg) / perWeekKg;
+		if (weeks > 0 && weeks < 104) goalDate = addDays$1(today, Math.round(weeks * 7));
+	}
+	return {
+		points,
+		latestKg: latest?.kg,
+		perWeekKg,
+		change30Kg: latest && before ? Math.round((latest.avg - before.avg) * 100) / 100 : void 0,
+		goalKg,
+		goalDate
+	};
+}
+/** Average session performance (best e1RM against that exercise's previous three sessions), for linking training to sleep. */
+function sessionIndex(workouts) {
+	const out = /* @__PURE__ */ new Map(), hist = /* @__PURE__ */ new Map();
+	for (const w of [...workouts].sort(byDate)) {
+		const ratios = [];
+		for (const ex of w.exercises) {
+			const p = performance(w, ex);
+			if (!p.bestE1rm) continue;
+			const prev = hist.get(ex.exerciseId) || [];
+			if (prev.length >= 2) ratios.push(p.bestE1rm / (prev.slice(-3).reduce((a, b) => a + b, 0) / Math.min(3, prev.length)));
+			hist.set(ex.exerciseId, [...prev, p.bestE1rm]);
+		}
+		if (ratios.length) out.set(w.id, ratios.reduce((a, b) => a + b, 0) / ratios.length);
+	}
+	return out;
+}
+function trainingStats(workouts, plans, days, today, unit, goalWeightKg) {
+	const done = workouts.filter((w) => isFinished(w) && sessionSets(w) > 0);
+	const weeks = weeklyStats(done, today, 12);
+	const thisWeek = weeks[weeks.length - 1];
+	const plan = activePlan(plans);
+	const target = planTarget(plan) || 3;
+	let weekStreak = thisWeek.sessions >= target ? 1 : 0;
+	for (let i = weeks.length - 2; i >= 0 && weeks[i].sessions >= target; i--) weekStreak++;
+	const last28 = done.filter((w) => daysBetween(w.date, today) < 28 && w.date <= today);
+	const sets = muscleSets(last28);
+	const muscles = [...sets].map(([muscle, n]) => ({
+		muscle,
+		sets: Math.round(n / 4 * 10) / 10
+	})).sort((a, b) => b.sets - a.sets);
+	const groups = groupSets(sets);
+	for (const k of Object.keys(groups)) groups[k] = Math.round(groups[k] / 4 * 10) / 10;
+	const trends = exerciseTrends(done, today);
+	const recentRecords = personalRecords(done).filter((r) => daysBetween(r.date, today) <= 14).reverse();
+	const weight = weightTrend(days, today, goalWeightKg);
+	const insights = [];
+	const w = (kg) => fmtWeight(kg, unit);
+	const prs = recentRecords.filter((r) => r.kind === "e1rm" || r.kind === "weight" || r.kind === "reps");
+	if (prs.length) {
+		const names = [...new Set(prs.map((r) => r.name))];
+		insights.push({
+			id: "prs",
+			tone: "good",
+			title: `${prs.length} personal record${prs.length === 1 ? "" : "s"} in the last two weeks`,
+			detail: `${names.slice(0, 4).join(", ")}${names.length > 4 ? ` and ${names.length - 4} more` : ""}.`
+		});
+	}
+	for (const t of trends.filter((t) => t.status === "progressing").slice(0, 2)) insights.push({
+		id: `up-${t.exerciseId}`,
+		tone: "good",
+		title: `${t.name} is climbing`,
+		detail: `Estimated max up ${t.perWeekPct}% a week over ${t.sessions} sessions, now ${w(t.latestE1rm)}.`
+	});
+	for (const t of trends.filter((t) => t.status === "plateau").slice(0, 2)) insights.push({
+		id: `flat-${t.exerciseId}`,
+		tone: "warn",
+		title: `${t.name} has stalled`,
+		detail: `No new best in ${t.weeksSinceBest} weeks (best ${w(t.bestE1rm)} estimated). Try a new rep range, a variation, or a lighter week.`
+	});
+	for (const t of trends.filter((t) => t.status === "declining").slice(0, 2)) insights.push({
+		id: `down-${t.exerciseId}`,
+		tone: "warn",
+		title: `${t.name} is slipping`,
+		detail: `Estimated max down ${Math.abs(t.perWeekPct)}% a week. Check sleep, food and how much you're doing overall.`
+	});
+	if (last28.length >= 4) {
+		if (groups.push > 0 && groups.pull > 0) {
+			const ratio = groups.push / groups.pull;
+			if (ratio > 1.5) insights.push({
+				id: "balance-push",
+				tone: "warn",
+				title: "More pushing than pulling",
+				detail: `${groups.push} pushing sets a week vs ${groups.pull} pulling. Extra rows and pulldowns keep shoulders healthy.`
+			});
+			else if (ratio < .67) insights.push({
+				id: "balance-pull",
+				tone: "info",
+				title: "More pulling than pushing",
+				detail: `${groups.pull} pulling sets a week vs ${groups.push} pushing.`
+			});
+		}
+		if (groups.legs < 4 && groups.push + groups.pull > 12) insights.push({
+			id: "legs",
+			tone: "warn",
+			title: "Legs are getting little work",
+			detail: `${groups.legs} leg sets a week against ${Math.round(groups.push + groups.pull)} for the upper body.`
+		});
+		const quads = sets.get("quadriceps") || 0, hams = sets.get("hamstrings") || 0;
+		if (quads > 8 && hams < quads / 3) insights.push({
+			id: "hams",
+			tone: "info",
+			title: "Hamstrings trail quads",
+			detail: "Add Romanian deadlifts or leg curls to balance your knees."
+		});
+		const low = muscles.filter((m) => [
+			"chest",
+			"lats",
+			"quadriceps",
+			"hamstrings",
+			"shoulders",
+			"glutes"
+		].includes(m.muscle) && m.sets > 0 && m.sets < 6);
+		if (low.length) insights.push({
+			id: "low-volume",
+			tone: "info",
+			title: "Some muscles are under 6 sets a week",
+			detail: `${low.map((m) => `${m.muscle} (${m.sets})`).join(", ")}. About 10 hard sets a week is a common target for growth.`
+		});
+	}
+	if (weekStreak >= 2) insights.push({
+		id: "streak",
+		tone: "good",
+		title: `${weekStreak} weeks on target`,
+		detail: `${target} or more sessions a week.`
+	});
+	const recentWeeks = weeks.slice(-5, -1);
+	if (done.length >= 4 && recentWeeks.every((x) => x.sessions < target) && thisWeek.sessions < target) insights.push({
+		id: "consistency",
+		tone: "warn",
+		title: "Training has been under target",
+		detail: `${recentWeeks.map((x) => x.sessions).join(", ")} sessions in the last four weeks against ${target}.`
+	});
+	const volumes = weeks.slice(-5, -1).map((x) => x.volumeKg).filter(Boolean);
+	if (volumes.length >= 3 && thisWeek.volumeKg > 1.5 * Math.max(...volumes)) insights.push({
+		id: "spike",
+		tone: "warn",
+		title: "Big jump in volume this week",
+		detail: "About 50% more than any of the last four weeks. Ramp up gradually to stay ahead of soreness."
+	});
+	const index = sessionIndex(done), sleepBy = new Map(days.map((d) => [d.date, d.metrics.sleepMin]));
+	const short = [], rested = [];
+	for (const s of done) {
+		const v = index.get(s.id), sleep = sleepBy.get(s.date);
+		if (v === void 0 || sleep === void 0) continue;
+		(sleep < 390 ? short : rested).push(v);
+	}
+	if (short.length >= 3 && rested.length >= 3) {
+		const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+		const diff = (avg(rested) - avg(short)) * 100;
+		if (Math.abs(diff) >= 2) insights.push({
+			id: "sleep",
+			tone: diff > 0 ? "info" : "good",
+			title: diff > 0 ? "You lift better after a full night" : "Short nights haven't hurt your lifts",
+			detail: `Sessions after under 6.5 hours of sleep come in ${Math.abs(diff).toFixed(1)}% ${diff > 0 ? "weaker" : "stronger"} against your recent numbers (${short.length} short nights, ${rested.length} rested).`
+		});
+	}
+	if (weight.perWeekKg !== void 0 && weight.latestKg) {
+		const pct = weight.perWeekKg / weight.latestKg * 100;
+		if (Math.abs(pct) > 1) insights.push({
+			id: "weight-fast",
+			tone: "warn",
+			title: `Weight is ${pct > 0 ? "rising" : "dropping"} fast`,
+			detail: `${w(Math.abs(weight.perWeekKg))} a week. Under about 1% of body weight a week keeps strength while ${pct > 0 ? "gaining" : "cutting"}.`
+		});
+	}
+	return {
+		sessions: done.length,
+		thisWeek,
+		weeks,
+		target,
+		weekStreak,
+		muscles,
+		groups,
+		trends,
+		recentRecords,
+		weight,
+		insights
+	};
+}
+/** A compact view of training for the assistant. */
+function trainingSummaryForAssistant(workouts, plans, days, today, unit, goalWeightKg) {
+	const stats = trainingStats(workouts, plans, days, today, unit, goalWeightKg);
+	const plan = activePlan(plans);
+	const next = planDayFor(plan, workouts, today);
+	const kg = (v) => v === void 0 ? void 0 : Math.round(toUnit(v, unit) * 10) / 10;
+	const recent = workouts.filter(isFinished).slice(-8).reverse().map((w) => ({
+		id: w.id,
+		date: w.date,
+		name: w.name,
+		minutes: w.durationMin,
+		exercises: w.exercises.map((ex) => {
+			const p = performance(w, ex);
+			return `${ex.name}: ${p.sets} sets${p.topWeightKg ? `, top ${kg(p.topWeightKg)}×${p.topReps}` : p.maxReps ? `, best ${p.maxReps} reps` : ""}`;
+		})
+	}));
+	return {
+		unit,
+		totalSessions: stats.sessions,
+		sessionsThisWeek: stats.thisWeek.sessions,
+		weeklyTarget: stats.target,
+		weeksOnTarget: stats.weekStreak,
+		last12Weeks: stats.weeks.map((w) => ({
+			week: w.week,
+			sessions: w.sessions,
+			sets: w.sets,
+			volume: kg(w.volumeKg)
+		})),
+		hardSetsPerWeekByMuscle: Object.fromEntries(stats.muscles.map((m) => [m.muscle, m.sets])),
+		setsPerWeekByGroup: stats.groups,
+		exerciseTrends: stats.trends.slice(0, 15).map((t) => ({
+			...t,
+			latestE1rm: kg(t.latestE1rm),
+			bestE1rm: kg(t.bestE1rm)
+		})),
+		recentRecords: stats.recentRecords.slice(0, 10).map((r) => ({
+			exercise: r.name,
+			kind: r.kind,
+			date: r.date,
+			value: r.kind === "reps" ? r.value : kg(r.value)
+		})),
+		bodyWeight: {
+			latest: kg(stats.weight.latestKg),
+			perWeek: kg(stats.weight.perWeekKg),
+			change30Days: kg(stats.weight.change30Kg),
+			goal: kg(goalWeightKg),
+			projectedGoalDate: stats.weight.goalDate
+		},
+		insights: stats.insights.map((i) => `${i.title}: ${i.detail}`),
+		activePlan: plan ? {
+			id: plan.id,
+			name: plan.name,
+			days: plan.days.map((d) => ({
+				id: d.id,
+				name: d.name,
+				weekdays: d.weekdays,
+				exercises: d.exercises.map((e) => `${e.name} ${e.sets}×${e.reps}`)
+			}))
+		} : null,
+		today: next ? {
+			planDay: next.day.name,
+			planDayId: next.day.id,
+			scheduled: next.scheduled
+		} : plan ? "rest day" : null,
+		inProgress: workouts.filter((w) => !isFinished(w)).map((w) => ({
+			id: w.id,
+			name: w.name,
+			date: w.date
+		})),
+		recentSessions: recent
 	};
 }
 // src/utils/noteFolders.ts
@@ -8649,90 +22270,341 @@ const healthMetricProps = () => Object.fromEntries(HEALTH_METRICS.map((m) => [m.
 	description: `${m.description} (${m.unit})`
 }]));
 const localStamp = d_("Local time 'YYYY-MM-DD HH:mm'.");
-const MANAGE_TOOLS = [
-	...[
-		fn("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (sleep, steps, weight, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Apple Watch data comes from Apple Health exports the user imports in the Health workspace; use this for what the user reports.", {
-			date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."),
-			...healthMetricProps(),
-			sleepStart: localStamp,
-			sleepEnd: localStamp,
-			tags: {
-				type: "array",
-				items: s_,
-				maxItems: 10,
-				description: "Short lowercase tags to add."
-			},
-			note: d_("Text added to the day's note.")
-		}, ["date"]),
-		fn("update_health_day", "Correct a health day: change or clear metrics, add or remove tags, rewrite its note.", {
-			date: d_("YYYY-MM-DD of an existing health day."),
-			...healthMetricProps(),
-			sleepStart: localStamp,
-			sleepEnd: localStamp,
-			clearMetrics: {
-				type: "array",
-				items: {
-					type: "string",
-					enum: HEALTH_METRICS.map((m) => m.key)
-				},
-				description: "Metrics to remove (bad readings)."
-			},
-			addTags: {
-				type: "array",
-				items: s_,
-				maxItems: 10
-			},
-			removeTags: {
-				type: "array",
-				items: s_,
-				maxItems: 20
-			},
-			replaceNote: d_("New full note; empty string clears it.")
-		}, ["date"]),
-		fn("delete_health_day", "Delete everything stored for one health day. Only when the user explicitly asks.", { date: d_("YYYY-MM-DD.") }, ["date"]),
-		fn("update_health_profile", "Change the personal targets health metrics are measured against: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting).", {
-			workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
-			sleepGoalHours: {
-				type: "number",
-				minimum: 4,
-				maximum: 12
-			},
-			stepGoal: {
-				type: "integer",
-				minimum: 1e3,
-				maximum: 5e4
-			},
-			maxHr: {
-				type: "integer",
-				minimum: 120,
-				maximum: 230
-			},
-			birthYear: {
-				type: "integer",
-				minimum: 1900,
-				maximum: 2030
-			},
-			sex: {
+const HEALTH_TOOLS = [
+	fn("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (sleep, steps, weight, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Apple Watch data comes from Apple Health exports the user imports in the Health workspace; use this for what the user reports.", {
+		date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."),
+		...healthMetricProps(),
+		sleepStart: localStamp,
+		sleepEnd: localStamp,
+		tags: {
+			type: "array",
+			items: s_,
+			maxItems: 10,
+			description: "Short lowercase tags to add."
+		},
+		note: d_("Text added to the day's note.")
+	}, ["date"]),
+	fn("update_health_day", "Correct a health day: change or clear metrics, add or remove tags, rewrite its note.", {
+		date: d_("YYYY-MM-DD of an existing health day."),
+		...healthMetricProps(),
+		sleepStart: localStamp,
+		sleepEnd: localStamp,
+		clearMetrics: {
+			type: "array",
+			items: {
 				type: "string",
-				enum: ["female", "male"]
+				enum: HEALTH_METRICS.map((m) => m.key)
 			},
-			clear: {
-				type: "array",
-				items: {
-					type: "string",
-					enum: [
-						"sleepGoalHours",
-						"stepGoal",
-						"maxHr",
-						"birthYear",
-						"sex"
-					]
+			description: "Metrics to remove (bad readings)."
+		},
+		addTags: {
+			type: "array",
+			items: s_,
+			maxItems: 10
+		},
+		removeTags: {
+			type: "array",
+			items: s_,
+			maxItems: 20
+		},
+		replaceNote: d_("New full note; empty string clears it.")
+	}, ["date"]),
+	fn("delete_health_day", "Delete everything stored for one health day. Only when the user explicitly asks.", { date: d_("YYYY-MM-DD.") }, ["date"]),
+	fn("update_health_profile", "Change the personal targets health metrics are measured against: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting).", {
+		workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
+		sleepGoalHours: {
+			type: "number",
+			minimum: 4,
+			maximum: 12
+		},
+		stepGoal: {
+			type: "integer",
+			minimum: 1e3,
+			maximum: 5e4
+		},
+		maxHr: {
+			type: "integer",
+			minimum: 120,
+			maximum: 230
+		},
+		birthYear: {
+			type: "integer",
+			minimum: 1900,
+			maximum: 2030
+		},
+		sex: {
+			type: "string",
+			enum: ["female", "male"]
+		},
+		weightUnit: {
+			type: "string",
+			enum: ["kg", "lb"],
+			description: "Unit for body weight and lifting weights in the app."
+		},
+		goalWeight: {
+			type: "number",
+			minimum: 20,
+			maximum: 900,
+			description: "Body-weight goal, in goalWeightUnit (default the user's unit)."
+		},
+		goalWeightUnit: {
+			type: "string",
+			enum: ["kg", "lb"]
+		},
+		clear: {
+			type: "array",
+			items: {
+				type: "string",
+				enum: [
+					"sleepGoalHours",
+					"stepGoal",
+					"maxHr",
+					"birthYear",
+					"sex",
+					"weightUnit",
+					"goalWeight"
+				]
+			},
+			description: "Targets to reset to the default."
+		}
+	}, [])
+];
+const unitArg = {
+	type: "string",
+	enum: ["kg", "lb"],
+	description: "Unit of every weight given. Defaults to the user's unit in the training summary."
+};
+const workoutExerciseSchema = {
+	type: "object",
+	properties: {
+		name: d_("Exercise name; use the exact library name from search_exercises when there is one. Any other name is saved as the user's own exercise."),
+		exerciseId: d_("Library ID from search_exercises, if known."),
+		sets: {
+			type: "array",
+			items: {
+				type: "object",
+				properties: {
+					reps: {
+						type: "integer",
+						minimum: 0,
+						maximum: 1e3
+					},
+					weight: {
+						type: "number",
+						minimum: 0,
+						maximum: 2e3,
+						description: "Load in the unit given; for bodyweight moves, only added weight."
+					},
+					seconds: {
+						type: "integer",
+						minimum: 0,
+						maximum: 86400,
+						description: "Duration, for holds, stretches and cardio."
+					},
+					distanceKm: {
+						type: "number",
+						minimum: 0,
+						maximum: 1e3
+					},
+					rpe: {
+						type: "number",
+						minimum: 1,
+						maximum: 10,
+						description: "Effort 1 to 10, if the user said."
+					},
+					kind: {
+						type: "string",
+						enum: [
+							"warmup",
+							"working",
+							"drop",
+							"failure"
+						]
+					},
+					repeat: {
+						type: "integer",
+						minimum: 1,
+						maximum: 20,
+						description: "Log this set this many times (e.g. 3×8 at 135 is one set with repeat 3)."
+					}
 				},
-				description: "Targets to reset to the default."
-			}
-		}, [])
+				additionalProperties: false
+			},
+			maxItems: 50
+		},
+		note: s_
+	},
+	required: ["name", "sets"],
+	additionalProperties: false
+};
+const planExerciseSchema = {
+	type: "object",
+	properties: {
+		name: d_("Exercise name; prefer exact library names from search_exercises."),
+		exerciseId: d_("Library ID, if known."),
+		sets: {
+			type: "integer",
+			minimum: 1,
+			maximum: 20
+		},
+		reps: d_("Target reps, e.g. \"8-12\" or \"5\", or a time like \"30s\"."),
+		restSec: {
+			type: "integer",
+			minimum: 0,
+			maximum: 1800
+		},
+		note: s_
+	},
+	required: [
+		"name",
+		"sets",
+		"reps"
 	],
-	fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
+	additionalProperties: false
+};
+const planDaySchema = {
+	type: "object",
+	properties: {
+		name: d_("e.g. Push, Pull, Legs, Upper A."),
+		weekdays: {
+			type: "array",
+			items: {
+				type: "integer",
+				minimum: 0,
+				maximum: 6
+			},
+			maxItems: 7,
+			description: "Days it is scheduled, 0 = Sunday … 6 = Saturday. Omit to rotate through the days in order instead."
+		},
+		exercises: {
+			type: "array",
+			items: planExerciseSchema,
+			maxItems: 30
+		}
+	},
+	required: ["name", "exercises"],
+	additionalProperties: false
+};
+const TRAINING_TOOLS = [
+	fn("log_workout", "Log a strength or cardio session in the Health workspace's Training log: each exercise with its sets (reps, weight, time, distance). Use when the user tells you what they did at the gym or at home. Body weight goes in log_health_day (weightKg), not here.", {
+		date: d_("YYYY-MM-DD, defaults to today."),
+		name: d_("e.g. \"Push\" or \"Leg day\"."),
+		unit: unitArg,
+		durationMin: {
+			type: "integer",
+			minimum: 0,
+			maximum: 1440
+		},
+		note: s_,
+		planDayId: d_("The plan day this session followed (from the training summary), if any."),
+		exercises: {
+			type: "array",
+			items: workoutExerciseSchema,
+			minItems: 1,
+			maxItems: 60
+		}
+	}, ["exercises"]),
+	fn("update_workout", "Change a logged session: rename, move to another date, set its duration or note, add exercises, replace the sets of an exercise, remove exercises, or mark an in-progress session finished.", {
+		workoutId: s_,
+		newName: s_,
+		newDate: d_("YYYY-MM-DD"),
+		durationMin: {
+			type: "integer",
+			minimum: 0,
+			maximum: 1440
+		},
+		unit: unitArg,
+		appendNote: s_,
+		replaceNote: d_("New full note; empty string clears it."),
+		addExercises: {
+			type: "array",
+			items: workoutExerciseSchema,
+			maxItems: 30
+		},
+		replaceExercises: {
+			type: "array",
+			items: workoutExerciseSchema,
+			maxItems: 30,
+			description: "Exercises already in the session (matched by name or ID) whose sets are replaced by these."
+		},
+		removeExercises: {
+			type: "array",
+			items: s_,
+			maxItems: 30,
+			description: "Names or IDs of exercises to take out."
+		},
+		finish: {
+			type: "boolean",
+			description: "true marks an in-progress session finished."
+		}
+	}, ["workoutId"]),
+	fn("delete_workout", "Delete a logged training session. Only when the user explicitly asks.", { workoutId: s_ }, ["workoutId"]),
+	fn("create_workout_plan", "Create a training plan (split) such as Push / Pull / Legs, Upper / Lower or full body: named days, each with exercises, target sets and reps, and optionally the weekdays it falls on. A new active plan replaces the current active one.", {
+		name: s_,
+		description: s_,
+		active: {
+			type: "boolean",
+			description: "Make it the plan the app follows. Default true."
+		},
+		days: {
+			type: "array",
+			items: planDaySchema,
+			minItems: 1,
+			maxItems: 14
+		}
+	}, ["name", "days"]),
+	fn("update_workout_plan", "Change a training plan: rename it, make it active or not, add days, change a day (rename, reschedule, replace its exercises), or remove days.", {
+		planId: s_,
+		newName: s_,
+		description: s_,
+		active: { type: "boolean" },
+		addDays: {
+			type: "array",
+			items: planDaySchema,
+			maxItems: 14
+		},
+		updateDays: {
+			type: "array",
+			maxItems: 14,
+			items: {
+				type: "object",
+				properties: {
+					day: d_("ID or current name of the day."),
+					newName: s_,
+					weekdays: {
+						type: "array",
+						items: {
+							type: "integer",
+							minimum: 0,
+							maximum: 6
+						},
+						maxItems: 7,
+						description: "Replacement schedule; empty array to rotate instead."
+					},
+					exercises: {
+						type: "array",
+						items: planExerciseSchema,
+						maxItems: 30,
+						description: "Replacement exercise list."
+					}
+				},
+				required: ["day"],
+				additionalProperties: false
+			}
+		},
+		removeDays: {
+			type: "array",
+			items: s_,
+			maxItems: 14,
+			description: "IDs or names of days to remove."
+		}
+	}, ["planId"]),
+	fn("delete_workout_plan", "Delete a training plan. Logged sessions stay. Only when the user explicitly asks.", { planId: s_ }, ["planId"])
+];
+const MANAGE_TOOLS = [
+	...HEALTH_TOOLS,
+	...TRAINING_TOOLS,
+	fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (workouts, training plans and progress, plus Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
 		name: s_,
 		template: {
 			type: "string",
@@ -9300,7 +23172,9 @@ const recordTypes = [
 	"document",
 	"deck",
 	"quiz",
-	"health"
+	"health",
+	"workout",
+	"workout_plan"
 ];
 const str = { type: "string" };
 const date = {
@@ -9341,6 +23215,26 @@ const READ_TOOLS = [
 		type: "string",
 		description: "Optional YYYY-MM-DD to evaluate as 'today'."
 	} }),
+	tool("training_summary", "The user's strength and cardio training from the Health workspace's Training log: sessions per week against their plan, weeks on target, hard sets per muscle and push/pull/legs balance, per-exercise trends of estimated one-rep max (progressing, plateau, declining), recent personal records, body-weight trend and goal, insights already found, the active plan with today's planned day, and recent sessions. Weights are in the user's unit. Use for any question about workouts, lifting, progress, plateaus or the gym. Raw sessions: query_records type workout.", { date: {
+		type: "string",
+		description: "Optional YYYY-MM-DD to evaluate as 'today'."
+	} }),
+	tool("search_exercises", "Search the exercise library (about 930 gym, home, bodyweight, cardio and stretching moves) by name or shorthand (\"rdl\", \"incline db press\"), optionally filtered by muscle, equipment or category. Returns IDs and exact names to use when logging workouts or building plans.", {
+		query: str,
+		muscle: {
+			type: "string",
+			enum: MUSCLES
+		},
+		equipment: {
+			type: "string",
+			enum: EQUIPMENT
+		},
+		category: {
+			type: "string",
+			enum: CATEGORIES
+		},
+		offset: cursorSchema
+	}),
 	tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
 		type: typeSchema,
 		dateFrom: date,
@@ -9473,7 +23367,9 @@ const MUTATION_COLLECTIONS = {
 	knowledge: "knowledgeItems",
 	tracker: "trackerItems",
 	event: "events",
-	health: "healthDays"
+	health: "healthDays",
+	workout: "workouts",
+	workout_plan: "workoutPlans"
 };
 const STUDY_COLLECTIONS = {
 	course: "courses",
@@ -9675,6 +23571,13 @@ function applyMutation(state, mutation) {
 		}
 		return next;
 	}
+	if (mutation.type === "workout_plan" && !mutation.remove && mutation.record.active) state = {
+		...state,
+		workoutPlans: (state.workoutPlans || []).map((p) => p.active && p.id !== mutation.record.id ? {
+			...p,
+			active: false
+		} : p)
+	};
 	if (mutation.type === "task" && !mutation.remove) {
 		const task = mutation.record;
 		state = registerTaskGroup(state, task.section, task.subsection);
@@ -9716,6 +23619,39 @@ async function executeRead(name, args, state, key, signal, progress, ctx) {
 		output: searchConversations(state, args.query, args.offset || 0),
 		sources: []
 	};
+	if (name === "training_summary") {
+		if (args.date !== void 0) validDate$1(args.date);
+		const profile = (state.workspaces || []).find((w) => w.template === "health")?.health;
+		return {
+			output: trainingSummaryForAssistant(state.workouts || [], state.workoutPlans, state.healthDays || [], args.date || getLocalDateString(), profile?.weightUnit || "kg", profile?.goalWeightKg),
+			sources: []
+		};
+	}
+	if (name === "search_exercises") {
+		const found = searchExercises(args.query || "", {
+			muscle: args.muscle,
+			equipment: args.equipment,
+			category: args.category
+		});
+		const offset = args.offset || 0, page = found.slice(offset, offset + 25);
+		return {
+			output: {
+				total: found.length,
+				nextOffset: offset + 25 < found.length ? offset + 25 : null,
+				exercises: page.map((e) => ({
+					id: e.id,
+					name: e.name,
+					category: e.category,
+					equipment: e.equipment,
+					primary: e.primary,
+					secondary: e.secondary,
+					level: e.level,
+					records: measureOf(e)
+				}))
+			},
+			sources: []
+		};
+	}
 	if (name === "health_summary") {
 		if (args.date !== void 0) validDate$1(args.date);
 		const profile = (state.workspaces || []).find((w) => w.template === "health")?.health;
@@ -9962,6 +23898,70 @@ function routineFields(base, args) {
 	if (r.frequency !== "weekly") delete r.days;
 	if (r.frequency !== "monthly") delete r.dayOfMonth;
 	return r;
+}
+/** The unit weights in a tool call are in: the one given, else the user's own. */
+function weightUnitOf(state, unit) {
+	if (unit === "kg" || unit === "lb") return unit;
+	return (state.workspaces || []).find((w) => w.template === "health")?.health?.weightUnit || "kg";
+}
+function workoutExerciseArg(e, unit) {
+	const { exerciseId, name } = resolveExercise(String(e?.name || ""), e?.exerciseId);
+	const sets = [];
+	for (const s of e?.sets || []) {
+		const set = {};
+		if (s.reps !== void 0) set.reps = s.reps;
+		if (s.weight !== void 0) set.weightKg = Math.round(fromUnit(s.weight, unit) * 1e3) / 1e3;
+		if (s.seconds !== void 0) set.seconds = s.seconds;
+		if (s.distanceKm !== void 0) set.distanceKm = s.distanceKm;
+		if (s.rpe !== void 0) set.rpe = s.rpe;
+		if (s.kind && s.kind !== "working") set.kind = s.kind;
+		if (!set.reps && !set.seconds && !set.distanceKm) throw new Error(`Each set of ${name} needs reps, seconds or distanceKm.`);
+		set.done = true;
+		for (let i = 0; i < (s.repeat || 1); i++) sets.push({ ...set });
+	}
+	if (!sets.length) throw new Error(`Give the sets for ${name}.`);
+	return {
+		id: crypto.randomUUID(),
+		exerciseId,
+		name,
+		sets,
+		...e?.note ? { note: String(e.note).trim() } : {}
+	};
+}
+function planExerciseArg(e) {
+	const { exerciseId, name } = resolveExercise(String(e?.name || ""), e?.exerciseId);
+	const reps = String(e?.reps ?? "").trim();
+	if (!reps) throw new Error(`Give target reps for ${name}.`);
+	return {
+		id: crypto.randomUUID(),
+		exerciseId,
+		name,
+		sets: e.sets,
+		reps,
+		...e.restSec !== void 0 ? { restSec: e.restSec } : {},
+		...e.note ? { note: String(e.note).trim() } : {}
+	};
+}
+function planDayArg(d) {
+	const weekdays = [...new Set(d?.weekdays || [])].sort();
+	return {
+		id: crypto.randomUUID(),
+		name: groupName(d?.name, "Day"),
+		...weekdays.length ? { weekdays } : {},
+		exercises: (d?.exercises || []).map(planExerciseArg)
+	};
+}
+function checkedWorkout(w) {
+	const clean = normalizeWorkout(w);
+	if (!clean) throw new Error("That session could not be saved.");
+	if (clean.exercises.length > 60) throw new Error("At most 60 exercises in a session.");
+	return clean;
+}
+function checkedPlan(p) {
+	if (p.days.length > 14) throw new Error("At most 14 days in a plan.");
+	const clean = normalizeWorkoutPlan(p);
+	if (!clean) throw new Error("That plan could not be saved.");
+	return clean;
 }
 function prepareMutation(name, args, state) {
 	const today = getLocalDateString();
@@ -11100,9 +25100,11 @@ function prepareMutation(name, args, state) {
 				"stepGoal",
 				"maxHr",
 				"birthYear",
-				"sex"
+				"sex",
+				"weightUnit"
 			]) if (args[key] !== void 0) next[key] = args[key];
-			for (const key of args.clear || []) delete next[key === "sleepGoalHours" ? "sleepGoalMin" : key];
+			if (args.goalWeight !== void 0) next.goalWeightKg = fromUnit(args.goalWeight, args.goalWeightUnit || next.weightUnit || "kg");
+			for (const key of args.clear || []) delete next[key === "sleepGoalHours" ? "sleepGoalMin" : key === "goalWeight" ? "goalWeightKg" : key];
 			const clean = normalizeHealthProfile(next);
 			if (JSON.stringify(clean || {}) === JSON.stringify(w.health || {})) throw new Error("Nothing to change: give a new target or one to clear.");
 			const { health: _old, ...rest } = w;
@@ -11116,6 +25118,181 @@ function prepareMutation(name, args, state) {
 				} : rest
 			};
 		}
+		case "log_workout": {
+			const date = args.date || today;
+			validDate$1(date);
+			const unit = weightUnitOf(state, args.unit);
+			const now = (/* @__PURE__ */ new Date()).toISOString();
+			const session = {
+				id,
+				date,
+				name: (args.name || "").trim() || "Workout",
+				exercises: (args.exercises || []).map((e) => workoutExerciseArg(e, unit)),
+				createdAt: now,
+				updatedAt: now
+			};
+			if (!session.exercises.length) throw new Error("Give at least one exercise with its sets.");
+			if (args.durationMin !== void 0) session.durationMin = args.durationMin;
+			if (args.note) session.note = String(args.note).trim();
+			if (args.planDayId) {
+				const plan = (state.workoutPlans || []).find((p) => p.days.some((d) => d.id === args.planDayId));
+				if (!plan) throw new Error("planDayId not found. Use a day ID from the training summary.");
+				session.planId = plan.id;
+				session.planDayId = args.planDayId;
+				if (!args.name) session.name = plan.days.find((d) => d.id === args.planDayId).name;
+			}
+			return {
+				type: "workout",
+				action: name,
+				record: checkedWorkout(session)
+			};
+		}
+		case "update_workout": {
+			const w = findIn(state.workouts, args.workoutId, "Workout");
+			const unit = weightUnitOf(state, args.unit);
+			const next = {
+				...w,
+				exercises: [...w.exercises]
+			};
+			if (args.newName !== void 0) next.name = String(args.newName).trim() || w.name;
+			if (args.newDate !== void 0) {
+				validDate$1(args.newDate);
+				next.date = args.newDate;
+			}
+			if (args.durationMin !== void 0) next.durationMin = args.durationMin;
+			if (args.replaceNote !== void 0) {
+				if (args.replaceNote.trim()) next.note = args.replaceNote.trim();
+				else delete next.note;
+			}
+			if (args.appendNote) next.note = [next.note, String(args.appendNote).trim()].filter(Boolean).join("\n");
+			const match = (ex, ref) => ex.id === ref || ex.exerciseId === ref || sameName(ex.name, ref);
+			for (const ref of args.removeExercises || []) {
+				if (!next.exercises.some((ex) => match(ex, ref))) throw new Error(`No exercise "${ref}" in this session.`);
+				next.exercises = next.exercises.filter((ex) => !match(ex, ref));
+			}
+			for (const e of args.replaceExercises || []) {
+				const resolved = workoutExerciseArg(e, unit);
+				const i = next.exercises.findIndex((ex) => match(ex, e.exerciseId || e.name) || ex.exerciseId === resolved.exerciseId);
+				if (i < 0) throw new Error(`No exercise "${e.name}" in this session. Use addExercises for new ones.`);
+				next.exercises[i] = {
+					...next.exercises[i],
+					sets: resolved.sets,
+					...resolved.note ? { note: resolved.note } : {}
+				};
+			}
+			for (const e of args.addExercises || []) next.exercises.push(workoutExerciseArg(e, unit));
+			if (args.finish && !next.finishedAt) {
+				next.finishedAt = (/* @__PURE__ */ new Date()).toISOString();
+				if (next.durationMin === void 0 && next.startedAt) next.durationMin = Math.max(1, Math.round((Date.parse(next.finishedAt) - Date.parse(next.startedAt)) / 6e4));
+			}
+			next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+			const record = checkedWorkout(next);
+			if (JSON.stringify({
+				...record,
+				updatedAt: ""
+			}) === JSON.stringify({
+				...w,
+				updatedAt: ""
+			})) throw new Error("Nothing to change.");
+			return {
+				type: "workout",
+				action: name,
+				expected: w,
+				record
+			};
+		}
+		case "delete_workout": {
+			const w = findIn(state.workouts, args.workoutId, "Workout");
+			return {
+				type: "workout",
+				action: name,
+				expected: w,
+				record: w,
+				remove: true
+			};
+		}
+		case "create_workout_plan": {
+			const planName = groupName(args.name, "Plan");
+			if ((state.workoutPlans || []).some((p) => sameName(p.name, planName))) throw new Error("A plan with this name already exists. Update it instead.");
+			if ((state.workoutPlans || []).length >= 20) throw new Error("At most 20 plans. Delete one first.");
+			const now = (/* @__PURE__ */ new Date()).toISOString();
+			const plan = {
+				id,
+				name: planName,
+				active: args.active !== false,
+				days: (args.days || []).map(planDayArg),
+				createdAt: now,
+				updatedAt: now
+			};
+			if (!plan.days.length) throw new Error("A plan needs at least one day.");
+			if (args.description) plan.description = String(args.description).trim();
+			return {
+				type: "workout_plan",
+				action: name,
+				record: checkedPlan(plan)
+			};
+		}
+		case "update_workout_plan": {
+			const p = findIn(state.workoutPlans, args.planId, "Plan");
+			const next = {
+				...p,
+				days: [...p.days]
+			};
+			if (args.newName !== void 0) {
+				next.name = groupName(args.newName, "Plan");
+				if ((state.workoutPlans || []).some((x) => x.id !== p.id && sameName(x.name, next.name))) throw new Error("Another plan already has this name.");
+			}
+			if (args.description !== void 0) {
+				if (args.description.trim()) next.description = args.description.trim();
+				else delete next.description;
+			}
+			if (args.active !== void 0) next.active = !!args.active;
+			const findDay = (ref) => {
+				const i = next.days.findIndex((d) => d.id === ref || sameName(d.name, ref));
+				if (i < 0) throw new Error(`No day "${ref}" in this plan.`);
+				return i;
+			};
+			for (const ref of args.removeDays || []) next.days.splice(findDay(ref), 1);
+			for (const u of args.updateDays || []) {
+				const i = findDay(u.day);
+				const d = { ...next.days[i] };
+				if (u.newName !== void 0) d.name = groupName(u.newName, "Day");
+				if (u.weekdays !== void 0) {
+					const days = [...new Set(u.weekdays)].sort();
+					if (days.length) d.weekdays = days;
+					else delete d.weekdays;
+				}
+				if (u.exercises !== void 0) d.exercises = u.exercises.map(planExerciseArg);
+				next.days[i] = d;
+			}
+			for (const d of args.addDays || []) next.days.push(planDayArg(d));
+			if (!next.days.length) throw new Error("A plan needs at least one day. Delete the plan instead.");
+			next.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
+			const record = checkedPlan(next);
+			if (JSON.stringify({
+				...record,
+				updatedAt: ""
+			}) === JSON.stringify({
+				...p,
+				updatedAt: ""
+			})) throw new Error("Nothing to change.");
+			return {
+				type: "workout_plan",
+				action: name,
+				expected: p,
+				record
+			};
+		}
+		case "delete_workout_plan": {
+			const p = findIn(state.workoutPlans, args.planId, "Plan");
+			return {
+				type: "workout_plan",
+				action: name,
+				expected: p,
+				record: p,
+				remove: true
+			};
+		}
 		default: throw new Error(`Unknown mutation ${name}`);
 	}
 }
@@ -11123,6 +25300,8 @@ function prepareMutation(name, args, state) {
 const READ = /* @__PURE__ */ new Set([
 	"list_resume_versions",
 	"health_summary",
+	"training_summary",
+	"search_exercises",
 	"query_records",
 	"read_record",
 	"read_records",
@@ -11194,6 +25373,12 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"update_health_day",
 	"delete_health_day",
 	"update_health_profile",
+	"log_workout",
+	"update_workout",
+	"delete_workout",
+	"create_workout_plan",
+	"update_workout_plan",
+	"delete_workout_plan",
 	"create_routine",
 	"update_routine",
 	"delete_routine"
@@ -11647,7 +25832,15 @@ const TOOL_AREAS = {
 		"log_health_day",
 		"update_health_day",
 		"delete_health_day",
-		"update_health_profile"
+		"update_health_profile",
+		"training_summary",
+		"search_exercises",
+		"log_workout",
+		"update_workout",
+		"delete_workout",
+		"create_workout_plan",
+		"update_workout_plan",
+		"delete_workout_plan"
 	],
 	organize: [
 		"create_workspace",
@@ -11675,7 +25868,7 @@ const toolArea = (name) => AREA_OF.get(name);
 const AREA_WORDS = {
 	career: /\b(appl(y|ied|ying|ication|ications)|jobs?|intern(s|ship|ships)?|recruit\w*|interview\w*|offers?|r[eé]sum[eé]s?|cv|cover letter|leetcode|neetcode|hackerrank|practice problems?|coding problems?|solved|career|tracker|onsite|online assessment|oa|referral|rejected|rejection|hiring|company|companies)\b/i,
 	study: /\b(courses?|class(es)?|lectures?|syllabus|exams?|midterms?|finals?|quiz(zes)?|flash ?cards?|decks?|study|studying|grades?|grading|gpa|homework|hw|professor|prof|semester|scored?|got \d+)\b/i,
-	health: /\b(sleep|slept|asleep|naps?|steps|workouts?|exercis\w*|running|ran|gym|lift\w*|heart rate|hrv|resting hr|recovery|recovered|weigh\w*|health|tired|exhausted|vo2|calories|apple (watch|health)|training|strain)\b/i,
+	health: /\b(sleep|slept|asleep|naps?|steps|workouts?|exercis\w*|running|ran|gym|lift\w*|heart rate|hrv|bench\w*|squat\w*|deadlift\w*|\d+ ?reps|\d+ ?x ?\d+|sets? of \d+|(push|pull|leg|arm|chest|back) day|ppl|(training|workout) (split|plan|log)|cardio|muscles?|bulk\w*|plateau\w*|personal records?|1rm|one rep max|dumbbells?|barbells?|pull-?ups?|push-?ups?|resting hr|recovery|recovered|weigh\w*|health|tired|exhausted|vo2|calories|apple (watch|health)|training|strain)\b/i,
 	organize: /\b(workspaces?|sections?|subsections?|folders?|rename|reorgani[sz]e|organi[sz]e|categor(y|ies))\b/i,
 	routines: /\b(routines?|automat\w*|recurring|daily|weekly|monthly|every (day|morning|evening|night|week|month|weekday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (day|morning|week)|on a schedule|schedule[ds]? (it|this)|remind me every)\b/i
 };
@@ -11689,6 +25882,8 @@ const AREA_OF_RECORD = {
 	deck: "study",
 	quiz: "study",
 	health: "health",
+	workout: "health",
+	workout_plan: "health",
 	workspace: "organize",
 	folder: "organize",
 	section: "organize",
@@ -11717,7 +25912,7 @@ function routeTools(catalog, areas) {
 const AREA_LABELS = {
 	career: "career: job applications and coding practice in Career trackers, résumé versions",
 	study: "study: courses, grading and grades, flashcard decks, quizzes",
-	health: "health: the health summary, logging and correcting health days, health targets",
+	health: "health: the health summary, logging and correcting health days, health targets, workouts and training plans, the exercise library",
 	organize: "organize: workspaces, task sections and subsections, note folders",
 	routines: "routines: work you do on your own on a schedule (create, change, pause, delete)"
 };

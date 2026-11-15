@@ -21,6 +21,15 @@
         "tests/fixtures/vite.config.ts"
       ],
       "port": 1423
+    },
+    {
+      "name": "synapse-training",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_AUTH_PROVIDER=local npx vite --port 1431 --strictPort"
+      ],
+      "port": 1431
     }
   ]
 }

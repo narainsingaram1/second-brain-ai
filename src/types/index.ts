@@ -67,6 +67,82 @@ export interface HealthProfile {
   birthYear?: number;
   /** Only used to pick the training-load (TRIMP) weighting. */
   sex?: 'female' | 'male';
+  /** Unit weights are shown and entered in. Stored values are always kg. */
+  weightUnit?: 'kg' | 'lb';
+  /** Body-weight goal in kg. */
+  goalWeightKg?: number;
+}
+
+/** One set of an exercise. Weights are kg; a set has whatever the exercise measures (reps, load, time, distance). */
+export interface WorkoutSet {
+  reps?: number;
+  weightKg?: number;
+  seconds?: number;
+  distanceKm?: number;
+  /** Effort, 1 to 10. */
+  rpe?: number;
+  kind?: 'warmup' | 'working' | 'drop' | 'failure';
+  done?: boolean;
+}
+
+export interface WorkoutExercise {
+  id: string;
+  /** ID in the exercise library, or "custom-<slug>" for the user's own. */
+  exerciseId: string;
+  name: string;
+  sets: WorkoutSet[];
+  note?: string;
+}
+
+/** One training session (collection workouts). */
+export interface WorkoutSession {
+  id: string;
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+  name: string;
+  /** The plan and day it followed, if any. */
+  planId?: string;
+  planDayId?: string;
+  /** ISO time the session started; set while it is being logged live. */
+  startedAt?: string;
+  /** ISO time it was finished. A session without it is still in progress. */
+  finishedAt?: string;
+  durationMin?: number;
+  exercises: WorkoutExercise[];
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PlanExercise {
+  id: string;
+  exerciseId: string;
+  name: string;
+  sets: number;
+  /** Target reps, e.g. "8-12" or "5". For timed moves, e.g. "30s". */
+  reps: string;
+  restSec?: number;
+  note?: string;
+}
+
+export interface PlanDay {
+  id: string;
+  /** e.g. "Push", "Pull", "Legs", "Upper A". */
+  name: string;
+  /** Days of the week it is scheduled, 0 = Sunday. */
+  weekdays?: number[];
+  exercises: PlanExercise[];
+}
+
+/** A training split such as Push / Pull / Legs (collection workoutPlans). At most one is active. */
+export interface WorkoutPlan {
+  id: string;
+  name: string;
+  description?: string;
+  active: boolean;
+  days: PlanDay[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface HealthWorkout {
@@ -520,7 +596,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workspace' | 'folder' | 'routine';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workout' | 'workout_plan' | 'workspace' | 'folder' | 'routine';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -602,6 +678,8 @@ export interface BrainState {
   trackerItems: TrackerItem[];
   events?: CalendarEvent[];
   healthDays?: HealthDay[];
+  workouts?: WorkoutSession[];
+  workoutPlans?: WorkoutPlan[];
   workspaces?: Workspace[];
   study?: StudyState;
   noteFolders?: NoteFolder[];

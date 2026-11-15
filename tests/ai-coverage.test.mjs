@@ -33,6 +33,8 @@ const COVERAGE = {
   'study.decks': { create: 'create_flashcard_deck', update: 'update_flashcard_deck', delete: 'delete_flashcard_deck' },
   'study.quizzes': { create: 'create_quiz', update: 'update_quiz', delete: 'delete_quiz' },
   memory: { create: 'remember_memory', update: 'update_memory', delete: 'forget_memory' },
+  workouts: { create: 'log_workout', update: 'update_workout', delete: 'delete_workout' },
+  workoutPlans: { create: 'create_workout_plan', update: 'update_workout_plan', delete: 'delete_workout_plan' },
   routines: { create: 'create_routine', update: 'update_routine', delete: 'delete_routine' },
   // Left to the app, on purpose:
   'study.documents': { exempt: 'Uploaded files: the user uploads them; their text is stored apart from records and removed by the app.' },
