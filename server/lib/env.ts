@@ -19,6 +19,11 @@ export function serverEnv() {
     telegramBotToken: env.TELEGRAM_BOT_TOKEN || "",
     /** Server only. Finds which account a Telegram chat belongs to and starts a short session as that user. */
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || "",
+    /**
+     * Optional. The project's JWT secret (Project Settings > API > JWT secret). With it, scheduled jobs and webhooks
+     * act as a user with a short token signed here instead of creating a sign-in session (four Auth requests each).
+     */
+    supabaseJwtSecret: env.SUPABASE_JWT_SECRET || "",
     /** Bearer token the scheduler must present to run reminders. */
     cronSecret: env.CRON_SECRET || "",
     /** Public origin Telegram posts to; Vercel supplies its production domain automatically. */

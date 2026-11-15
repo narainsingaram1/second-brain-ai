@@ -38,13 +38,41 @@ const LINK_COLUMNS = "user_id,chat_id,time_zone,brief_enabled,brief_hour,alerts_
 type LinkRow = { user_id: string; chat_id: number | string; time_zone: string; brief_enabled: boolean; brief_hour: number; alerts_enabled: boolean };
 const account = (r: LinkRow): TelegramAccount => ({ userId: r.user_id, chatId: Number(r.chat_id), timeZone: r.time_zone, briefEnabled: r.brief_enabled, briefHour: r.brief_hour, alertsEnabled: r.alerts_enabled });
 const AUTH_OPTIONS = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
+/** PostgREST returns at most this many rows per request by default; larger lists are read page by page. */
+const PAGE = 1000;
+/** How long a scheduler session token lives: one account's routines run one after another within it. */
+const SESSION_SECONDS = 15 * 60;
+
+/** Reads every row of a query, a page at a time. `query` must have a stable order. */
+async function allRows<T>(what: string, query: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data } = check(await query(from, from + PAGE - 1), what);
+    rows.push(...(data || []));
+    if (!data || data.length < PAGE) return rows;
+  }
+}
+
+const base64url = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+/**
+ * An access token for this user, signed with the project's JWT secret: the same claims Supabase Auth puts in a
+ * session (role and audience "authenticated", the user as subject), so row-level security applies exactly as for
+ * the app. Used instead of creating a sign-in session, which costs four Auth requests per account.
+ */
+export async function userAccessToken(userId: string, secret: string, now = Math.floor(Date.now() / 1000)): Promise<string> {
+  const text = new TextEncoder();
+  const part = (value: object) => base64url(text.encode(JSON.stringify(value)));
+  const body = `${part({ alg: "HS256", typ: "JWT" })}.${part({ sub: userId, role: "authenticated", aud: "authenticated", iat: now, exp: now + SESSION_SECONDS })}`;
+  const key = await crypto.subtle.importKey("raw", text.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return `${body}.${base64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, text.encode(body))))}`;
+}
 
 function check<T extends { error: { message: string } | null }>(result: T, what: string): T {
   if (result.error) throw new Error(`Could not ${what}: ${result.error.message}`);
   return result;
 }
 
-export function supabaseAdminStore(url: string, anonKey: string, serviceKey: string): AdminStore {
+export function supabaseAdminStore(url: string, anonKey: string, serviceKey: string, jwtSecret = ""): AdminStore {
   const admin: SupabaseClient = createClient(url, serviceKey, AUTH_OPTIONS);
   const links = () => admin.from("telegram_links");
   return {
@@ -70,8 +98,9 @@ export function supabaseAdminStore(url: string, anonKey: string, serviceKey: str
       check(await links().update({ brief_enabled: enabled, alerts_enabled: enabled }).eq("user_id", userId), "update notifications");
     },
     async linkedAccounts() {
-      const { data } = check(await links().select(LINK_COLUMNS).not("chat_id", "is", null).or("brief_enabled.eq.true,alerts_enabled.eq.true"), "list linked accounts");
-      return (data || []).map(r => account(r as LinkRow));
+      const rows = await allRows("list linked accounts", (from, to) =>
+        links().select(LINK_COLUMNS).not("chat_id", "is", null).or("brief_enabled.eq.true,alerts_enabled.eq.true").order("user_id").range(from, to));
+      return rows.map(r => account(r as LinkRow));
     },
     async reminderData(userId) {
       const { data } = check(await admin.from("brain_records").select("collection,data").eq("user_id", userId).eq("deleted", false).in("collection", ["tasks", "events"]), "read reminders");
@@ -109,9 +138,11 @@ export function supabaseAdminStore(url: string, anonKey: string, serviceKey: str
       check(await admin.from("health_sync_tokens").update({ last_sync_at: new Date().toISOString(), last_sync_days: days, last_sync_source: source.slice(0, 80) }).eq("user_id", userId), "record the sync");
     },
     async routineOwners() {
-      const { data } = check(await admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false), "list routines");
+      // Served by the partial index brain_records_live_routines; paged, so no routine is silently dropped past the row limit.
+      const data = await allRows("list routines", (from, to) =>
+        admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false).order("user_id").order("id").range(from, to));
       const byUser = new Map<string, Routine[]>();
-      for (const row of data || []) {
+      for (const row of data) {
         const routine = row.data as Routine;
         if (!routine?.enabled) continue;
         byUser.set(row.user_id as string, [...(byUser.get(row.user_id as string) || []), routine]);
@@ -126,6 +157,14 @@ export function supabaseAdminStore(url: string, anonKey: string, serviceKey: str
       return users.map(userId => ({ userId, routines: byUser.get(userId)!, chatId: chats.get(userId) ?? null }));
     },
     async session(userId) {
+      if (jwtSecret) {
+        const token = await userAccessToken(userId, jwtSecret);
+        const client = createClient(url, anonKey, { ...AUTH_OPTIONS, global: { headers: { Authorization: `Bearer ${token}` } } });
+        // One cheap read confirms the project accepts the token; if it was signed with another key, fall back below.
+        const probe = await client.from("brains").select("user_id").limit(1);
+        if (!probe.error) return { store: supabaseStore(userId, client), close: async () => {} };
+        console.warn("[admin] SUPABASE_JWT_SECRET was not accepted; using a sign-in session instead.");
+      }
       const found = await admin.auth.admin.getUserById(userId);
       const email = found.data.user?.email;
       if (found.error || !email) throw new Error("Could not find the linked account.");

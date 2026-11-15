@@ -175,6 +175,8 @@ export interface QuizQuestion {
   answer: string; // correct choice text, or the model answer for short questions
   /** Markdown shown with the question: the code, table or diagram it asks about. Never reveals the answer. */
   exhibit?: string;
+  /** Short answer with a definite value (program output, a number, an address): every exact form that counts as right. */
+  accept?: string[];
   explanation?: string;
   sourceDocId?: string;
 }
@@ -316,6 +318,8 @@ export interface NoteFolder {
   parentId: string | null; // null for top-level root folders, or folder ID for nested subfolders
   color?: NoteFolderColor;
   icon?: string;
+  /** Set on the one folder a workspace owns; its name and color follow the workspace. */
+  workspaceId?: string;
   createdAt: string;
   updatedAt?: string;
 }

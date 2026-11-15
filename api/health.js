@@ -22,6 +22,11 @@ function serverEnv() {
 		telegramBotToken: env.TELEGRAM_BOT_TOKEN || "",
 		/** Server only. Finds which account a Telegram chat belongs to and starts a short session as that user. */
 		supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY || "",
+		/**
+		* Optional. The project's JWT secret (Project Settings > API > JWT secret). With it, scheduled jobs and webhooks
+		* act as a user with a short token signed here instead of creating a sign-in session (four Auth requests each).
+		*/
+		supabaseJwtSecret: env.SUPABASE_JWT_SECRET || "",
 		/** Bearer token the scheduler must present to run reminders. */
 		cronSecret: env.CRON_SECRET || "",
 		/** Public origin Telegram posts to; Vercel supplies its production domain automatically. */
@@ -164,7 +169,7 @@ String.raw`^(?:(?:please|pls|also|and|oh|ok(?:ay)?|hey|so|btw|fyi|actually|just)
 // src/services/recordSync.ts
 var PreferencesConflict = class extends Error {};
 // src/services/supabaseBrain.ts
-const PAGE = 1e3;
+const PAGE$1 = 1e3;
 /** Per-record storage over Supabase. Every call runs as the signed-in user, so row-level security applies. */
 function supabaseRecordTransport(userId, client = getSupabase()) {
 	const fail = (what) => /* @__PURE__ */ new Error(`Could not ${what}. Check your connection and try again.`);
@@ -190,19 +195,23 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 		},
 		async readRecords(sinceSeq) {
 			const rows = [];
-			for (let from = 0;; from += PAGE) {
+			let cursor = sinceSeq;
+			for (;;) {
 				let query = client.from("brain_records").select("collection,id,data,revision,seq,ord,deleted").eq("user_id", userId);
-				query = sinceSeq === void 0 ? query.eq("deleted", false) : query.gt("seq", sinceSeq);
-				const { data, error } = await query.order("seq").range(from, from + PAGE - 1);
+				if (sinceSeq === void 0) query = query.eq("deleted", false);
+				if (cursor !== void 0) query = query.gt("seq", cursor);
+				const { data, error } = await query.order("seq").limit(PAGE$1);
 				if (error) throw fail("load your records");
-				rows.push(...(data || []).map((r) => ({
+				const page = (data || []).map((r) => ({
 					...r,
 					collection: r.collection,
 					revision: Number(r.revision),
 					seq: Number(r.seq),
 					ord: Number(r.ord)
-				})));
-				if (!data || data.length < PAGE) return rows;
+				}));
+				rows.push(...page);
+				if (page.length < PAGE$1) return rows;
+				cursor = page[page.length - 1].seq;
 			}
 		},
 		async saveRecords(changes) {
@@ -223,6 +232,8 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 	};
 }
 // server/lib/store.ts
+const EMBEDDING_KEYS_PER_QUERY = 150;
+const EMBEDDING_QUERIES_AT_ONCE = 4;
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
 function rpcError(error, fallback) {
 	if (error?.code === "40001") throw new HttpError(409, error.message || fallback);
@@ -347,6 +358,24 @@ function supabaseStore(userId, client) {
 				key,
 				vector
 			});
+		},
+		async getEmbeddings(keys) {
+			const found = /* @__PURE__ */ new Map();
+			const chunks = [];
+			for (let i = 0; i < keys.length; i += EMBEDDING_KEYS_PER_QUERY) chunks.push(keys.slice(i, i + EMBEDDING_KEYS_PER_QUERY));
+			for (let i = 0; i < chunks.length; i += EMBEDDING_QUERIES_AT_ONCE) await Promise.all(chunks.slice(i, i + EMBEDDING_QUERIES_AT_ONCE).map(async (chunk) => {
+				const { data, error } = await client.from("passage_embeddings").select("key,vector").eq("user_id", userId).in("key", chunk);
+				if (error) return;
+				for (const row of data || []) found.set(row.key, row.vector);
+			}));
+			return found;
+		},
+		async putEmbeddings(entries) {
+			for (let i = 0; i < entries.length; i += 100) await client.from("passage_embeddings").upsert(entries.slice(i, i + 100).map(([key, vector]) => ({
+				user_id: userId,
+				key,
+				vector
+			})));
 		},
 		async getConnection(provider) {
 			const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
@@ -499,11 +528,49 @@ const AUTH_OPTIONS = { auth: {
 	autoRefreshToken: false,
 	detectSessionInUrl: false
 } };
+/** PostgREST returns at most this many rows per request by default; larger lists are read page by page. */
+const PAGE = 1e3;
+/** How long a scheduler session token lives: one account's routines run one after another within it. */
+const SESSION_SECONDS = 900;
+/** Reads every row of a query, a page at a time. `query` must have a stable order. */
+async function allRows(what, query) {
+	const rows = [];
+	for (let from = 0;; from += PAGE) {
+		const { data } = check(await query(from, from + PAGE - 1), what);
+		rows.push(...data || []);
+		if (!data || data.length < PAGE) return rows;
+	}
+}
+const base64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+/**
+* An access token for this user, signed with the project's JWT secret: the same claims Supabase Auth puts in a
+* session (role and audience "authenticated", the user as subject), so row-level security applies exactly as for
+* the app. Used instead of creating a sign-in session, which costs four Auth requests per account.
+*/
+async function userAccessToken(userId, secret, now = Math.floor(Date.now() / 1e3)) {
+	const text = new TextEncoder();
+	const part = (value) => base64url(text.encode(JSON.stringify(value)));
+	const body = `${part({
+		alg: "HS256",
+		typ: "JWT"
+	})}.${part({
+		sub: userId,
+		role: "authenticated",
+		aud: "authenticated",
+		iat: now,
+		exp: now + SESSION_SECONDS
+	})}`;
+	const key = await crypto.subtle.importKey("raw", text.encode(secret), {
+		name: "HMAC",
+		hash: "SHA-256"
+	}, false, ["sign"]);
+	return `${body}.${base64url(new Uint8Array(await crypto.subtle.sign("HMAC", key, text.encode(body))))}`;
+}
 function check(result, what) {
 	if (result.error) throw new Error(`Could not ${what}: ${result.error.message}`);
 	return result;
 }
-function supabaseAdminStore(url, anonKey, serviceKey) {
+function supabaseAdminStore(url, anonKey, serviceKey, jwtSecret = "") {
 	const admin = createClient(url, serviceKey, AUTH_OPTIONS);
 	const links = () => admin.from("telegram_links");
 	return {
@@ -538,8 +605,7 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 			}).eq("user_id", userId), "update notifications");
 		},
 		async linkedAccounts() {
-			const { data } = check(await links().select(LINK_COLUMNS).not("chat_id", "is", null).or("brief_enabled.eq.true,alerts_enabled.eq.true"), "list linked accounts");
-			return (data || []).map((r) => account(r));
+			return (await allRows("list linked accounts", (from, to) => links().select(LINK_COLUMNS).not("chat_id", "is", null).or("brief_enabled.eq.true,alerts_enabled.eq.true").order("user_id").range(from, to))).map((r) => account(r));
 		},
 		async reminderData(userId) {
 			const { data } = check(await admin.from("brain_records").select("collection,data").eq("user_id", userId).eq("deleted", false).in("collection", ["tasks", "events"]), "read reminders");
@@ -598,9 +664,9 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 			}).eq("user_id", userId), "record the sync");
 		},
 		async routineOwners() {
-			const { data } = check(await admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false), "list routines");
+			const data = await allRows("list routines", (from, to) => admin.from("brain_records").select("user_id,data").eq("collection", "routines").eq("deleted", false).order("user_id").order("id").range(from, to));
 			const byUser = /* @__PURE__ */ new Map();
-			for (const row of data || []) {
+			for (const row of data) {
 				const routine = row.data;
 				if (!routine?.enabled) continue;
 				byUser.set(row.user_id, [...byUser.get(row.user_id) || [], routine]);
@@ -619,6 +685,18 @@ function supabaseAdminStore(url, anonKey, serviceKey) {
 			}));
 		},
 		async session(userId) {
+			if (jwtSecret) {
+				const token = await userAccessToken(userId, jwtSecret);
+				const client = createClient(url, anonKey, {
+					...AUTH_OPTIONS,
+					global: { headers: { Authorization: `Bearer ${token}` } }
+				});
+				if (!(await client.from("brains").select("user_id").limit(1)).error) return {
+					store: supabaseStore(userId, client),
+					close: async () => {}
+				};
+				console.warn("[admin] SUPABASE_JWT_SECRET was not accepted; using a sign-in session instead.");
+			}
 			const found = await admin.auth.admin.getUserById(userId);
 			const email = found.data.user?.email;
 			if (found.error || !email) throw new Error("Could not find the linked account.");
@@ -733,7 +811,7 @@ const productionDeps = {
 	telegramFetch: (...args) => fetch(...args),
 	admin: () => {
 		const env = serverEnv();
-		return env.supabaseServiceRoleKey ? supabaseAdminStore(env.supabaseUrl, env.supabaseAnonKey, env.supabaseServiceRoleKey) : null;
+		return env.supabaseServiceRoleKey ? supabaseAdminStore(env.supabaseUrl, env.supabaseAnonKey, env.supabaseServiceRoleKey, env.supabaseJwtSecret) : null;
 	},
 	background: (work) => waitUntil(work),
 	cronSecret: () => serverEnv().cronSecret

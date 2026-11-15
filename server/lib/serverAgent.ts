@@ -77,8 +77,13 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
   const { engine, workspace } = await loadWorkspace(store);
   // `stored` is the workspace as saved; the agent's own working copy also carries this conversation.
   let stored = workspace;
+  // Course document text can be large and most turns never read it, so it is fetched the first time a read tool runs.
   const documentIds = (stored.study?.documents || []).map(d => d.id);
-  const texts = documentIds.length ? await store.documentTexts(documentIds) : new Map<string, string>();
+  let texts = new Map<string, string>();
+  let loadingTexts: Promise<void> | undefined;
+  const loadTexts = () => loadingTexts ??= (documentIds.length ? store.documentTexts(documentIds) : Promise.resolve(texts))
+    .then(found => { texts = found; })
+    .catch(error => { loadingTexts = undefined; throw error; });
   // Only worth showing when it took a noticeable moment.
   emit({ type: "step", step: { ...loading, status: "done", endedAt: Date.now(), label: "Opened your workspace", hidden: Date.now() - loading.startedAt < 400 } });
 
@@ -116,7 +121,8 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     externalTools: combineToolsets(web ? webToolset(web, key, state.selectedModel, input.providerBase) : undefined, externalTools),
     retrieval: {
       documentText: id => texts.get(id),
-      embeddingCache: { get: k => store.getEmbedding(k), put: (k, v) => store.putEmbedding(k, v) },
+      prepare: loadTexts,
+      embeddingCache: { get: k => store.getEmbedding(k), put: (k, v) => store.putEmbedding(k, v), getMany: keys => store.getEmbeddings(keys), putMany: entries => store.putEmbeddings(entries) },
       providerBase: input.providerBase,
     },
     onProgress: message => emit({ type: "progress", message }),

@@ -9,6 +9,7 @@ import { getLocalDateString } from "./habitStreaks";
 import { removeWorkspaceCourses } from "./study";
 import { normalizeHealthProfile } from "./health";
 import { normalizeResumes } from "./resumes";
+import { unlinkWorkspaceFolder } from "./noteFolders";
 
 export const CAREER_WORKSPACE_ID = "workspace-career";
 export const WORKSPACE_COLORS: WorkspaceColor[] = [
@@ -150,6 +151,7 @@ export function removeWorkspace(state: BrainState, id: string): BrainState {
     workspaces: (state.workspaces || []).filter(
       (workspace) => workspace.id !== id,
     ),
+    ...(state.noteFolders ? { noteFolders: unlinkWorkspaceFolder(state.noteFolders, id) } : {}),
     trackerItems: (state.trackerItems || []).filter(
       (item) => (item.workspaceId || CAREER_WORKSPACE_ID) !== id,
     ),

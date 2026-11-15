@@ -21,10 +21,22 @@ function trackerDate(item: TrackerItem): string | undefined {
 export interface RetrievalContext {
   /** Extracted text of an uploaded course document. Defaults to this browser's document cache. */
   documentText?: (id: string) => string | undefined;
+  /** Awaited before each read tool runs; loads what `documentText` serves on first use instead of on every turn. */
+  prepare?: () => Promise<void>;
   /** Where passage embeddings are cached. Defaults to this browser's IndexedDB. */
-  embeddingCache?: { get(key: string): Promise<number[] | undefined>; put(key: string, vector: number[]): Promise<void> };
+  embeddingCache?: EmbeddingCache;
   /** The user's AI provider address, when running outside the browser. */
   providerBase?: string;
+}
+/**
+ * Where passage embeddings are cached. `getMany`/`putMany` let a search look up every passage in one round
+ * trip (one database query, one IndexedDB transaction) instead of one per passage.
+ */
+export interface EmbeddingCache {
+  get(key: string): Promise<number[] | undefined>;
+  put(key: string, vector: number[]): Promise<void>;
+  getMany?(keys: string[]): Promise<Map<string, number[]>>;
+  putMany?(entries: Array<[string, number[]]>): Promise<void>;
 }
 export interface BrainRecord { id: string; type: RecordType; title: string; date?: string; text: string; index: string; data: Record<string, unknown> }
 export interface Source { id: string; type: string; title: string; snippet: string; offset?: number }
@@ -256,6 +268,55 @@ export async function storeEmbedding(key: string, vector: number[]): Promise<voi
     });
   } catch { /* An unavailable cache does not invalidate retrieved evidence. */ }
 }
+/** Reads many cached vectors in one IndexedDB transaction. */
+export async function cachedEmbeddings(keys: string[]): Promise<Map<string, number[]>> {
+  const found = new Map<string, number[]>();
+  if (!keys.length) return found;
+  try {
+    const db = await embeddingDB();
+    // Resolves when every read has answered, all within one transaction.
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("embeddings");
+      const store = tx.objectStore("embeddings");
+      let pending = keys.length;
+      for (const key of keys) {
+        const req = store.get(key);
+        req.onsuccess = () => { if (req.result) found.set(key, req.result); if (--pending === 0) resolve(); };
+        req.onerror = () => reject(req.error);
+      }
+      tx.onabort = () => reject(tx.error);
+    });
+  } catch { /* Missing vectors are embedded again. */ }
+  return found;
+}
+/** Writes many vectors in one IndexedDB transaction. */
+export async function storeEmbeddings(entries: Array<[string, number[]]>): Promise<void> {
+  if (!entries.length) return;
+  try {
+    const db = await embeddingDB();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction("embeddings", "readwrite");
+      const store = tx.objectStore("embeddings");
+      for (const [key, vector] of entries) store.put(vector, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  } catch { /* An unavailable cache does not invalidate retrieved evidence. */ }
+}
+const browserEmbeddingCache: EmbeddingCache = { get: cachedEmbedding, put: storeEmbedding, getMany: cachedEmbeddings, putMany: storeEmbeddings };
+async function readVectors(cache: EmbeddingCache, keys: string[]): Promise<Map<string, number[]>> {
+  if (!keys.length) return new Map();
+  if (cache.getMany) return cache.getMany(keys).catch(() => new Map());
+  const found = new Map<string, number[]>();
+  await Promise.all(keys.map(async key => { const v = await cache.get(key).catch(() => undefined); if (v) found.set(key, v); }));
+  return found;
+}
+async function writeVectors(cache: EmbeddingCache, entries: Array<[string, number[]]>): Promise<void> {
+  if (cache.putMany) return cache.putMany(entries).catch(() => {});
+  await Promise.all(entries.map(([key, vector]) => cache.put(key, vector).catch(() => {})));
+}
+const passageKey = (userId: string | undefined, base: string | undefined, source: Source) => digest(`${userId || "guest"}|${MODEL}|${base ?? ""}|${source.title}|${source.snippet}`);
 export async function embed(inputs: string[], key: string, signal?: AbortSignal, base?: string): Promise<number[][]> {
   const res = await providerFetch("embeddings", key, { model: MODEL, input: inputs }, signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000), base);
   if (!res.ok) throw new Error(`Embedding service failed (HTTP ${res.status})`);
@@ -306,16 +367,23 @@ const embeddingText = (source: Source) => source.snippet.startsWith(source.title
  * and deleted or edited text can never be served from a stale entry.
  */
 async function passageVectorsFor(state: BrainState, items: Passage[], key: string | undefined, signal?: AbortSignal, progress?: (done: number, total: number) => void, ctx?: RetrievalContext) {
-  const cache = ctx?.embeddingCache ?? { get: cachedEmbedding, put: storeEmbedding };
-  const entries = await Promise.all(items.map(async ({ source, slot }) => {
+  const cache = ctx?.embeddingCache ?? browserEmbeddingCache;
+  type Entry = { snippet: string; key: string; vector?: number[] };
+  const entries: Entry[] = new Array(items.length);
+  const fresh: number[] = [];
+  await Promise.all(items.map(async ({ source, slot }, i) => {
     const known = passageVectors.get(slot);
-    if (known?.snippet === source.snippet) return known;
-    const entry: { snippet: string; key: string; vector?: number[] } = { snippet: source.snippet, key: await digest(`${state.userId || "guest"}|${MODEL}|${ctx?.providerBase ?? ""}|${source.title}|${source.snippet}`) };
-    entry.vector = await cache.get(entry.key).catch(() => undefined);
-    passageVectors.delete(slot);
-    passageVectors.set(slot, entry);
-    return entry;
+    if (known?.snippet === source.snippet) { entries[i] = known; return; }
+    entries[i] = { snippet: source.snippet, key: await passageKey(state.userId, ctx?.providerBase, source) };
+    fresh.push(i);
   }));
+  // One lookup for every passage not already in memory, rather than one request per passage.
+  const found = await readVectors(cache, [...new Set(fresh.map(i => entries[i].key))]);
+  for (const i of fresh) {
+    entries[i].vector = found.get(entries[i].key);
+    passageVectors.delete(items[i].slot);
+    passageVectors.set(items[i].slot, entries[i]);
+  }
   while (passageVectors.size > MAX_PASSAGE_VECTORS) passageVectors.delete(passageVectors.keys().next().value!);
   const missing = entries.flatMap((e, i) => e.vector ? [] : [i]);
   if (missing.length && !key?.trim()) throw new Error("No AI provider key is configured");
@@ -324,7 +392,8 @@ async function passageVectorsFor(state: BrainState, items: Passage[], key: strin
     progress?.(start, missing.length);
     const indices = missing.slice(start, start + 32);
     const batch = await embed(indices.map(i => embeddingText(items[i].source)), key!, signal, ctx?.providerBase);
-    await Promise.all(indices.map(async (i, j) => { entries[i].vector = batch[j]; await cache.put(entries[i].key, batch[j]).catch(() => {}); }));
+    indices.forEach((i, j) => { entries[i].vector = batch[j]; });
+    await writeVectors(cache, indices.map((i, j) => [entries[i].key, batch[j]]));
   }
   if (missing.length) progress?.(missing.length, missing.length);
   return entries;
@@ -391,11 +460,14 @@ export async function warmIndex(state: BrainState, key: string, signal?: AbortSi
 export async function indexStats(state: BrainState): Promise<{ passages: number; records: number; embedded: number; dimensions: number }> {
   const items = passages(state);
   let embedded = 0, dimensions = 0;
+  const lookups: string[] = [];
   await Promise.all(items.map(async ({ source, slot }) => {
     const known = passageVectors.get(slot);
-    const vector = known?.snippet === source.snippet && known.vector ? known.vector
-      : await cachedEmbedding(await digest(`${state.userId || "guest"}|${MODEL}|${source.title}|${source.snippet}`));
-    if (vector) { embedded++; dimensions = vector.length; }
+    if (known?.snippet === source.snippet && known.vector) { embedded++; dimensions = known.vector.length; return; }
+    // Same key as the writer in passageVectorsFor, so stored vectors are found.
+    lookups.push(await passageKey(state.userId, undefined, source));
   }));
+  const found = await cachedEmbeddings([...new Set(lookups)]);
+  for (const key of lookups) { const vector = found.get(key); if (vector) { embedded++; dimensions = vector.length; } }
   return { passages: items.length, records: new Set(items.map(i => `${i.source.type}:${i.source.id}`)).size, embedded, dimensions };
 }

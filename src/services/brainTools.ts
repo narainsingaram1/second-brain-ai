@@ -60,7 +60,8 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     newTitle: s_,
     appendContent: d_("Markdown to add at the end of the note."),
     replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note."),
-    folderId: d_("Existing folder ID to move the note into."),
+    folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
+    workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
     tags: { type: "array", items: s_ },
   }, ["noteId"]),
   fn("create_habit", "Create a new recurring habit to track. Use only when the user asks to start tracking a habit or routine.", {
@@ -105,7 +106,8 @@ const questionSchema = { type: "object", properties: {
   prompt: s_,
   choices: { type: "array", items: s_, minItems: 2, maxItems: 6, description: "Multiple choice only: 4 options." },
   answerIndex: { type: "integer", minimum: 0, description: "Multiple choice only: zero-based index of the correct choice." },
-  answer: d_("Short answer: the model answer. Multiple choice: optional, the correct choice text."),
+  answer: d_("Short answer: only the model answer (just the value for value questions; reasoning goes in explanation). Multiple choice: optional, the correct choice text."),
+  accept: { type: "array", items: s_, maxItems: 10, description: "Short answer with a definite value (output, number, address): every exact form that counts as right." },
   exhibit: d_("Optional markdown shown above the choices, written new for this question: code (fenced, with its language), a table, a ```mermaid diagram (flowchart, tree, graph, state machine) or a small ```svg figure. Never reveals the answer."),
   explanation: d_("Why the answer is right."),
   sourceDocumentId: d_("ID of the course document this question is based on."),
@@ -177,9 +179,8 @@ const MANAGE_TOOLS: OpenRouterTool[] = [
   fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
     name: s_, template: { type: "string", enum: ["career", "academic", "health", "blank"] }, description: s_, color: { type: "string", enum: COLORS },
   }, ["name", "template"]),
-  fn("update_workspace", "Rename a workspace or change its description, color or notes.", {
+  fn("update_workspace", "Rename a workspace or change its description or color. A workspace's notes are ordinary notes in its folder: use create_note or update_note with workspaceId.", {
     workspaceId: s_, newName: s_, description: s_, color: { type: "string", enum: COLORS },
-    appendNotes: d_("Text added to the end of the workspace notes."), replaceNotes: d_("New full notes, only when the user asks to rewrite them."),
   }, ["workspaceId"]),
   fn("delete_workspace", "Delete a workspace and everything in it (its tracker entries, or its courses with their decks and quizzes). Only when the user explicitly asks.", { workspaceId: s_ }, ["workspaceId"]),
   fn("create_section", "Add a task section (e.g. 'Projects'), optionally with a first subsection. Use when the user asks for a new section without adding a task.", { section: s_, subsection: s_ }, ["section"]),
@@ -200,8 +201,8 @@ const MANAGE_TOOLS: OpenRouterTool[] = [
   }, ["entryId"]),
   fn("delete_journal_entry", "Delete a journal entry. Only when the user explicitly asks.", { entryId: s_ }, ["entryId"]),
   fn("delete_note", "Delete a note. Only when the user explicitly asks.", { noteId: s_ }, ["noteId"]),
-  fn("create_note_folder", "Create a folder for notes, optionally inside another folder.", { name: s_, parentId: d_("Existing folder ID to nest it in.") }, ["name"]),
-  fn("update_note_folder", "Rename a note folder or move it inside another folder.", { folderId: s_, newName: s_, parentId: d_("Folder ID to move it into, or 'root' for the top level.") }, ["folderId"]),
+  fn("create_note_folder", "Create a folder for notes, optionally inside another folder (including a workspace's folder).", { name: s_, parentId: d_("Existing folder ID to nest it in."), workspaceId: d_("Nest it in this workspace's notes folder instead of giving parentId.") }, ["name"]),
+  fn("update_note_folder", "Rename a note folder or move it inside another folder. A workspace's own folder follows the workspace: rename the workspace instead.", { folderId: s_, newName: s_, parentId: d_("Folder ID to move it into, or 'root' for the top level.") }, ["folderId"]),
   fn("delete_note_folder", "Delete a note folder. Its notes and subfolders move up to the parent folder; no notes are deleted.", { folderId: s_ }, ["folderId"]),
   fn("update_course", "Change a course's name, code, term or instructor. A new code also renames its task subsection under Academic.", {
     courseId: s_, newName: s_, newCode: s_, term: s_, instructor: s_,
@@ -479,6 +480,10 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
                 type: "string",
                 description: "Optional folder ID to place the note in.",
               },
+              workspaceId: {
+                type: "string",
+                description: "Optional workspace ID: puts the note in that workspace's notes folder (shown in the workspace's Notes tab).",
+              },
               tags: {
                 type: "array",
                 items: { type: "string" },
@@ -495,6 +500,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
     ];
 
 
+import { syncWorkspaceFolders, removeFolder, folderMoveBlocked, workspaceFolderId } from "../utils/noteFolders";
 import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine } from "../types";
 import { defaultTimeZone, isTimeZone, MAX_ROUTINES, ROUTINE_CONDITIONS, ROUTINE_FREQUENCIES, ROUTINE_INSTRUCTIONS_MAX } from "../utils/routines";
 import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
@@ -694,7 +700,7 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
   if (mutation.type === "section") return applySectionChange(state, mutation);
   if (mutation.type === "workspace") {
     const workspace = mutation.record as Workspace;
-    return mutation.remove ? removeWorkspace(state, workspace.id) : { ...state, workspaces: upsert(state.workspaces || [], workspace) };
+    return syncWorkspaceFolders(mutation.remove ? removeWorkspace(state, workspace.id) : { ...state, workspaces: upsert(state.workspaces || [], workspace) });
   }
   if (mutation.type === "routine") {
     const routines = state.routines || [];
@@ -702,11 +708,8 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
   }
   if (mutation.type === "folder") {
     const folder = mutation.record as NoteFolder;
-    if (!mutation.remove) return { ...state, noteFolders: upsert(state.noteFolders || [], folder) };
     // Like deleting in the app: notes and subfolders move up a level, nothing else is removed.
-    const parent = folder.parentId || null;
-    return { ...state, knowledgeItems: state.knowledgeItems.map(n => n.folderId === folder.id ? { ...n, folderId: parent } : n),
-      noteFolders: (state.noteFolders || []).filter(f => f.id !== folder.id).map(f => f.parentId === folder.id ? { ...f, parentId: parent } : f) };
+    return syncWorkspaceFolders(mutation.remove ? removeFolder(state, folder.id) : { ...state, noteFolders: upsert(state.noteFolders || [], folder) });
   }
   if (mutation.type === "course" && mutation.remove) {
     const study = studyOf(state);
@@ -739,7 +742,10 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
   const list = (state[key] || []) as Array<{ id: string }>;
   if (mutation.remove) return { ...state, [key]: list.filter(r => r.id !== mutation.record.id) };
   const exists = list.some(r => r.id === mutation.record.id);
-  return { ...state, [key]: exists ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record] };
+  const next = { ...state, [key]: exists ? list.map(r => r.id === mutation.record.id ? mutation.record : r) : [...list, mutation.record] };
+  // A note filed into a workspace whose folder hasn't been made yet brings that folder with it.
+  const folderId = mutation.type === "knowledge" ? (mutation.record as KnowledgeItem).folderId : null;
+  return folderId && !(next.noteFolders || []).some(f => f.id === folderId) ? syncWorkspaceFolders(next) : next;
 }
 export async function executeRead(name: string, args: any, state: BrainState, key: string, signal?: AbortSignal, progress?: (s: string) => void, ctx?: RetrievalContext): Promise<{ output: unknown; sources: Source[] }> {
   if (name === "list_resume_versions") {
@@ -821,6 +827,16 @@ function findIn<T extends { id: string }>(list: T[] | undefined, id: unknown, la
   const found = (list || []).find(r => r.id === id);
   if (!found) throw new Error(`${label} ID not found. Look it up first; do not guess IDs.`);
   return found;
+}
+/** The folder a note goes in: an explicit folder, or the notes folder of a workspace. */
+function noteFolderArg(state: BrainState, folderId?: string, workspaceId?: string): string | null {
+  if (folderId && workspaceId) throw new Error("Use folderId or workspaceId, not both.");
+  if (workspaceId) {
+    const w = findIn(state.workspaces, workspaceId, "Workspace");
+    return (state.noteFolders || []).find(f => f.workspaceId === w.id)?.id || workspaceFolderId(w.id);
+  }
+  if (!folderId) return null;
+  return findIn(state.noteFolders, folderId, "Folder").id;
 }
 const findTracker = (state: BrainState, id: unknown) => findIn(state.trackerItems, id, "Tracker");
 /** A Career workspace by ID, or the main one. Tracker entries only show up in Career workspaces. */
@@ -915,8 +931,8 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
     }
     case "log_journal": return { type: "journal", action: name, record: { id, date: today, title: args.title, content: args.content, mood: args.mood || "neutral", wins: args.wins || [], challenges: args.challenges || [], tags: [] } };
     case "create_note": {
-      if (args.folderId && !state.noteFolders?.some(f => f.id === args.folderId)) throw new Error("Unknown note folder ID.");
-      return { type: "knowledge", action: name, record: { id, title: args.title, subject: args.title, content: args.content, summary: args.content.slice(0, 180), folderId: args.folderId || null,
+      const folderId = noteFolderArg(state, args.folderId, args.workspaceId);
+      return { type: "knowledge", action: name, record: { id, title: args.title, subject: args.title, content: args.content, summary: args.content.slice(0, 180), folderId,
         tags: args.tags || [], status: "Synthesized", startDate: today, endDate: today, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } };
     }
     case "create_event": {
@@ -1001,8 +1017,8 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const note = state.knowledgeItems.find(n => n.id === args.noteId);
       if (!note) throw new Error("Note ID not found. Search notes; do not guess IDs.");
       if (args.appendContent !== undefined && args.replaceContent !== undefined) throw new Error("Use appendContent or replaceContent, not both.");
-      if (![args.newTitle, args.appendContent, args.replaceContent, args.folderId, args.tags].some(v => v !== undefined)) throw new Error("Supply at least one field to update.");
-      if (args.folderId && !state.noteFolders?.some(f => f.id === args.folderId)) throw new Error("Unknown note folder ID.");
+      if (![args.newTitle, args.appendContent, args.replaceContent, args.folderId, args.workspaceId, args.tags].some(v => v !== undefined)) throw new Error("Supply at least one field to update.");
+      const moveTo = args.folderId === "root" ? null : args.folderId || args.workspaceId ? noteFolderArg(state, args.folderId, args.workspaceId) : undefined;
       const current = note.content || "";
       // Notes edited in the app may be stored as HTML; append in the same format.
       const html = /^\s*<[a-z][^>]*>/i.test(current);
@@ -1014,7 +1030,7 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const title = args.newTitle?.trim();
       return { type: "knowledge", action: name, expected: note, record: { ...note, content,
         ...(content !== current ? { summary: content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {}),
-        ...(title ? { title, subject: title } : {}), ...(args.folderId ? { folderId: args.folderId } : {}), ...(args.tags ? { tags: args.tags } : {}),
+        ...(title ? { title, subject: title } : {}), ...(moveTo !== undefined ? { folderId: moveTo } : {}), ...(args.tags ? { tags: args.tags } : {}),
         updatedAt: new Date().toISOString() } };
     }
     case "create_habit": {
@@ -1176,10 +1192,8 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
     }
     case "update_workspace": {
       const w = findIn(state.workspaces, args.workspaceId, "Workspace");
-      if (args.appendNotes !== undefined && args.replaceNotes !== undefined) throw new Error("Use appendNotes or replaceNotes, not both.");
       if (args.color && !WORKSPACE_COLORS.includes(args.color)) throw new Error("Unknown color.");
-      const notes = args.replaceNotes !== undefined ? args.replaceNotes : args.appendNotes ? [w.notes.trimEnd(), args.appendNotes.trim()].filter(Boolean).join("\n\n") : w.notes;
-      return { type: "workspace", action: name, expected: w, record: { ...w, notes, ...(args.newName ? { name: groupName(args.newName, "Workspace").slice(0, 80) } : {}),
+      return { type: "workspace", action: name, expected: w, record: { ...w, ...(args.newName ? { name: groupName(args.newName, "Workspace").slice(0, 80) } : {}),
         ...(args.description !== undefined ? { description: args.description.trim() } : {}), ...(args.color ? { color: args.color } : {}) } };
     }
     case "delete_workspace": {
@@ -1246,18 +1260,22 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
     case "delete_journal_entry": { const j = findIn(state.journalEntries, args.entryId, "Journal entry"); return { type: "journal", action: name, expected: j, record: j, remove: true }; }
     case "delete_note": { const n = findIn(state.knowledgeItems, args.noteId, "Note"); return { type: "knowledge", action: name, expected: n, record: n, remove: true }; }
     case "create_note_folder": {
-      if (args.parentId) findIn(state.noteFolders, args.parentId, "Folder");
+      if (args.parentId && args.workspaceId) throw new Error("Use parentId or workspaceId, not both.");
+      const parentId = args.workspaceId ? noteFolderArg(state, undefined, args.workspaceId) : args.parentId || null;
+      if (parentId && !args.workspaceId) findIn(state.noteFolders, parentId, "Folder");
       const folderName = groupName(args.name, "Folder");
-      if ((state.noteFolders || []).some(f => (f.parentId || null) === (args.parentId || null) && sameName(f.name, folderName))) throw new Error("A folder with this name already exists here.");
+      if ((state.noteFolders || []).some(f => (f.parentId || null) === parentId && sameName(f.name, folderName))) throw new Error("A folder with this name already exists here.");
       const now = new Date().toISOString();
-      return { type: "folder", action: name, record: { id, name: folderName, parentId: args.parentId || null, createdAt: now, updatedAt: now } };
+      return { type: "folder", action: name, record: { id, name: folderName, parentId, createdAt: now, updatedAt: now } };
     }
     case "update_note_folder": {
       const f = findIn(state.noteFolders, args.folderId, "Folder");
+      if (f.workspaceId && (args.newName || args.parentId !== undefined)) throw new Error("This folder belongs to a workspace and follows its name; rename the workspace with update_workspace instead.");
       if (args.newName === undefined && args.parentId === undefined) throw new Error("Supply newName or parentId.");
       const parentId = args.parentId === undefined ? f.parentId : args.parentId === "root" ? null : findIn(state.noteFolders, args.parentId, "Folder").id;
       // A folder can't move inside itself or one of its own subfolders.
-      for (let p = parentId; p; p = (state.noteFolders || []).find(x => x.id === p)?.parentId || null) if (p === f.id) throw new Error("A folder can't be moved inside itself.");
+      const blocked = parentId === (f.parentId || null) ? null : folderMoveBlocked(state.noteFolders || [], f.id, parentId);
+      if (blocked) throw new Error(blocked);
       return { type: "folder", action: name, expected: f, record: { ...f, parentId, ...(args.newName ? { name: groupName(args.newName, "Folder") } : {}), updatedAt: new Date().toISOString() } };
     }
     case "create_routine": {
@@ -1277,7 +1295,10 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       return { type: "routine", action: name, expected: r, record: { ...next, updatedAt: new Date().toISOString() } };
     }
     case "delete_routine": { const r = findIn(state.routines, args.routineId, "Routine"); return { type: "routine", action: name, expected: r, record: r, remove: true }; }
-    case "delete_note_folder": { const f = findIn(state.noteFolders, args.folderId, "Folder"); return { type: "folder", action: name, expected: f, record: f, remove: true }; }
+    case "delete_note_folder": {
+      const f = findIn(state.noteFolders, args.folderId, "Folder");
+      if (f.workspaceId) throw new Error("This is a workspace's own notes folder; it goes away only with the workspace.");
+      return { type: "folder", action: name, expected: f, record: f, remove: true }; }
     case "update_course": {
       const study = studyOf(state);
       const c = findIn(study.courses, args.courseId, "Course");

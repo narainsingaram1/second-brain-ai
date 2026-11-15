@@ -48,7 +48,7 @@ export const productionDeps: Deps = {
   telegramFetch: (...args) => fetch(...args),
   admin: () => {
     const env = serverEnv();
-    return env.supabaseServiceRoleKey ? supabaseAdminStore(env.supabaseUrl, env.supabaseAnonKey, env.supabaseServiceRoleKey) : null;
+    return env.supabaseServiceRoleKey ? supabaseAdminStore(env.supabaseUrl, env.supabaseAnonKey, env.supabaseServiceRoleKey, env.supabaseJwtSecret) : null;
   },
   background: work => waitUntil(work),
   cronSecret: () => serverEnv().cronSecret,

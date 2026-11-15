@@ -1,6 +1,7 @@
 import { queryOpenRouter } from "../services/openrouter";
 import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback } from "react";
 import { KnowledgeItem, NoteFolder } from "../types";
+import { folderPath } from "../utils/noteFolders";
 import { createPortal } from "react-dom";
 import type { NoteRichTextHandle } from "./NoteRichText";
 const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
@@ -341,15 +342,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               className="bg-transparent focus:outline-none cursor-pointer max-w-[140px] truncate"
             >
               <option value="">No folder</option>
-              {folders.map((f) => {
-                const parent = folders.find((p) => p.id === f.parentId);
-                const label = parent ? `${parent.name} / ${f.name}` : f.name;
-                return (
+              {folders
+                .map((f) => ({ id: f.id, label: folderPath(folders, f.id).map((p) => p.name).join(" / ") }))
+                .sort((a, b) => a.label.localeCompare(b.label))
+                .map((f) => (
                   <option key={f.id} value={f.id}>
-                    {label}
+                    {f.label}
                   </option>
-                );
-              })}
+                ))}
             </select>
           </div>
 

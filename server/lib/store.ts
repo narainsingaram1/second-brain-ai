@@ -36,6 +36,9 @@ export interface ServerStore {
   completeAction(id: string, ok: boolean, result: unknown): Promise<void>;
   getEmbedding(key: string): Promise<number[] | undefined>;
   putEmbedding(key: string, vector: number[]): Promise<void>;
+  /** Cached vectors for many keys in a few queries (a search looks up every passage at once). */
+  getEmbeddings(keys: string[]): Promise<Map<string, number[]>>;
+  putEmbeddings(entries: Array<[string, number[]]>): Promise<void>;
   documentTexts(ids: string[]): Promise<Map<string, string>>;
   getConnection(provider: "google"): Promise<ConnectionRow | null>;
   putConnection(row: Omit<ConnectionRow, "connectedAt" | "lastUsedAt" | "lastError">): Promise<void>;
@@ -57,6 +60,9 @@ export interface ServerStore {
   /** Runs that used the assistant (not skipped) since the given time, for the daily limit. */
   countRoutineRuns(sinceIso: string): Promise<number>;
 }
+
+const EMBEDDING_KEYS_PER_QUERY = 150;
+const EMBEDDING_QUERIES_AT_ONCE = 4;
 
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
 function rpcError(error: { code?: string; message?: string } | null, fallback: string): never {
@@ -132,6 +138,24 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
     },
     async putEmbedding(key, vector) {
       await client.from("passage_embeddings").upsert({ user_id: userId, key, vector });
+    },
+    async getEmbeddings(keys) {
+      const found = new Map<string, number[]>();
+      // Keys are 64-character hashes; 150 per query keeps the request URL well under proxy limits.
+      const chunks: string[][] = [];
+      for (let i = 0; i < keys.length; i += EMBEDDING_KEYS_PER_QUERY) chunks.push(keys.slice(i, i + EMBEDDING_KEYS_PER_QUERY));
+      for (let i = 0; i < chunks.length; i += EMBEDDING_QUERIES_AT_ONCE) {
+        await Promise.all(chunks.slice(i, i + EMBEDDING_QUERIES_AT_ONCE).map(async chunk => {
+          const { data, error } = await client.from("passage_embeddings").select("key,vector").eq("user_id", userId).in("key", chunk);
+          if (error) return; // Missing vectors are embedded again; a cache miss never fails the search.
+          for (const row of data || []) found.set(row.key as string, row.vector as number[]);
+        }));
+      }
+      return found;
+    },
+    async putEmbeddings(entries) {
+      for (let i = 0; i < entries.length; i += 100)
+        await client.from("passage_embeddings").upsert(entries.slice(i, i + 100).map(([key, vector]) => ({ user_id: userId, key, vector })));
     },
     async getConnection(provider) {
       const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
