@@ -10,7 +10,7 @@ const { ConversationMessage } = await server.ssrLoadModule('/src/components/Conv
 const { ChatWorkspace } = await server.ssrLoadModule('/src/components/ChatWorkspace.tsx');
 const { readableMessage, referenceTitle, isNearBottom } = await server.ssrLoadModule('/src/utils/chatPresentation.ts');
 const { AgentActivity, closeMarkdown, thoughtHeadline } = await server.ssrLoadModule('/src/components/AgentActivity.tsx');
-const { describeCall, describeResult, pastTense, ActivityTracker } = await server.ssrLoadModule('/src/services/agentActivity.ts');
+const { describeCall, describeResult, pastTense, ActivityTracker, splitStepItem } = await server.ssrLoadModule('/src/services/agentActivity.ts');
 const state = { tasks: [{ id: 'task-123', title: 'Prepare presentation', dueDate: '2026-11-02', status: 'in_progress', completed: false, priority: 'high', section: 'Career' }], goals: [{ id: 'goal-456', title: 'Research opportunity', progress: 35, milestones: [], status: 'in_progress' }], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [], conversations: [], selectedModel: 'test/model' };
 const message = { id: 'answer', role: 'assistant', content: 'Start with [task:task-123]. Then review [goal:goal-456].', timestamp: '', sources: [{ id: 'task-123', type: 'task', title: 'Prepare presentation' }, { id: 'goal-456', type: 'goal', title: 'Research opportunity' }] };
 const conversation = { busy: false, progress: '', run: async () => {}, stop() {}, startNew() {}, resume() {} };
@@ -22,6 +22,17 @@ test('existing task and goal citations render as readable inline references', ()
   assert.match(html, /Research opportunity/);
   assert.doesNotMatch(html, /\[task:task-123\]|\[goal:goal-456\]/);
   assert.doesNotMatch(html, />task-123<|>goal-456</);
+});
+test('web sources render as visible links, and a reply shows its time, tokens and cost', () => {
+  const reply = { id: 'web-answer', role: 'assistant', content: 'One report mentions three sections.', timestamp: '',
+    sources: [{ id: 'https://www.glassdoor.com/Interview/q.htm', type: 'web', title: 'Interview Questions | Glassdoor', url: 'https://www.glassdoor.com/Interview/q.htm' }],
+    usage: { ms: 12400, model: 'test/model', calls: 2, inputTokens: 17000, outputTokens: 1200, cost: 0.0312, costComplete: true, webSearches: 1 } };
+  const html = renderToStaticMarkup(React.createElement(ConversationMessage, { message: reply, state }));
+  assert.match(html, /href="https:\/\/www\.glassdoor\.com\/Interview\/q\.htm"/);
+  assert.match(html, /target="_blank"/);
+  assert.match(html, /Interview Questions \| Glassdoor/);
+  assert.doesNotMatch(html, /<details/, 'sources are shown, not hidden behind a toggle');
+  assert.match(html, /12s/); assert.match(html, /18k tokens/); assert.match(html, /\$0\.031/);
 });
 test('copy and save text use record titles rather than implementation identifiers', () => {
   assert.equal(readableMessage(message, state), 'Start with Prepare presentation. Then review Research opportunity.');
@@ -73,6 +84,10 @@ test('steps describe what the assistant is doing in plain words', () => {
   assert.equal(describeCall('create_tracker_item', { kind: 'leetcode', title: 'Two Sum' }).label, 'Adding tracker entry “Two Sum”');
   assert.equal(pastTense('Searching the web for “x”'), 'Searched the web for “x”');
   assert.deepEqual(describeResult('web_search', {}, { sources: [{ title: 'Wiki', url: 'https://w.org' }] }).items, ['Wiki|https://w.org']);
+  // Page titles often contain "|" themselves; the link is what follows the last one, and only a real web address.
+  assert.deepEqual(splitStepItem('Interview Questions | Glassdoor|https://www.glassdoor.com/x'), { title: 'Interview Questions | Glassdoor', url: 'https://www.glassdoor.com/x' });
+  assert.deepEqual(splitStepItem('Notes | Week 3'), { title: 'Notes | Week 3' });
+  assert.deepEqual(splitStepItem('Bad|javascript:alert(1)'), { title: 'Bad|javascript:alert(1)' });
   assert.match(describeResult('delete_task', {}, { status: 'awaiting_approval', summary: 'Delete task "X"' }).label, /approval/);
 });
 

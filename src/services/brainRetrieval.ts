@@ -39,7 +39,7 @@ export interface EmbeddingCache {
   putMany?(entries: Array<[string, number[]]>): Promise<void>;
 }
 export interface BrainRecord { id: string; type: RecordType; title: string; date?: string; text: string; index: string; data: Record<string, unknown> }
-export interface Source { id: string; type: string; title: string; snippet: string; offset?: number }
+export interface Source { id: string; type: string; title: string; snippet: string; offset?: number; /** Web pages only. */ url?: string }
 
 const list = (items: unknown) => Array.isArray(items) ? items.filter(x => typeof x === "string" && x.trim()).join(", ") : "";
 const checklist = (items: unknown) => Array.isArray(items)

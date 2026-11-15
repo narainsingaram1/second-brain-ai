@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, MousePointerClick, PenLine, Search, ShieldCheck, SquarePen, Monitor } from "lucide-react";
 import type { AgentPlanItem, AgentStep, AgentStepKind } from "../types";
+import { splitStepItem } from "../services/agentActivity";
 
 const ICONS: Record<AgentStepKind, typeof Brain> = {
   think: Brain, prepare: Database, records: Search, web: Globe, email: Mail, calendar: CalendarDays, change: SquarePen,
@@ -161,7 +162,7 @@ function AgentPlan({ items, live }: { items: AgentPlanItem[]; live: boolean }) {
 function ActivityStep({ step }: { step: AgentStep }) {
   const Icon = step.status === "error" ? AlertCircle : ICONS[step.kind] || Search;
   const took = step.endedAt ? duration(step.endedAt - step.startedAt) : "";
-  const links = (step.items || []).map(item => { const [title, url] = item.split("|"); return { title, url }; });
+  const links = (step.items || []).map(splitStepItem);
   return <li className={`agent-step is-${step.status} kind-${step.kind}`}>
     <span className="agent-step-icon">{step.status === "running" ? <span className="agent-spinner" aria-label="In progress" /> : <Icon size={13} aria-hidden="true" />}</span>
     <div className="agent-step-body">

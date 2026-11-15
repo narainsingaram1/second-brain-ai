@@ -39,11 +39,29 @@
 .chat-inline-reference > span { min-width: 0; overflow-wrap: anywhere; }
 .chat-inline-reference.is-citation { padding: 2px 4px; gap: 2px; vertical-align: text-bottom; font-size: 11px; line-height: 1.1; }
 .chat-inline-reference.is-citation svg { width: 12px; height: 12px; }
-.chat-sources { margin-top: 12px; color: var(--workspace-muted); font-size: 13px; }
-.chat-sources summary { width: fit-content; cursor: pointer; padding: 4px 0; }
-.chat-sources summary span { margin-left: 4px; font-family: var(--font-mono); font-size: 12px; }
-.chat-source-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 28px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--workspace-line); background: var(--workspace-panel); color: var(--workspace-secondary); font-size: 13px; text-align: left; }
+.chat-sources { margin-top: 16px; color: var(--workspace-muted); font-size: 13px; }
+.chat-sources-head { margin-bottom: 8px; font-size: 12px; font-weight: 500; color: var(--workspace-muted); }
+.chat-sources-head span { margin-left: 4px; font-family: var(--font-mono); font-size: 11px; }
+.chat-sources-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.chat-sources-list > li { min-width: 0; max-width: 100%; }
+.chat-source-chip { display: inline-flex; align-items: center; gap: 6px; max-width: min(100%, 360px); height: 28px; padding: 0 8px 0 6px; border-radius: 6px; border: 1px solid var(--workspace-line); background: var(--workspace-panel); color: var(--workspace-secondary); font-size: 13px; text-align: left; text-decoration: none; transition: color 150ms var(--ease), border-color 150ms var(--ease); }
 .chat-source-chip:hover { color: var(--workspace-ink); border-color: var(--workspace-line-strong); }
+.chat-source-chip:focus-visible { outline: 2px solid var(--workspace-accent); outline-offset: 1px; }
+.chat-source-num { display: grid; place-items: center; min-width: 16px; height: 16px; padding: 0 3px; border-radius: 4px; background: var(--workspace-raised); color: var(--workspace-muted); font-family: var(--font-mono); font-size: 10px; flex-shrink: 0; }
+.chat-source-host { flex-shrink: 0; color: var(--workspace-muted); font-size: 12px; }
+.chat-source-chip.is-web .truncate { min-width: 0; }
+.chat-sources-more { height: 28px; padding: 0 8px; border-radius: 6px; color: var(--workspace-muted); font-size: 12px; }
+.chat-sources-more:hover { color: var(--workspace-ink); background: var(--workspace-hover); }
+.chat-usage { position: relative; margin-left: auto; }
+.chat-usage-button { display: inline-flex; align-items: center; gap: 8px; height: 26px; padding: 0 6px; border-radius: 6px; color: var(--workspace-muted); font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chat-usage-button > span + span::before { content: "·"; margin-right: 8px; opacity: .6; }
+.chat-usage-button:hover, .chat-usage-button[aria-expanded="true"] { color: var(--workspace-ink); background: var(--workspace-hover); }
+.chat-usage-pop { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; width: 280px; margin: 0; padding: 10px 12px; border: 1px solid var(--workspace-line-strong); border-radius: 10px; background: var(--workspace-panel); box-shadow: var(--workspace-float); font-size: 12px; }
+.chat-usage-pop > div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; }
+.chat-usage-pop dt { color: var(--workspace-muted); }
+.chat-usage-pop dd { margin: 0; min-width: 0; color: var(--workspace-ink); font-family: var(--font-mono); font-size: 11px; text-align: right; overflow-wrap: anywhere; }
+.chat-usage-pop dd.is-sub { color: var(--workspace-muted); }
+@media (max-width: 560px) { .chat-source-host { display: none; } .chat-usage-pop { right: auto; left: 0; } }
 .chat-message-actions { display: flex; align-items: center; gap: 4px; margin-top: 12px; }
 .chat-icon-button { width: 30px; height: 30px; flex-shrink: 0; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: var(--workspace-muted); transition: color 150ms var(--ease), background-color 150ms var(--ease); }
 .chat-icon-button:hover { color: var(--workspace-ink); background: var(--workspace-hover); }

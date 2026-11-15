@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUpRight, CalendarClock, CheckSquare, FileText, Target, X } from "lucide-react";
+import { ArrowUpRight, CalendarClock, CheckSquare, FileText, Globe, Target, X } from "lucide-react";
 import { AIMessage, BrainState } from "../types";
 import { ChatSource, findRecord, referenceTitle } from "../utils/chatPresentation";
 import { MarkdownView } from "./MarkdownView";
@@ -89,14 +89,41 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
     </div>
   </div>, document.body);
 }
+const VISIBLE = 6;
+const hostOf = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return ""; } };
+
+/** Every source a reply drew on, always shown: web pages open in a new tab, records open a preview. */
 export function SourceReferences({ sources, state, onSelect }: { sources?: AIMessage["sources"]; state?: BrainState | null; onSelect?: (source: ChatSource) => void }) {
   const [selected, setSelected] = useState<ChatSource | null>(null);
+  const [all, setAll] = useState(false);
   if (!sources?.length) return null;
   const unique = sources.filter((source, i) => sources.findIndex(s => s.id === source.id && s.type === source.type) === i);
-  return <div className="chat-sources">
-    <details><summary>Sources <span>{unique.length}</span></summary><div className="flex flex-wrap gap-2 pt-3">
-      {unique.map(source => <button type="button" key={`${source.type}:${source.id}`} className="chat-source-chip" onClick={() => onSelect ? onSelect(source) : setSelected(source)}><RecordIcon type={source.type} /><span className="truncate">{referenceTitle(source.type, source.id, [source], state)}</span><ArrowUpRight size={12} /></button>)}
-    </div></details>
+  // Web pages first: they are what a reply's claims about the outside world rest on.
+  const ordered = [...unique.filter(s => s.type === "web" && s.url), ...unique.filter(s => !(s.type === "web" && s.url))];
+  const shown = all ? ordered : ordered.slice(0, VISIBLE);
+  return <div className="chat-sources" aria-label="Sources">
+    <div className="chat-sources-head">Sources <span>{ordered.length}</span></div>
+    <ol className="chat-sources-list">
+      {shown.map((source, i) => source.type === "web" && source.url
+        ? <li key={`web:${source.id}`}>
+            <a className="chat-source-chip is-web" href={source.url} target="_blank" rel="noreferrer noopener" title={source.url}>
+              <span className="chat-source-num">{i + 1}</span>
+              <Globe className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{source.title}</span>
+              <span className="chat-source-host">{hostOf(source.url)}</span>
+              <ArrowUpRight size={12} className="shrink-0" />
+            </a>
+          </li>
+        : <li key={`${source.type}:${source.id}`}>
+            <button type="button" className="chat-source-chip" onClick={() => onSelect ? onSelect(source) : setSelected(source)}>
+              <span className="chat-source-num">{i + 1}</span>
+              <RecordIcon type={source.type} />
+              <span className="truncate">{referenceTitle(source.type, source.id, [source], state)}</span>
+              <ArrowUpRight size={12} className="shrink-0" />
+            </button>
+          </li>)}
+      {ordered.length > VISIBLE && <li><button type="button" className="chat-sources-more" onClick={() => setAll(v => !v)}>{all ? "Show fewer" : `${ordered.length - VISIBLE} more`}</button></li>}
+    </ol>
     {selected && <RecordPreview source={selected} state={state} onClose={() => setSelected(null)} />}
   </div>;
 }

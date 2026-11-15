@@ -1,7 +1,8 @@
 import { Task, Habit, JournalEntry } from "../types";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { extractTextToolCalls, stripToolMarkup } from "../utils/toolMarkup";
-import { DEFAULT_PROVIDER_BASE, isServerHeldKey, normalizeProviderBase, providerFetch, providerUrl } from "./providerTransport";
+import { DEFAULT_PROVIDER_BASE, isServerHeldKey, normalizeProviderBase, providerBase as currentProviderBase, providerFetch, providerUrl } from "./providerTransport";
+import { readUsage, type CallUsage } from "../utils/usage";
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 /** Fast, inexpensive model for small structured jobs (classification, breakdowns). */
@@ -132,6 +133,8 @@ export interface OpenRouterMessage {
 
 export interface OpenRouterCompletionResponse {
   content: string | null;
+  /** Tokens and cost of this request, when the provider reported them. */
+  usage?: CallUsage;
   toolCalls?: OpenRouterToolCall[];
   reasoningDetails?: unknown[];
 }
@@ -173,6 +176,17 @@ export function mergeReasoningDetails(into: any[], parts: any[]): void {
 }
 const finishReasoningDetails = (blocks: any[]) => blocks.map(({ __key, ...block }) => block);
 
+const usageOf = (data: any) => { const usage = readUsage(data?.usage); return usage ? { usage } : {}; };
+/**
+ * Asks for token counts (and, from OpenRouter, the cost) with each reply. Streams only report usage when asked.
+ * Other providers may reject OpenRouter's own option, so it is only sent there.
+ */
+export function usageRequest(base: string | undefined, streaming: boolean): Record<string, unknown> {
+  const target = base || currentProviderBase();
+  const openRouter = /(^|\.)openrouter\.ai\//.test(target.replace(/^https?:\/\//, ""));
+  return { ...(openRouter ? { usage: { include: true } } : {}), ...(streaming && (openRouter || /api\.openai\.com/.test(target)) ? { stream_options: { include_usage: true } } : {}) };
+}
+
 export async function queryOpenRouterWithTools(
   messages: OpenRouterMessage[],
   tools: OpenRouterTool[],
@@ -208,6 +222,7 @@ export async function queryOpenRouterWithTools(
     bodyPayload.tool_choice = toolChoice;
   }
   if (tuning.onText) bodyPayload.stream = true;
+  Object.assign(bodyPayload, usageRequest(providerBase, !!tuning.onText));
 
   // Streams may run longer than a buffered reply, so they are bounded by silence between chunks
   // rather than by total duration; the caller's signal still bounds the whole turn.
@@ -246,6 +261,7 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "", content = "", reasoning = "", finishReason: string | undefined;
+  let usage: unknown;
   const calls: OpenRouterToolCall[] = [];
   const details: any[] = [];
   const handle = (line: string) => {
@@ -255,6 +271,8 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
     let event: any;
     try { event = JSON.parse(payload); } catch { return; }
     if (event.error) throw new Error(providerErrorMessage(event));
+    // Usage arrives on the last chunk, usually with no choices.
+    if (event.usage) usage = event.usage;
     const choice = event.choices?.[0];
     if (!choice) return;
     if (choice.finish_reason) finishReason = choice.finish_reason;
@@ -293,7 +311,7 @@ export async function readCompletionStream(body: ReadableStream<Uint8Array>, onT
   const toolCalls = calls.filter(Boolean).map((c, i) => ({ ...c, id: c.id || `call-${Date.now()}-${i}`, function: { ...c.function, arguments: c.function.arguments || "{}" } }));
   if (!finishReason && !content && !toolCalls.length) throw new Error("The provider closed the stream without a reply.");
   return { choices: [{ finish_reason: finishReason || "stop", message: { content: content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}),
-    ...(details.length ? { reasoning_details: finishReasoningDetails(details) } : {}) } }] };
+    ...(details.length ? { reasoning_details: finishReasoningDetails(details) } : {}) } }], ...(usage ? { usage } : {}) };
 }
 
 /**
@@ -327,7 +345,7 @@ function completionFrom(data: any, tools: OpenRouterTool[] = []): OpenRouterComp
   if (choice.finish_reason === "length") {
     // A cut-off tool call cannot be executed safely, but cut-off prose is still worth showing.
     if (msg.tool_calls?.length || !msg.content?.trim()) throw new Error("Model output limit reached. Narrow the request or choose a model with a larger output limit.");
-    return { content: `${msg.content.trimEnd()}\n\n*(Reply was cut off at the length limit — ask me to continue.)*` };
+    return { content: `${msg.content.trimEnd()}\n\n*(Reply was cut off at the length limit — ask me to continue.)*`, ...usageOf(data) };
   }
 
   let toolCalls: OpenRouterToolCall[] | undefined = undefined;
@@ -358,6 +376,7 @@ function completionFrom(data: any, tools: OpenRouterTool[] = []): OpenRouterComp
   return {
     content,
     toolCalls,
+    ...usageOf(data),
     ...(Array.isArray(msg?.reasoning_details) && msg.reasoning_details.length ? { reasoningDetails: msg.reasoning_details } : {}),
   };
 }

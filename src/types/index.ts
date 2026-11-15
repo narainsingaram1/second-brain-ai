@@ -412,8 +412,30 @@ export interface AppliedAction {
   remove?: boolean;
 }
 
+/** What one assistant reply took: time, tokens and, when the provider reports it, cost. */
+export interface TurnUsage {
+  /** From sending the message to the finished reply, in milliseconds. */
+  ms: number;
+  /** Until the first words of the reply appeared. */
+  firstTextMs?: number;
+  model: string;
+  /** Model requests made for this reply (each tool round is one; web searches are counted separately). */
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  reasoningTokens?: number;
+  /** US dollars, summed over the requests that reported a cost. */
+  cost?: number;
+  /** False when some requests reported no cost, so `cost` is a lower bound. */
+  costComplete?: boolean;
+  webSearches?: number;
+}
+
 export interface AIMessage {
-  sources?: Array<{ id: string; type: string; title: string; offset?: number }>;
+  /** Records the reply drew on (type "web" for web pages, which carry their address in `url`). */
+  sources?: Array<{ id: string; type: string; title: string; offset?: number; url?: string }>;
+  usage?: TurnUsage;
   attachments?: ImageAttachment[];
   /** Documents attached to a user message, with their extracted text. */
   files?: FileAttachment[];
