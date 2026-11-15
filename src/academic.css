@@ -346,3 +346,43 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-task-due { font-size: 13px; color: var(--workspace-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .ac-task-due.is-overdue { color: var(--workspace-danger); }
 .ac-tasks-toggle { margin-top: 10px; }
+
+/* Background generation: a row in the list it will join, a working mark on its tab, and a notice when it's done. */
+.ac-job { position: relative; }
+.ac-job .ac-deck-row { padding-bottom: 14px; }
+.ac-job-icon { position: relative; }
+.ac-job-icon.is-live::after { content: ""; position: absolute; inset: -3px; border-radius: 12px; padding: 1.5px; background: conic-gradient(from var(--ac-sweep, 0deg), transparent 0 60%, currentColor 85%, transparent); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0); animation: ac-sweep 1.8s linear infinite; }
+@property --ac-sweep { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes ac-sweep { to { --ac-sweep: 360deg; } }
+.ac-job-status { display: inline-flex; align-items: center; gap: 8px; animation: ac-fade-up 240ms var(--ease) both; }
+.ac-job.is-error .ac-job-status { color: var(--ws-rose); }
+.ac-job-time { font-family: var(--font-mono); font-size: 11px; font-variant-numeric: tabular-nums; color: var(--workspace-muted); opacity: .8; }
+.ac-job-bar { position: absolute; left: 44px; right: 0; bottom: 6px; height: 2px; border-radius: 2px; overflow: hidden; background: var(--workspace-raised); }
+.ac-job-bar > span { display: block; height: 100%; width: 100%; transform-origin: left; transform: scaleX(0); border-radius: inherit; background: linear-gradient(90deg, color-mix(in srgb, var(--ws-green) 55%, transparent), var(--ws-green)); transition: transform 600ms var(--ease); }
+.ac-job:has(.ac-kind-deck) .ac-job-bar > span { background: linear-gradient(90deg, color-mix(in srgb, var(--ws-purple) 55%, transparent), var(--ws-purple)); }
+.ac-job-bar.is-indeterminate > span { width: 35%; transform: none; animation: ac-glide 1.5s var(--ease) infinite; }
+@keyframes ac-glide { from { margin-left: -35%; } to { margin-left: 100%; } }
+@keyframes ac-fade-up { from { opacity: 0; transform: translateY(3px); } }
+.ac-fresh { animation: ac-fresh 2.4s ease-out both; }
+@keyframes ac-fresh { 0% { background: color-mix(in srgb, var(--ws-green) 12%, transparent); } 100% { background: transparent; } }
+
+/* A small working mark in place of a tab's count, and on the course card. */
+.ws-tabs button > span.ac-tab-working, .ac-tab-working { display: inline-flex; align-items: center; justify-content: center; width: 20px; min-width: 20px; height: 18px; padding: 0; background: color-mix(in srgb, var(--workspace-accent) 12%, transparent); }
+.ac-tab-working i { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--workspace-accent) 30%, transparent); border-top-color: var(--workspace-accent); animation: ac-spin .8s linear infinite; }
+.ac-course-meta span.ac-course-working { color: var(--workspace-accent); font-weight: 500; }
+.ac-course-meta .ac-course-working .ac-tab-working { width: 16px; min-width: 16px; height: 16px; border-radius: 5px; }
+
+/* "Quiz ready" notices. */
+.ac-toasts { position: fixed; right: 20px; bottom: 20px; z-index: 60; display: flex; flex-direction: column; gap: 8px; width: min(360px, calc(100vw - 32px)); }
+.ac-toast { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; border-radius: 12px; background: var(--workspace-panel); border: 1px solid var(--workspace-line); box-shadow: 0 10px 30px -12px rgba(15, 23, 42, .25), 0 2px 6px rgba(15, 23, 42, .06); animation: ac-toast-in 320ms var(--ease) both; }
+.ac-toast-icon { width: 26px; height: 26px; flex-shrink: 0; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; color: var(--ws-green); background: color-mix(in srgb, var(--ws-green) 14%, transparent); }
+.ac-toast.is-error .ac-toast-icon { color: var(--ws-rose); background: color-mix(in srgb, var(--ws-rose) 14%, transparent); }
+.ac-toast-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.ac-toast-text strong { font-size: 13px; font-weight: 600; color: var(--workspace-ink); }
+.ac-toast-text small { font-size: 12px; color: var(--workspace-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ac-toast-action { flex-shrink: 0; height: 28px; padding: 0 10px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--workspace-accent); background: color-mix(in srgb, var(--workspace-accent) 10%, transparent); transition: background-color 150ms var(--ease); }
+.ac-toast-action:hover { background: color-mix(in srgb, var(--workspace-accent) 18%, transparent); }
+.ac-toast-close { width: 28px; height: 28px; flex-shrink: 0; }
+@keyframes ac-toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+@media (prefers-reduced-motion: reduce) { .ac-job-icon.is-live::after, .ac-job-bar.is-indeterminate > span, .ac-tab-working i { animation: none; } .ac-fresh, .ac-toast { animation: none; } }
+.ac-job.is-error .ac-doc-icon { color: var(--ws-rose); background: color-mix(in srgb, var(--ws-rose) 12%, transparent); }

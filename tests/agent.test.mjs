@@ -961,6 +961,37 @@ const sse = obj => `data: ${JSON.stringify(obj)}\n\ndata: [DONE]\n\n`;
 const textReply = text => sse({ choices: [{ delta: { content: text }, finish_reason: 'stop' }] });
 const callReply = (name, args) => sse({ choices: [{ delta: { tool_calls: [{ index: 0, id: `c-${Math.random()}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] });
 const blankState = () => ({ userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Inbox'], subsections: { Inbox: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' });
+test('a follow-up sees what the earlier reply did on a website, and can go back there', async () => {
+  const { activityDigest } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+  const { needsBrowser } = await server.ssrLoadModule('/src/services/browserAgent.ts');
+  const now = Date.now();
+  const steps = [
+    { id: 't', kind: 'think', label: 'Thought for 2s', detail: 'private reasoning', status: 'done', startedAt: now },
+    { id: 'o', kind: 'browser', label: 'Opened gradescope.com', items: ['CS 2110 Quiz 3|https://www.gradescope.com/courses/1/assignments/2/submissions/3'], status: 'done', startedAt: now },
+    { id: 'c', kind: 'browser', label: 'Closed the tab', status: 'done', startedAt: now },
+  ];
+  const note = activityDigest(steps);
+  assert.match(note, /Opened gradescope\.com \(https:\/\/www\.gradescope\.com\/courses\/1\/assignments\/2\/submissions\/3\)/);
+  assert.ok(!note.includes('private reasoning'), 'reasoning stays out');
+  assert.equal(activityDigest([steps[0]]), '');
+  const history = [
+    { id: 'u1', role: 'user', content: 'go to gradescope and check my CS 2110 quiz grade', timestamp: '' },
+    { id: 'a1', role: 'assistant', content: 'Your most recent CS 2110 quiz (Quiz 3) is 95/100.', timestamp: '', activity: steps },
+    { id: 'u2', role: 'user', content: 'Which questions did I lose points on in Quiz 3', timestamp: '' },
+    { id: 'a2', role: 'assistant', content: 'I don’t have the breakdown.', timestamp: '' },
+  ];
+  assert.ok(needsBrowser('can you open it and check it yourself..', history), 'the follow-up still gets the browser');
+
+  // The model is sent the note with the earlier reply, and never echoes it back to the user.
+  const requests = [];
+  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(textReply(`You lost 5 points on question 4.\n[What you did for this reply (your tool steps; not shown to the user): Opened gradescope.com]`), { headers: { 'content-type': 'text/event-stream' } }); };
+  const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
+  const { result } = { result: await AutonomousBrainAgent.execute('Which questions did I lose points on?', { ...blankState(), chatHistory: history.slice(0, 2) }, 'k', 'm', { onText: () => {} }) };
+  const sent = requests[0].messages.find(m => m.role === 'assistant' && String(m.content).includes('95/100'));
+  assert.match(String(sent.content), /Opened gradescope\.com \(https:/);
+  assert.equal(result.queryAnswer, 'You lost 5 points on question 4.');
+});
+
 async function runWith(replies, options = {}, prompt = 'Find scooters') {
   const requests = [];
   globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift() ?? textReply(''), { headers: { 'content-type': 'text/event-stream' } }); };
@@ -995,4 +1026,17 @@ test('browsing keeps going through a few failed steps instead of giving up after
   assert.equal(looks, 4, 'three failures, then it got through');
   assert.equal(result.queryAnswer, 'Added the Hover-1 Alpha to your cart.');
   assert.ok(requests.every(r => r.tool_choice !== 'none'), 'never forced to wrap up');
+});
+
+test('create_goal accepts the fields the goal form has and explains rejected arguments', () => {
+  const s = state();
+  const parse = args => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === 'create_goal').function.parameters);
+  const goal = prepareMutation('create_goal', parse({ title: 'BS/MS in Computer Science at Georgia Tech', sector: 'academics', timeframe: 'long_term',
+    description: 'Five-year BS/MS track', status: 'in_progress', targetDate: '2027-03-01', milestones: ['Research requirements', 'Request recommendation letters'] }), s).record;
+  assert.equal(goal.description, 'Five-year BS/MS track'); assert.equal(goal.status, 'in_progress'); assert.equal(goal.milestones.length, 2);
+  assert.throws(() => prepareMutation('create_goal', parse({ title: 'X', sector: 'academics', timeframe: 'yearly', targetDate: 'Spring 2027' }), s), /Invalid calendar date/);
+  assert.throws(() => parse({ title: 'X', sector: 'academics', timeframe: 'yearly', priority: 'high' }), /Unknown arguments\.priority\. Allowed fields: .*description/);
+  assert.throws(() => parse({ title: 'X', sector: 'education', timeframe: 'yearly' }), /Use one of: career, academics/);
+  const moved = prepareMutation('update_goal', { goalId: goal.id, sector: 'career', timeframe: 'yearly', newDescription: 'Changed' }, { ...s, goals: [goal] }).record;
+  assert.equal(moved.sector, 'career'); assert.equal(moved.timeframe, 'yearly'); assert.equal(moved.description, 'Changed');
 });

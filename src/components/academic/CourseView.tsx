@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, CalendarClock, CheckSquare, FileText, GraduationCap, Layers, ListChecks, MessageCircle, Settings2, Trash2 } from "lucide-react";
 import type { Course } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
@@ -13,12 +13,26 @@ import { GradesPanel } from "./GradesPanel";
 import { TasksPanel, type TaskActions } from "./TasksPanel";
 import { formatPercent, summarize } from "../../utils/grades";
 import { GenerateDialog, type GenerateRequest } from "./GenerateDialog";
+import { useStudyJobs } from "../../services/studyJobs";
+import { isRunning } from "./StudyJobs";
 
 type Tab = "materials" | "tasks" | "flashcards" | "quizzes" | "grades";
 
-export function CourseView({ state, course, onChange, onAsk, taskActions, onBack, onEdit }: StudyProps & { course: Course; taskActions: TaskActions; onBack: () => void; onEdit: () => void }) {
+export function CourseView({ state, course, onChange, onAsk, taskActions, onBack, onEdit, openItem, onOpenedItem }: StudyProps & {
+  course: Course; taskActions: TaskActions; onBack: () => void; onEdit: () => void;
+  /** Set from outside (a "ready" notice) to jump to a deck, a quiz, or the list where a generation failed. */
+  openItem?: { kind: "deck" | "quiz"; id?: string } | null; onOpenedItem?: () => void;
+}) {
   const study = studyOf(state);
   const [tab, setTab] = useState<Tab>("materials");
+  const jobs = useStudyJobs(state.userId || "guest").filter((j) => j.courseId === course.id);
+  const runningKinds = new Set<string>(jobs.filter(isRunning).map((j) => (j.kind === "quiz" ? "quizzes" : "flashcards")));
+  useEffect(() => {
+    if (!openItem) return;
+    setTab(openItem.kind === "deck" ? "flashcards" : "quizzes");
+    if (openItem.id) setOpened({ kind: openItem.kind, id: openItem.id });
+    onOpenedItem?.();
+  }, [openItem, onOpenedItem]);
   const [generate, setGenerate] = useState<GenerateRequest | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   /** Set after generation so the new deck or quiz opens immediately. */
@@ -66,18 +80,20 @@ export function CourseView({ state, course, onChange, onAsk, taskActions, onBack
           { id: "grades", label: "Grades", icon: GraduationCap, count: course.grading?.categories.length ? formatPercent(summarize(course.grading).current) : null },
         ] as const).map((t) => (
           <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}>
-            <t.icon size={16} />{t.label}{t.count !== null && <span className={t.id === "flashcards" && due ? "ac-due" : ""}>{t.count}</span>}
+            <t.icon size={16} />{t.label}
+            {runningKinds.has(t.id) ? <span className="ac-tab-working" aria-label="Generating"><i /></span>
+              : t.count !== null && <span className={t.id === "flashcards" && due ? "ac-due" : ""}>{t.count}</span>}
           </button>
         ))}
       </div>
       {tab === "materials" && <MaterialsPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={setGenerate} />}
       {tab === "tasks" && <TasksPanel state={state} course={course} onChange={onChange} actions={taskActions} />}
-      {tab === "flashcards" && <DecksPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "flashcards", documentIds: [] })} openDeckId={opened?.kind === "deck" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
-      {tab === "quizzes" && <QuizzesPanel state={state} course={course} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "quiz", documentIds: [] })} openQuizId={opened?.kind === "quiz" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
+      {tab === "flashcards" && <DecksPanel state={state} course={course} jobs={jobs.filter((j) => j.kind === "flashcards")} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "flashcards", documentIds: [] })} openDeckId={opened?.kind === "deck" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
+      {tab === "quizzes" && <QuizzesPanel state={state} course={course} jobs={jobs.filter((j) => j.kind === "quiz")} onChange={onChange} onAsk={onAsk} onGenerate={() => setGenerate({ kind: "quiz", documentIds: [] })} openQuizId={opened?.kind === "quiz" ? opened.id : undefined} onOpened={() => setOpened(null)} />}
       {tab === "grades" && <GradesPanel state={state} course={course} onChange={onChange} onAsk={onAsk} />}
       {generate && (
         <GenerateDialog state={state} course={course} request={generate} onChange={onChange} onClose={() => setGenerate(null)}
-          onCreated={(kind, id) => { setGenerate(null); setTab(kind === "deck" ? "flashcards" : "quizzes"); setOpened({ kind, id }); }} />
+          onStarted={(kind) => { setGenerate(null); setTab(kind === "quiz" ? "quizzes" : "flashcards"); }} />
       )}
       {confirmDelete && (
         <DialogBackdrop label="Delete course" onClose={() => setConfirmDelete(false)} className="ws-overlay">

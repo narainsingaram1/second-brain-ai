@@ -6,6 +6,8 @@ import { clearRetrievalMemory } from "../services/brainRetrieval";
 import {
   getSupabase,
   googleOnly,
+  isDesktopApp,
+  emailLinkOrigin,
   googleSignInAvailable,
   managedAuthConfigured,
   signInManagedGoogle,
@@ -109,7 +111,7 @@ export function ManagedRoot() {
           password,
           options: {
             data: { full_name: trimmedName },
-            emailRedirectTo: window.location.origin + "/",
+            emailRedirectTo: emailLinkOrigin() + "/",
           },
         });
         if (signUpError) throw signUpError;
@@ -125,7 +127,7 @@ export function ManagedRoot() {
         const trimmedEmail = email.trim().toLowerCase();
         if (!trimmedEmail) throw new Error("Please enter your email address.");
         const { error: resetError } = await client.auth.resetPasswordForEmail(trimmedEmail, {
-          redirectTo: window.location.origin + "/?recovery=1",
+          redirectTo: emailLinkOrigin() + "/?recovery=1",
         });
         if (resetError) throw resetError;
         setNotice(`If an account exists for ${trimmedEmail}, you will receive a password reset link.`);
@@ -252,7 +254,13 @@ export function ManagedRoot() {
         )}
 
         {/* Google OAuth Button */}
-        {(mode === "signin" || mode === "signup") && (
+        {(mode === "signin" || mode === "signup") && isDesktopApp && (
+          <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed mb-3">
+            In the desktop app, sign in with your email and password. If you normally use Google, choose
+            “Forgot password?” to set a password for the same account.
+          </p>
+        )}
+        {(mode === "signin" || mode === "signup") && !isDesktopApp && (
           <>
             <button
               type="button"

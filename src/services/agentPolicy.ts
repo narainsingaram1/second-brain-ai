@@ -16,9 +16,11 @@ export interface AgentPolicy {
   maxActsPerMinute: number;
   /** Live go-aheads the assistant may ask for in one request before it must stop and report. */
   maxHardPerTurn: number;
+  /** Every step that changes something on a website or in a Mac app waits for the user, not only committing ones. */
+  confirmEverything: boolean;
 }
 
-export const DEFAULT_POLICY: AgentPolicy = { deniedHosts: [], allowedHosts: [], confirmHosts: [], maxActsPerMinute: 40, maxHardPerTurn: 6 };
+export const DEFAULT_POLICY: AgentPolicy = { deniedHosts: [], allowedHosts: [], confirmHosts: [], maxActsPerMinute: 40, maxHardPerTurn: 6, confirmEverything: false };
 const KEY = "synapse.agentPolicy";
 
 const normHost = (h: string) => String(h).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
@@ -30,6 +32,7 @@ export function normalizePolicy(raw: Partial<AgentPolicy> | null | undefined): A
     deniedHosts: hosts(raw?.deniedHosts), allowedHosts: hosts(raw?.allowedHosts), confirmHosts: hosts(raw?.confirmHosts),
     maxActsPerMinute: positive(raw?.maxActsPerMinute, DEFAULT_POLICY.maxActsPerMinute),
     maxHardPerTurn: positive(raw?.maxHardPerTurn, DEFAULT_POLICY.maxHardPerTurn),
+    confirmEverything: raw?.confirmEverything === true,
   };
 }
 
@@ -48,6 +51,7 @@ export function mergePolicies(user: AgentPolicy, managed?: Partial<AgentPolicy> 
     confirmHosts: [...new Set([...user.confirmHosts, ...m.confirmHosts])],
     maxActsPerMinute: Math.min(user.maxActsPerMinute, m.maxActsPerMinute),
     maxHardPerTurn: Math.min(user.maxHardPerTurn, m.maxHardPerTurn),
+    confirmEverything: user.confirmEverything || m.confirmEverything,
   };
 }
 

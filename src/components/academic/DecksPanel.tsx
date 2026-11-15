@@ -5,10 +5,14 @@ import { getLocalDateString } from "../../utils/habitStreaks";
 import { courseLabel, dueCards, newCard, reviewCard, studyOf, withStudy, type Grade } from "../../utils/study";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import type { StudyProps, StudyUpdate } from "./AcademicWorkspace";
+import type { StudyJob } from "../../services/studyJobs";
+import { StudyJobRow } from "./StudyJobs";
 
-export function DecksPanel({ state, course, onChange, onAsk, onGenerate, openDeckId, onOpened }: StudyProps & {
-  course: Course; onGenerate: () => void; openDeckId?: string; onOpened: () => void;
+export function DecksPanel({ state, course, onChange, onAsk, onGenerate, openDeckId, onOpened, jobs = [] }: StudyProps & {
+  course: Course; onGenerate: () => void; openDeckId?: string; onOpened: () => void; jobs?: StudyJob[];
 }) {
+  const pending = jobs.filter((j) => j.status !== "done");
+  const fresh = new Set(jobs.filter((j) => j.status === "done").map((j) => j.resultId));
   const study = studyOf(state);
   const decks = study.decks.filter((d) => d.courseId === course.id).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const today = getLocalDateString();
@@ -31,13 +35,14 @@ export function DecksPanel({ state, course, onChange, onAsk, onGenerate, openDec
         </div>
         <button className="ws-button ws-primary" onClick={onGenerate}><PenLine size={15} />Generate deck</button>
       </div>
-      {decks.length ? (
+      {decks.length || pending.length ? (
         <ul className="ac-deck-list">
+          {pending.map((job) => <StudyJobRow key={job.id} job={job} />)}
           {decks.map((deck) => {
             const due = dueCards(deck, today).length;
             const isOpen = expanded === deck.id;
             return (
-              <li key={deck.id}>
+              <li key={deck.id} className={fresh.has(deck.id) ? "ac-fresh" : undefined}>
                 <div className="ac-deck-row">
                   <button className="ac-deck-main" aria-expanded={isOpen} onClick={() => setExpanded(isOpen ? null : deck.id)}>
                     {isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}

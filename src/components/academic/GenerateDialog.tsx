@@ -1,16 +1,16 @@
-import { useRef, useState } from "react";
-import { Check, Layers, ListChecks, Loader2, PenLine, X } from "lucide-react";
-import type { BrainState, Course, FlashcardDeck, Quiz } from "../../types";
-import { studyOf, withStudy } from "../../utils/study";
-import { loadDocumentText } from "../../services/studyDocuments";
-import { generateFlashcards, generateQuiz, type SourceDoc, type StudyOptions } from "../../services/studyAI";
+import { useState } from "react";
+import { Check, Layers, ListChecks, PenLine, X } from "lucide-react";
+import type { BrainState, Course } from "../../types";
+import { studyOf } from "../../utils/study";
+import { startStudyJob } from "../../services/studyJobs";
+import type { StudyOptions } from "../../services/studyAI";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import type { StudyUpdate } from "./AcademicWorkspace";
 
 export interface GenerateRequest { kind: "flashcards" | "quiz"; documentIds: string[] }
 
-export function GenerateDialog({ state, course, request, onChange, onClose, onCreated }: {
-  state: BrainState; course: Course; request: GenerateRequest; onChange: StudyUpdate; onClose: () => void; onCreated: (kind: "deck" | "quiz", id: string) => void;
+export function GenerateDialog({ state, course, request, onChange, onClose, onStarted }: {
+  state: BrainState; course: Course; request: GenerateRequest; onChange: StudyUpdate; onClose: () => void; onStarted: (kind: GenerateRequest["kind"]) => void;
 }) {
   const docs = studyOf(state).documents.filter((d) => d.courseId === course.id);
   const isQuiz = request.kind === "quiz";
@@ -21,53 +21,29 @@ export function GenerateDialog({ state, course, request, onChange, onClose, onCr
   const [focus, setFocus] = useState("");
   const firstName = docs.find((d) => picked.has(d.id))?.name.replace(/\.[^.]+$/, "");
   const [title, setTitle] = useState("");
-  const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const abort = useRef<AbortController | null>(null);
   const defaultTitle = focus.trim() ? focus.trim().slice(0, 80) : picked.size === 1 && firstName ? firstName : `${course.code || course.name} ${isQuiz ? "practice quiz" : "review"}`;
 
-  async function run() {
+  /** Hands the work to the background and closes: progress shows in the course while the user carries on. */
+  function run() {
     if (!state.openRouterKey) return setError("Connect an AI provider in Settings first.");
-    setBusy(true);
-    setError("");
-    abort.current = new AbortController();
-    try {
-      const sources: SourceDoc[] = [];
-      for (const doc of docs.filter((d) => picked.has(d.id))) {
-        const text = await loadDocumentText(state.userId || "guest", doc.id);
-        if (text) sources.push({ doc, text });
-      }
-      if (!sources.length) throw new Error("None of the selected documents have text on this device.");
-      const options = { count, focus: focus.trim() || undefined, difficulty };
-      const now = new Date().toISOString();
-      const sourceDocIds = sources.map((s) => s.doc.id);
-      const name = title.trim() || defaultTitle;
-      if (isQuiz) {
-        const questions = await generateQuiz(sources, { ...options, format }, state.openRouterKey, state.selectedModel, abort.current.signal);
-        const quiz: Quiz = { id: crypto.randomUUID(), courseId: course.id, title: name, sourceDocIds, questions, attempts: [], createdAt: now };
-        onChange((prev) => withStudy(prev, (s) => ({ quizzes: [...s.quizzes, quiz] })));
-        onCreated("quiz", quiz.id);
-      } else {
-        const cards = await generateFlashcards(sources, options, state.openRouterKey, state.selectedModel, abort.current.signal);
-        const deck: FlashcardDeck = { id: crypto.randomUUID(), courseId: course.id, title: name, sourceDocIds, cards, createdAt: now, updatedAt: now };
-        onChange((prev) => withStudy(prev, (s) => ({ decks: [...s.decks, deck] })));
-        onCreated("deck", deck.id);
-      }
-    } catch (err) {
-      if (!abort.current?.signal.aborted) setError(err instanceof Error ? err.message : "Generation failed. Try again.");
-      setBusy(false);
-    }
+    startStudyJob({
+      kind: request.kind, userId: state.userId || "guest", course, docs: docs.filter((d) => picked.has(d.id)),
+      title: title.trim() || defaultTitle, count, options: { focus: focus.trim() || undefined, difficulty, format },
+      apiKey: state.openRouterKey, model: state.selectedModel, onChange,
+    });
+    onStarted(request.kind);
   }
-  const close = () => { abort.current?.abort(); onClose(); };
+  const close = onClose;
 
   return (
     <DialogBackdrop label={isQuiz ? "Create a practice quiz" : "Create flashcards"} onClose={close} className="ws-overlay">
-      <form className="ws-dialog ac-generate" onSubmit={(e) => { e.preventDefault(); if (!busy) run(); }}>
+      <form className="ws-dialog ac-generate" onSubmit={(e) => { e.preventDefault(); run(); }}>
         <div className="ws-dialog-heading">
           <div>
             <span className="ws-icon ws-color-purple">{isQuiz ? <ListChecks size={22} /> : <Layers size={22} />}</span>
             <h2>{isQuiz ? "Create a practice quiz" : "Create flashcards"}</h2>
-            <p>Generated only from the materials you choose, with each item linked to its source.</p>
+            <p>Generated only from the materials you choose, with each item linked to its source. It runs in the background, so you can keep working.</p>
           </div>
           <button className="ws-icon-button" type="button" aria-label="Close" onClick={close}><X size={19} /></button>
         </div>
@@ -111,9 +87,7 @@ export function GenerateDialog({ state, course, request, onChange, onClose, onCr
         </div>
         <div className="ws-dialog-actions">
           <button type="button" className="ws-button ws-secondary" onClick={close}>Cancel</button>
-          <button type="submit" className="ws-button ws-primary" disabled={busy || !picked.size}>
-            {busy ? <><Loader2 size={15} className="ac-spin" />Generating…</> : <><PenLine size={15} />Generate</>}
-          </button>
+          <button type="submit" className="ws-button ws-primary" disabled={!picked.size}><PenLine size={15} />Generate</button>
         </div>
       </form>
     </DialogBackdrop>

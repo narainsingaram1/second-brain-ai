@@ -1,6 +1,7 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import { BrowserAgentSettings } from "./BrowserAgentSettings";
 import { DesktopControlSettings } from "./DesktopControlSettings";
+import { PermissionsSettings } from "./PermissionsSettings";
 import { AgentToolsSettings } from "./AgentToolsSettings";
 import React, { useEffect, useState } from "react";
 import { ServerKeyField } from "./ServerKeyField";
@@ -158,7 +159,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
               <h3 className="font-extrabold text-base tracking-tight text-ink">
                 Settings
               </h3>
-              <p className="text-xs text-slate-400">Configure your AI provider, API key and model</p>
+              <p className="text-xs text-slate-400">Permissions, AI provider, model and connections</p>
             </div>
           </div>
           <button aria-label="Close dialog" onClick={onClose}
@@ -170,6 +171,8 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
 
         {/* Modal Body */}
         <div className="p-6 space-y-6 overflow-y-auto max-h-[500px]">
+          <PermissionsSettings askBeforeChanges={askBeforeChanges} onAskBeforeChanges={onAskBeforeChanges} />
+
           {/* API address */}
           <section className="p-3.5 rounded-2xl border border-line space-y-2" aria-labelledby="api-address-heading">
             <h4 id="api-address-heading" className="text-xs font-bold text-ink flex items-center gap-1.5">
@@ -293,13 +296,6 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
           {googleAvailable && <ConnectionsPanel />}
           {telegramAvailable && <TelegramPanel />}
 
-          {onAskBeforeChanges && <label className="flex items-start gap-3 rounded-2xl border border-line p-3.5 cursor-pointer">
-            <input type="checkbox" className="mt-0.5" checked={askBeforeChanges} onChange={e => onAskBeforeChanges(e.target.checked)} />
-            <span className="text-xs">
-              <strong className="block text-slate-800 dark:text-slate-200">Ask before every change</strong>
-              <span className="text-slate-400">The assistant proposes each change and waits for you to approve it. Deletions, large batches and changes after reading uploaded documents always ask.</span>
-            </span>
-          </label>}
 
           {/* Model Selector */}
           <div className="space-y-3">

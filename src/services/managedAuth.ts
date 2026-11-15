@@ -1,7 +1,11 @@
 import { createClient, type User, type SupabaseClient } from "@supabase/supabase-js";
 import type { AuthSession } from "../types";
 
-export const googleOnly = import.meta.env.VITE_GOOGLE_ONLY === "true";
+/** The macOS desktop app (Tauri). Google refuses OAuth inside embedded web views, so it signs in with email there. */
+export const isDesktopApp = typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
+/** Where links in account emails should open: the hosted web app when running on the desktop. */
+export const emailLinkOrigin = () => (isDesktopApp && import.meta.env.VITE_PUBLIC_APP_URL) || window.location.origin;
+export const googleOnly = import.meta.env.VITE_GOOGLE_ONLY === "true" && !isDesktopApp;
 export const managedAuthEnabled = import.meta.env.VITE_AUTH_PROVIDER === "supabase";
 const url = import.meta.env.VITE_SUPABASE_URL || "";
 const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";

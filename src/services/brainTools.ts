@@ -40,9 +40,12 @@ const EDIT_TOOLS: OpenRouterTool[] = [
   fn("delete_task", "Permanently remove a task. Use ONLY when the user explicitly asks to delete or remove that specific task (not when it is done: use update_task status completed). The user can undo it from the app.", {
     taskId: d_("ID of the existing task."),
   }, ["taskId"]),
-  fn("update_goal", "Update an existing goal: progress, status, title, target date, metric, motivation, or milestones (complete existing ones by ID or exact title, or add new ones). Progress is recalculated from milestones when they change and progress is not given.", {
+  fn("update_goal", "Update an existing goal: progress, status, title, description, sector, timeframe, target date, metric, motivation, or milestones (complete existing ones by ID or exact title, or add new ones). Progress is recalculated from milestones when they change and progress is not given.", {
     goalId: d_("ID of the existing goal."),
     newTitle: s_,
+    newDescription: s_,
+    sector: { type: "string", enum: ["career", "academics", "finance", "health", "mindset", "personal"] },
+    timeframe: { type: "string", enum: ["quarterly", "yearly", "long_term", "lifetime"] },
     status: { type: "string", enum: ["not_started", "in_progress", "achieved", "on_hold"] },
     progress: { type: "integer", minimum: 0, maximum: 100, description: "Overall percent complete." },
     newTargetDate: d_("YYYY-MM-DD"),
@@ -385,6 +388,15 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
                 enum: ["quarterly", "yearly", "long_term", "lifetime"],
                 description: "Horizon of the goal.",
               },
+              description: {
+                type: "string",
+                description: "Short description of what the goal is.",
+              },
+              status: {
+                type: "string",
+                enum: ["not_started", "in_progress", "achieved", "on_hold"],
+                description: "Starting status. Defaults to not_started.",
+              },
               targetDate: {
                 type: "string",
                 description: "Optional target date in YYYY-MM-DD format.",
@@ -404,6 +416,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
               },
             },
             required: ["title", "sector", "timeframe"],
+            additionalProperties: false,
           },
         },
       },
@@ -561,7 +574,7 @@ export function validate(value: unknown, schema: any, path = "arguments"): void 
     const object = value as Record<string, unknown>;
     for (const key of schema.required || []) if (object[key] === undefined) throw new Error(`${path}.${key} is required`);
     for (const [key, child] of Object.entries(object)) {
-      if (!schema.properties?.[key]) throw new Error(`Unknown ${path}.${key}`);
+      if (!schema.properties?.[key]) throw new Error(`Unknown ${path}.${key}. Allowed fields: ${Object.keys(schema.properties || {}).join(", ")}`);
       validate(child, schema.properties[key], `${path}.${key}`);
     }
   } else if (schema.type === "array") {
@@ -569,7 +582,7 @@ export function validate(value: unknown, schema: any, path = "arguments"): void 
     value.forEach((v, i) => validate(v, schema.items, `${path}[${i}]`));
   } else {
     if (schema.type === "integer" ? !Number.isInteger(value) : typeof value !== schema.type) throw new Error(`${path} must be ${schema.type}`);
-    if (schema.enum && !schema.enum.includes(value)) throw new Error(`${path} has an unsupported value`);
+    if (schema.enum && !schema.enum.includes(value)) throw new Error(`${path} has an unsupported value. Use one of: ${schema.enum.join(", ")}`);
     if (typeof value === "number" && (value < (schema.minimum ?? 0) || value > Number.MAX_SAFE_INTEGER)) throw new Error(`${path} is out of range`);
     if (typeof value === "string" && (!value.trim() || value.length > 100000)) throw new Error(`${path} must be nonempty and at most 100000 characters`);
   }
@@ -890,8 +903,15 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (!habit) throw new Error("Habit ID not found.");
       return { type: "habit", action: name, expected: habit, record: syncHabitStreaks({ ...habit, history: { ...habit.history, [today]: true } }) };
     }
-    case "create_goal": return { type: "goal", action: name, record: { id, title: args.title, sector: args.sector, timeframe: args.timeframe, targetDate: args.targetDate, metrics: args.metrics, why: args.why,
-      status: "not_started", progress: 0, createdAt: new Date().toISOString(), milestones: (args.milestones || []).map((title: string) => ({ id: crypto.randomUUID(), title, completed: false })) } };
+    case "create_goal": {
+      if (args.targetDate) validDate(args.targetDate);
+      const status = args.status || "not_started";
+      return { type: "goal", action: name, record: { id, title: args.title.trim(), sector: args.sector, timeframe: args.timeframe,
+        ...(args.description ? { description: args.description.trim() } : {}), ...(args.targetDate ? { targetDate: args.targetDate } : {}),
+        ...(args.metrics ? { metrics: args.metrics.trim() } : {}), ...(args.why ? { why: args.why.trim() } : {}),
+        status, progress: status === "achieved" ? 100 : 0, createdAt: new Date().toISOString(),
+        milestones: (args.milestones || []).map((title: string) => ({ id: crypto.randomUUID(), title: title.trim(), completed: status === "achieved" })) } };
+    }
     case "log_journal": return { type: "journal", action: name, record: { id, date: today, title: args.title, content: args.content, mood: args.mood || "neutral", wins: args.wins || [], challenges: args.challenges || [], tags: [] } };
     case "create_note": {
       if (args.folderId && !state.noteFolders?.some(f => f.id === args.folderId)) throw new Error("Unknown note folder ID.");
@@ -957,8 +977,9 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
     case "update_goal": {
       const goal = state.goals.find(g => g.id === args.goalId);
       if (!goal) throw new Error("Goal ID not found. Query live goals; do not guess IDs.");
-      const changes = ["newTitle", "status", "progress", "newTargetDate", "metrics", "why", "completeMilestones", "reopenMilestones", "addMilestones"].filter(k => args[k] !== undefined);
+      const changes = ["newTitle", "newDescription", "sector", "timeframe", "status", "progress", "newTargetDate", "metrics", "why", "completeMilestones", "reopenMilestones", "addMilestones"].filter(k => args[k] !== undefined);
       if (!changes.length) throw new Error("Supply at least one field to update.");
+      if (args.newTargetDate) validDate(args.newTargetDate);
       const matches = (m: { id: string; title: string }, refs: string[] = []) => refs.some(ref => ref === m.id || ref.trim().toLocaleLowerCase() === m.title.trim().toLocaleLowerCase());
       for (const ref of [...(args.completeMilestones || []), ...(args.reopenMilestones || [])])
         if (!goal.milestones.some(m => matches(m, [ref]))) throw new Error(`Milestone not found: ${ref}. Read the goal to get exact milestone IDs.`);
@@ -971,6 +992,8 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       return { type: "goal", action: name, expected: goal, record: { ...goal, milestones, progress,
         status: args.status || (progress >= 100 && goal.status !== "achieved" && milestonesChanged ? "achieved" : progress > 0 && goal.status === "not_started" ? "in_progress" : goal.status),
         ...(args.newTitle ? { title: args.newTitle.trim() } : {}), ...(args.newTargetDate ? { targetDate: args.newTargetDate } : {}),
+        ...(args.newDescription ? { description: args.newDescription.trim() } : {}),
+        ...(args.sector ? { sector: args.sector } : {}), ...(args.timeframe ? { timeframe: args.timeframe } : {}),
         ...(args.metrics ? { metrics: args.metrics.trim() } : {}), ...(args.why ? { why: args.why.trim() } : {}) } };
     }
     case "update_note": {

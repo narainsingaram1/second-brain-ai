@@ -18,17 +18,20 @@ export default defineConfig(({ mode }) => {
   let supabaseKey = env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";
   let authProvider = env.VITE_AUTH_PROVIDER || process.env.VITE_AUTH_PROVIDER || "";
 
-  if (!supabaseUrl || !supabaseKey) {
-    try {
-      const independentConfigPath = path.resolve(process.cwd(), "hosting/independent.json");
-      if (fs.existsSync(independentConfigPath)) {
-        const config = JSON.parse(fs.readFileSync(independentConfigPath, "utf-8"));
+  // The hosted web app, where links in account emails land (the desktop app's own address can't open from a browser).
+  let publicAppUrl = env.VITE_PUBLIC_APP_URL || process.env.VITE_PUBLIC_APP_URL || "";
+  try {
+    const independentConfigPath = path.resolve(process.cwd(), "hosting/independent.json");
+    if (fs.existsSync(independentConfigPath)) {
+      const config = JSON.parse(fs.readFileSync(independentConfigPath, "utf-8"));
+      if (!publicAppUrl && typeof config.liveUrl === "string") publicAppUrl = config.liveUrl;
+      if (!supabaseUrl || !supabaseKey) {
         if (!supabaseUrl && config.supabaseUrl) supabaseUrl = config.supabaseUrl;
         if (!supabaseKey && config.supabasePublishableKey) supabaseKey = config.supabasePublishableKey;
         if (!authProvider) authProvider = "supabase";
       }
-    } catch {}
-  }
+    }
+  } catch {}
 
   return {
     plugins: [react(), apiRoutes()],
@@ -38,6 +41,7 @@ export default defineConfig(({ mode }) => {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabaseKey),
       "import.meta.env.VITE_AUTH_PROVIDER": JSON.stringify(authProvider || "supabase"),
+      "import.meta.env.VITE_PUBLIC_APP_URL": JSON.stringify(publicAppUrl.replace(/\/$/, "")),
     },
     // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
     clearScreen: false,

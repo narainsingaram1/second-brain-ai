@@ -1,0 +1,114 @@
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
+import { createServer } from "vite";
+
+const server = await createServer({
+  configFile: false,
+  server: { middlewareMode: true, hmr: false, ws: false },
+  appType: "custom",
+  logLevel: "error",
+});
+after(() => server.close());
+const { persistLatestBrainState, persistBrainState } = await server.ssrLoadModule("/src/services/storage.ts");
+const retrieval = await server.ssrLoadModule("/src/services/brainRetrieval.ts");
+
+const state = (tasks = []) => ({
+  userId: "alice", tasks, goals: [], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [], conversations: [],
+  sections: [], subsections: {}, theme: "light", selectedModel: "test/model", openRouterKey: "",
+});
+const task = (id, title, description = "") => ({ id, title, description, status: "not_started", completed: false, section: "Work", priority: "medium", dueDate: "" });
+
+function countingStorage() {
+  const data = new Map();
+  const writes = [];
+  const previous = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: key => data.get(key) ?? null,
+    setItem: (key, value) => { if (key === "synapse_user_data_alice") writes.push(JSON.parse(value)); data.set(key, value); },
+    removeItem: key => data.delete(key),
+  };
+  return { writes, restore: () => { globalThis.localStorage = previous; } };
+}
+
+test("a burst of saves while one is queued writes the newest state once instead of once per request", async () => {
+  const store = countingStorage();
+  const warn = console.warn; console.warn = () => {};
+  try {
+    let latest = state();
+    const requests = [];
+    for (let i = 0; i < 20; i++) {
+      latest = state([task(`t${i}`, `Edit ${i}`)]);
+      requests.push(persistLatestBrainState(() => latest, "alice"));
+    }
+    await Promise.all(requests);
+    assert.equal(store.writes.length, 1);
+    assert.equal(store.writes[0].tasks[0].id, "t19");
+    // A request made after that save read the state queues a new one, so later edits are never dropped.
+    latest = state([task("after", "Later edit")]);
+    await persistLatestBrainState(() => latest, "alice");
+    assert.equal(store.writes.length, 2);
+    assert.equal(store.writes[1].tasks[0].id, "after");
+  } finally { store.restore(); console.warn = warn; }
+});
+
+test("a request behind an in-flight save still saves the state the in-flight save did not see", async () => {
+  const store = countingStorage();
+  const warn = console.warn; console.warn = () => {};
+  try {
+    let latest = state([task("first", "First")]);
+    const inFlight = persistBrainState(() => latest, "alice");
+    const queued = persistLatestBrainState(() => latest, "alice");
+    latest = state([task("second", "Second")]);
+    const joined = persistLatestBrainState(() => latest, "alice");
+    assert.equal(joined, queued);
+    await Promise.all([inFlight, queued]);
+    assert.deepEqual(store.writes.map(w => w.tasks[0].id), ["second", "second"]);
+  } finally { store.restore(); console.warn = warn; }
+});
+
+test("saves for different accounts are never merged", async () => {
+  const store = countingStorage();
+  const warn = console.warn; console.warn = () => {};
+  try {
+    const a = persistLatestBrainState(() => state([task("a", "A")]), "alice");
+    const b = persistLatestBrainState(() => ({ ...state([task("b", "B")]), userId: "bob" }), "bob");
+    assert.notEqual(a, b);
+    await Promise.all([a, b]);
+    assert.ok(globalThis.localStorage.getItem("synapse_user_data_bob"));
+    assert.equal(store.writes.length, 1);
+  } finally { store.restore(); console.warn = warn; }
+});
+
+test("cached keyword search matches a fresh index and follows edits and deletions", async () => {
+  const cache = { get: async () => undefined, put: async () => {} };
+  const search = (s, q) => retrieval.rankPassages(s, q, undefined, undefined, undefined, undefined, { embeddingCache: cache }).then(r => r.ranked.map(x => [x.id, x.score]));
+  const base = state([task("budget", "Quarterly budget review", "Spreadsheet of expenses"), task("exam", "Graph algorithms exam", "Dijkstra and heaps"), task("trip", "Plan trip", "Book the train")]);
+  retrieval.clearRetrievalMemory();
+  const cold = await search(base, "graph exam");
+  const warm = await search(base, "graph exam");
+  assert.deepEqual(warm, cold);
+  assert.equal(cold[0][0], "exam");
+  // An edited passage is re-tokenized: the old text no longer matches and the new text does.
+  const edited = state([task("budget", "Quarterly budget review", "Spreadsheet of expenses"), task("exam", "Biology quiz", "Cells"), task("trip", "Plan trip", "Book the train to the graph theory exam")]);
+  const afterEdit = await search(edited, "graph exam");
+  retrieval.clearRetrievalMemory();
+  assert.deepEqual(afterEdit, await search(edited, "graph exam"));
+  assert.deepEqual(afterEdit.map(([id]) => id), ["trip"]);
+  // Deleted records are not returned from the cache.
+  assert.deepEqual(await search(state([task("budget", "Quarterly budget review")]), "graph exam"), []);
+});
+
+test("bm25 over cached term counts scores exactly like bm25 over tokens", () => {
+  const docs = ["the graph exam covers graphs and heaps", "budget meeting notes", "exam exam exam review", ""].map(retrieval.tokenize);
+  const query = retrieval.tokenize("graph exam review");
+  assert.deepEqual(retrieval.bm25Counts(docs.map(retrieval.termCounts), query), retrieval.bm25(docs, query));
+  const reference = (() => {
+    const k1 = 1.2, b = 0.75, terms = [...new Set(query)], avg = docs.reduce((n, d) => n + d.length, 0) / docs.length;
+    return docs.map(doc => terms.reduce((score, t) => {
+      const f = doc.filter(x => x === t).length, df = docs.filter(d => d.includes(t)).length;
+      const idf = Math.log(1 + (docs.length - df + 0.5) / (df + 0.5));
+      return score + (f ? idf * (f * (k1 + 1)) / (f + k1 * (1 - b + b * doc.length / avg)) : 0);
+    }, 0));
+  })();
+  retrieval.bm25(docs, query).forEach((score, i) => assert.ok(Math.abs(score - reference[i]) < 1e-12));
+});

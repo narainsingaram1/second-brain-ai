@@ -1,13 +1,14 @@
-import { MemoryModal } from "./components/MemoryModal";
+// Styles stay in the main stylesheet (in their original order) so shared classes are ready before a view loads.
+import "./memory.css";
 import { renameTaskIcon } from "./utils/taskAppearance";
 import { followSubsectionRename } from "./utils/study";
 import { managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud, REMOTE_CHANGE_EVENT } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder, CalendarEvent } from "./types";
-import { loadInitialState, persistBrainState, writeEmergencySnapshot } from "./services/storage";
+import { loadInitialState, persistLatestBrainState, writeEmergencySnapshot } from "./services/storage";
 import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { normalizeTask, setTaskStatus, toggleTaskCompleted } from "./utils/taskState";
@@ -15,21 +16,18 @@ import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrou
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { TopHeader } from "./components/TopHeader";
-import { GoalsView } from "./components/GoalsView";
 import { GoalModal } from "./components/GoalModal";
-import { TaskMatrixView } from "./components/TaskMatrixView";
-import { HabitsView } from "./components/HabitsView";
-import { JournalView } from "./components/JournalView";
-import { NotesWorkspace } from "./components/NotesWorkspace";
-import { WorkspacesView } from "./components/WorkspacesView";
+import "./taskMatrix.css";
+import "./academic.css";
+import "./health.css";
+import "./workspaces.css";
+import "./career.css";
 import { hydrateDocumentTexts } from "./services/studyDocuments";
 import type { PreparedImage } from "./utils/imageInput";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { EventModal } from "./components/EventModal";
-import { DailyPlannerView } from "./components/DailyPlannerView";
-import { RoutinesView } from "./components/RoutinesView";
-import { EventsView } from "./components/EventsView";
+import "./planner.css";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
 import { ManagedAccountModal } from "./components/ManagedAccountModal";
@@ -46,6 +44,33 @@ import { AppSkeleton } from "./components/AppSkeleton";
 import { rememberedTab, rememberTab, rememberTheme } from "./utils/startupMemory";
 import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation";
 import { referenceTitle } from "./utils/chatPresentation";
+
+// Pages other than the chat load on first visit (and are prefetched once the app is idle), so startup
+// only parses the code for the chat, the shell and the dialogs.
+const viewLoaders = {
+  goals: () => import("./components/GoalsView").then(m => ({ default: m.GoalsView })),
+  tasks: () => import("./components/TaskMatrixView").then(m => ({ default: m.TaskMatrixView })),
+  habits: () => import("./components/HabitsView").then(m => ({ default: m.HabitsView })),
+  journal: () => import("./components/JournalView").then(m => ({ default: m.JournalView })),
+  knowledge: () => import("./components/NotesWorkspace").then(m => ({ default: m.NotesWorkspace })),
+  workspace: () => import("./components/WorkspacesView").then(m => ({ default: m.WorkspacesView })),
+  planner: () => import("./components/DailyPlannerView").then(m => ({ default: m.DailyPlannerView })),
+  routines: () => import("./components/RoutinesView").then(m => ({ default: m.RoutinesView })),
+  events: () => import("./components/EventsView").then(m => ({ default: m.EventsView })),
+  memory: () => import("./components/MemoryModal").then(m => ({ default: m.MemoryModal })),
+};
+const GoalsView = lazy(viewLoaders.goals);
+const TaskMatrixView = lazy(viewLoaders.tasks);
+const HabitsView = lazy(viewLoaders.habits);
+const JournalView = lazy(viewLoaders.journal);
+const NotesWorkspace = lazy(viewLoaders.knowledge);
+const WorkspacesView = lazy(viewLoaders.workspace);
+const DailyPlannerView = lazy(viewLoaders.planner);
+const RoutinesView = lazy(viewLoaders.routines);
+const EventsView = lazy(viewLoaders.events);
+const MemoryModal = lazy(viewLoaders.memory);
+const prefetchViews = () => { for (const load of Object.values(viewLoaders)) load().catch(() => {}); };
+const PageFallback = () => <div className="page-loading" role="status" aria-label="Loading page" style={{ minHeight: "40vh" }} />;
 
 export const App: React.FC = () => {
   const [startupError, setStartupError] = useState("");
@@ -243,6 +268,8 @@ export const App: React.FC = () => {
             });
           }).catch(() => {});
         }
+        // Fetch the other pages while idle, so switching tabs later doesn't wait on the network.
+        if (typeof requestIdleCallback === "function") requestIdleCallback(prefetchViews, { timeout: 5000 }); else setTimeout(prefetchViews, 2000);
         // Embed new or edited passages in the background, so the first search is fast.
         dropLegacyVault();
         if (loaded.openRouterKey?.trim()) {
@@ -305,7 +332,8 @@ export const App: React.FC = () => {
   const saveNow = useCallback((userId?: string) => {
     lastSaveAt.current = Date.now();
     savesInFlight.current++;
-    persistBrainState(() => {
+    // Joins a save that is still queued (it reads the newest state when it starts) instead of adding another.
+    persistLatestBrainState(() => {
       const latest = latestSaveState.current;
       if (!latest || latest.userId !== userId) throw new Error("Account changed; save stopped.");
       return latest;
@@ -1035,6 +1063,7 @@ export const App: React.FC = () => {
             <ChatWorkspace conversation={conversation} state={state} messages={conversation.messages || state.chatHistory} onSaveNote={handleSaveKnowledge} onOpenSettings={() => setIsSettingsOpen(true)} externalError={chatLaunchError} />
           ) : (
             <div className={`workspace-page page-${activeTab} w-full mx-auto space-y-6`}>
+              <Suspense fallback={<PageFallback />}>
               {activeTab.startsWith("workspace") && <WorkspacesView
                 key={`${state.userId}:${activeTab}`}
                 state={state}
@@ -1165,6 +1194,7 @@ export const App: React.FC = () => {
                   onClearInitialSelectedNote={() => setActiveEditKnowledge(null)}
                 />
               )}
+              </Suspense>
             </div>
           )}
         </main>
@@ -1311,7 +1341,7 @@ export const App: React.FC = () => {
         workspaceControls={cloudEnabled ? <CloudControls state={state} onImport={setState} /> : undefined}
       />
 
-      {isMemoryOpen && <MemoryModal key={state.userId} state={state} onClose={closeMemory} selectedId={selectedMemoryId} status={conversation.memoryStatus} onChange={conversation.changeMemory} onOpenSource={id => { if (id !== state.conversationId && id !== "current") conversation.resume(id); setActiveTab("home"); setIsMemoryOpen(false); }} />}
+      {isMemoryOpen && <Suspense fallback={null}><MemoryModal key={state.userId} state={state} onClose={closeMemory} selectedId={selectedMemoryId} status={conversation.memoryStatus} onChange={conversation.changeMemory} onOpenSource={id => { if (id !== state.conversationId && id !== "current") conversation.resume(id); setActiveTab("home"); setIsMemoryOpen(false); }} /></Suspense>}
 
       <TaskModal
         isOpen={isTaskModalOpen}

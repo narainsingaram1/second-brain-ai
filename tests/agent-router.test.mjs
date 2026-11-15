@@ -103,6 +103,29 @@ test('router: soft steps run with a toast; always-confirm sites ask first', asyn
   assert.equal(h.store.entries.at(-2).approval, 'user');
 });
 
+test('router: "ask before every step" gates every change on any site and in Mac apps, but never a look', async () => {
+  const h = harness({ policy: { confirmEverything: true }, answers: [true, false] });
+  await h.tools.execute('browser_open', { url: 'https://shop.example.com/' }, signal);
+  assert.equal(h.asked.length, 1, 'opening a page asks');
+  assert.match(h.asked[0].reason, /every step on websites/);
+  const out = await h.tools.execute('browser_act', { tabId: 2, steps: [{ action: 'click', ref: 1 }] }, signal);
+  assert.equal(h.asked.length, 2);
+  assert.equal(out.output.confirmed, false, 'declined: nothing ran');
+  assert.equal(h.calls.filter(c => c.name === 'browser_act').length, 0);
+  await h.tools.execute('browser_look', { tabId: 2 }, signal);
+  assert.equal(h.asked.length, 2, 'looking never asks');
+  const mac = harness({ policy: { confirmEverything: true }, answers: [false] });
+  const declined = await mac.tools.execute('desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }, signal);
+  assert.equal(declined.output.confirmed, false);
+  assert.match(mac.asked[0].reason, /every step in Mac apps/);
+  assert.equal(mac.calls.length, 0);
+  await mac.tools.execute('desktop_look', { bundleId: 'com.apple.Notes' }, signal);
+  assert.equal(mac.asked.length, 1, 'looking at an app never asks');
+  // Stricter wins when an organization policy is merged in.
+  assert.equal(mergePolicies(normalizePolicy({}), { confirmEverything: true }).confirmEverything, true);
+  assert.equal(normalizePolicy({}).confirmEverything, false);
+});
+
 test('router: declining a gate runs nothing', async () => {
   const h = harness({ policy: { confirmHosts: ['shop.example.com'] }, answers: [false] });
   const out = await h.tools.execute('browser_open', { url: 'https://shop.example.com/' }, signal);

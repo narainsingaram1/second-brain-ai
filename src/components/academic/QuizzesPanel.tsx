@@ -5,10 +5,14 @@ import { bestScore, courseLabel, newCard, studyOf, withStudy } from "../../utils
 import { gradeShortAnswer } from "../../services/studyAI";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import type { StudyProps, StudyUpdate } from "./AcademicWorkspace";
+import type { StudyJob } from "../../services/studyJobs";
+import { StudyJobRow } from "./StudyJobs";
 
-export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQuizId, onOpened }: StudyProps & {
-  course: Course; onGenerate: () => void; openQuizId?: string; onOpened: () => void;
+export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQuizId, onOpened, jobs = [] }: StudyProps & {
+  course: Course; onGenerate: () => void; openQuizId?: string; onOpened: () => void; jobs?: StudyJob[];
 }) {
+  const pending = jobs.filter((j) => j.status !== "done");
+  const fresh = new Set(jobs.filter((j) => j.status === "done").map((j) => j.resultId));
   const quizzes = studyOf(state).quizzes.filter((q) => q.courseId === course.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const [running, setRunning] = useState<{ quizId: string; only?: string[] } | null>(null);
   useEffect(() => {
@@ -25,13 +29,14 @@ export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQ
         </div>
         <button className="ws-button ws-primary" onClick={onGenerate}><PenLine size={15} />Generate quiz</button>
       </div>
-      {quizzes.length ? (
+      {quizzes.length || pending.length ? (
         <ul className="ac-deck-list">
+          {pending.map((job) => <StudyJobRow key={job.id} job={job} />)}
           {quizzes.map((quiz) => {
             const best = bestScore(quiz);
             const last = quiz.attempts[quiz.attempts.length - 1];
             return (
-              <li key={quiz.id}>
+              <li key={quiz.id} className={fresh.has(quiz.id) ? "ac-fresh" : undefined}>
                 <div className="ac-deck-row">
                   <div className="ac-deck-main">
                     <span className="ac-doc-icon ac-kind-quiz"><ListChecks size={15} /></span>
