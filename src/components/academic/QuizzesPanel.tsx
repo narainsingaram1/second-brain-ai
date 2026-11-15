@@ -9,6 +9,7 @@ import type { StudyJob } from "../../services/studyJobs";
 import { StudyJobRow } from "./StudyJobs";
 import { MarkdownView } from "../MarkdownView";
 import { StudyText } from "./StudyText";
+import { studyFence } from "./StudyDiagram";
 
 
 export function QuizzesPanel({ state, course, onChange, onAsk, onGenerate, openQuizId, onOpened, jobs = [] }: StudyProps & {
@@ -118,7 +119,7 @@ function QuizRunner({ state, course, quiz, only, onChange, onAsk, onClose }: { s
         {!finished && question ? (
           <div className="ac-question">
             <h3><StudyText text={question.prompt} /></h3>
-            {question.exhibit && <div className="ac-exhibit"><MarkdownView content={question.exhibit} /></div>}
+            {question.exhibit && <div className="ac-exhibit"><MarkdownView content={question.exhibit} renderFence={studyFence} /></div>}
             {question.type === "mcq" ? (
               <div className="ac-choices">
                 {question.choices!.map((choice, i) => {

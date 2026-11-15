@@ -10,7 +10,9 @@ export function jobLabel(job: StudyJob): string {
   switch (job.status) {
     case "reading": return "Reading your materials";
     case "writing": return job.written ? `Writing ${noun(job)} · ${job.written} of ${job.count}` : `Writing ${job.count} ${noun(job)}`;
-    case "checking": return "Checking every answer";
+    case "planning": return "Planning what to test";
+    case "checking": return "Checking answers and originality";
+    case "replacing": return "Replacing weak questions";
     case "saving": return "Saving";
     case "done": return `${job.written || job.count} ${noun(job, (job.written || job.count) !== 1)} ready`;
     case "error": return job.error || "Generation failed";
@@ -21,8 +23,10 @@ export function jobLabel(job: StudyJob): string {
 export function jobProgress(job: StudyJob): number | null {
   if (job.status === "reading") return 0.06;
   if (job.status === "saving" || job.status === "done") return 1;
-  if (job.status === "checking") return 0.95;
-  if (job.status === "writing") return job.written ? 0.1 + 0.85 * (job.written / Math.max(1, job.count)) : null;
+  if (job.status === "planning") return 0.1;
+  if (job.status === "checking") return 0.9;
+  if (job.status === "replacing") return 0.93;
+  if (job.status === "writing") return job.written ? 0.15 + 0.7 * Math.min(1, job.written / Math.max(1, job.count)) : null;
   return 0;
 }
 

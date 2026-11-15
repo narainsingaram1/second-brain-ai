@@ -8,6 +8,7 @@ import { getLocalDateString } from "../utils/habitStreaks";
 import { RecordIcon } from "./SourceReferences";
 import { MarkdownView } from "./MarkdownView";
 import { StudyText } from "./academic/StudyText";
+import { studyFence } from "./academic/StudyDiagram";
 import { habitWeeklyTarget, habitWeeks, parseIrisUi, type IrisCardState, type IrisUiSpec } from "../utils/irisUi";
 
 export interface IrisCardActions {
@@ -117,7 +118,7 @@ function Quiz({ spec, saved, actions }: CardProps<Extract<IrisUiSpec, { type: "q
     <div className="iris-progress" aria-hidden="true">{spec.questions.map((q, i) => <span key={i} className={answers[i] === undefined ? "" : answers[i] === q.answer ? "is-right" : "is-wrong"} />)}</div>
     {question ? <div className="iris-quiz-body">
       <p className="iris-question"><StudyText text={question.question} /></p>
-      {question.exhibit && <div className="iris-exhibit"><MarkdownView content={question.exhibit} /></div>}
+      {question.exhibit && <div className="iris-exhibit"><MarkdownView content={question.exhibit} renderFence={studyFence} /></div>}
       <div className="iris-options">{question.options.map((option, index) => {
         const right = answered && index === question.answer, wrong = answered && index === answers[step] && !right;
         return <button type="button" key={index} className={`iris-option ${right ? "is-right" : ""} ${wrong ? "is-wrong" : ""}`} disabled={answered || !actions.interactive || !actions.onChange} onClick={() => answer(index)}>
