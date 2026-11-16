@@ -1,0 +1,23 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Gadget Shop</title></head><body>
+<header><nav><a href="#">Home</a> <a href="#">Deals</a> <span id="cart">Cart (0)</span></nav></header>
+<main>
+<form role="search" id="f"><input type="search" name="q" placeholder="Search products" aria-label="Search products"><button>Search</button></form>
+<p id="status"></p><ul id="results"></ul>
+</main>
+<script>
+// Results arrive 800 ms after the search, like a slow API.
+document.getElementById('f').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = e.target.q.value.trim();
+  document.getElementById('status').textContent = 'Searching…';
+  setTimeout(() => {
+    document.getElementById('status').textContent = `Results for "${q}"`;
+    document.getElementById('results').innerHTML = ['Anker 7-in-1 USB-C Hub', 'Generic 4-port USB Hub', 'Satechi Aluminum Hub']
+      .map((n, i) => `<li><span>${n} — $${29 + i * 10}</span> <button aria-label="Add ${n} to cart">Add to cart</button></li>`).join('');
+  }, 800);
+});
+document.addEventListener('click', e => {
+  const b = e.target.closest('#results button'); if (!b) return;
+  const cart = document.getElementById('cart'); const n = Number(cart.textContent.match(/\d+/)[0]) + 1; cart.textContent = `Cart (${n})`;
+});
+</script></body></html>

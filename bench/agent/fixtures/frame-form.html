@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Form</title></head><body>
+<label><span id="lbl">Your city</span> <input name="city" id="city"></label> <button id="go" type="button">Next</button><p id="out"></p>
+<p><label>Password <input type="password" id="pw"></label> <button id="send" type="button">Send message</button></p>
+<script>
+const partner = location.search.includes('partner');
+document.getElementById('lbl').textContent = partner ? 'Partner city' : 'Home city';
+document.getElementById('go').textContent = partner ? 'Partner next' : 'Next';
+document.getElementById('go').onclick = () => { document.getElementById('out').textContent = 'City: ' + document.getElementById('city').value; };
+document.getElementById('send').onclick = () => { document.getElementById('out').textContent = 'Sent'; };
+</script></body></html>

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, MousePointerClick, PenLine, Search, ShieldCheck, SquarePen, Monitor } from "lucide-react";
 import type { AgentPlanItem, AgentStep, AgentStepKind } from "../types";
 import { splitStepItem } from "../services/agentActivity";
+import { describeTimings } from "../services/agentTrace";
 
 const ICONS: Record<AgentStepKind, typeof Brain> = {
   think: Brain, prepare: Database, records: Search, web: Globe, email: Mail, calendar: CalendarDays, change: SquarePen,
@@ -171,8 +172,19 @@ function ActivityStep({ step }: { step: AgentStep }) {
       {links.length > 0 && <ul className="agent-step-items">{links.map(({ title, url }, i) => <li key={i}>
         {url ? <a href={url} target="_blank" rel="noreferrer">{title || url}</a> : <span>{title}</span>}
       </li>)}</ul>}
+      {step.timing && <StepTiming timing={step.timing} />}
     </div>
   </li>;
+}
+
+/** Where a website or app step's time went, behind a small disclosure: for checking the agent's speed. */
+function StepTiming({ timing }: { timing: NonNullable<AgentStep["timing"]> }) {
+  const phases = describeTimings(timing.phases);
+  const sent = timing.chars ? `${timing.chars.toLocaleString()} characters sent to the model` : "";
+  return <details className="agent-step-timing">
+    <summary>Timing · {timing.ms < 1000 ? `${timing.ms}ms` : `${(timing.ms / 1000).toFixed(1)}s`}</summary>
+    <p>{[phases, sent].filter(Boolean).join(" · ") || "No breakdown reported"}</p>
+  </details>;
 }
 
 /** How far each streamed reply has been revealed, so a reply that finishes keeps revealing smoothly. */

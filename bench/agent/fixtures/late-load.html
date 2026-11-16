@@ -1,0 +1,11 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Feed</title>
+<style>.spin{display:inline-block;width:12px;height:12px;border:2px solid #999;border-top-color:transparent;border-radius:50%;animation:s 1s linear infinite}@keyframes s{to{transform:rotate(360deg)}}</style></head><body><main>
+<h1>Feed</h1><ul id="list"></ul><p id="loading" hidden><span class="spin"></span> Loading…</p><button id="more">Load more</button><p id="picked"></p>
+</main><script>
+const list = document.getElementById('list');
+const add = (from, to) => { for (let i = from; i <= to; i++) list.insertAdjacentHTML('beforeend', `<li><button class="item">Item ${i}</button></li>`); };
+add(1, 20);
+// Only a CSS spinner while the next page loads: the DOM stays quiet for 1.5 s, then the items arrive.
+document.getElementById('more').onclick = () => { document.getElementById('loading').hidden = false; setTimeout(() => { document.getElementById('loading').hidden = true; add(21, 40); }, 1500); };
+document.addEventListener('click', e => { if (e.target.classList.contains('item')) document.getElementById('picked').textContent = 'Picked ' + e.target.textContent; });
+</script></body></html>

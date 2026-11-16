@@ -1,5 +1,6 @@
 mod approval;
 mod desktop;
+mod vault;
 mod hub;
 
 use std::collections::HashSet;
@@ -388,6 +389,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(approval::Approvals::default())
         .manage(desktop::DesktopState::default())
+        .manage(vault::VaultState::default())
         .manage(hub::Hub::default())
         .setup(|app| { hub::start(app.handle().clone()); Ok(()) })
         .invoke_handler(tauri::generate_handler![
@@ -402,6 +404,13 @@ pub fn run() {
             desktop::desktop_allow_app,
             desktop::desktop_look,
             desktop::desktop_act,
+            desktop::desktop_read,
+            desktop::desktop_document,
+            vault::vault_open,
+            vault::vault_list,
+            vault::vault_add,
+            vault::vault_remove,
+            vault::vault_verify,
             desktop::desktop_stop,
             hub::browser_link_status,
             hub::browser_call,

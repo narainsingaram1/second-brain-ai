@@ -29,6 +29,7 @@ import { loadUserPolicy, saveUserPolicy } from "../services/agentPolicy";
 import { hasNativeApproval, nativeConfirm, withdrawNative } from "../services/nativeApproval";
 import { nativeBrowserLink } from "../services/browserLink";
 import { desktopReady, desktopToolset, needsDesktop } from "../services/desktopAgent";
+import { needsVault, vaultToolset } from "../services/vaultAgent";
 
 type BrowserAnswer = boolean | "deny_site";
 import { MemoryLearner, turnsOf, type LearnerStatus } from "../services/memoryLearning";
@@ -388,7 +389,9 @@ export function useBrainConversation(
         setTimeout(() => dismissAgentToast(toast.id), 5000);
       },
     }) : null;
-    const runsOnServer = async () => !browser && !desktop && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
+    // Saved logins (macOS app): the assistant can see which sites have one, never a password.
+    const vault = hasNativeApproval() && needsVault(prompt);
+    const runsOnServer = async () => !browser && !desktop && !vault && isServerHeldKey(initial.openRouterKey) && usesRecordStorage() && (await serverFeatures()).agent
       && new Blob([JSON.stringify(turn)]).size <= MAX_REMOTE_TURN_BYTES;
     const runOnServer = async () => {
       let saved = 0;
@@ -437,7 +440,8 @@ export function useBrainConversation(
           externalTools: options.externalTools ?? combineToolsets(
             webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
             browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm })) : undefined,
-            desktop && router ? router.wrap(desktopToolset()) : undefined),
+            desktop && router ? router.wrap(desktopToolset()) : undefined,
+            vault ? vaultToolset() : undefined),
           ...(browser || desktop ? { budget: BROWSER_BUDGET } : {}),
           getMemory: () =>
             isCurrent()

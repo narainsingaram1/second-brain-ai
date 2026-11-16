@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Newest questions</title>
+<style>#consent{position:fixed;left:20px;bottom:20px;width:420px;background:#fff;border:1px solid #333;padding:16px;z-index:5}</style></head><body>
+<main><h1>Newest questions</h1><a href="#q1">How do I parse JSON in Rust?</a> <button id="ask">Ask question</button><p id="out"></p></main>
+<!-- Like Stack Overflow's: a real, non-modal dialog on top of the page. It should take over the view. -->
+<div id="consent" role="dialog" aria-label="Privacy"><p>We use cookies.</p><button id="necessary">Necessary cookies only</button> <button id="all">Accept all cookies</button></div>
+<script>
+for (const id of ["necessary", "all"]) document.getElementById(id).onclick = () => document.getElementById("consent").remove();
+document.getElementById("ask").onclick = () => { document.getElementById("out").textContent = "Asking"; };
+</script></body></html>

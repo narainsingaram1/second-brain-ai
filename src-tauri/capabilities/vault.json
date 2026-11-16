@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "vault",
+  "description": "The Saved logins window: lists, adds, checks and removes logins through the vault commands, which check the window themselves. No plugins, no other access.",
+  "windows": ["vault"],
+  "permissions": ["core:default"]
+}

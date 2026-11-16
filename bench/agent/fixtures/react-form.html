@@ -1,0 +1,22 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Profile settings</title></head><body><main id="app"></main>
+<script>
+// A controlled form in the style of React: state changes only through input events, and every change re-renders.
+const state = { name: '', email: '', country: 'US', terms: false, saved: false };
+function render() {
+  const app = document.getElementById('app');
+  const focused = document.activeElement?.name;
+  app.innerHTML = `<h1>Profile</h1><form id="f">
+    <label>Full name <input name="name" value="${state.name}"></label>
+    <label>Email <input name="email" type="email" value="${state.email}"></label>
+    <label>Country <select name="country">${['US', 'CA', 'GB', 'IN'].map(c => `<option ${c === state.country ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+    <label><input type="checkbox" name="terms" ${state.terms ? 'checked' : ''}> I accept the community guidelines</label>
+    <button type="button" id="save">Save profile</button></form>
+    <output id="out">${state.saved ? `Saved ${state.name} | ${state.email} | ${state.country} | terms=${state.terms}` : ''}</output>`;
+  if (focused) app.querySelector(`[name=${focused}]`)?.focus();
+}
+const take = e => { if (e.target.name in state) { state[e.target.name] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; render(); } };
+document.addEventListener('input', take);
+document.addEventListener('change', take);
+document.addEventListener('click', e => { if (e.target.id === 'save') { state.saved = true; render(); } });
+render();
+</script></body></html>

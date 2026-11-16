@@ -115,6 +115,30 @@ pub struct View {
     #[serde(skip_serializing_if = "Option::is_none")] pub user_only: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")] pub declined: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")] pub confirmed: Option<bool>,
+    /// Where the request's time went (look, act, pause, approval), in ms. For tracing; the app strips it before the model.
+    #[serde(skip_serializing_if = "Option::is_none")] pub timings: Option<Timings>,
+}
+
+/// Phase durations in whole milliseconds, plus `total`.
+pub type Timings = std::collections::BTreeMap<String, u64>;
+
+/// Adds up where a request's time goes, phase by phase.
+pub struct Stopwatch { start: std::time::Instant, phases: Timings }
+impl Stopwatch {
+    pub fn new() -> Self { Self { start: std::time::Instant::now(), phases: Timings::new() } }
+    pub fn add(&mut self, phase: &str, since: std::time::Instant) {
+        *self.phases.entry(phase.to_string()).or_insert(0) += since.elapsed().as_millis() as u64;
+    }
+    pub fn time<T>(&mut self, phase: &str, work: impl FnOnce() -> T) -> T {
+        let t = std::time::Instant::now();
+        let value = work();
+        self.add(phase, t);
+        value
+    }
+    pub fn finish(mut self) -> Timings {
+        self.phases.insert("total".into(), self.start.elapsed().as_millis() as u64);
+        self.phases
+    }
 }
 
 // ---- Platform ----
@@ -156,7 +180,7 @@ fn look_and_store(state: &DesktopState, bundle: &str, pid: i32, app_name: &str) 
         if !ax::trusted(false) { return Err("Synapse needs the Accessibility permission. Turn it on in Settings → Desktop control.".into()); }
         let snap = ax::look(&ax::application(pid))?;
         let elements: Vec<String> = snap.nodes.iter().enumerate().map(|(i, n)| {
-            let pressable = !n.target.is_text();
+            let pressable = !n.target.is_text() && !n.target.is_toggle();
             ax::describe(i + 1, n, pressable && tiers::is_consequential(&n.target.name))
         }).collect();
         let view = View { app: app_name.into(), bundle_id: bundle.into(), window: snap.window.clone(), elements, omitted: snap.omitted, text: snap.text, secure_input: ax::secure_input(), ..Default::default() };
@@ -263,17 +287,21 @@ pub async fn desktop_allow_app(app: AppHandle, window: Window, bundle_id: String
 #[tauri::command]
 pub fn desktop_look(app: AppHandle, window: Window, bundle_id: String) -> Result<View, String> {
     main_only(&window)?;
-    decide_app(&bundle_id, &load_user(), &load_managed())?;
-    let (pid, name) = resolve(&bundle_id)?;
-    look_and_store(&app.state::<DesktopState>(), &bundle_id, pid, &name)
+    let mut sw = Stopwatch::new();
+    sw.time("checks", || decide_app(&bundle_id, &load_user(), &load_managed()))?;
+    let (pid, name) = sw.time("resolve", || resolve(&bundle_id))?;
+    let mut view = sw.time("look", || look_and_store(&app.state::<DesktopState>(), &bundle_id, pid, &name))?;
+    view.timings = Some(sw.finish());
+    Ok(view)
 }
 
 #[tauri::command]
 pub async fn desktop_act(app: AppHandle, window: Window, bundle_id: String, steps: Vec<Step>) -> Result<View, String> {
     main_only(&window)?;
     if steps.is_empty() || steps.len() > 10 { return Err("Send between 1 and 10 steps.".into()); }
-    decide_app(&bundle_id, &load_user(), &load_managed())?;
-    let (pid, _) = resolve(&bundle_id)?;
+    let mut sw = Stopwatch::new();
+    sw.time("checks", || decide_app(&bundle_id, &load_user(), &load_managed()))?;
+    let (pid, _) = sw.time("resolve", || resolve(&bundle_id))?;
     STOP.store(false, Ordering::SeqCst);
     // Copy what this batch needs out of the lock: the approval window is awaited below.
     let (app_name, window_title, nodes, focused) = {
@@ -303,7 +331,9 @@ pub async fn desktop_act(app: AppHandle, window: Window, bundle_id: String, step
             Tier::Hard => {
                 let mut details = vec![format!("In {app_name}, window \"{window_title}\".")];
                 if let Step::Type { text, .. } = step { details.push(format!("Exact text: {}", preview(text))); }
+                let asked = std::time::Instant::now();
                 let decision = approval::ask(&app, ApprovalPayload { label: label.clone(), site: app_name.clone(), reason, details, screenshot: None }).await?;
+                sw.add("approval", asked);
                 if decision == Decision::DenySite {
                     let mut user = load_user();
                     user.allowed_apps.retain(|a| a != &bundle_id);
@@ -319,19 +349,94 @@ pub async fn desktop_act(app: AppHandle, window: Window, bundle_id: String, step
             }
             _ => {}
         }
-        perform(pid, step, node.map(|(h, _)| h)).map_err(|e| format!("{label}: {e}"))?;
+        sw.time("act", || perform(pid, step, node.map(|(h, _)| h))).map_err(|e| format!("{label}: {e}"))?;
         done.push(label);
-        std::thread::sleep(std::time::Duration::from_millis(if matches!(step, Step::Activate) { 300 } else { 120 }));
+        // Give the app a moment to react, without holding up other async work.
+        let paused = std::time::Instant::now();
+        let wait = std::time::Duration::from_millis(if matches!(step, Step::Activate) { 300 } else { 120 });
+        let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(wait)).await;
+        sw.add("pause", paused);
     }
     // A fresh look after the batch: refs for the next step.
-    let mut view = look_and_store(&app.state::<DesktopState>(), &bundle_id, pid, &app_name)?;
+    let mut view = sw.time("look", || look_and_store(&app.state::<DesktopState>(), &bundle_id, pid, &app_name))?;
     view.done = done;
     view.stopped_at = outcome.stopped_at;
     view.stopped = outcome.stopped;
     view.user_only = outcome.user_only;
     view.declined = outcome.declined;
     view.confirmed = outcome.confirmed;
+    view.timings = Some(sw.finish());
     Ok(view)
+}
+
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Reading {
+    pub app: String, pub bundle_id: String, pub window: String, pub text: String,
+    /// The file the window shows: its name and extension only. The path stays here.
+    #[serde(skip_serializing_if = "Option::is_none")] pub document: Option<String>,
+}
+
+/// "file:///Users/me/My%20Doc.docx" → "/Users/me/My Doc.docx".
+pub fn document_path(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) { out.push(b); i += 3; continue; }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    let path = PathBuf::from(String::from_utf8(out).ok()?);
+    path.is_absolute().then_some(path)
+}
+
+/// The file an app's front window shows, as the app reports it.
+#[cfg(target_os = "macos")]
+fn front_document(bundle_id: &str) -> Result<Option<PathBuf>, String> {
+    let (pid, _) = resolve(bundle_id)?;
+    Ok(ax::document_url(&ax::application(pid))?.as_deref().and_then(document_path))
+}
+
+/// The full text of an allowed app's front window (a document's body included), for reading long documents.
+#[tauri::command]
+pub fn desktop_read(window: Window, bundle_id: String) -> Result<Reading, String> {
+    main_only(&window)?;
+    decide_app(&bundle_id, &load_user(), &load_managed())?;
+    #[cfg(target_os = "macos")]
+    {
+        let (pid, name) = resolve(&bundle_id)?;
+        let r = ax::read_all(&ax::application(pid))?;
+        let document = r.document.as_deref().and_then(document_path).and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+        Ok(Reading { app: name, bundle_id, window: r.window, text: r.text, document })
+    }
+    #[cfg(not(target_os = "macos"))]
+    { unsupported() }
+}
+
+const MAX_DOCUMENT_BYTES: u64 = 40 * 1024 * 1024;
+
+/// The saved file behind an allowed app's front window, when it is a Word document. The path comes from the
+/// app (its window's AXDocument), never from the model, and only .docx files are read.
+#[tauri::command]
+pub fn desktop_document(window: Window, bundle_id: String) -> Result<tauri::ipc::Response, String> {
+    main_only(&window)?;
+    decide_app(&bundle_id, &load_user(), &load_managed())?;
+    #[cfg(target_os = "macos")]
+    {
+        let path = front_document(&bundle_id)?;
+        let path = path.ok_or("That window doesn't show a saved file.")?;
+        if path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) != Some("docx".into()) { return Err("Only Word (.docx) files can be read this way.".into()); }
+        let size = std::fs::metadata(&path).map_err(|_| "The document's file couldn't be found. Is it saved?")?.len();
+        if size > MAX_DOCUMENT_BYTES { return Err("That document is too large to read.".into()); }
+        let bytes = std::fs::read(&path).map_err(|e| format!("Couldn't read the document: {e}"))?;
+        Ok(tauri::ipc::Response::new(bytes))
+    }
+    #[cfg(not(target_os = "macos"))]
+    { unsupported() }
 }
 
 #[tauri::command]
@@ -343,6 +448,14 @@ pub fn desktop_stop(window: Window) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn document_paths_are_decoded_file_urls_only() {
+        assert_eq!(super::document_path("file:///Users/me/My%20Doc.docx"), Some(PathBuf::from("/Users/me/My Doc.docx")));
+        assert_eq!(super::document_path("file:///Users/me/bad%2"), Some(PathBuf::from("/Users/me/bad%2")));
+        assert_eq!(super::document_path("https://example.com/a.docx"), None);
+        assert_eq!(super::document_path("file://relative.docx"), None);
+    }
+
     use super::*;
 
     #[test]
@@ -370,6 +483,19 @@ mod tests {
         assert_eq!(label_for(&Step::Type { r#ref: 1, text: "ls -la\n".into(), submit: true, append: false }, Some(&field), "Terminal"),
             "Type \"ls -la⏎\" in \"shell\" in Terminal and press Return");
         assert_eq!(label_for(&Step::Key { key: "q".into(), modifiers: vec!["cmd".into()] }, None, "Notes"), "Press cmd+q in Notes");
+    }
+
+    #[test]
+    fn stopwatch_adds_phases_and_a_total() {
+        let mut sw = Stopwatch::new();
+        let v = sw.time("look", || { std::thread::sleep(std::time::Duration::from_millis(5)); 7 });
+        sw.time("look", || ());
+        sw.time("act", || ());
+        let t = sw.finish();
+        assert_eq!(v, 7);
+        assert!(t["look"] >= 5, "repeated phases add up");
+        assert!(t.contains_key("act"));
+        assert!(t["total"] >= t["look"]);
     }
 
     #[test]

@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Projects</title></head><body><main>
+<h1>Projects</h1><ul><li><span id="name">Untitled project</span> <button id="rename">Rename</button></li></ul>
+<dialog id="d"><form method="dialog"><label>New name <input name="n"></label><button value="ok">Done</button> <button value="cancel">Cancel</button></form></dialog>
+</main><script>
+const d = document.getElementById('d');
+document.getElementById('rename').onclick = () => { d.querySelector('input').value = ''; d.showModal(); };
+d.addEventListener('close', () => { if (d.returnValue === 'ok') document.getElementById('name').textContent = d.querySelector('input').value; });
+</script></body></html>

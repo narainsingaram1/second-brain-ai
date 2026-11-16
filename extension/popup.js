@@ -13,8 +13,29 @@ async function render() {
     li.append(span, button);
     return li;
   }) : [Object.assign(document.createElement("li"), { textContent: "None yet. Connect from Synapse → Settings → Browser agent.", className: "muted" })]));
+  const lent = document.getElementById("lent");
+  lent.replaceChildren(...(status.lent.length ? status.lent.map(tab => {
+    const li = document.createElement("li");
+    const span = document.createElement("span"); span.textContent = tab.title || tab.site;
+    const button = document.createElement("button"); button.type = "button"; button.textContent = "Take back";
+    button.addEventListener("click", async () => { await send({ type: "unshare", tabId: tab.tabId }); render(); });
+    li.append(span, button);
+    return li;
+  }) : [Object.assign(document.createElement("li"), { textContent: "None. The assistant asks before using one of your tabs.", className: "muted" })]));
+  await renderShare();
   document.getElementById("blocked").value = status.blocked.join("\n");
   document.getElementById("precise").checked = !!status.precise;
+}
+async function activeTab() { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); return tab; }
+async function renderShare() {
+  const tab = await activeTab();
+  const button = document.getElementById("share");
+  const state = tab?.id !== undefined ? (await send({ type: "tab-state", tabId: tab.id }))?.value : null;
+  button.hidden = !state || state.own || !state.shareable;
+  button.textContent = state?.lent ? "Take this tab back" : "Let Synapse use this tab";
+  document.getElementById("share-state").textContent = !state || !state.shareable ? "This page can't be lent (browser pages, the Synapse app and blocked sites)."
+    : state.own ? "This is one of the assistant's own tabs." : state.lent ? "Synapse may read and work in this tab." : "Lend the tab you're on so the assistant can read it and work there when you ask.";
+  button.onclick = async () => { await send({ type: state?.lent ? "unshare" : "share", tabId: tab.id }); render(); };
 }
 document.getElementById("stop").addEventListener("click", async () => { await send({ type: "stop" }); render(); });
 document.getElementById("save").addEventListener("click", async () => {

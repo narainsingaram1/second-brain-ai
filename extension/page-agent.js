@@ -6,7 +6,7 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 2) return;
+  if (globalThis.__synapseAgent?.version === 4) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
@@ -28,16 +28,39 @@
   const CONSEQUENTIAL = /\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account|merge|approve|archive|revoke|deploy|release|empty trash|erase|move to (?:the )?trash|shut down|restart|log out|sign out|quit)\b/i;
   const SEARCHY = /\b(search|find|query|look ?up|where|destination|location|city|zip|postal|keyword|filter)\b/i;
 
+  // ---- Elements from any frame ----
+  // Elements inside a same-origin frame belong to that frame's own JavaScript realm, so `instanceof
+  // HTMLInputElement` (this realm's class) is false for them. Check tag names, and use the element's own
+  // document and window.
+  const tagOf = el => el?.nodeType === 1 ? el.localName : "";
+  const isInput = el => tagOf(el) === "input";
+  const isTextarea = el => tagOf(el) === "textarea";
+  const isSelect = el => tagOf(el) === "select";
+  const docOf = el => el?.ownerDocument || document;
+  const winOf = el => docOf(el).defaultView || window;
+  /** What has keyboard focus, looking inside same-origin frames and open shadow roots (where keys really go). */
+  function focusedElement() {
+    let el = document.activeElement;
+    for (;;) {
+      let inner = null;
+      if (tagOf(el) === "iframe" || tagOf(el) === "frame") { try { inner = el.contentDocument?.activeElement; } catch { /* Cross-origin frame. */ } }
+      else inner = el?.shadowRoot?.activeElement;
+      if (!inner || inner === el || inner === inner.ownerDocument?.body) return el;
+      el = inner;
+    }
+  }
+  const isFocusable = el => el?.nodeType === 1 && el !== docOf(el).body && el !== docOf(el).documentElement;
+
   // ---- Visibility and naming ----
   function visible(el) {
     if (!el.isConnected) return false;
     const rect = el.getBoundingClientRect();
     if (rect.width < 1 || rect.height < 1) {
       // A visually hidden native checkbox or radio styled through its label still counts.
-      if (!(el instanceof HTMLInputElement && /^(checkbox|radio)$/.test(el.type) && el.labels?.length)) return false;
+      if (!(isInput(el) && /^(checkbox|radio)$/.test(el.type) && el.labels?.length)) return false;
     }
-    const style = getComputedStyle(el);
-    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0 && !(el instanceof HTMLInputElement)) return false;
+    const style = winOf(el).getComputedStyle(el);
+    if (style.visibility === "hidden" || style.display === "none" || Number(style.opacity) === 0 && !isInput(el)) return false;
     if (el.closest("[aria-hidden='true'], [inert]")) return false;
     return true;
   }
@@ -49,21 +72,33 @@
     const by = el.getAttribute("aria-labelledby");
     if (by) {
       const root = el.getRootNode();
-      const text = by.split(/\s+/).map(id => (root.getElementById?.(id) || document.getElementById(id))?.textContent || "").join(" ");
+      const text = by.split(/\s+/).map(id => (root.getElementById?.(id) || docOf(el).getElementById(id))?.textContent || "").join(" ");
       if (clean(text)) return clean(text);
     }
     const aria = el.getAttribute("aria-label");
     if (clean(aria)) return clean(aria);
-    if (el.labels?.length) { const text = [...el.labels].map(l => l.innerText || l.textContent).join(" "); if (clean(text)) return clean(text); }
+    if (el.labels?.length) { const text = [...el.labels].map(l => ownText(l)).join(" "); if (clean(text)) return clean(text); }
     return "";
+  }
+  /**
+   * A label's words without the controls inside it: a label wrapping a <select> would otherwise be named after
+   * every option ("Country US CA GB IN"), and one wrapping a text field after what is typed in it.
+   */
+  function ownText(node) {
+    let text = "";
+    for (const child of node.childNodes) {
+      if (child.nodeType === 3) text += child.data;
+      else if (child.nodeType === 1 && !/^(select|textarea|input|button|option|datalist|script|style)$/.test(child.localName)) text += ` ${ownText(child)} `;
+    }
+    return text;
   }
   function nameOf(el) {
     const label = labelText(el);
     if (label) return label;
-    if (el instanceof HTMLInputElement && /^(submit|button|reset)$/.test(el.type)) return clean(el.value || el.type);
-    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) return clean(el.placeholder || el.title || el.name || "");
-    if (el instanceof HTMLSelectElement) return clean(el.title || el.name || "");
-    if (el instanceof HTMLImageElement) return clean(el.alt);
+    if (isInput(el) && /^(submit|button|reset)$/.test(el.type)) return clean(el.value || el.type);
+    if (isInput(el) || isTextarea(el)) return clean(el.placeholder || el.title || el.name || "");
+    if (isSelect(el)) return clean(el.title || el.name || "");
+    if (tagOf(el) === "img") return clean(el.alt);
     const text = clean(el.innerText || el.textContent || "", 100);
     if (text) return text;
     const img = el.querySelector("img[alt], svg[aria-label], [aria-label]");
@@ -88,39 +123,44 @@
     if (el.isContentEditable) return "textbox";
     return "clickable";
   }
-  const isTextField = el => (el instanceof HTMLInputElement && !/^(submit|button|reset|image|checkbox|radio|range|color|file|hidden)$/.test(el.type))
-    || el instanceof HTMLTextAreaElement || el.isContentEditable || /^(textbox|searchbox|combobox)$/.test(el.getAttribute("role") || "");
+  const isTextField = el => (isInput(el) && !/^(submit|button|reset|image|checkbox|radio|range|color|file|hidden)$/.test(el.type))
+    || isTextarea(el) || el.isContentEditable || /^(textbox|searchbox|combobox)$/.test(el.getAttribute("role") || "");
 
   /** Why a field must be filled by the user, or "" if the agent may type into it. */
   function secretReason(el) {
-    if (el instanceof HTMLInputElement && el.type === "password") return "password field";
+    if (isInput(el) && el.type === "password") return "password field";
     const ac = el.getAttribute("autocomplete") || "";
     if (SECRET_AUTOCOMPLETE.test(ac)) return /cc-/.test(ac) ? "payment card field" : "password or one-time code field";
     const hint = [labelText(el), el.getAttribute("name"), el.id, el.getAttribute("placeholder")].filter(Boolean).join(" ");
     if (SECRET_LABEL.test(hint)) return "sensitive field (password, payment or identity number)";
     return "";
   }
+  const isToggle = el => (isInput(el) && /^(checkbox|radio)$/.test(el.type)) || /^(checkbox|radio)$/.test(el.getAttribute("role") || "");
   /** True when clicking this commits something for the user (an order, a message, a deletion). */
   function consequential(el) {
+    // Ticking a box or picking a radio option changes a form; it doesn't commit it. ("I accept the terms" is a
+    // checkbox; the button that then submits the form is what asks.)
+    if (isToggle(el)) return false;
     const name = nameOf(el);
     if (CONSEQUENTIAL.test(name)) return true;
-    const described = (el.getAttribute("aria-describedby") || "").split(/\s+/).map(id => document.getElementById(id)?.textContent || "").join(" ");
+    const described = (el.getAttribute("aria-describedby") || "").split(/\s+/).map(id => docOf(el).getElementById(id)?.textContent || "").join(" ");
     if (described && CONSEQUENTIAL.test(clean(described, 200))) return true;
     const form = el.form || el.closest?.("form");
     if (form && (el.type === "submit" || (el.tagName === "BUTTON" && !el.getAttribute("type")))) {
       // Submitting a form that holds a password or card field is consequential whatever the button says.
-      if ([...form.elements].some(f => f instanceof HTMLElement && secretReason(f))) return true;
+      if ([...form.elements].some(f => f?.nodeType === 1 && secretReason(f))) return true;
       // So is posting a form to another site.
       const method = (el.getAttribute("formmethod") || form.getAttribute("method") || "get").toLowerCase();
       try {
-        const action = new URL(el.getAttribute("formaction") || form.getAttribute("action") || location.href, location.href);
-        if (method === "post" && action.host !== location.host) return true;
+        const here = docOf(el).location;
+        const action = new URL(el.getAttribute("formaction") || form.getAttribute("action") || here.href, here.href);
+        if (method === "post" && action.host !== here.host) return true;
       } catch { /* Unparseable action: the browser treats it as this page. */ }
     }
     return false;
   }
   function searchLike(el) {
-    if (el instanceof HTMLInputElement && el.type === "search") return true;
+    if (isInput(el) && el.type === "search") return true;
     if (/^(searchbox|combobox)$/.test(el.getAttribute("role") || "")) return true;
     if (el.closest("[role=search], form[role=search], search")) return true;
     return SEARCHY.test([labelText(el), el.getAttribute("placeholder"), el.getAttribute("name"), el.id].filter(Boolean).join(" "));
@@ -157,8 +197,8 @@
       const children = node.children || [];
       for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
       if (node.shadowRoot) stack.push(node.shadowRoot);
-      if (node instanceof HTMLIFrameElement) { try { if (node.contentDocument?.body) stack.push(node.contentDocument.body); } catch { /* Cross-origin frame. */ } }
-      if (node instanceof Element) yield node;
+      if (tagOf(node) === "iframe" || tagOf(node) === "frame") { try { if (node.contentDocument?.body) stack.push(node.contentDocument.body); } catch { /* Cross-origin frame. */ } }
+      if (node.nodeType === 1) yield node;
     }
   }
 
@@ -173,20 +213,20 @@
       else if ("value" in el && el.value) flags.push(`value=${JSON.stringify(clean(el.value, 60))}`);
       else if (el.isContentEditable && clean(el.innerText)) flags.push(`value=${JSON.stringify(clean(el.innerText, 60))}`);
     }
-    if (el instanceof HTMLSelectElement) {
+    if (isSelect(el)) {
       flags.push(`selected=${JSON.stringify(clean(el.selectedOptions[0]?.text || "", 40))}`);
       const options = [...el.options].slice(0, 12).map(o => clean(o.text, 30)).filter(Boolean);
       if (options.length) flags.push(`options=${JSON.stringify(options)}${el.options.length > 12 ? `+${el.options.length - 12}` : ""}`);
     }
-    if (el instanceof HTMLInputElement && /^(checkbox|radio)$/.test(el.type)) flags.push(el.checked ? "checked" : "unchecked");
+    if (isInput(el) && /^(checkbox|radio)$/.test(el.type)) flags.push(el.checked ? "checked" : "unchecked");
     const ariaChecked = el.getAttribute("aria-checked"), expanded = el.getAttribute("aria-expanded"), selected = el.getAttribute("aria-selected");
     if (ariaChecked) flags.push(ariaChecked === "true" ? "checked" : "unchecked");
     if (expanded) flags.push(expanded === "true" ? "expanded" : "collapsed");
     if (selected === "true") flags.push("selected");
     if (el.disabled || el.getAttribute("aria-disabled") === "true") flags.push("disabled");
     if (el.required) flags.push("required");
-    if (el instanceof HTMLAnchorElement && el.href && !el.href.startsWith("javascript:")) {
-      try { const u = new URL(el.href); if (u.host !== location.host) flags.push(`→${u.host}`); } catch { /* Ignore. */ }
+    if (tagOf(el) === "a" && el.href && !el.href.startsWith("javascript:")) {
+      try { const u = new URL(el.href); if (u.host !== docOf(el).location.host) flags.push(`→${u.host}`); } catch { /* Ignore. */ }
     }
     if (consequential(el)) flags.push("needs-confirmation");
     const rect = el.getBoundingClientRect();
@@ -194,15 +234,42 @@
     return [...parts, ...flags].join(" ");
   }
 
+  /**
+   * The dialog the user is looking at, if one is in the way. Sites mark plenty of closed or collapsed panels as
+   * dialogs (Amazon keeps a 1px-wide open role=dialog for its cart flyout), so one counts only when it has a real
+   * size, a control the user could use, and is on top where it sits. Otherwise the whole page is shown.
+   */
+  function openDialog() {
+    const candidates = [...document.querySelectorAll("dialog[open], [role=dialog], [role=alertdialog], [aria-modal=true]")].filter(visible);
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const d = candidates[i];
+      const rect = d.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 24) continue;
+      let usable = false;
+      for (const el of walk(d)) { if (el !== d && el.matches?.(INTERACTIVE) && visible(el)) { usable = true; break; } }
+      if (!usable) continue;
+      // On top: what is under the middle of its visible part belongs to it (a native modal is always on top).
+      // (Inside a shadow root the hit is retargeted to an outer host, so that check is skipped there.)
+      if (!(tagOf(d) === "dialog" && d.matches(":modal")) && !(d.getRootNode() instanceof ShadowRoot)) {
+        const x = Math.min(Math.max((Math.max(rect.left, 0) + Math.min(rect.right, innerWidth)) / 2, 0), innerWidth - 1);
+        const y = Math.min(Math.max((Math.max(rect.top, 0) + Math.min(rect.bottom, innerHeight)) / 2, 0), innerHeight - 1);
+        const hit = document.elementFromPoint(x, y);
+        if (hit && !d.contains(hit)) continue;
+      }
+      return d;
+    }
+    return null;
+  }
+
   /** The page as the agent sees it: what can be acted on (on screen first) and the main readable text. */
   function snapshot() {
-    const dialog = [...document.querySelectorAll("dialog[open], [role=dialog], [role=alertdialog], [aria-modal=true]")].filter(visible).pop();
+    const dialog = openDialog();
     const scope = dialog || document.body || document.documentElement;
     const seen = new Set();
     const found = [];
     for (const el of walk(scope)) {
       if (!el.matches?.(INTERACTIVE) || seen.has(el)) continue;
-      if (el instanceof HTMLInputElement && el.type === "hidden") continue;
+      if (isInput(el) && el.type === "hidden") continue;
       if (!visible(el)) continue;
       // A link wrapping a single button (or the reverse) is one target.
       if (el.parentElement && seen.has(el.parentElement) && el.parentElement.matches("a[href], button") && clean(el.innerText) === clean(el.parentElement.innerText)) continue;
@@ -228,17 +295,19 @@
     return { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
   }
   function pointer(el, type, extra = {}) {
-    const opts = { bubbles: true, cancelable: true, composed: true, view: window, button: 0, ...point(el), ...extra };
-    const Ctor = type.startsWith("pointer") ? PointerEvent : MouseEvent;
+    const win = winOf(el);
+    const opts = { bubbles: true, cancelable: true, composed: true, view: win, button: 0, ...point(el), ...extra };
+    const Ctor = type.startsWith("pointer") ? win.PointerEvent : win.MouseEvent;
     el.dispatchEvent(new Ctor(type, type.startsWith("pointer") ? { pointerId: 1, pointerType: "mouse", isPrimary: true, ...opts } : opts));
   }
   function keyEvent(el, type, key) {
     const codes = { Enter: 13, Escape: 27, Tab: 9, Backspace: 8, ArrowDown: 40, ArrowUp: 38, ArrowLeft: 37, ArrowRight: 39, " ": 32, Space: 32, Home: 36, End: 35, PageDown: 34, PageUp: 33 };
     const k = key === "Space" ? " " : key;
-    return el.dispatchEvent(new KeyboardEvent(type, { key: k, code: k === " " ? "Space" : k, keyCode: codes[key] || 0, which: codes[key] || 0, bubbles: true, cancelable: true, composed: true }));
+    return el.dispatchEvent(new (winOf(el).KeyboardEvent)(type, { key: k, code: k === " " ? "Space" : k, keyCode: codes[key] || 0, which: codes[key] || 0, bubbles: true, cancelable: true, composed: true }));
   }
   function setNativeValue(el, value) {
-    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : el instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+    const win = winOf(el);
+    const proto = isTextarea(el) ? win.HTMLTextAreaElement.prototype : isSelect(el) ? win.HTMLSelectElement.prototype : win.HTMLInputElement.prototype;
     Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value); // Bypasses frameworks' cached value so they see the change.
   }
   function reveal(el) {
@@ -246,11 +315,12 @@
   }
   function coveredBy(el) {
     const { clientX, clientY } = point(el);
-    if (clientX < 0 || clientY < 0 || clientX > innerWidth || clientY > innerHeight) return null;
-    const top = el.getRootNode().elementFromPoint?.(clientX, clientY) || document.elementFromPoint(clientX, clientY);
+    const win = winOf(el);
+    if (clientX < 0 || clientY < 0 || clientX > win.innerWidth || clientY > win.innerHeight) return null;
+    const top = el.getRootNode().elementFromPoint?.(clientX, clientY) || docOf(el).elementFromPoint(clientX, clientY);
     if (!top || top === el || el.contains(top) || top.contains(el)) return null;
     // A label for this input is not an obstruction.
-    if (top instanceof HTMLLabelElement && top.control === el) return null;
+    if (tagOf(top) === "label" && top.control === el) return null;
     return top;
   }
 
@@ -278,19 +348,20 @@
     if (el.disabled || el.readOnly) throw new Error(`"${nameOf(el)}" can't be edited right now.`);
     reveal(el);
     el.focus({ preventScroll: true });
-    pointer(el, "mousedown"); pointer(el, "mouseup"); el.dispatchEvent(new MouseEvent("click", { bubbles: true, composed: true }));
+    pointer(el, "mousedown"); pointer(el, "mouseup"); el.dispatchEvent(new (winOf(el).MouseEvent)("click", { bubbles: true, composed: true }));
     if (el.isContentEditable) {
-      const range = document.createRange(); range.selectNodeContents(el);
+      const doc = docOf(el);
+      const range = doc.createRange(); range.selectNodeContents(el);
       if (append) range.collapse(false);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
-      if (!document.execCommand("insertText", false, text)) { if (!append) el.textContent = ""; el.append(text); el.dispatchEvent(new InputEvent("input", { bubbles: true, data: text, inputType: "insertText" })); }
+      const sel = doc.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      if (!doc.execCommand("insertText", false, text)) { if (!append) el.textContent = ""; el.append(text); el.dispatchEvent(new (winOf(el).InputEvent)("input", { bubbles: true, data: text, inputType: "insertText" })); }
     } else {
       const next = append ? el.value + text : text;
       keyEvent(el, "keydown", text.slice(-1) || "Unidentified");
       setNativeValue(el, next);
-      el.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, data: text, inputType: "insertText" }));
+      el.dispatchEvent(new (winOf(el).InputEvent)("input", { bubbles: true, composed: true, data: text, inputType: "insertText" }));
       keyEvent(el, "keyup", text.slice(-1) || "Unidentified");
-      el.dispatchEvent(new Event("change", { bubbles: true }));
+      el.dispatchEvent(new (winOf(el).Event)("change", { bubbles: true }));
     }
     let note = `Typed into "${nameOf(el)}"`;
     if (submit) {
@@ -298,7 +369,12 @@
       keyEvent(el, "keypress", "Enter");
       keyEvent(el, "keyup", "Enter");
       const form = el.form || el.closest("form");
-      if (proceed && form && !(el instanceof HTMLTextAreaElement)) { form.requestSubmit?.() ?? form.submit(); note += " and submitted the form"; }
+      if (proceed && form && !isTextarea(el)) {
+        // requestSubmit fires the form's submit handlers (which may stop the page reloading); submit() skips them.
+        // Only one of them: both would submit twice.
+        if (typeof form.requestSubmit === "function") form.requestSubmit(); else form.submit();
+        note += " and submitted the form";
+      }
       else note += " and pressed Enter";
     }
     return note;
@@ -306,33 +382,34 @@
 
   function select(el, choice) {
     const want = String(choice).trim().toLowerCase();
-    if (el instanceof HTMLSelectElement) {
+    if (isSelect(el)) {
       const option = [...el.options].find(o => o.value.toLowerCase() === want || clean(o.text).toLowerCase() === want)
         || [...el.options].find(o => clean(o.text).toLowerCase().includes(want));
       if (!option) throw new Error(`No option matches "${choice}". Options: ${[...el.options].map(o => clean(o.text, 30)).slice(0, 20).join(", ")}`);
       reveal(el); el.focus({ preventScroll: true });
       setNativeValue(el, option.value);
       option.selected = true;
-      el.dispatchEvent(new Event("input", { bubbles: true })); el.dispatchEvent(new Event("change", { bubbles: true }));
+      const Ev = winOf(el).Event;
+      el.dispatchEvent(new Ev("input", { bubbles: true })); el.dispatchEvent(new Ev("change", { bubbles: true }));
       return `Selected "${clean(option.text)}" in "${nameOf(el)}"`;
     }
     throw new Error("That is not a dropdown list. For custom menus, click it to open, then click the option.");
   }
 
   function check(el, on) {
-    const current = el instanceof HTMLInputElement ? el.checked : el.getAttribute("aria-checked") === "true";
+    const current = isInput(el) ? el.checked : el.getAttribute("aria-checked") === "true";
     if (current === on) return `"${nameOf(el)}" was already ${on ? "checked" : "unchecked"}`;
     click(el);
     return `${on ? "Checked" : "Unchecked"} "${nameOf(el)}"`;
   }
 
   function press(key) {
-    const el = document.activeElement || document.body;
+    const el = focusedElement() || document.body;
     const allowed = /^(Enter|Escape|Tab|Backspace|ArrowDown|ArrowUp|ArrowLeft|ArrowRight|Space|Home|End|PageDown|PageUp)$/;
     if (!allowed.test(key)) throw new Error(`Unsupported key "${key}".`);
     const proceed = keyEvent(el, "keydown", key);
     keyEvent(el, "keyup", key);
-    if (proceed && key === "Enter" && el instanceof HTMLElement && /^(A|BUTTON)$/.test(el.tagName)) el.click();
+    if (proceed && key === "Enter" && /^(a|button)$/.test(tagOf(el))) el.click();
     if (proceed && (key === "PageDown" || key === "PageUp")) scrollBy({ top: (key === "PageDown" ? 1 : -1) * innerHeight * 0.8, behavior: "instant" });
     return `Pressed ${key}`;
   }
@@ -356,11 +433,11 @@
   function inspect(step) {
     // A key press acts on whatever has focus: Enter or Space on a focused "Send" is the same as clicking it.
     if (step.action === "press" && /^(Enter|Space)$/.test(String(step.key))) {
-      const active = document.activeElement;
-      if (!(active instanceof HTMLElement) || active === document.body) return { exists: true };
+      const active = focusedElement();
+      if (!isFocusable(active)) return { exists: true };
       if (isTextField(active)) {
         const form = active.form || active.closest("form");
-        return { exists: true, role: roleOf(active), name: nameOf(active), submitsText: step.key === "Enter" && !!form && !(active instanceof HTMLTextAreaElement) && !searchLike(active) };
+        return { exists: true, role: roleOf(active), name: nameOf(active), submitsText: step.key === "Enter" && !!form && !isTextarea(active) && !searchLike(active) };
       }
       return { exists: true, role: roleOf(active), name: nameOf(active), consequential: consequential(active) };
     }
@@ -430,12 +507,14 @@
     reveal(el);
     el.focus({ preventScroll: true });
     if (el.isContentEditable) {
-      const range = document.createRange(); range.selectNodeContents(el); if (append) range.collapse(false);
-      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+      const doc = docOf(el);
+      const range = doc.createRange(); range.selectNodeContents(el); if (append) range.collapse(false);
+      const sel = doc.getSelection(); sel.removeAllRanges(); sel.addRange(range);
     } else if (append) { const end = el.value.length; el.setSelectionRange?.(end, end); }
     else el.select?.();
-    if (document.activeElement !== el && !el.contains(document.activeElement)) throw new Error(`Couldn't put the cursor in "${nameOf(el)}". Click it first.`);
-    return { name: nameOf(el), searchLike: searchLike(el), textarea: el instanceof HTMLTextAreaElement };
+    const focused = docOf(el).activeElement;
+    if (focused !== el && !el.contains(focused)) throw new Error(`Couldn't put the cursor in "${nameOf(el)}". Click it first.`);
+    return { name: nameOf(el), searchLike: searchLike(el), textarea: isTextarea(el) };
   }
 
   // Numbered boxes drawn over the page for a screenshot (Set-of-Mark). A closed shadow root the page can't
@@ -474,7 +553,7 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 2,
+    version: 4,
     run(command) {
       try {
         if (command.op === "settle") return settle(command.options).then(value => ({ ok: true, value }));

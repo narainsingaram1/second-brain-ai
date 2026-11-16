@@ -1,0 +1,8 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Embedded sign-up</title></head><body><main><h1>Newsletter</h1>
+<iframe id="same" src="frame-form.html" title="Same-site form" style="width:100%;height:140px;border:1px solid #ccc"></iframe>
+<iframe id="cross" title="Partner form" style="width:100%;height:140px;border:1px solid #ccc"></iframe>
+</main><script>
+// The second frame comes from another origin (127.0.0.1 vs localhost): the page agent can't see into it today.
+const other = location.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
+document.getElementById('cross').src = `${location.protocol}//${other}:${location.port}/fixtures/frame-form.html?partner=1`;
+</script></body></html>

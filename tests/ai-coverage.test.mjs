@@ -48,6 +48,8 @@ const COVERAGE = {
   dailyBrief: { exempt: 'Generated summary, not user data.' },
   auditLog: { exempt: 'History of changes; must not be rewritten by the assistant.' },
   preferences: { exempt: 'App settings, including the approval setting the assistant must not change.' },
+  // Saved logins are not app data: they live in the macOS Keychain (src-tauri/src/vault), outside what the app
+  // stores here. The assistant may list them (vault_list) but must never read, add or remove passwords.
 };
 
 const toolNames = new Set(BRAIN_TOOLS.map(t => t.function.name));

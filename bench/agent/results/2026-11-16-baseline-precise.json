@@ -1,0 +1,418 @@
+{
+  "date": "2026-11-16T17:53:24.719Z",
+  "mode": "precise",
+  "runs": 3,
+  "chrome": "Chrome/158.0.8127.37",
+  "node": "v24.5.0",
+  "summary": {
+    "tasks": 10,
+    "passed": 8,
+    "knownGaps": 1,
+    "failed": [
+      "iframe-same"
+    ],
+    "rounds": 152,
+    "steps": 17,
+    "totalMs": 29499,
+    "msPerRound": 194,
+    "staleRefErrors": 4,
+    "confirmations": 1,
+    "phaseShare": {
+      "settle": 70.1,
+      "pause": 21.1,
+      "snapshot": 5.2,
+      "inject": 2.4,
+      "input": 0.3,
+      "load": 0.2,
+      "act": 0.1,
+      "inspect": 0,
+      "read": 0,
+      "point": 0,
+      "focus": 0
+    },
+    "avgViewTokens": 665
+  },
+  "tasks": [
+    {
+      "task": "search",
+      "ok": true,
+      "rounds": 5,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 2,
+      "scrolls": 0,
+      "ms": 846,
+      "phases": {
+        "pause": 184,
+        "load": 2,
+        "inject": 23,
+        "settle": 609,
+        "snapshot": 8,
+        "inspect": 1,
+        "focus": 1,
+        "input": 10,
+        "point": 1
+      },
+      "views": {
+        "count": 5,
+        "avgChars": 337,
+        "maxChars": 514,
+        "maxElements": 7,
+        "maxOmitted": 0,
+        "totalChars": 1686
+      },
+      "okRuns": 3,
+      "msRange": [
+        840,
+        879
+      ]
+    },
+    {
+      "task": "react-form",
+      "ok": true,
+      "rounds": 6,
+      "steps": 5,
+      "errors": [
+        {
+          "code": "error",
+          "message": "Element 2 is no longer on the page. Take a new look at the page and use a current ref."
+        },
+        {
+          "code": "error",
+          "message": "Element 3 is no longer on the page. Take a new look at the page and use a current ref."
+        },
+        {
+          "code": "error",
+          "message": "Element 4 is no longer on the page. Take a new look at the page and use a current ref."
+        },
+        {
+          "code": "error",
+          "message": "Element 5 is no longer on the page. Take a new look at the page and use a current ref."
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 1674,
+      "phases": {
+        "pause": 367,
+        "load": 4,
+        "inject": 44,
+        "settle": 1216,
+        "snapshot": 9,
+        "inspect": 5,
+        "focus": 2,
+        "input": 9,
+        "act": 5,
+        "point": 1
+      },
+      "views": {
+        "count": 6,
+        "avgChars": 493,
+        "maxChars": 550,
+        "maxElements": 5,
+        "maxOmitted": 0,
+        "totalChars": 2958
+      },
+      "okRuns": 3,
+      "msRange": [
+        1666,
+        1690
+      ]
+    },
+    {
+      "task": "cookie-banner",
+      "ok": true,
+      "rounds": 4,
+      "steps": 2,
+      "errors": [
+        {
+          "code": "error",
+          "message": "Something is covering that element (Cookie consent). Close or dismiss it first, then try again."
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 835,
+      "phases": {
+        "pause": 184,
+        "load": 2,
+        "inject": 17,
+        "settle": 608,
+        "snapshot": 5,
+        "inspect": 1,
+        "point": 1,
+        "input": 5
+      },
+      "views": {
+        "count": 4,
+        "avgChars": 211,
+        "maxChars": 248,
+        "maxElements": 3,
+        "maxOmitted": 0,
+        "totalChars": 844
+      },
+      "okRuns": 3,
+      "msRange": [
+        825,
+        854
+      ]
+    },
+    {
+      "task": "modal",
+      "ok": true,
+      "rounds": 3,
+      "steps": 3,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 1108,
+      "phases": {
+        "pause": 244,
+        "load": 3,
+        "inject": 23,
+        "settle": 810,
+        "snapshot": 7,
+        "inspect": 2,
+        "point": 1,
+        "input": 9,
+        "focus": 1
+      },
+      "views": {
+        "count": 3,
+        "avgChars": 157,
+        "maxChars": 183,
+        "maxElements": 3,
+        "maxOmitted": 0,
+        "totalChars": 472
+      },
+      "okRuns": 3,
+      "msRange": [
+        1100,
+        1112
+      ]
+    },
+    {
+      "task": "long-article",
+      "ok": true,
+      "rounds": 7,
+      "steps": 0,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 301,
+      "phases": {
+        "pause": 61,
+        "load": 1,
+        "inject": 13,
+        "settle": 203,
+        "snapshot": 3,
+        "read": 10
+      },
+      "views": {
+        "count": 7,
+        "avgChars": 11279,
+        "maxChars": 12142,
+        "maxElements": 1,
+        "maxOmitted": 0,
+        "totalChars": 78951
+      },
+      "okRuns": 3,
+      "msRange": [
+        294,
+        308
+      ]
+    },
+    {
+      "task": "big-page",
+      "ok": true,
+      "rounds": 77,
+      "steps": 1,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 75,
+      "ms": 22319,
+      "phases": {
+        "pause": 4704,
+        "load": 54,
+        "inject": 420,
+        "settle": 15624,
+        "snapshot": 1446,
+        "act": 36,
+        "inspect": 1,
+        "point": 1,
+        "input": 21
+      },
+      "views": {
+        "count": 77,
+        "avgChars": 12612,
+        "maxChars": 12794,
+        "maxElements": 180,
+        "maxOmitted": 1620,
+        "totalChars": 971147
+      },
+      "okRuns": 3,
+      "msRange": [
+        22289,
+        22365
+      ]
+    },
+    {
+      "task": "iframe-same",
+      "ok": false,
+      "rounds": 20,
+      "steps": 0,
+      "errors": [
+        {
+          "code": "not_found",
+          "message": "Never found /textbox \"Home city\"/"
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 19,
+      "scrolls": 0,
+      "ms": 357,
+      "phases": {
+        "pause": 61,
+        "load": 0,
+        "inject": 66,
+        "settle": 203,
+        "snapshot": 20
+      },
+      "views": {
+        "count": 20,
+        "avgChars": 119,
+        "maxChars": 119,
+        "maxElements": 0,
+        "maxOmitted": 0,
+        "totalChars": 2380
+      },
+      "okRuns": 0,
+      "msRange": [
+        355,
+        358
+      ]
+    },
+    {
+      "task": "iframe-cross",
+      "ok": false,
+      "rounds": 20,
+      "steps": 0,
+      "errors": [
+        {
+          "code": "not_found",
+          "message": "Never found /textbox \"Partner city\"/"
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 19,
+      "scrolls": 0,
+      "ms": 353,
+      "phases": {
+        "pause": 61,
+        "load": 0,
+        "inject": 65,
+        "settle": 203,
+        "snapshot": 19
+      },
+      "views": {
+        "count": 20,
+        "avgChars": 119,
+        "maxChars": 119,
+        "maxElements": 0,
+        "maxOmitted": 0,
+        "totalChars": 2380
+      },
+      "knownGap": "Cross-origin frames are invisible to the page agent (plan 2.5)",
+      "okRuns": 0,
+      "msRange": [
+        346,
+        357
+      ]
+    },
+    {
+      "task": "late-load",
+      "ok": true,
+      "rounds": 7,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 4,
+      "scrolls": 0,
+      "ms": 869,
+      "phases": {
+        "pause": 183,
+        "load": 2,
+        "inject": 30,
+        "settle": 608,
+        "snapshot": 16,
+        "inspect": 1,
+        "point": 2,
+        "input": 23
+      },
+      "views": {
+        "count": 7,
+        "avgChars": 974,
+        "maxChars": 1487,
+        "maxElements": 41,
+        "maxOmitted": 0,
+        "totalChars": 6820
+      },
+      "okRuns": 3,
+      "msRange": [
+        867,
+        876
+      ]
+    },
+    {
+      "task": "checkout",
+      "ok": true,
+      "rounds": 3,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 1,
+      "userOnly": 1,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 837,
+      "phases": {
+        "pause": 184,
+        "load": 2,
+        "inject": 21,
+        "settle": 608,
+        "snapshot": 6,
+        "inspect": 2,
+        "focus": 1,
+        "input": 6,
+        "point": 1
+      },
+      "views": {
+        "count": 3,
+        "avgChars": 304,
+        "maxChars": 322,
+        "maxElements": 3,
+        "maxOmitted": 0,
+        "totalChars": 912
+      },
+      "okRuns": 3,
+      "msRange": [
+        835,
+        838
+      ]
+    }
+  ]
+}

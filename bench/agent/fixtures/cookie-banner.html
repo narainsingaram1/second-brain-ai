@@ -1,0 +1,9 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Quarterly report</title>
+<style>#banner{position:fixed;left:0;right:0;bottom:0;height:60vh;background:#fff;border-top:2px solid #333;padding:16px;z-index:10}</style></head><body>
+<main style="padding-top:55vh"><h1>Quarterly report</h1><button id="show">Show report</button><p id="report"></p></main>
+<div id="banner" role="region" aria-label="Cookie consent"><p>We use cookies.</p><button id="accept">Accept all</button> <button id="reject">Reject non-essential</button></div>
+<script>
+document.getElementById('reject').onclick = () => document.getElementById('banner').remove();
+document.getElementById('accept').onclick = () => document.getElementById('banner').remove();
+document.getElementById('show').onclick = () => { document.getElementById('report').textContent = 'Revenue grew 12%.'; };
+</script></body></html>

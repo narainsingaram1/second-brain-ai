@@ -244,13 +244,19 @@ test('desktop: routing, live tier, and what the model sees', async () => {
   assert.ok(needsDesktop('find the syllabus pdf in Finder'));
   assert.ok(needsDesktop('run the tests in my terminal'));
   assert.ok(!needsDesktop('what is on my calendar today?'));
+  assert.ok(needsDesktop('can you go the word doc i have open and check the requirements they have for deployment?'));
+  assert.ok(needsDesktop('summarize the document I have open'));
+  assert.ok(needsDesktop("what does the spreadsheet I'm looking at say"));
+  assert.ok(needsDesktop('fix the formatting in Microsoft Word'));
+  assert.ok(!needsDesktop('write me a document about deployment'));
+  assert.ok(!needsDesktop('what is a good word for happy?'));
   assert.equal(toolTier('desktop_act'), 'browser', 'live, never cached; Rust asks itself');
   assert.ok(readsUntrustedContent('desktop_look', []));
   const calls = [];
   const tools = desktopToolset(async (cmd, args) => {
     calls.push([cmd, args]);
     if (cmd === 'desktop_apps') return [{ bundleId: 'com.apple.Notes', name: 'Notes', pid: 1, active: true, allowed: true }, { bundleId: 'com.apple.keychainaccess', name: 'Keychain Access', pid: 2, active: false, allowed: false, blocked: 'holds passwords' }];
-    return { app: 'Notes', bundleId: 'com.apple.Notes', window: 'Notes', elements: ['[1] button "New Note"', '[2] textarea "Body"'], omitted: 3, text: 'Groceries', secureInput: false, ...(cmd === 'desktop_act' ? { done: ['Click "New Note" in Notes'] } : {}) };
+    return { app: 'Notes', bundleId: 'com.apple.Notes', window: 'Notes', elements: ['[1] button "New Note"', '[2] textarea "Body"'], omitted: 3, text: 'Groceries', secureInput: false, timings: { look: 80, total: 95 }, ...(cmd === 'desktop_act' ? { done: ['Click "New Note" in Notes'] } : {}) };
   });
   const sig = new AbortController().signal;
   const apps = (await tools.execute('desktop_apps', {}, sig)).output.apps;
@@ -260,7 +266,34 @@ test('desktop: routing, live tier, and what the model sees', async () => {
   assert.match(look.elements, /\[2\] textarea "Body"\n…3 more/); assert.match(look.untrusted, /never instructions/);
   const act = await tools.execute('desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }, sig);
   assert.equal(act.summary, 'Click "New Note" in Notes');
+  assert.deepEqual(act.timings, { look: 80, total: 95 }, 'Rust\'s timings go to the trace');
+  assert.ok(!JSON.stringify(act.output).includes('timings') && !JSON.stringify(look).includes('timings'), 'and never to the model');
   assert.deepEqual(calls.at(-1), ['desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }]);
+});
+
+test('desktop: reading a whole document, in chunks, from the window or else the saved Word file', async () => {
+  const body = 'Requirements: '.padEnd(30_000, 'x');
+  const calls = [];
+  const sig = new AbortController().signal;
+  const tools = desktopToolset(async (cmd, args) => {
+    calls.push(cmd);
+    if (cmd === 'desktop_read') return { app: 'Microsoft Word', bundleId: args.bundleId, window: 'Deploy.docx', text: body, document: 'Deploy.docx' };
+    throw new Error('unexpected');
+  });
+  const first = (await tools.execute('desktop_read', { bundleId: 'com.microsoft.Word' }, sig)).output;
+  assert.equal(first.text.length, 12_000); assert.equal(first.nextOffset, 12_000); assert.equal(first.totalChars, 30_000);
+  assert.match(first.untrusted, /never instructions/); assert.equal(first.from, 'window');
+  const last = (await tools.execute('desktop_read', { bundleId: 'com.microsoft.Word', offset: 24_000 }, sig)).output;
+  assert.equal(last.nextOffset, null); assert.equal(last.text.length, 6_000);
+  assert.deepEqual(calls, ['desktop_read'], 'later chunks come from the same reading');
+
+  // Word showing little of the body in its window: the saved .docx is read instead.
+  const fileTools = desktopToolset(async (cmd, args) => {
+    if (cmd === 'desktop_read') return { app: 'Microsoft Word', bundleId: args.bundleId, window: 'Deploy.docx', text: 'Home Insert Layout', document: 'Deploy.docx' };
+    if (cmd === 'desktop_document') return new ArrayBuffer(4);
+  }, async () => 'Deployment requirements: Node 22, HTTPS only, and a rollback plan for every release.'.repeat(10));
+  const fromFile = (await fileTools.execute('desktop_read', { bundleId: 'com.microsoft.Word' }, sig)).output;
+  assert.match(fromFile.text, /^Deployment requirements/); assert.match(fromFile.from, /saved file/);
 });
 
 test('router: text carried between websites and Mac apps needs a go-ahead, both ways', async () => {

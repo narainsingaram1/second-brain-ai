@@ -206,6 +206,12 @@ export function createAgentRouter(options: RouterOptions) {
       try { result = await inner.execute(name, args, signal, context); }
       catch (error) { await log("failed", approval, error instanceof Error ? error.message.slice(0, 200) : "failed"); throw error; }
       remember(result.output);
+      // The user's tabs: learn each one's site (so borrowing one passes the site policy) and leave out denied sites.
+      if (name === "browser_user_tabs") {
+        const listed = (result.output as { tabs?: Array<{ tabId: number; site: string }> }).tabs || [];
+        for (const t of listed) if (typeof t.tabId === "number" && t.site) tabHosts.set(t.tabId, t.site);
+        result = { ...result, output: { ...(result.output as object), tabs: listed.filter(t => !decide(policy, t.site).deny) } };
+      }
 
       const out = result.output as { userOnly?: string; confirmed?: boolean; done?: string[]; site?: string } | undefined;
       if (out?.confirmed === true) { approval = "user"; tier = raise(tier, 2); }
