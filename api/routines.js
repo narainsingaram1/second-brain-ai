@@ -2140,6 +2140,7 @@ const explicitlyRemember = (prompt) => !/\b(?:don't|do not|never|stop|no need to
 	if (new RegExp(`${LEAD}(?:remember|memori[sz]e)\\s+(?:when|what|where|who|how|if|whether|why)\\b`).test(s)) return false;
 	if (new RegExp(`${LEAD}(?:remember|memori[sz]e|make a note|note (?:this|that) down|keep (?:this|that|it) in mind|keep in mind|don't forget that)\\b`).test(s)) return !s.endsWith("?") || /\b(?:that|this)\b/.test(s);
 	if (/\b(?:can|could|would|will) you (?:please )?(?:remember|memori[sz]e|keep in mind|make a note)\s+(?:that|this|my|i\b|i'm|i've|we\b|we're|our)/.test(s)) return true;
+	if (/\b(?:i|we)(?: (?:really )?(?:want|need|would like)|'d like) you to (?:remember|memori[sz]e|keep in mind|save|store|keep track of|note down)\b/.test(s) && !s.endsWith("?")) return true;
 	if (/\bsave (?:this|that|it|my|the)\b.{0,60}\b(?:memory|future|later)\b/.test(s)) return true;
 	if (/\b(?:add|put|store) (?:this|that|it)\b.{0,30}\b(?:to|in|into) (?:your )?memory\b/.test(s)) return true;
 	return /\bkeep\b.{0,40}\bin mind\b/.test(s) && !s.endsWith("?") && !/^i\b/.test(s);
@@ -2437,10 +2438,21 @@ function conversationThreads(state) {
 		messages: state.chatHistory
 	}, ...(state.conversations || []).filter((t) => t.id !== state.conversationId)];
 }
+const looseText = (s) => s.normalize("NFKC").replace(/[’‘]/g, "'").replace(/[“”]/g, "\"").replace(/\s+/g, " ").trim().toLowerCase();
+/**
+* True when the excerpt is the user's own words: the same text ignoring case, spacing and curly quotes, or
+* several such pieces joined by "…" (a quote of a few lines from a longer message).
+*/
+function excerptIn(content, excerpt) {
+	if (!excerpt.trim() || excerpt.length > 500) return false;
+	const text = looseText(content);
+	const pieces = excerpt.split(/\s*(?:\.{3}|…)\s*/).map(looseText).filter(Boolean);
+	return pieces.length > 0 && pieces.every((piece) => text.includes(piece));
+}
 function memorySource(state, messageId, excerpt) {
 	for (const thread of conversationThreads(state)) {
 		const message = thread.messages.find((m) => m.id === messageId && m.role === "user");
-		if (message && excerpt.trim() && excerpt.length <= 500 && message.content.includes(excerpt)) return {
+		if (message && excerptIn(message.content, excerpt)) return {
 			conversationId: thread.id,
 			messageId,
 			excerpt
@@ -2476,7 +2488,7 @@ function prepareMemoryChange(name, args, state, prompt, currentMessage, temporar
 	const explicit = explicitlyRemember(prompt);
 	if (!explicit && (!memory.automaticLearning || explicitlyForget(prompt) || declinedSaving(prompt))) throw new Error("Automatic learning is disabled or the user declined saving.");
 	const excerpt = typeof args.excerpt === "string" ? args.excerpt.trim() : "";
-	const isCurrentQuote = currentMessage.role === "user" && currentMessage.content === prompt && excerpt.length > 0 && excerpt.length <= 500 && currentMessage.content.includes(excerpt);
+	const isCurrentQuote = currentMessage.role === "user" && currentMessage.content === prompt && excerpt.length > 0 && excerptIn(currentMessage.content, excerpt);
 	const source = memorySource({
 		...state,
 		chatHistory: [...state.chatHistory.filter((m) => m.id !== currentMessage.id), currentMessage]
@@ -4065,7 +4077,7 @@ const BROWSER_TOOLS = [
 		steps: {
 			type: "array",
 			minItems: 1,
-			maxItems: 10,
+			maxItems: 25,
 			items: {
 				type: "object",
 				additionalProperties: false,
@@ -4081,7 +4093,8 @@ const BROWSER_TOOLS = [
 							"uncheck",
 							"press",
 							"scroll",
-							"hover"
+							"hover",
+							"upload"
 						]
 					},
 					ref: {
@@ -4103,7 +4116,11 @@ const BROWSER_TOOLS = [
 					},
 					value: {
 						type: "string",
-						description: "select: the option's visible text or value."
+						description: "select: the option's visible text or value. Works on native lists and custom dropdowns (comboboxes, search-as-you-type pickers like school or country): it opens the list, types the text if the box takes it, and clicks the matching option."
+					},
+					file: {
+						type: "string",
+						description: "upload: the id of a file from browser_files. Give the ref of the upload field (role file-upload) or its Attach button."
 					},
 					key: {
 						type: "string",
@@ -4151,6 +4168,7 @@ const BROWSER_TOOLS = [
 			minimum: 0
 		}
 	}, ["tabId"]),
+	fn$3("browser_files", "List the user's files you can attach to a web form with an upload step: their résumé versions (current: true is the one they use now) and documents they attached in this chat (a transcript, cover letter…).", {}, []),
 	fn$3("browser_tabs", "List the tabs you can work in: the ones you opened, and the user's own tabs they lent you (lent: true).", {}, []),
 	fn$3("browser_close", "Close a tab you opened once you are finished with it. For a tab the user lent you, this hands it back and leaves it open.", { tabId: {
 		type: "integer",
@@ -4170,6 +4188,9 @@ new Set(BROWSER_TOOLS.map((t) => t.function.name));
 	"- Each result shows the page's elements as `[ref] role \"name\" flags`. Act only on refs from the latest result for that tab; after a page changes, use the new refs.",
 	"- After an action on the same page you may get only what changed (`changes`: New, Changed, Gone). Everything else is as in your last full view of that tab, and those refs still work. Use browser_look for a fresh full view if you've lost track.",
 	"- Batch steps that belong together in one browser_act call (fill a form's fields, then submit). Check the result before the next step: did the page change the way you expected? If not, look again and adapt instead of repeating the same step.",
+	"- Forms: fill every field you know in as few calls as you can (up to 25 steps a call). For dropdowns, native or custom (school, degree, country, yes/no questions), use a select step with the option's text: it opens the list, types, waits and picks the match. If it says no option matched, it lists what was shown: select again with one of those. Don't click a dropdown open and leave it open.",
+	"- Files: to attach a résumé, transcript or other document, call browser_files, then an upload step with the file's id on the upload field (role file-upload) or its Attach button. Use the current résumé unless the user named another. Each attach asks the user first. If the file the form wants isn't listed, tell the user to attach it in the chat (or add it as a résumé version in their Career workspace) and continue with the rest.",
+	"- If a result says a step failed, the steps before it ran: continue from the failed step, don't redo the earlier ones.",
 	"- Close cookie banners and pop-ups that cover the page (Reject non-essential, or close). Prefer the most privacy-preserving choice.",
 	"- Elements flagged user-only are passwords, card numbers and similar: you can't fill them. If a sign-in or payment details are needed, tell the user to complete that step in the Synapse tab group, then continue when they say so.",
 	"- Steps flagged needs-confirmation (buy, pay, send, post, delete, submit, book…) pause and ask the user. If the result says confirmed is false, the user declined: don't try another way, tell them it wasn't done.",
@@ -4195,12 +4216,13 @@ function describeBrowserCall(name, args) {
 	if (name === "browser_act") {
 		const steps = Array.isArray(args.steps) ? args.steps : [];
 		const first = steps[0]?.action;
-		const verb = first === "type" ? "Filling in" : first === "click" ? "Clicking" : first === "scroll" ? "Scrolling" : first === "select" ? "Choosing" : "Working on";
+		const verb = first === "type" ? "Filling in" : first === "click" ? "Clicking" : first === "scroll" ? "Scrolling" : first === "select" ? "Choosing" : first === "upload" ? "Attaching a file on" : "Working on";
 		return steps.length > 1 ? `${verb} the page (${steps.length} steps)` : `${verb} the page`;
 	}
 	if (name === "browser_look") return "Looking at the page";
 	if (name === "browser_read") return "Reading the page";
 	if (name === "browser_tabs") return "Checking open tabs";
+	if (name === "browser_files") return "Finding your files";
 	if (name === "browser_user_tabs") return "Checking your open tabs";
 	if (name === "browser_borrow") return "Asking to use your tab";
 	return "Closing a tab";

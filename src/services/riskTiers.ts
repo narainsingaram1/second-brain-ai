@@ -33,6 +33,8 @@ export function classifyBrowserStep(step: BrowserStep, info: StepInspection = {}
   if (info.userOnly) return 3;
   if (info.consequential || info.submitsText) return 2;
   if (READ_ONLY_STEPS.has(step.action)) return 0;
+  // Attaching a file gives the site a copy of it: the browser tools ask the user before each one.
+  if (step.action === "upload") return 2;
   // Enter on whatever has focus can submit a form the model never named: the extension re-checks it, but
   // the floor here is soft, never read.
   return 1;
@@ -40,7 +42,7 @@ export function classifyBrowserStep(step: BrowserStep, info: StepInspection = {}
 
 /** The least a browser tool call can be, before the extension looks at the page. */
 export function browserCallFloor(name: string, args: Record<string, unknown> = {}): RiskTier {
-  if (name === "browser_look" || name === "browser_read" || name === "browser_tabs" || name === "browser_user_tabs") return 0;
+  if (name === "browser_look" || name === "browser_read" || name === "browser_tabs" || name === "browser_user_tabs" || name === "browser_files") return 0;
   // The extension pauses for the user's go-ahead before lending a tab; this floor is for the router.
   if (name === "browser_borrow") return 1;
   if (name === "browser_open" || name === "browser_close") return 1;

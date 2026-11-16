@@ -2,7 +2,7 @@ import { ChangeEvent, ClipboardEvent, DragEvent, useCallback, useEffect, useRef,
 import { createPortal } from "react-dom";
 import { FileSpreadsheet, FileText, ImagePlus, Loader2, Presentation, X } from "lucide-react";
 import type { FileAttachment, ImageAttachment } from "../types";
-import { ACCEPTED_CHAT_FILES, ChatFileError, checkChatFile, fileKindLabel, formatBytes, MAX_FILES_PER_MESSAGE } from "../utils/chatFiles";
+import { ACCEPTED_CHAT_FILES, ChatFileError, checkChatFile, rememberFileBlob, fileKindLabel, formatBytes, MAX_FILES_PER_MESSAGE } from "../utils/chatFiles";
 import { imageFilesFrom, imageName, ImageInputError, MAX_IMAGES_PER_MESSAGE, prepareImage, PreparedImage, sessionImage } from "../utils/imageInput";
 
 /** Paste, drop and pick images, and with `documents` also PDFs, Office files, CSV and text, for a chat composer. */
@@ -48,6 +48,7 @@ export function useImageAttachments(onError: (message: string) => void, { docume
         checkChatFile(file); // Refuse unsupported or oversized files before loading the readers.
         const { extractChatFile } = await import("../services/chatFileExtract");
         const extracted = await extractChatFile(file);
+        rememberFileBlob(extracted.id, file);
         setFiles(previous => previous.length >= MAX_FILES_PER_MESSAGE ? previous : [...previous, extracted]);
       } catch (err) {
         onError(err instanceof ChatFileError ? err.message : `${file.name} couldn’t be read. Try saving it as PDF or text.`);

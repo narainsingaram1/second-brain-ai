@@ -95,6 +95,12 @@ export function createAgentRouter(options: RouterOptions) {
     recent.set(host, list);
     return true;
   };
+  /** Gives back the steps of a call that failed before doing anything, so a fix-and-retry isn't counted twice. */
+  const refund = (host: string, count: number) => {
+    const list = recent.get(host) || [];
+    list.splice(Math.max(0, list.length - count), count);
+    recent.set(host, list);
+  };
 
   /** Every live go-ahead goes through here, whether this router or the extension asked for it. */
   const confirm = async (request: GateRequest, signal: AbortSignal): Promise<boolean> => {
@@ -188,7 +194,7 @@ export function createAgentRouter(options: RouterOptions) {
       const changing = steps.filter(s => s.action !== "scroll" && s.action !== "hover").length || (name === "browser_open" ? 1 : 0);
       if (changing && host && !withinRate(host, changing)) {
         await log("denied", "none", "rate limit", `more than ${policy.maxActsPerMinute} steps a minute on ${host}`);
-        throw new Error(`That's more than ${policy.maxActsPerMinute} steps a minute on ${host}. Wait, look at the page, and do fewer, larger batches.`);
+        throw new Error(`That's more than ${policy.maxActsPerMinute} steps a minute on ${host}. Wait a moment, look at the page, then continue with the remaining fields.`);
       }
 
       let approval: AuditApproval = tier === 0 ? "auto" : "toast";
@@ -204,7 +210,10 @@ export function createAgentRouter(options: RouterOptions) {
 
       let result;
       try { result = await inner.execute(name, args, signal, context); }
-      catch (error) { await log("failed", approval, error instanceof Error ? error.message.slice(0, 200) : "failed"); throw error; }
+      catch (error) {
+        if (changing && host) refund(host, changing);
+        await log("failed", approval, error instanceof Error ? error.message.slice(0, 200) : "failed"); throw error;
+      }
       remember(result.output);
       // The user's tabs: learn each one's site (so borrowing one passes the site policy) and leave out denied sites.
       if (name === "browser_user_tabs") {

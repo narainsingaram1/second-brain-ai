@@ -160,6 +160,19 @@ test('router: rate limit per site per minute', async () => {
   await h.tools.execute('browser_act', { tabId: 2, steps: steps(3) }, signal);
 });
 
+test('router: a call that fails before doing anything gives its steps back; the old 40-step default is raised', async () => {
+  const h = harness({ policy: { maxActsPerMinute: 5 } });
+  await h.tools.execute('browser_open', { url: 'https://shop.example.com/' }, signal);
+  const execute = h.calls.length;
+  const steps = n => Array.from({ length: n }, (_, i) => ({ action: 'click', ref: i + 1 }));
+  const failing = h.router.wrap({ definitions: [], instructions: '', execute: async () => { throw new Error('covered'); } });
+  for (let i = 0; i < 3; i++) await assert.rejects(failing.execute('browser_act', { tabId: 2, steps: steps(4) }, signal), /covered/);
+  await h.tools.execute('browser_act', { tabId: 2, steps: steps(4) }, signal);
+  assert.equal(h.calls.length, execute + 1);
+  assert.equal(normalizePolicy({ maxActsPerMinute: 40 }).maxActsPerMinute, 120);
+  assert.equal(normalizePolicy({ maxActsPerMinute: 30 }).maxActsPerMinute, 30);
+});
+
 test('router: caps live go-aheads per request', async () => {
   const h = harness({ policy: { maxHardPerTurn: 2 } });
   const req = { id: 'x', label: 'Click "Send"', site: 'mail.example.com', tabId: 1 };

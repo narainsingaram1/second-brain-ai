@@ -19102,7 +19102,7 @@ const BROWSER_TOOLS = [
 		steps: {
 			type: "array",
 			minItems: 1,
-			maxItems: 10,
+			maxItems: 25,
 			items: {
 				type: "object",
 				additionalProperties: false,
@@ -19118,7 +19118,8 @@ const BROWSER_TOOLS = [
 							"uncheck",
 							"press",
 							"scroll",
-							"hover"
+							"hover",
+							"upload"
 						]
 					},
 					ref: {
@@ -19140,7 +19141,11 @@ const BROWSER_TOOLS = [
 					},
 					value: {
 						type: "string",
-						description: "select: the option's visible text or value."
+						description: "select: the option's visible text or value. Works on native lists and custom dropdowns (comboboxes, search-as-you-type pickers like school or country): it opens the list, types the text if the box takes it, and clicks the matching option."
+					},
+					file: {
+						type: "string",
+						description: "upload: the id of a file from browser_files. Give the ref of the upload field (role file-upload) or its Attach button."
 					},
 					key: {
 						type: "string",
@@ -19188,6 +19193,7 @@ const BROWSER_TOOLS = [
 			minimum: 0
 		}
 	}, ["tabId"]),
+	fn$2("browser_files", "List the user's files you can attach to a web form with an upload step: their résumé versions (current: true is the one they use now) and documents they attached in this chat (a transcript, cover letter…).", {}, []),
 	fn$2("browser_tabs", "List the tabs you can work in: the ones you opened, and the user's own tabs they lent you (lent: true).", {}, []),
 	fn$2("browser_close", "Close a tab you opened once you are finished with it. For a tab the user lent you, this hands it back and leaves it open.", { tabId: {
 		type: "integer",
@@ -19207,6 +19213,9 @@ new Set(BROWSER_TOOLS.map((t) => t.function.name));
 	"- Each result shows the page's elements as `[ref] role \"name\" flags`. Act only on refs from the latest result for that tab; after a page changes, use the new refs.",
 	"- After an action on the same page you may get only what changed (`changes`: New, Changed, Gone). Everything else is as in your last full view of that tab, and those refs still work. Use browser_look for a fresh full view if you've lost track.",
 	"- Batch steps that belong together in one browser_act call (fill a form's fields, then submit). Check the result before the next step: did the page change the way you expected? If not, look again and adapt instead of repeating the same step.",
+	"- Forms: fill every field you know in as few calls as you can (up to 25 steps a call). For dropdowns, native or custom (school, degree, country, yes/no questions), use a select step with the option's text: it opens the list, types, waits and picks the match. If it says no option matched, it lists what was shown: select again with one of those. Don't click a dropdown open and leave it open.",
+	"- Files: to attach a résumé, transcript or other document, call browser_files, then an upload step with the file's id on the upload field (role file-upload) or its Attach button. Use the current résumé unless the user named another. Each attach asks the user first. If the file the form wants isn't listed, tell the user to attach it in the chat (or add it as a résumé version in their Career workspace) and continue with the rest.",
+	"- If a result says a step failed, the steps before it ran: continue from the failed step, don't redo the earlier ones.",
 	"- Close cookie banners and pop-ups that cover the page (Reject non-essential, or close). Prefer the most privacy-preserving choice.",
 	"- Elements flagged user-only are passwords, card numbers and similar: you can't fill them. If a sign-in or payment details are needed, tell the user to complete that step in the Synapse tab group, then continue when they say so.",
 	"- Steps flagged needs-confirmation (buy, pay, send, post, delete, submit, book…) pause and ask the user. If the result says confirmed is false, the user declined: don't try another way, tell them it wasn't done.",

@@ -20,17 +20,19 @@ export interface AgentPolicy {
   confirmEverything: boolean;
 }
 
-export const DEFAULT_POLICY: AgentPolicy = { deniedHosts: [], allowedHosts: [], confirmHosts: [], maxActsPerMinute: 40, maxHardPerTurn: 6, confirmEverything: false };
+export const DEFAULT_POLICY: AgentPolicy = { deniedHosts: [], allowedHosts: [], confirmHosts: [], maxActsPerMinute: 120, maxHardPerTurn: 6, confirmEverything: false };
 const KEY = "synapse.agentPolicy";
 
 const normHost = (h: string) => String(h).trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "");
 const hosts = (list: unknown) => Array.isArray(list) ? [...new Set(list.map(normHost).filter(Boolean))] : [];
+/** The old default, saved into policies before it was raised: a long job application needs more than 40 steps. */
+const OLD_DEFAULT_ACTS = 40;
 const positive = (n: unknown, fallback: number) => Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(Number(n)) : fallback;
 
 export function normalizePolicy(raw: Partial<AgentPolicy> | null | undefined): AgentPolicy {
   return {
     deniedHosts: hosts(raw?.deniedHosts), allowedHosts: hosts(raw?.allowedHosts), confirmHosts: hosts(raw?.confirmHosts),
-    maxActsPerMinute: positive(raw?.maxActsPerMinute, DEFAULT_POLICY.maxActsPerMinute),
+    maxActsPerMinute: Number(raw?.maxActsPerMinute) === OLD_DEFAULT_ACTS ? DEFAULT_POLICY.maxActsPerMinute : positive(raw?.maxActsPerMinute, DEFAULT_POLICY.maxActsPerMinute),
     maxHardPerTurn: positive(raw?.maxHardPerTurn, DEFAULT_POLICY.maxHardPerTurn),
     confirmEverything: raw?.confirmEverything === true,
   };

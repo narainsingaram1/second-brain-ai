@@ -1,0 +1,77 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Apply: Software Intern</title>
+<style>
+body{font:15px system-ui;padding:24px;max-width:560px}
+.field{position:relative;margin:0 0 14px}
+label,.label{display:block;font-weight:600;margin-bottom:4px}
+input[type=text],[role=combobox]{width:100%;box-sizing:border-box;padding:8px;font:inherit;text-align:left;background:#fff;border:1px solid #999}
+[role=listbox]{position:absolute;left:0;right:0;top:100%;z-index:5;background:#fff;border:1px solid #333;max-height:220px;overflow:auto;margin:0;padding:0;list-style:none}
+[role=option]{padding:8px;cursor:pointer}
+[role=option]:hover{background:#eef}
+</style></head><body>
+<main>
+<h1>Software Intern</h1>
+<div class="field"><label for="first">First name</label><input type="text" id="first"></div>
+<!-- A search-as-you-type school picker: lists every school on focus, filters after a delay (like a remote search). -->
+<div class="field"><label for="school">School</label>
+  <input type="text" id="school" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="school-list" autocomplete="off">
+  <ul id="school-list" role="listbox" hidden></ul>
+  <div id="school-value"></div></div>
+<!-- A button-style dropdown that sits right under the school list when that list is open. -->
+<div class="field"><span class="label" id="degree-label">Degree</span>
+  <button type="button" id="degree" role="combobox" aria-haspopup="listbox" aria-expanded="false" aria-controls="degree-list" aria-labelledby="degree-label">Select…</button>
+  <ul id="degree-list" role="listbox" hidden></ul></div>
+<div class="field"><div class="label">Resume/CV</div>
+  <button type="button" id="attach">Attach</button>
+  <input type="file" id="resume" accept=".pdf,.docx" style="display:none">
+  <div id="resume-name"></div></div>
+<p id="out"></p>
+</main>
+<script>
+const SCHOOLS = ["Aalto University", "Arizona State University", "Boston University", "Georgia Institute of Technology", "Georgia State University", "Purdue University"];
+const school = document.getElementById('school'), schoolList = document.getElementById('school-list');
+let timer = 0;
+function showSchools(list) {
+  schoolList.innerHTML = '';
+  for (const name of list) {
+    const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = name;
+    li.onclick = () => { document.getElementById('school-value').textContent = 'School: ' + name; school.value = name; closeSchools(); report(); };
+    schoolList.append(li);
+  }
+  schoolList.hidden = false; school.setAttribute('aria-expanded', 'true');
+}
+function closeSchools() { schoolList.hidden = true; school.setAttribute('aria-expanded', 'false'); }
+schoolList.onmousedown = e => e.preventDefault();
+school.addEventListener('focus', () => showSchools(SCHOOLS));
+school.addEventListener('mousedown', () => showSchools(SCHOOLS));
+school.addEventListener('input', () => {
+  clearTimeout(timer);
+  const q = school.value.toLowerCase();
+  timer = setTimeout(() => showSchools(SCHOOLS.filter(s => s.toLowerCase().includes(q.split(' ')[0]))), 400);
+});
+school.addEventListener('keydown', e => { if (e.key === 'Escape') closeSchools(); });
+school.addEventListener('blur', closeSchools);
+
+const degree = document.getElementById('degree'), degreeList = document.getElementById('degree-list');
+degree.onclick = () => {
+  if (!degreeList.hidden) { degreeList.hidden = true; degree.setAttribute('aria-expanded', 'false'); return; }
+  degreeList.innerHTML = '';
+  for (const name of ["Associate's Degree", "Bachelor's Degree", "Master's Degree"]) {
+    const li = document.createElement('li'); li.setAttribute('role', 'option'); li.textContent = name;
+    li.onclick = () => { degree.textContent = name; degreeList.hidden = true; degree.setAttribute('aria-expanded', 'false'); report(); };
+    degreeList.append(li);
+  }
+  degreeList.hidden = false; degree.setAttribute('aria-expanded', 'true');
+};
+
+const resume = document.getElementById('resume');
+document.getElementById('attach').onclick = () => resume.click();
+resume.addEventListener('change', async () => {
+  const f = resume.files[0];
+  document.getElementById('resume-name').textContent = f ? `${f.name} (${f.type}, ${(await f.text()).slice(0, 8)})` : '';
+  report();
+});
+document.getElementById('first').addEventListener('input', report);
+function report() {
+  document.getElementById('out').textContent = [document.getElementById('first').value, document.getElementById('school-value').textContent, degree.textContent, document.getElementById('resume-name').textContent].join(' | ');
+}
+</script></body></html>

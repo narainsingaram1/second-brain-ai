@@ -106,6 +106,19 @@ export function rememberFileText(file: FileAttachment): void {
 export function sessionFileText(id: string): string | undefined {
   return sessionTexts.get(id);
 }
+/**
+ * The original files attached in chat this session, so the assistant can attach them to a web form (a transcript
+ * for an application). Kept in memory only: cleared on reload.
+ */
+const sessionBlobs = new Map<string, File>();
+export function rememberFileBlob(id: string, file: File): void {
+  sessionBlobs.delete(id);
+  sessionBlobs.set(id, file);
+  while (sessionBlobs.size > MAX_SESSION_FILES) sessionBlobs.delete(sessionBlobs.keys().next().value!);
+}
+export function sessionFileBlob(id: string): File | undefined {
+  return sessionBlobs.get(id);
+}
 /** The copy kept in saved conversations: the same file with its text capped. */
 export function savedFile(file: FileAttachment): FileAttachment {
   return file.text.length <= SAVED_FILE_CHARS ? file : { ...file, text: file.text.slice(0, SAVED_FILE_CHARS), truncated: true };
