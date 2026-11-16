@@ -1396,7 +1396,7 @@ function WorkspaceEditor({
                 >
                   <HeartPulse size={20} />
                   <strong>Health</strong>
-                  <span>Apple Watch recovery, sleep & training</span>
+                  <span>Workouts, splits, progress & Apple Watch recovery</span>
                   {template === "health" && <Check size={15} />}
                 </button>
                 <button

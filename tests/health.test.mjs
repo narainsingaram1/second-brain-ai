@@ -43,7 +43,7 @@ test('reads Health Auto Export JSON into days, converting units and staging slee
   assert.equal(d.metrics.steps, 5500);
   assert.equal(d.metrics.activeKcal, 500);
   assert.equal(d.metrics.hrv, 65);
-  assert.equal(d.metrics.weightKg, 72.6);
+  assert.equal(d.metrics.weightKg, 72.57, 'kept to 0.01 kg so pounds round-trip');
   assert.equal(d.metrics.spo2, 97);
   assert.equal(d.metrics.maxHr, 171);
   assert.equal(d.metrics.sleepMin, 420, 'asleep 0 falls back to core + deep + rem');
@@ -332,7 +332,7 @@ test('Apple Health export: de-duplicates sources, prefers Activity summaries, pi
   assert.equal(d.metrics.hrv, 60);
   assert.equal(d.metrics.respRate, 15, 'overnight breathing rate belongs to the morning');
   assert.equal(d.metrics.maxHr, 178);
-  assert.equal(d.metrics.weightKg, 68);
+  assert.equal(d.metrics.weightKg, 68.04);
   assert.equal(d.metrics.spo2, 96);
   assert.equal(d.metrics.sleepMin, 420, 'the staged watch night (core+deep+REM) beats a longer unstaged one');
   assert.deepEqual([d.metrics.deepMin, d.metrics.remMin, d.metrics.coreMin, d.metrics.awakeMin, d.metrics.inBedMin], [60, 180, 180, 15, 480]);

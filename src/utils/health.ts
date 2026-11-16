@@ -38,7 +38,7 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
   { key: "spo2", label: "Blood oxygen", unit: "%", agg: "avg", min: 70, max: 100, decimals: 0, hae: ["blood_oxygen_saturation"], description: "Blood oxygen saturation in percent." },
   { key: "wristTempC", label: "Sleeping wrist temperature", unit: "°C", agg: "avg", min: 25, max: 42, decimals: 2, hae: ["apple_sleeping_wrist_temperature"], description: "Wrist temperature during sleep in °C." },
   { key: "vo2max", label: "Cardio fitness (VO₂ max)", unit: "ml/kg/min", agg: "last", min: 10, max: 95, decimals: 1, hae: ["vo2_max"], description: "Estimated VO2 max." },
-  { key: "weightKg", label: "Weight", unit: "kg", agg: "last", min: 20, max: 400, decimals: 1, hae: ["weight_body_mass"], description: "Body weight in kg." },
+  { key: "weightKg", label: "Weight", unit: "kg", agg: "last", min: 20, max: 400, decimals: 2, hae: ["weight_body_mass"], description: "Body weight in kg." },
   { key: "bodyFatPct", label: "Body fat", unit: "%", agg: "last", min: 2, max: 70, decimals: 1, hae: ["body_fat_percentage"], description: "Body fat percentage." },
   { key: "sleepMin", label: "Sleep", unit: "min", agg: "sum", min: 0, max: 1200, decimals: 0, hae: [], description: "Minutes asleep in the night that ended this morning." },
   { key: "inBedMin", label: "Time in bed", unit: "min", agg: "sum", min: 0, max: 1440, decimals: 0, hae: [], description: "Minutes in bed." },
@@ -420,5 +420,7 @@ export function normalizeHealthProfile(value: unknown): HealthProfile | undefine
   if (maxHr !== undefined) profile.maxHr = maxHr;
   if (born !== undefined) profile.birthYear = born;
   if (p.sex === "female" || p.sex === "male") profile.sex = p.sex;
+  if (p.weightUnit === "kg" || p.weightUnit === "lb") profile.weightUnit = p.weightUnit;
+  if (typeof p.goalWeightKg === "number" && p.goalWeightKg >= 20 && p.goalWeightKg <= 400) profile.goalWeightKg = Math.round(p.goalWeightKg * 100) / 100;
   return Object.keys(profile).length ? profile : undefined;
 }

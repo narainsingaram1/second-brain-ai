@@ -5,6 +5,8 @@ import { readTrackerFields, trackerFieldProperties, TRACKER_FIELD_KEYS } from ".
 import { cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, isHealthDate, normalizeHealthDay, normalizeHealthProfile } from "../utils/health";
 import { healthSummaryForAssistant } from "../utils/healthMetrics";
 import { deepHealthForAssistant } from "../utils/healthInsights";
+import { EQUIPMENT, MUSCLES, CATEGORIES, resolveExercise, searchExercises, measureOf } from "../utils/exercises";
+import { fromUnit, normalizeWorkout, normalizeWorkoutPlan, trainingSummaryForAssistant, type WeightUnit } from "../utils/training";
 const s_ = { type: "string" };
 const d_ = (description: string) => ({ type: "string", description });
 const fn = (name: string, description: string, properties: Record<string, unknown>, required: string[]): OpenRouterTool =>
@@ -171,12 +173,74 @@ const HEALTH_TOOLS: OpenRouterTool[] = [
     workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
     sleepGoalHours: { type: "number", minimum: 4, maximum: 12 }, stepGoal: { type: "integer", minimum: 1000, maximum: 50000 },
     maxHr: { type: "integer", minimum: 120, maximum: 230 }, birthYear: { type: "integer", minimum: 1900, maximum: 2030 }, sex: { type: "string", enum: ["female", "male"] },
-    clear: { type: "array", items: { type: "string", enum: ["sleepGoalHours", "stepGoal", "maxHr", "birthYear", "sex"] }, description: "Targets to reset to the default." },
+    weightUnit: { type: "string", enum: ["kg", "lb"], description: "Unit for body weight and lifting weights in the app." },
+    goalWeight: { type: "number", minimum: 20, maximum: 900, description: "Body-weight goal, in goalWeightUnit (default the user's unit)." },
+    goalWeightUnit: { type: "string", enum: ["kg", "lb"] },
+    clear: { type: "array", items: { type: "string", enum: ["sleepGoalHours", "stepGoal", "maxHr", "birthYear", "sex", "weightUnit", "goalWeight"] }, description: "Targets to reset to the default." },
   }, []),
+];
+const unitArg = { type: "string", enum: ["kg", "lb"], description: "Unit of every weight given. Defaults to the user's unit in the training summary." };
+const setSchema = { type: "object", properties: {
+  reps: { type: "integer", minimum: 0, maximum: 1000 },
+  weight: { type: "number", minimum: 0, maximum: 2000, description: "Load in the unit given; for bodyweight moves, only added weight." },
+  seconds: { type: "integer", minimum: 0, maximum: 86400, description: "Duration, for holds, stretches and cardio." },
+  distanceKm: { type: "number", minimum: 0, maximum: 1000 },
+  rpe: { type: "number", minimum: 1, maximum: 10, description: "Effort 1 to 10, if the user said." },
+  kind: { type: "string", enum: ["warmup", "working", "drop", "failure"] },
+  repeat: { type: "integer", minimum: 1, maximum: 20, description: "Log this set this many times (e.g. 3×8 at 135 is one set with repeat 3)." },
+}, additionalProperties: false };
+const workoutExerciseSchema = { type: "object", properties: {
+  name: d_("Exercise name; use the exact library name from search_exercises when there is one. Any other name is saved as the user's own exercise."),
+  exerciseId: d_("Library ID from search_exercises, if known."),
+  sets: { type: "array", items: setSchema, maxItems: 50 },
+  note: s_,
+}, required: ["name", "sets"], additionalProperties: false };
+const planExerciseSchema = { type: "object", properties: {
+  name: d_("Exercise name; prefer exact library names from search_exercises."), exerciseId: d_("Library ID, if known."),
+  sets: { type: "integer", minimum: 1, maximum: 20 }, reps: d_("Target reps, e.g. \"8-12\" or \"5\", or a time like \"30s\"."),
+  restSec: { type: "integer", minimum: 0, maximum: 1800 }, note: s_,
+}, required: ["name", "sets", "reps"], additionalProperties: false };
+const planDaySchema = { type: "object", properties: {
+  name: d_("e.g. Push, Pull, Legs, Upper A."),
+  weekdays: { type: "array", items: { type: "integer", minimum: 0, maximum: 6 }, maxItems: 7, description: "Days it is scheduled, 0 = Sunday … 6 = Saturday. Omit to rotate through the days in order instead." },
+  exercises: { type: "array", items: planExerciseSchema, maxItems: 30 },
+}, required: ["name", "exercises"], additionalProperties: false };
+const TRAINING_TOOLS: OpenRouterTool[] = [
+  fn("log_workout", "Log a strength or cardio session in the Health workspace's Training log: each exercise with its sets (reps, weight, time, distance). Use when the user tells you what they did at the gym or at home. Body weight goes in log_health_day (weightKg), not here.", {
+    date: d_("YYYY-MM-DD, defaults to today."), name: d_("e.g. \"Push\" or \"Leg day\"."), unit: unitArg,
+    durationMin: { type: "integer", minimum: 0, maximum: 1440 }, note: s_,
+    planDayId: d_("The plan day this session followed (from the training summary), if any."),
+    exercises: { type: "array", items: workoutExerciseSchema, minItems: 1, maxItems: 60 },
+  }, ["exercises"]),
+  fn("update_workout", "Change a logged session: rename, move to another date, set its duration or note, add exercises, replace the sets of an exercise, remove exercises, or mark an in-progress session finished.", {
+    workoutId: s_, newName: s_, newDate: d_("YYYY-MM-DD"), durationMin: { type: "integer", minimum: 0, maximum: 1440 }, unit: unitArg,
+    appendNote: s_, replaceNote: d_("New full note; empty string clears it."),
+    addExercises: { type: "array", items: workoutExerciseSchema, maxItems: 30 },
+    replaceExercises: { type: "array", items: workoutExerciseSchema, maxItems: 30, description: "Exercises already in the session (matched by name or ID) whose sets are replaced by these." },
+    removeExercises: { type: "array", items: s_, maxItems: 30, description: "Names or IDs of exercises to take out." },
+    finish: { type: "boolean", description: "true marks an in-progress session finished." },
+  }, ["workoutId"]),
+  fn("delete_workout", "Delete a logged training session. Only when the user explicitly asks.", { workoutId: s_ }, ["workoutId"]),
+  fn("create_workout_plan", "Create a training plan (split) such as Push / Pull / Legs, Upper / Lower or full body: named days, each with exercises, target sets and reps, and optionally the weekdays it falls on. A new active plan replaces the current active one.", {
+    name: s_, description: s_, active: { type: "boolean", description: "Make it the plan the app follows. Default true." },
+    days: { type: "array", items: planDaySchema, minItems: 1, maxItems: 14 },
+  }, ["name", "days"]),
+  fn("update_workout_plan", "Change a training plan: rename it, make it active or not, add days, change a day (rename, reschedule, replace its exercises), or remove days.", {
+    planId: s_, newName: s_, description: s_, active: { type: "boolean" },
+    addDays: { type: "array", items: planDaySchema, maxItems: 14 },
+    updateDays: { type: "array", maxItems: 14, items: { type: "object", properties: {
+      day: d_("ID or current name of the day."), newName: s_,
+      weekdays: { type: "array", items: { type: "integer", minimum: 0, maximum: 6 }, maxItems: 7, description: "Replacement schedule; empty array to rotate instead." },
+      exercises: { type: "array", items: planExerciseSchema, maxItems: 30, description: "Replacement exercise list." },
+    }, required: ["day"], additionalProperties: false } },
+    removeDays: { type: "array", items: s_, maxItems: 14, description: "IDs or names of days to remove." },
+  }, ["planId"]),
+  fn("delete_workout_plan", "Delete a training plan. Logged sessions stay. Only when the user explicitly asks.", { planId: s_ }, ["planId"]),
 ];
 const MANAGE_TOOLS: OpenRouterTool[] = [
   ...HEALTH_TOOLS,
-  fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
+  ...TRAINING_TOOLS,
+  fn("create_workspace", "Create a workspace: career (applications and practice problems), academic (courses, materials, flashcards, quizzes), health (workouts, training plans and progress, plus Apple Health metrics: recovery, sleep, training load) or blank (a page of notes).", {
     name: s_, template: { type: "string", enum: ["career", "academic", "health", "blank"] }, description: s_, color: { type: "string", enum: COLORS },
   }, ["name", "template"]),
   fn("update_workspace", "Rename a workspace or change its description or color. A workspace's notes are ordinary notes in its folder: use create_note or update_note with workspaceId.", {
@@ -501,7 +565,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
 
 
 import { syncWorkspaceFolders, removeFolder, folderMoveBlocked, workspaceFolderId } from "../utils/noteFolders";
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine } from "../types";
+import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine, WorkoutSession, WorkoutPlan, WorkoutExercise, WorkoutSet, PlanDay, PlanExercise } from "../types";
 import { defaultTimeZone, isTimeZone, MAX_ROUTINES, ROUTINE_CONDITIONS, ROUTINE_FREQUENCIES, ROUTINE_INSTRUCTIONS_MAX } from "../utils/routines";
 import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
 import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
@@ -511,7 +575,7 @@ import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, logSolve, PROBLEM_STAGES, removeWorkspace, safeTrackerUrl, WORKSPACE_COLORS } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source, type RetrievalContext } from "./brainRetrieval";
 
-const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health"];
+const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health", "workout", "workout_plan"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -523,6 +587,13 @@ export const READ_TOOLS = [
   tool("list_resume_versions", "List uploaded résumé versions and the current default for a Career workspace. Returns metadata only, never file contents. Use real returned IDs to record which version the user used for an application; do not assume past applications used today's default.", { workspaceId: str, offset: cursorSchema }, ["workspaceId"]),
   tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals, how tagged days affect the next morning, plus deeper analysis: a sleep score (duration against a sleep need that rises with debt and training, efficiency, deep+REM, timing, interruptions, overnight HRV/RHR), patterns found in their data (e.g. daylight or late workouts vs sleep), weekday rhythm, best bedtime window, social jetlag and personal records. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", {
     date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
+  }),
+  tool("training_summary", "The user's strength and cardio training from the Health workspace's Training log: sessions per week against their plan, weeks on target, hard sets per muscle and push/pull/legs balance, per-exercise trends of estimated one-rep max (progressing, plateau, declining), recent personal records, body-weight trend and goal, insights already found, the active plan with today's planned day, and recent sessions. Weights are in the user's unit. Use for any question about workouts, lifting, progress, plateaus or the gym. Raw sessions: query_records type workout.", {
+    date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
+  }),
+  tool("search_exercises", "Search the exercise library (about 930 gym, home, bodyweight, cardio and stretching moves) by name or shorthand (\"rdl\", \"incline db press\"), optionally filtered by muscle, equipment or category. Returns IDs and exact names to use when logging workouts or building plans.", {
+    query: str, muscle: { type: "string", enum: MUSCLES }, equipment: { type: "string", enum: EQUIPMENT }, category: { type: "string", enum: CATEGORIES },
+    offset: cursorSchema,
   }),
   tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
     type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold", "applied", "screening", "onsite", "offer", "rejected", "done", "review"] },
@@ -607,7 +678,7 @@ export function recordTitle(record: object, fallback: string): string {
   return fallback;
 }
 export interface SectionRecord { id: string; name: string; subsections: string[] }
-type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
+type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | WorkoutSession | WorkoutPlan | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
 /** Everything the assistant can change: searchable records plus workspaces, note folders and task sections. */
 export type MutationType = RecordType | "workspace" | "folder" | "section" | "routine";
 export interface Mutation {
@@ -619,7 +690,7 @@ export interface Mutation {
   /** Removes the record instead of inserting or replacing it. */
   remove?: boolean;
 }
-export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays" } as const;
+export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays", workout: "workouts", workout_plan: "workoutPlans" } as const;
 const STUDY_COLLECTIONS = { course: "courses", document: "documents", deck: "decks", quiz: "quizzes" } as const;
 export const ACADEMIC_WORKSPACE_ID = "workspace-academic";
 /** The live records a mutation of this type targets, wherever they are stored. */
@@ -734,6 +805,8 @@ export function applyMutation(state: BrainState, mutation: Mutation): BrainState
     }
     return next;
   }
+  if (mutation.type === "workout_plan" && !mutation.remove && (mutation.record as WorkoutPlan).active)
+    state = { ...state, workoutPlans: (state.workoutPlans || []).map(p => p.active && p.id !== mutation.record.id ? { ...p, active: false } : p) };
   if (mutation.type === "task" && !mutation.remove) {
     const task = mutation.record as Task;
     state = registerTaskGroup(state, task.section, task.subsection);
@@ -756,6 +829,17 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
   }
   if (name === "search_memories") return { output: await readMemories(state,args,key,signal), sources: [] };
   if (name === "search_conversations") return { output: searchConversations(state,args.query,args.offset || 0), sources: [] };
+  if (name === "training_summary") {
+    if (args.date !== undefined) validDate(args.date);
+    const profile = (state.workspaces || []).find(w => w.template === "health")?.health;
+    return { output: trainingSummaryForAssistant(state.workouts || [], state.workoutPlans, state.healthDays || [], args.date || getLocalDateString(), profile?.weightUnit || "kg", profile?.goalWeightKg), sources: [] };
+  }
+  if (name === "search_exercises") {
+    const found = searchExercises(args.query || "", { muscle: args.muscle, equipment: args.equipment, category: args.category });
+    const offset = args.offset || 0, page = found.slice(offset, offset + 25);
+    return { output: { total: found.length, nextOffset: offset + 25 < found.length ? offset + 25 : null,
+      exercises: page.map(e => ({ id: e.id, name: e.name, category: e.category, equipment: e.equipment, primary: e.primary, secondary: e.secondary, level: e.level, records: measureOf(e) })) }, sources: [] };
+  }
   if (name === "health_summary") {
     if (args.date !== undefined) validDate(args.date);
     const profile = (state.workspaces || []).find(w => w.template === "health")?.health;
@@ -885,6 +969,51 @@ export function routineFields(base: Routine, args: Record<string, any>): Routine
   if (r.frequency !== "weekly") delete r.days;
   if (r.frequency !== "monthly") delete r.dayOfMonth;
   return r;
+}
+/** The unit weights in a tool call are in: the one given, else the user's own. */
+function weightUnitOf(state: BrainState, unit?: string): WeightUnit {
+  if (unit === "kg" || unit === "lb") return unit;
+  return (state.workspaces || []).find(w => w.template === "health")?.health?.weightUnit || "kg";
+}
+function workoutExerciseArg(e: any, unit: WeightUnit): WorkoutExercise {
+  const { exerciseId, name } = resolveExercise(String(e?.name || ""), e?.exerciseId);
+  const sets: WorkoutSet[] = [];
+  for (const s of e?.sets || []) {
+    const set: WorkoutSet = {};
+    if (s.reps !== undefined) set.reps = s.reps;
+    if (s.weight !== undefined) set.weightKg = Math.round(fromUnit(s.weight, unit) * 1000) / 1000;
+    if (s.seconds !== undefined) set.seconds = s.seconds;
+    if (s.distanceKm !== undefined) set.distanceKm = s.distanceKm;
+    if (s.rpe !== undefined) set.rpe = s.rpe;
+    if (s.kind && s.kind !== "working") set.kind = s.kind;
+    if (!set.reps && !set.seconds && !set.distanceKm) throw new Error(`Each set of ${name} needs reps, seconds or distanceKm.`);
+    set.done = true;
+    for (let i = 0; i < (s.repeat || 1); i++) sets.push({ ...set });
+  }
+  if (!sets.length) throw new Error(`Give the sets for ${name}.`);
+  return { id: crypto.randomUUID(), exerciseId, name, sets, ...(e?.note ? { note: String(e.note).trim() } : {}) };
+}
+function planExerciseArg(e: any): PlanExercise {
+  const { exerciseId, name } = resolveExercise(String(e?.name || ""), e?.exerciseId);
+  const reps = String(e?.reps ?? "").trim();
+  if (!reps) throw new Error(`Give target reps for ${name}.`);
+  return { id: crypto.randomUUID(), exerciseId, name, sets: e.sets, reps, ...(e.restSec !== undefined ? { restSec: e.restSec } : {}), ...(e.note ? { note: String(e.note).trim() } : {}) };
+}
+function planDayArg(d: any): PlanDay {
+  const weekdays = [...new Set((d?.weekdays || []) as number[])].sort();
+  return { id: crypto.randomUUID(), name: groupName(d?.name, "Day"), ...(weekdays.length ? { weekdays } : {}), exercises: (d?.exercises || []).map(planExerciseArg) };
+}
+function checkedWorkout(w: WorkoutSession): WorkoutSession {
+  const clean = normalizeWorkout(w);
+  if (!clean) throw new Error("That session could not be saved.");
+  if (clean.exercises.length > 60) throw new Error("At most 60 exercises in a session.");
+  return clean;
+}
+function checkedPlan(p: WorkoutPlan): WorkoutPlan {
+  if (p.days.length > 14) throw new Error("At most 14 days in a plan.");
+  const clean = normalizeWorkoutPlan(p);
+  if (!clean) throw new Error("That plan could not be saved.");
+  return clean;
 }
 export function prepareMutation(name: string, args: any, state: BrainState): Mutation {
   const today = getLocalDateString();
@@ -1388,13 +1517,103 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (!w) throw new Error("There is no Health workspace yet. Create one with create_workspace (template health) first.");
       const next: HealthProfile = { ...(w.health || {}) };
       if (args.sleepGoalHours !== undefined) next.sleepGoalMin = Math.round(args.sleepGoalHours * 60);
-      for (const key of ["stepGoal", "maxHr", "birthYear", "sex"] as const) if (args[key] !== undefined) (next as Record<string, unknown>)[key] = args[key];
-      for (const key of args.clear || []) delete (next as Record<string, unknown>)[key === "sleepGoalHours" ? "sleepGoalMin" : key];
+      for (const key of ["stepGoal", "maxHr", "birthYear", "sex", "weightUnit"] as const) if (args[key] !== undefined) (next as Record<string, unknown>)[key] = args[key];
+      if (args.goalWeight !== undefined) next.goalWeightKg = fromUnit(args.goalWeight, args.goalWeightUnit || next.weightUnit || "kg");
+      for (const key of args.clear || []) delete (next as Record<string, unknown>)[key === "sleepGoalHours" ? "sleepGoalMin" : key === "goalWeight" ? "goalWeightKg" : key];
       const clean = normalizeHealthProfile(next);
       if (JSON.stringify(clean || {}) === JSON.stringify(w.health || {})) throw new Error("Nothing to change: give a new target or one to clear.");
       const { health: _old, ...rest } = w;
       return { type: "workspace", action: name, expected: w, record: clean ? { ...rest, health: clean } : rest };
     }
+    case "log_workout": {
+      const date = args.date || today;
+      validDate(date);
+      const unit = weightUnitOf(state, args.unit);
+      const now = new Date().toISOString();
+      const session: WorkoutSession = { id, date, name: (args.name || "").trim() || "Workout", exercises: (args.exercises || []).map((e: any) => workoutExerciseArg(e, unit)), createdAt: now, updatedAt: now };
+      if (!session.exercises.length) throw new Error("Give at least one exercise with its sets.");
+      if (args.durationMin !== undefined) session.durationMin = args.durationMin;
+      if (args.note) session.note = String(args.note).trim();
+      if (args.planDayId) {
+        const plan = (state.workoutPlans || []).find(p => p.days.some(d => d.id === args.planDayId));
+        if (!plan) throw new Error("planDayId not found. Use a day ID from the training summary.");
+        session.planId = plan.id; session.planDayId = args.planDayId;
+        if (!args.name) session.name = plan.days.find(d => d.id === args.planDayId)!.name;
+      }
+      return { type: "workout", action: name, record: checkedWorkout(session) };
+    }
+    case "update_workout": {
+      const w = findIn(state.workouts, args.workoutId, "Workout");
+      const unit = weightUnitOf(state, args.unit);
+      const next: WorkoutSession = { ...w, exercises: [...w.exercises] };
+      if (args.newName !== undefined) next.name = String(args.newName).trim() || w.name;
+      if (args.newDate !== undefined) { validDate(args.newDate); next.date = args.newDate; }
+      if (args.durationMin !== undefined) next.durationMin = args.durationMin;
+      if (args.replaceNote !== undefined) { if (args.replaceNote.trim()) next.note = args.replaceNote.trim(); else delete next.note; }
+      if (args.appendNote) next.note = [next.note, String(args.appendNote).trim()].filter(Boolean).join("\n");
+      const match = (ex: WorkoutExercise, ref: string) => ex.id === ref || ex.exerciseId === ref || sameName(ex.name, ref);
+      for (const ref of args.removeExercises || []) {
+        if (!next.exercises.some(ex => match(ex, ref))) throw new Error(`No exercise "${ref}" in this session.`);
+        next.exercises = next.exercises.filter(ex => !match(ex, ref));
+      }
+      for (const e of args.replaceExercises || []) {
+        const resolved = workoutExerciseArg(e, unit);
+        const i = next.exercises.findIndex(ex => match(ex, e.exerciseId || e.name) || ex.exerciseId === resolved.exerciseId);
+        if (i < 0) throw new Error(`No exercise "${e.name}" in this session. Use addExercises for new ones.`);
+        next.exercises[i] = { ...next.exercises[i], sets: resolved.sets, ...(resolved.note ? { note: resolved.note } : {}) };
+      }
+      for (const e of args.addExercises || []) next.exercises.push(workoutExerciseArg(e, unit));
+      if (args.finish && !next.finishedAt) {
+        next.finishedAt = new Date().toISOString();
+        if (next.durationMin === undefined && next.startedAt) next.durationMin = Math.max(1, Math.round((Date.parse(next.finishedAt) - Date.parse(next.startedAt)) / 60000));
+      }
+      next.updatedAt = new Date().toISOString();
+      const record = checkedWorkout(next);
+      if (JSON.stringify({ ...record, updatedAt: "" }) === JSON.stringify({ ...w, updatedAt: "" })) throw new Error("Nothing to change.");
+      return { type: "workout", action: name, expected: w, record };
+    }
+    case "delete_workout": { const w = findIn(state.workouts, args.workoutId, "Workout"); return { type: "workout", action: name, expected: w, record: w, remove: true }; }
+    case "create_workout_plan": {
+      const planName = groupName(args.name, "Plan");
+      if ((state.workoutPlans || []).some(p => sameName(p.name, planName))) throw new Error("A plan with this name already exists. Update it instead.");
+      if ((state.workoutPlans || []).length >= 20) throw new Error("At most 20 plans. Delete one first.");
+      const now = new Date().toISOString();
+      const plan: WorkoutPlan = { id, name: planName, active: args.active !== false, days: (args.days || []).map(planDayArg), createdAt: now, updatedAt: now };
+      if (!plan.days.length) throw new Error("A plan needs at least one day.");
+      if (args.description) plan.description = String(args.description).trim();
+      return { type: "workout_plan", action: name, record: checkedPlan(plan) };
+    }
+    case "update_workout_plan": {
+      const p = findIn(state.workoutPlans, args.planId, "Plan");
+      const next: WorkoutPlan = { ...p, days: [...p.days] };
+      if (args.newName !== undefined) {
+        next.name = groupName(args.newName, "Plan");
+        if ((state.workoutPlans || []).some(x => x.id !== p.id && sameName(x.name, next.name))) throw new Error("Another plan already has this name.");
+      }
+      if (args.description !== undefined) { if (args.description.trim()) next.description = args.description.trim(); else delete next.description; }
+      if (args.active !== undefined) next.active = !!args.active;
+      const findDay = (ref: string) => {
+        const i = next.days.findIndex(d => d.id === ref || sameName(d.name, ref));
+        if (i < 0) throw new Error(`No day "${ref}" in this plan.`);
+        return i;
+      };
+      for (const ref of args.removeDays || []) next.days.splice(findDay(ref), 1);
+      for (const u of args.updateDays || []) {
+        const i = findDay(u.day);
+        const d: PlanDay = { ...next.days[i] };
+        if (u.newName !== undefined) d.name = groupName(u.newName, "Day");
+        if (u.weekdays !== undefined) { const days = [...new Set((u.weekdays as number[]))].sort(); if (days.length) d.weekdays = days; else delete d.weekdays; }
+        if (u.exercises !== undefined) d.exercises = u.exercises.map(planExerciseArg);
+        next.days[i] = d;
+      }
+      for (const d of args.addDays || []) next.days.push(planDayArg(d));
+      if (!next.days.length) throw new Error("A plan needs at least one day. Delete the plan instead.");
+      next.updatedAt = new Date().toISOString();
+      const record = checkedPlan(next);
+      if (JSON.stringify({ ...record, updatedAt: "" }) === JSON.stringify({ ...p, updatedAt: "" })) throw new Error("Nothing to change.");
+      return { type: "workout_plan", action: name, expected: p, record };
+    }
+    case "delete_workout_plan": { const p = findIn(state.workoutPlans, args.planId, "Plan"); return { type: "workout_plan", action: name, expected: p, record: p, remove: true }; }
     default: throw new Error(`Unknown mutation ${name}`);
   }
 }

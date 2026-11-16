@@ -7,7 +7,7 @@ import { gradingForAssistant } from "../utils/grades";
 import { cachedDocumentText } from "./studyDocuments";
 import { providerFetch } from "./providerTransport";
 
-export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health";
+export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health" | "workout" | "workout_plan";
 
 function trackerDate(item: TrackerItem): string | undefined {
   if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
@@ -87,6 +87,16 @@ export function recordProse(type: RecordType, d: any): string {
         Array.isArray(d.workouts) && d.workouts.length > 0 && `Workouts: ${d.workouts.map((w: any) => `${w.type} ${w.minutes} min${w.avgHr ? ` avg ${w.avgHr} bpm` : ""}`).join("; ")}`,
         list(d.tags) && `Tags: ${list(d.tags)}`, d.note && `Note: ${d.note}`);
     }
+    case "workout": {
+      const set = (s: any) => [s.kind && s.kind !== "working" ? `${s.kind} ` : "", s.weightKg ? `${s.weightKg} kg × ` : "", s.reps ? `${s.reps}` : "",
+        s.seconds ? ` ${s.seconds}s` : "", s.distanceKm ? ` ${s.distanceKm} km` : "", s.rpe ? ` @RPE ${s.rpe}` : ""].join("").trim();
+      return lines(`Workout: ${d.name} on ${d.date}${d.durationMin ? `, ${d.durationMin} min` : ""}${d.startedAt && !d.finishedAt ? " (in progress)" : ""}`,
+        ...(Array.isArray(d.exercises) ? d.exercises.map((e: any) => `${e.name}: ${(e.sets || []).map(set).filter(Boolean).join(", ") || "no sets"}${e.note ? ` (${e.note})` : ""}`) : []),
+        d.note && `Note: ${d.note}`);
+    }
+    case "workout_plan":
+      return lines(`Training plan: ${d.name}${d.active ? " (active)" : ""}`, d.description,
+        ...(Array.isArray(d.days) ? d.days.map((day: any) => `${day.name} [day:${day.id}]${day.weekdays?.length ? ` on ${day.weekdays.map((n: number) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][n]).join("/")}` : ""}: ${(day.exercises || []).map((e: any) => `${e.name} ${e.sets}×${e.reps}`).join(", ")}`) : []));
     case "tracker": {
       const fields = Object.entries(d.fields || {}).filter(([, v]) => (typeof v === "string" && v.trim() && !/^https?:/i.test(v)) || typeof v === "number")
         .map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
@@ -141,6 +151,8 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
     ...state.knowledgeItems.map(data => ({ type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data, source: data as unknown })),
     ...(state.events || []).map(data => ({ type: "event" as const, title: data.title, date: data.date, data, source: data as unknown })),
     ...(state.healthDays || []).map(data => ({ type: "health" as const, title: `Health ${data.date}`, date: data.date, data, source: data as unknown })),
+    ...(state.workouts || []).map(data => ({ type: "workout" as const, title: `${data.name} ${data.date}`, date: data.date, data, source: data as unknown })),
+    ...(state.workoutPlans || []).map(data => ({ type: "workout_plan" as const, title: data.name, date: undefined, data: { ...data, status: data.active ? "in_progress" : "on_hold" }, source: data as unknown })),
     ...(state.trackerItems || []).map(data => ({
       type: "tracker" as const,
       title: data.title,

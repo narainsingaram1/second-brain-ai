@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, BedDouble, Calendar, Check, ChevronLeft, ChevronRight, Copy, Footprints, HeartPulse, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
+  Activity, AlertTriangle, BedDouble, Calendar, Check, ChevronLeft, ChevronRight, Copy, Dumbbell, Footprints, HeartPulse, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
 } from "lucide-react";
-import type { BrainState, HealthDay, HealthProfile, Workspace } from "../../types";
+import type { BrainState, HealthDay, HealthProfile, WorkoutPlan, WorkoutSession, Workspace } from "../../types";
 import { applyHealthPatches, cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, normalizeHealthDays, normalizeHealthProfile, parseHealthPayload, type HealthDayPatch } from "../../utils/health";
 import { importAppleHealthExport } from "../../utils/healthExport";
 import { computeHealth, hm, localToday, type HealthInsights } from "../../utils/healthMetrics";
@@ -13,11 +13,16 @@ import { createHealthSyncToken, healthSyncStatus, revokeHealthSync, type HealthS
 import { managedAuthEnabled } from "../../services/managedAuth";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import { ScoreRing, TimeChart, type ChartPoint } from "./HealthCharts";
+import { TrainingView } from "./training/TrainingView";
+import type { TrainingApi } from "./training/shared";
+import type { WeightUnit } from "../../utils/training";
 import "../../health.css";
 
 type Update = (update: (state: BrainState) => BrainState) => void;
 interface Props { state: BrainState; workspace: Workspace; onChange: Update; onAsk: (prompt: string) => void }
-type View = "today" | "sleep" | "insights" | "trends" | "days";
+type View = "today" | "training" | "sleep" | "insights" | "trends" | "days";
+/** Pounds where they are the everyday unit, kilograms elsewhere. */
+const localUnit = (): WeightUnit => /^en-(US|LR|MM)$/i.test(typeof navigator === "undefined" ? "" : navigator.language) ? "lb" : "kg";
 
 const ago = (iso?: string | null) => {
   if (!iso) return "never";
@@ -104,6 +109,42 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
     return result.changed.length;
   };
 
+  const unit: WeightUnit = workspace.health?.weightUnit || localUnit();
+  const patchProfile = (patch: Partial<HealthProfile>) => onChange(prev => ({
+    ...prev, workspaces: (prev.workspaces || []).map(w => {
+      if (w.id !== workspace.id) return w;
+      const next = normalizeHealthProfile({ ...(w.health || {}), ...patch });
+      const { health: _h, ...rest } = w;
+      return next ? { ...rest, health: next } : rest;
+    }),
+  }));
+  const upsert = <T extends { id: string }>(list: T[] | undefined, item: T) => (list || []).some(x => x.id === item.id) ? (list || []).map(x => x.id === item.id ? item : x) : [...(list || []), item];
+  const training: TrainingApi = {
+    unit, today, workouts: state.workouts || [], plans: state.workoutPlans || [], days: stored, goalWeightKg: workspace.health?.goalWeightKg, onAsk,
+    setUnit: u => patchProfile({ weightUnit: u }),
+    saveWorkout: (w: WorkoutSession) => {
+      const clean: WorkoutSession = { ...w, name: w.name.trim() || "Workout" };
+      onChange(prev => ({ ...prev, workouts: upsert(prev.workouts, clean).sort((a, b) => a.date.localeCompare(b.date) || (a.startedAt || a.createdAt).localeCompare(b.startedAt || b.createdAt)) }));
+      if (!workspace.health?.weightUnit) patchProfile({ weightUnit: unit });
+    },
+    deleteWorkout: id => onChange(prev => ({ ...prev, workouts: (prev.workouts || []).filter(w => w.id !== id) })),
+    savePlan: (p: WorkoutPlan) => onChange(prev => {
+      const clean: WorkoutPlan = { ...p, name: p.name.trim() || "My plan", days: p.days.map((d, i) => ({ ...d, name: d.name.trim() || `Day ${i + 1}` })) };
+      const others = (prev.workoutPlans || []).map(x => clean.active && x.id !== clean.id && x.active ? { ...x, active: false, updatedAt: new Date().toISOString() } : x);
+      return { ...prev, workoutPlans: upsert(others, clean) };
+    }),
+    deletePlan: id => onChange(prev => ({ ...prev, workoutPlans: (prev.workoutPlans || []).filter(p => p.id !== id) })),
+    logWeight: (date, kg) => onChange(prev => {
+      const list = prev.healthDays || [];
+      const existing = list.find(d => d.date === date) || { id: healthDayId(date), date, metrics: {}, source: "manual", updatedAt: "" };
+      const metrics = { ...existing.metrics };
+      const v = kg === null ? undefined : cleanMetric("weightKg", kg);
+      if (v === undefined) delete metrics.weightKg; else metrics.weightKg = v;
+      return { ...prev, healthDays: normalizeHealthDays([...list.filter(d => d.date !== date), { ...existing, metrics, updatedAt: new Date().toISOString() }]) };
+    }),
+    setGoalWeight: kg => patchProfile({ goalWeightKg: kg }),
+  };
+
   const editingDay = editing ? days.find(d => d.date === editing) || { id: healthDayId(editing), date: editing, metrics: {}, updatedAt: "" } : null;
 
   return (
@@ -111,7 +152,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       <div className="hl-toolbar">
         <div className="hl-toolbar-left">
           <div className="hl-views" role="tablist" aria-label="Health views">
-            {(["today", "sleep", "insights", "trends", "days"] as const).map(v => (
+            {(["today", "training", "sleep", "insights", "trends", "days"] as const).map(v => (
               <button
                 key={v}
                 role="tab"
@@ -121,7 +162,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
                   if (v === "today" && view === "today" && !isToday) setSelectedDate(today);
                 }}
               >
-                {v === "today" ? (isToday ? "Today" : "Day") : v === "sleep" ? "Sleep" : v === "insights" ? "Insights" : v === "trends" ? "Trends" : "Days"}
+                {v === "today" ? (isToday ? "Today" : "Day") : v === "training" ? "Training" : v === "sleep" ? "Sleep" : v === "insights" ? "Insights" : v === "trends" ? "Trends" : "Days"}
               </button>
             ))}
           </div>
@@ -199,8 +240,10 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
         </div>
       )}
 
-      {!days.length ? (
-        <EmptyState onImport={() => setImportOpen(true)} onPreview={() => setPreview(true)} />
+      {view === "training" ? (
+        <TrainingView api={training} />
+      ) : !days.length ? (
+        <EmptyState onImport={() => setImportOpen(true)} onPreview={() => setPreview(true)} onTraining={() => setView("training")} />
       ) : view === "today" ? (
         <DayView
           h={insights}
@@ -244,7 +287,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
 
 const shortDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-function EmptyState({ onImport, onPreview }: { onImport: () => void; onPreview: () => void }) {
+function EmptyState({ onImport, onPreview, onTraining }: { onImport: () => void; onPreview: () => void; onTraining: () => void }) {
   return (
     <div className="hl-empty">
       <span className="ws-icon ws-color-rose"><HeartPulse size={22} /></span>
@@ -253,6 +296,7 @@ function EmptyState({ onImport, onPreview }: { onImport: () => void; onPreview: 
       <div className="hl-empty-actions">
         <button className="ws-button ws-primary" onClick={onImport}><Upload size={15} />Import Apple Health export</button>
         <button className="ws-button ws-secondary" onClick={onPreview}><Sparkles size={15} />Preview with sample data</button>
+        <button className="ws-button ws-secondary" onClick={onTraining}><Dumbbell size={15} />Log workouts instead</button>
       </div>
     </div>
   );

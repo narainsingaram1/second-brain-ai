@@ -6,7 +6,7 @@ import type { Mutation } from "./brainTools";
  */
 export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible" | "browser";
 
-const READ = new Set(["list_resume_versions", "health_summary", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
+const READ = new Set(["list_resume_versions", "health_summary", "training_summary", "search_exercises", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
   "list_calendar_events", "search_email", "read_email", "read_url", "web_search"]);
 /** Actions outside Synapse that can be undone there (a draft is not sent; an event without guests notifies no one). */
 const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_event"]);
@@ -17,7 +17,8 @@ const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete
   "create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section", "rename_subsection", "delete_subsection",
   "delete_goal", "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
   "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz",
-  "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "create_routine", "update_routine", "delete_routine"]);
+  "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "log_workout", "update_workout", "delete_workout",
+  "create_workout_plan", "update_workout_plan", "delete_workout_plan", "create_routine", "update_routine", "delete_routine"]);
 /** Every tool that changes the user's own data, for the coverage check. */
 export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
 
