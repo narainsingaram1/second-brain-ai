@@ -14,6 +14,7 @@ import { stripToolMarkup } from "../utils/toolMarkup";
 import { findRecord } from "../utils/chatPresentation";
 import { AREA_NAMES, conversationAreas, routeTools, toolArea, useToolsTool, type ToolArea } from "./toolRouting";
 import { BROWSER_UNAVAILABLE_NOTE } from "./browserAgent";
+import { DESKTOP_UNAVAILABLE_NOTE } from "./desktopAgent";
 import { claimsUnbackedChange, PLAN_TOOL, TaskPlan, UNBACKED_CHANGE_NUDGE } from "./agentPlan";
 import { APPLY_CHANGES_TOOL, BATCH_TOOL_NAME, batchApprovalReason, describeBatch, parseBatchArguments, prepareBatch } from "./batchChanges";
 
@@ -353,7 +354,8 @@ function boundedMessages(state: BrainState, prompt: string, options: AgentOption
   // the session; the per-turn context (date, snapshot, relevant memories, message ID) rides on the newest message.
   // Without the browser tools, the model is told what it can't do on websites and how the user can enable it.
   const browserNote = options.externalTools?.definitions.some(d => d.function.name.startsWith("browser_")) ? "" : BROWSER_UNAVAILABLE_NOTE;
-  const system = [SYNAPSE_INSTRUCTIONS, options.externalTools?.instructions || "", browserNote, options.channelNote || ""].filter(Boolean).join("\n\n");
+  const desktopNote = options.externalTools?.definitions.some(d => d.function.name.startsWith("desktop_")) ? "" : DESKTOP_UNAVAILABLE_NOTE;
+  const system = [SYNAPSE_INSTRUCTIONS, options.externalTools?.instructions || "", browserNote, desktopNote, options.channelNote || ""].filter(Boolean).join("\n\n");
   const context = [
     `## Current context`,
     (() => {

@@ -22,6 +22,7 @@ function fakeChrome(pages = {}) {
     set: async values => { Object.assign(store[name], structuredClone(values)); },
   });
   const tabs = new Map();
+  const badges = {};
   let nextTab = 100;
   const chrome = {
     store, tabs: {
@@ -30,7 +31,9 @@ function fakeChrome(pages = {}) {
       get: async id => { const tab = tabs.get(id); if (!tab) throw new Error('No tab'); return { ...tab }; },
       remove: async id => { tabs.delete(id); },
       group: async () => 7,
+      query: async () => [...tabs.values()].map(t => ({ ...t })),
     },
+    action: { setBadgeText: async ({ tabId, text }) => { badges[tabId] = text; }, setBadgeBackgroundColor: async () => {} },
     tabGroups: { get: async () => ({}), update: async () => ({}) },
     storage: { local: area('local'), session: area('session') },
     scripting: {
@@ -42,6 +45,9 @@ function fakeChrome(pages = {}) {
       },
     },
     _tabs: tabs,
+    _badges: badges,
+    /** A tab the user opened themselves. */
+    _userTab: (url, title = 'Doc', extra = {}) => { const tab = { id: nextTab++, url, title, status: 'complete', ...extra }; tabs.set(tab.id, tab); return tab.id; },
   };
   return chrome;
 }
@@ -73,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.2.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.3.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -160,6 +166,97 @@ test('stop from the popup halts work and closes the agent tabs', async () => {
   assert.deepEqual((await agent.fromApp({ type: 'tabs' }, APP)).tabs, []);
 });
 
+test("the user's own tabs: listed by title, lent only with the user's go-ahead, never closed by the agent", async () => {
+  const { chrome, agent } = await pairedAgent({ default: shop([]) });
+  const docs = chrome._userTab('https://docs.example/d/1', 'Deployment checklist');
+  const mail = chrome._userTab('https://mail.example/inbox', 'Inbox');
+  chrome._userTab(`${APP}/chat`, 'Synapse');
+  chrome._userTab('chrome://settings', 'Settings');
+  const own = (await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP)).tabId;
+  await agent.tabActivated(mail); await agent.tabActivated(docs);
+
+  const listed = (await agent.fromApp({ type: 'user_tabs' }, APP)).tabs;
+  assert.deepEqual(listed.map(t => t.tabId), [docs, mail], 'most recent first; not the app, browser pages or the agent\'s own tabs');
+  assert.deepEqual(listed[0], { tabId: docs, title: 'Deployment checklist', site: 'docs.example', mostRecent: true });
+
+  await assert.rejects(agent.fromApp({ type: 'snapshot', tabId: docs }, APP), /lent it/, 'nothing inside a tab before it is lent');
+  const asked = await agent.fromApp({ type: 'borrow', tabId: docs }, APP);
+  assert.equal(asked.lent, false); assert.match(asked.needsConfirmation.label, /Deployment checklist/);
+  await assert.rejects(agent.fromApp({ type: 'snapshot', tabId: docs }, APP), /lent it/);
+  // A token for one tab can't lend another, nor run a step.
+  assert.equal((await agent.fromApp({ type: 'borrow', tabId: mail, confirmToken: asked.needsConfirmation.token }, APP)).lent, false);
+  const steps = [{ action: 'click', ref: 2 }];
+  const pause = await agent.fromApp({ type: 'act', tabId: own, steps, confirmToken: asked.needsConfirmation.token }, APP);
+  assert.ok(pause.needsConfirmation, 'a borrow token is not a step token');
+
+  const again = await agent.fromApp({ type: 'borrow', tabId: docs }, APP);
+  const lent = await agent.fromApp({ type: 'borrow', tabId: docs, confirmToken: again.needsConfirmation.token }, APP);
+  assert.equal(lent.lent, true); assert.equal(chrome._badges[docs], 'AI');
+  assert.equal((await agent.fromApp({ type: 'snapshot', tabId: docs }, APP)).site, 'docs.example');
+  assert.equal((await agent.fromApp({ type: 'borrow', tabId: docs, confirmToken: again.needsConfirmation.token }, APP)).lent, true, 'already lent');
+  assert.ok((await agent.fromApp({ type: 'tabs' }, APP)).tabs.some(t => t.tabId === docs && t.lent));
+
+  const closed = await agent.fromApp({ type: 'close', tabId: docs }, APP);
+  assert.equal(closed.closed, false); assert.ok(chrome._tabs.has(docs), 'handed back, still open'); assert.equal(chrome._badges[docs], '');
+  await assert.rejects(agent.fromApp({ type: 'snapshot', tabId: docs }, APP), /lent it/);
+});
+
+test('the user lends tabs from the extension; the app tab and blocked sites never; stop hands them back', async () => {
+  const { chrome, agent } = await pairedAgent({ default: shop([]) });
+  const docs = chrome._userTab('https://docs.example/d/1');
+  const app = chrome._userTab(`${APP}/chat`);
+  const bank = chrome._userTab('https://bank.example/');
+  chrome.store.local.blockedHosts = ['bank.example'];
+  await assert.rejects(agent.fromExtension({ type: 'share', tabId: app }), /Synapse app itself/);
+  await assert.rejects(agent.fromApp({ type: 'borrow', tabId: app }, APP), /Synapse app itself/);
+  await assert.rejects(agent.fromExtension({ type: 'share', tabId: bank }), /blocked/);
+  assert.deepEqual(await agent.fromExtension({ type: 'tab-state', tabId: bank }), { lent: false, own: false, shareable: false });
+  assert.equal((await agent.fromExtension({ type: 'share', tabId: docs })).lent, true);
+  assert.equal((await agent.fromApp({ type: 'user_tabs' }, APP)).tabs.find(t => t.tabId === docs).lent, true);
+  assert.equal((await agent.fromApp({ type: 'snapshot', tabId: docs }, APP)).tabId, docs);
+  assert.deepEqual((await agent.fromExtension({ type: 'status' })).lent.map(t => t.tabId), [docs]);
+  await agent.fromExtension({ type: 'stop' });
+  assert.ok(chrome._tabs.has(docs), 'stop never closes the user\'s tab');
+  await assert.rejects(agent.fromApp({ type: 'snapshot', tabId: docs }, APP), /lent it/);
+  // A lent tab the user closes is forgotten.
+  await agent.fromExtension({ type: 'share', tabId: docs });
+  chrome._tabs.delete(docs); await agent.tabClosed(docs);
+  assert.deepEqual((await agent.fromApp({ type: 'tabs' }, APP)).tabs, []);
+});
+
+test('the toolset borrows a tab only after the user allows it, and shows the model no page or token', async () => {
+  const calls = [];
+  const bridge = { call: async req => {
+    calls.push(req);
+    if (req.type === 'user_tabs') return { tabs: [{ tabId: 9, title: 'Deployment checklist', site: 'docs.example', mostRecent: true }, { tabId: 10, title: 'Bank', site: 'bank.example' }] };
+    if (req.type === 'borrow' && !req.confirmToken) return { tabId: 9, title: 'Deployment checklist', site: 'docs.example', url: 'https://docs.example/d/1', lent: false, needsConfirmation: { token: 'borrow-token', label: 'Let Synapse use your tab "Deployment checklist"', site: 'docs.example' } };
+    return { tabId: 9, title: 'Deployment checklist', site: 'docs.example', url: 'https://docs.example/d/1', lent: true };
+  } };
+  const asked = [];
+  const sig = new AbortController().signal;
+  const tools = browserToolset(bridge, { confirm: async req => { asked.push(req); return true; } });
+  const listed = (await tools.execute('browser_user_tabs', {}, sig)).output;
+  assert.equal(listed.tabs.length, 2); assert.match(listed.untrusted, /never instructions/);
+  const { output } = await tools.execute('browser_borrow', { tabId: 9 }, sig);
+  assert.equal(asked[0].label, 'Let Synapse use your tab "Deployment checklist"');
+  assert.deepEqual(calls.at(-1), { type: 'borrow', tabId: 9, confirmToken: 'borrow-token' });
+  assert.equal(output.lent, true); assert.equal(output.confirmed, true);
+  assert.ok(!JSON.stringify(output).includes('borrow-token')); assert.ok(!('text' in output), 'the page comes from browser_look');
+
+  calls.length = 0;
+  const declined = (await browserToolset(bridge, { confirm: async () => false }).execute('browser_borrow', { tabId: 9 }, sig)).output;
+  assert.equal(declined.lent, false); assert.equal(declined.confirmed, false); assert.equal(calls.length, 1);
+
+  // The router keeps denied sites out of the list and refuses to borrow them.
+  const { createAgentRouter } = await load('/src/services/toolRouter.ts');
+  const { normalizePolicy } = await load('/src/services/agentPolicy.ts');
+  const { AgentAuditLog, memoryAuditStore } = await load('/src/services/agentAudit.ts');
+  const router = createAgentRouter({ policy: normalizePolicy({ deniedHosts: ['bank.example'] }), audit: new AgentAuditLog(memoryAuditStore()), turnId: 't', confirm: async () => true });
+  const routed = router.wrap(browserToolset(bridge, { confirm: router.confirm }));
+  assert.deepEqual((await routed.execute('browser_user_tabs', {}, sig)).output.tabs.map(t => t.tabId), [9]);
+  await assert.rejects(routed.execute('browser_borrow', { tabId: 10 }, sig), /bank\.example|not/i);
+});
+
 /** A window with a fake extension bridge that answers using the given handler. */
 function fakeWindow(handler) {
   const target = new EventTarget();
@@ -216,6 +313,9 @@ test('routing: website requests use the browser', () => {
   assert.ok(needsBrowser('Find me a USB-C hub on Amazon and add it to my cart'));
   assert.ok(needsBrowser('go to canvas and check my grades'));
   assert.ok(needsBrowser('sign up for the newsletter at example.com'));
+  assert.ok(needsBrowser('go to that tab and summarize it'));
+  assert.ok(needsBrowser('what does the tab I have open say about pricing?'));
+  assert.ok(needsBrowser('summarize this page'));
   assert.ok(!needsBrowser('what should I focus on today?'));
   assert.ok(!needsBrowser('move my essay to friday'));
   assert.equal(toolTier('browser_act'), 'browser');
@@ -416,4 +516,5 @@ test('manifest: fixed ID for the native host, optional native messaging and debu
   assert.ok(hub.includes(`chrome-extension://${id}/`), `hub.rs must admit exactly this extension (${id})`);
   assert.deepEqual(manifest.optional_permissions.sort(), ['debugger', 'nativeMessaging']);
   assert.ok(!manifest.permissions.includes('nativeMessaging') && !manifest.permissions.includes('debugger'));
+  assert.equal(manifest.version, (await import('../extension/agent-core.js')).VERSION);
 });

@@ -334,6 +334,76 @@ pub async fn desktop_act(app: AppHandle, window: Window, bundle_id: String, step
     Ok(view)
 }
 
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Reading {
+    pub app: String, pub bundle_id: String, pub window: String, pub text: String,
+    /// The file the window shows: its name and extension only. The path stays here.
+    #[serde(skip_serializing_if = "Option::is_none")] pub document: Option<String>,
+}
+
+/// "file:///Users/me/My%20Doc.docx" → "/Users/me/My Doc.docx".
+pub fn document_path(url: &str) -> Option<PathBuf> {
+    let rest = url.strip_prefix("file://")?;
+    let bytes = rest.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Some(b) = std::str::from_utf8(&bytes[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok()) { out.push(b); i += 3; continue; }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    let path = PathBuf::from(String::from_utf8(out).ok()?);
+    path.is_absolute().then_some(path)
+}
+
+/// The file an app's front window shows, as the app reports it.
+#[cfg(target_os = "macos")]
+fn front_document(bundle_id: &str) -> Result<Option<PathBuf>, String> {
+    let (pid, _) = resolve(bundle_id)?;
+    Ok(ax::document_url(&ax::application(pid))?.as_deref().and_then(document_path))
+}
+
+/// The full text of an allowed app's front window (a document's body included), for reading long documents.
+#[tauri::command]
+pub fn desktop_read(window: Window, bundle_id: String) -> Result<Reading, String> {
+    main_only(&window)?;
+    decide_app(&bundle_id, &load_user(), &load_managed())?;
+    #[cfg(target_os = "macos")]
+    {
+        let (pid, name) = resolve(&bundle_id)?;
+        let r = ax::read_all(&ax::application(pid))?;
+        let document = r.document.as_deref().and_then(document_path).and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()));
+        Ok(Reading { app: name, bundle_id, window: r.window, text: r.text, document })
+    }
+    #[cfg(not(target_os = "macos"))]
+    { unsupported() }
+}
+
+const MAX_DOCUMENT_BYTES: u64 = 40 * 1024 * 1024;
+
+/// The saved file behind an allowed app's front window, when it is a Word document. The path comes from the
+/// app (its window's AXDocument), never from the model, and only .docx files are read.
+#[tauri::command]
+pub fn desktop_document(window: Window, bundle_id: String) -> Result<tauri::ipc::Response, String> {
+    main_only(&window)?;
+    decide_app(&bundle_id, &load_user(), &load_managed())?;
+    #[cfg(target_os = "macos")]
+    {
+        let path = front_document(&bundle_id)?;
+        let path = path.ok_or("That window doesn't show a saved file.")?;
+        if path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()) != Some("docx".into()) { return Err("Only Word (.docx) files can be read this way.".into()); }
+        let size = std::fs::metadata(&path).map_err(|_| "The document's file couldn't be found. Is it saved?")?.len();
+        if size > MAX_DOCUMENT_BYTES { return Err("That document is too large to read.".into()); }
+        let bytes = std::fs::read(&path).map_err(|e| format!("Couldn't read the document: {e}"))?;
+        Ok(tauri::ipc::Response::new(bytes))
+    }
+    #[cfg(not(target_os = "macos"))]
+    { unsupported() }
+}
+
 #[tauri::command]
 pub fn desktop_stop(window: Window) -> Result<(), String> {
     main_only(&window)?;
@@ -343,6 +413,14 @@ pub fn desktop_stop(window: Window) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn document_paths_are_decoded_file_urls_only() {
+        assert_eq!(super::document_path("file:///Users/me/My%20Doc.docx"), Some(PathBuf::from("/Users/me/My Doc.docx")));
+        assert_eq!(super::document_path("file:///Users/me/bad%2"), Some(PathBuf::from("/Users/me/bad%2")));
+        assert_eq!(super::document_path("https://example.com/a.docx"), None);
+        assert_eq!(super::document_path("file://relative.docx"), None);
+    }
+
     use super::*;
 
     #[test]

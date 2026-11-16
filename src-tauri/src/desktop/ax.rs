@@ -169,6 +169,59 @@ pub fn look(app: &El) -> Result<Snapshot, String> {
     Ok(Snapshot { window: title, nodes, omitted, text: text.chars().take(MAX_TEXT).collect(), focused })
 }
 
+const READ_MAX_TEXT: usize = 400_000;
+const READ_MAX_VISITED: usize = 30_000;
+
+/** The front window's full text, for reading documents: static text and the contents of text areas (a Word or
+ * Pages document body is one), never secure fields. Also the file the window shows, when the app says so. */
+pub struct Reading { pub window: String, pub text: String, pub document: Option<String> }
+
+/// The file the app's front window shows (a file:// URL), when the app reports one.
+pub fn document_url(app: &El) -> Result<Option<String>, String> {
+    if !trusted(false) { return Err("Synapse needs the Accessibility permission (System Settings → Privacy & Security → Accessibility).".into()); }
+    let window = app.attr("AXFocusedWindow").map(El).or_else(|| as_children(&app.attr("AXWindows")).into_iter().next())
+        .ok_or("That app has no open window.")?;
+    Ok(Some(as_string(&window.attr("AXDocument"))).filter(|d| !d.is_empty()))
+}
+
+pub fn read_all(app: &El) -> Result<Reading, String> {
+    if !trusted(false) { return Err("Synapse needs the Accessibility permission (System Settings → Privacy & Security → Accessibility).".into()); }
+    let window = app.attr("AXFocusedWindow").map(El)
+        .or_else(|| as_children(&app.attr("AXWindows")).into_iter().next())
+        .ok_or("That app has no open window. Open one (or activate the app) and read again.")?;
+    let title = as_string(&window.attr("AXTitle"));
+    let document = Some(as_string(&window.attr("AXDocument"))).filter(|d| !d.is_empty());
+    let mut text = String::new();
+    let mut seen = std::collections::HashSet::new();
+    let mut visited = 0;
+    let mut stack = vec![(window, 0usize)];
+    const READ_ATTRS: [&str; 5] = ["AXRole", "AXSubrole", "AXValue", "AXChildren", "AXTitle"];
+    while let Some((el, depth)) = stack.pop() {
+        visited += 1;
+        if visited > READ_MAX_VISITED || text.len() >= READ_MAX_TEXT { break; }
+        let v = el.attrs(&READ_ATTRS);
+        let role = as_string(&v[0]);
+        let subrole = as_string(&v[1]);
+        let body = matches!(role.as_str(), "AXStaticText" | "AXTextArea" | "AXTextField") && subrole != "AXSecureTextField";
+        if body {
+            let target = Target { role: role.clone(), subrole: subrole.clone(), name: as_string(&v[4]) };
+            let value = as_string(&v[2]);
+            let value = value.trim();
+            // Short repeated labels (toolbar captions) only once; a document body is kept as it is, line breaks and all.
+            if !value.is_empty() && !target.is_secure() && (value.len() > 200 || seen.insert(value.to_string())) {
+                text.push_str(value);
+                text.push('\n');
+            }
+        }
+        // A text area's children repeat its value line by line.
+        if depth < MAX_DEPTH && !(body && role == "AXTextArea") {
+            for child in as_children(&v[3]).into_iter().rev() { stack.push((child, depth + 1)); }
+        }
+    }
+    let text: String = text.chars().take(READ_MAX_TEXT).collect();
+    Ok(Reading { window: title, text, document })
+}
+
 /// One-line description of a node for the model.
 pub fn describe(r: usize, node: &Node, consequential: bool) -> String {
     let role = node.target.role.trim_start_matches("AX").to_lowercase();

@@ -70,3 +70,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener(tabId => { void agent.tabClosed(tabId); });
+chrome.tabs.onActivated.addListener(({ tabId }) => { void agent.tabActivated(tabId); });
+
+// Right-click a page → lend it to the assistant, or take it back. The user's own click: no approval needed.
+const MENU_SHARE = "synapse-share-tab";
+const MENU_UNSHARE = "synapse-unshare-tab";
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus?.removeAll(() => {
+    chrome.contextMenus.create({ id: MENU_SHARE, title: "Let Synapse use this tab", contexts: ["page"], documentUrlPatterns: ["http://*/*", "https://*/*"] });
+    chrome.contextMenus.create({ id: MENU_UNSHARE, title: "Take this tab back from Synapse", contexts: ["page"], documentUrlPatterns: ["http://*/*", "https://*/*"] });
+  });
+});
+chrome.contextMenus?.onClicked.addListener((info, tab) => {
+  if (!tab?.id) return;
+  if (info.menuItemId === MENU_SHARE) void agent.fromExtension({ type: "share", tabId: tab.id }).catch(() => {});
+  if (info.menuItemId === MENU_UNSHARE) void agent.fromExtension({ type: "unshare", tabId: tab.id }).catch(() => {});
+});

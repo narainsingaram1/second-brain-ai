@@ -35,8 +35,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), apiRoutes()],
-    // approval.html is the desktop app's native approval window (src-tauri/src/approval.rs).
-    build: { rollupOptions: { input: { main: path.resolve(process.cwd(), "index.html"), approval: path.resolve(process.cwd(), "approval.html") } } },
+    // approval.html is the desktop app's native approval window (src-tauri/src/approval.rs); vault.html is its
+    // Saved logins window (src-tauri/src/vault).
+    build: { rollupOptions: { input: { main: path.resolve(process.cwd(), "index.html"), approval: path.resolve(process.cwd(), "approval.html"), vault: path.resolve(process.cwd(), "vault.html") } } },
     define: {
       "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabaseUrl),
       "import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(supabaseKey),

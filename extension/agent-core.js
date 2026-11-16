@@ -2,7 +2,10 @@
 //
 // Rules it enforces no matter what the assistant asks:
 // - Only a Synapse app the user paired with in the extension can drive the browser.
-// - The agent acts only in tabs it opened itself (kept in a "Synapse" tab group), never in the user's own tabs.
+// - The agent acts only in tabs it opened itself (kept in a "Synapse" tab group), or in one of the user's own
+//   tabs they lent it: shared from the extension (popup or right-click menu), or borrowed with a one-time token
+//   the app obtains from the user's approval, never from the model. It can list the user's tabs (title and site)
+//   but not look into one until it is lent. A lent tab is never closed by the agent, only handed back.
 // - Only http(s) pages; browser pages, the extension store and sites the user blocked are off limits.
 // - It never types into password, payment or identity fields: the user fills those in.
 // - A click that commits something (buy, send, post, delete, submit…) or text sent with Enter outside a search
@@ -11,7 +14,7 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.2.0";
+export const VERSION = "1.3.0";
 /** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
 export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
@@ -56,14 +59,97 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   const settings = async () => ({ paired: (await local("pairedOrigins")) || [], extraOrigins: (await local("appOrigins")) || [], blocked: (await local("blockedHosts")) || [] });
   const ownTabs = async () => (await session("agentTabs")) || [];
   const setOwnTabs = tabs => chrome.storage.session.set({ agentTabs: tabs });
+  /** The user's own tabs lent to the agent (shared or borrowed). */
+  const lentTabs = async () => (await session("lentTabs")) || [];
+  const setLentTabs = tabs => chrome.storage.session.set({ lentTabs: tabs });
 
   async function requireOwnTab(tabId) {
     const id = Number(tabId);
-    if (!(await ownTabs()).includes(id)) throw new Error("The agent can only act in tabs it opened. Open the page with browser_open first.");
+    const lent = (await lentTabs()).includes(id);
+    if (!lent && !(await ownTabs()).includes(id)) throw new Error("The agent can only act in tabs it opened or tabs the user lent it. Open the page with browser_open, or borrow the user's tab with browser_borrow first.");
     let tab;
-    try { tab = await chrome.tabs.get(id); } catch { await setOwnTabs((await ownTabs()).filter(t => t !== id)); throw new Error("That tab was closed. Open the page again."); }
+    try { tab = await chrome.tabs.get(id); } catch {
+      await setOwnTabs((await ownTabs()).filter(t => t !== id)); await setLentTabs((await lentTabs()).filter(t => t !== id));
+      throw new Error(lent ? "The user closed that tab." : "That tab was closed. Open the page again.");
+    }
     checkTarget(tab.url || tab.pendingUrl || "about:blank", (await settings()).blocked);
     return tab;
+  }
+
+  /** Marks a lent tab in the toolbar so the user can see which of their tabs the agent may use. */
+  async function badge(tabId, on) {
+    try {
+      await chrome.action?.setBadgeText({ tabId, text: on ? "AI" : "" });
+      if (on) await chrome.action?.setBadgeBackgroundColor({ tabId, color: "#7c3aed" });
+    } catch { /* The badge is a convenience. */ }
+  }
+
+  /** A tab of the user's that may be lent: a normal web page, not the Synapse app itself, not blocked. */
+  async function lendable(tabId) {
+    let tab;
+    try { tab = await chrome.tabs.get(Number(tabId)); } catch { throw new Error("That tab isn't open any more. List the user's tabs again."); }
+    const url = tab.url || tab.pendingUrl || "";
+    let origin = "";
+    try { origin = new URL(url).origin; } catch { /* Checked below. */ }
+    const { extraOrigins, blocked } = await settings();
+    if (isAppOrigin(origin, extraOrigins)) throw new Error("That tab is the Synapse app itself; it can't be lent to the agent.");
+    checkTarget(url || "about:blank", blocked);
+    return tab;
+  }
+
+  async function lend(tabId) {
+    const id = Number(tabId);
+    if (!(await lentTabs()).includes(id)) await setLentTabs([...(await lentTabs()), id]);
+    await badge(id, true);
+  }
+
+  /** The user's tabs as the agent may know them: title and site only, the ones they used last first. */
+  async function userTabs() {
+    const own = new Set(await ownTabs());
+    const lent = new Set(await lentTabs());
+    const used = (await session("tabUsed")) || {};
+    const { extraOrigins } = await settings();
+    const all = await chrome.tabs.query({});
+    const list = [];
+    for (const t of all) {
+      if (own.has(t.id) || t.incognito) continue;
+      let url;
+      try { url = new URL(t.url || t.pendingUrl || ""); } catch { continue; }
+      if ((url.protocol !== "https:" && url.protocol !== "http:") || isAppOrigin(url.origin, extraOrigins)) continue;
+      list.push({ tabId: t.id, title: String(t.title || "").slice(0, 160), site: hostOf(url.href), ...(lent.has(t.id) ? { lent: true } : {}), lastUsed: used[t.id] || t.lastAccessed || 0 });
+    }
+    list.sort((a, b) => b.lastUsed - a.lastUsed);
+    return { tabs: list.slice(0, 50).map(({ lastUsed, ...t }, i) => ({ ...t, ...(i === 0 ? { mostRecent: true } : {}) })) };
+  }
+
+  /**
+   * Asks to use one of the user's tabs. Without a token for this exact tab and page it returns a pause, like a
+   * consequential step; the app asks the user and calls again with the token.
+   */
+  async function borrow({ tabId, confirmToken }) {
+    const tab = await lendable(tabId);
+    const info = { tabId: tab.id, title: tab.title || "", site: hostOf(tab.url), url: tab.url };
+    if ((await lentTabs()).includes(tab.id)) return { ...info, lent: true };
+    if ((await ownTabs()).includes(tab.id)) return { ...info, lent: false, own: true };
+    const grant = confirmToken && tokens.get(confirmToken);
+    if (grant && grant.tabId === tab.id && grant.url === tab.url && grant.step === "borrow" && grant.expires > now()) {
+      tokens.delete(confirmToken);
+      await lend(tab.id);
+      return { ...info, lent: true };
+    }
+    const token = random();
+    tokens.set(token, { tabId: tab.id, url: tab.url, step: "borrow", expires: now() + TOKEN_TTL_MS });
+    const title = String(tab.title || info.site).slice(0, 100);
+    return { ...info, lent: false, needsConfirmation: { token, step: 0, label: `Let Synapse use your tab "${title}"`, site: info.site, where: "One of your own tabs in Chrome. It can read the page and act there; anything that buys, sends or deletes still asks you." } };
+  }
+
+  /** Hands a lent tab back to the user: it stays open. */
+  async function release(tabId) {
+    const id = Number(tabId);
+    await setLentTabs((await lentTabs()).filter(t => t !== id));
+    await cdp.detach?.(id);
+    await badge(id, false);
+    return { released: true, tabId: id };
   }
 
   async function waitForLoad(tabId, timeout = LOAD_TIMEOUT_MS) {
@@ -210,11 +296,18 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
       try { const t = await chrome.tabs.get(id); list.push({ tabId: id, url: t.url, title: t.title, site: hostOf(t.url) }); } catch { /* Closed. */ }
     }
     await setOwnTabs(list.map(t => t.tabId));
-    return { tabs: list };
+    const lent = [];
+    for (const id of await lentTabs()) {
+      try { const t = await chrome.tabs.get(id); lent.push({ tabId: id, url: t.url, title: t.title, site: hostOf(t.url), lent: true }); } catch { /* Closed. */ }
+    }
+    await setLentTabs(lent.map(t => t.tabId));
+    return { tabs: [...list, ...lent] };
   }
 
   async function close({ tabId }) {
     const tab = await requireOwnTab(tabId);
+    // The user's own tab: hand it back, never close it.
+    if ((await lentTabs()).includes(tab.id)) return { ...(await release(tab.id)), closed: false, note: "That was the user's own tab: it stays open and is handed back." };
     await chrome.tabs.remove(tab.id);
     await setOwnTabs((await ownTabs()).filter(t => t !== tab.id));
     return { closed: true };
@@ -256,6 +349,9 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
       case "act": return act(message);
       case "read": return run((await requireOwnTab(message.tabId)).id, { op: "read", offset: message.offset || 0 });
       case "tabs": return tabs();
+      case "user_tabs": return userTabs();
+      case "borrow": return borrow(message);
+      case "release": { await requireOwnTab(message.tabId); if (!(await lentTabs()).includes(Number(message.tabId))) throw new Error("That tab is the agent's own; close it instead."); return release(message.tabId); }
       case "close": return close(message);
       case "stop": return stopAll();
       default: throw new Error(`Unknown request ${message.type}`);
@@ -265,16 +361,43 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   /** A message from the extension's own pages (pairing prompt, popup). */
   async function fromExtension(message) {
     if (message.type === "pair-decision") { pendingPairs.get(message.id)?.(!!message.allow); return { ok: true }; }
-    if (message.type === "status") return { version: VERSION, ...(await settings()), ...(await tabs()), precise: !!(await local("precise")) };
+    if (message.type === "status") { const all = (await tabs()).tabs; return { version: VERSION, ...(await settings()), tabs: all.filter(t => !t.lent), lent: all.filter(t => t.lent), precise: !!(await local("precise")) }; }
     if (message.type === "set-precise") { await chrome.storage.local.set({ precise: !!message.on }); if (!message.on) await cdp.detachAll(); return { ok: true }; }
-    if (message.type === "stop") { await stopAll(); for (const id of await ownTabs()) { try { await chrome.tabs.remove(id); } catch { /* Gone. */ } } await setOwnTabs([]); return { stopped: true }; }
+    if (message.type === "stop") {
+      await stopAll();
+      for (const id of await ownTabs()) { try { await chrome.tabs.remove(id); } catch { /* Gone. */ } }
+      await setOwnTabs([]);
+      for (const id of await lentTabs()) await release(id); // The user's tabs stay open.
+      return { stopped: true };
+    }
+    // The user lends or takes back one of their tabs themselves (popup or right-click menu): no token needed.
+    if (message.type === "share") { const tab = await lendable(message.tabId); await lend(tab.id); return { lent: true, tabId: tab.id }; }
+    if (message.type === "unshare") return release(message.tabId);
+    if (message.type === "tab-state") {
+      const id = Number(message.tabId);
+      let shareable = true;
+      try { await lendable(id); } catch { shareable = false; }
+      return { lent: (await lentTabs()).includes(id), own: (await ownTabs()).includes(id), shareable };
+    }
     if (message.type === "unpair") { const { paired } = await settings(); await chrome.storage.local.set({ pairedOrigins: paired.filter(o => o !== message.origin) }); return { ok: true }; }
     if (message.type === "set-blocked") { await chrome.storage.local.set({ blockedHosts: (message.hosts || []).map(h => String(h).trim().toLowerCase().replace(/^www\./, "")).filter(Boolean) }); return { ok: true }; }
     throw new Error(`Unknown request ${message.type}`);
   }
 
   /** Forget tabs the user closed. */
-  async function tabClosed(tabId) { await cdp.detach(tabId); await setOwnTabs((await ownTabs()).filter(t => t !== tabId)); }
+  async function tabClosed(tabId) {
+    await cdp.detach(tabId);
+    await setOwnTabs((await ownTabs()).filter(t => t !== tabId));
+    await setLentTabs((await lentTabs()).filter(t => t !== tabId));
+  }
 
-  return { fromApp, fromExtension, tabClosed };
+  /** Remembers when the user last switched to a tab, so "the tab I was just on" can be found. */
+  async function tabActivated(tabId) {
+    const used = (await session("tabUsed")) || {};
+    used[tabId] = now();
+    const recent = Object.entries(used).sort((a, b) => b[1] - a[1]).slice(0, 200);
+    await chrome.storage.session.set({ tabUsed: Object.fromEntries(recent) });
+  }
+
+  return { fromApp, fromExtension, tabClosed, tabActivated };
 }

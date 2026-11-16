@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'none'; form-action 'none'" />
+    <title>Saved logins</title>
+    <style>
+      :root { color-scheme: light dark; --bg: #fbfaf8; --ink: #1d1b18; --muted: #6b665e; --line: #e4e0d8; --raised: #ffffff; --danger: #c6362f; --accent: #1d1b18; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #17161a; --ink: #f1efe9; --muted: #a29d94; --line: #2d2b30; --raised: #1f1e23; --danger: #ef6b62; --accent: #f1efe9; } }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Geist", system-ui, sans-serif; }
+      body { padding: 18px 20px 24px; display: flex; flex-direction: column; gap: 16px; }
+      h1 { margin: 0; font-size: 17px; font-weight: 600; }
+      h2 { margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+      p { margin: 0; }
+      .muted { color: var(--muted); font-size: 12.5px; }
+      section { border: 1px solid var(--line); border-radius: 12px; background: var(--raised); padding: 14px; }
+      form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+      form .wide { grid-column: 1 / -1; }
+      label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+      input[type=text], input[type=password], input[type=url] { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+      input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      button { font: inherit; font-weight: 600; font-size: 13px; padding: 7px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--raised); color: var(--ink); cursor: pointer; }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+      button.quiet { border-color: transparent; background: transparent; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+      button.danger { color: var(--danger); }
+      button:disabled { opacity: .45; cursor: default; }
+      ul { list-style: none; margin: 0; padding: 0; }
+      li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+      li:first-child { border-top: 0; }
+      li .who { flex: 1; min-width: 0; }
+      li .who b { display: block; font-weight: 600; overflow-wrap: anywhere; }
+      li .who span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+      .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
+      #status { min-height: 1.2em; font-size: 12.5px; }
+      #status.error { color: var(--danger); }
+      .row { display: flex; gap: 8px; align-items: center; }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h1>Saved logins</h1>
+      <p class="muted">Kept only in this Mac's Keychain. Synapse's assistant sees the site and a partly hidden username, never a password. Reading or removing a password asks for Touch ID or your Mac password.</p>
+    </div>
+    <section aria-labelledby="add-heading">
+      <h2 id="add-heading">Add a login</h2>
+      <form id="add" autocomplete="off">
+        <label class="wide">Site <input id="site" type="text" inputmode="url" placeholder="github.com" required spellcheck="false" autocapitalize="off" /></label>
+        <label>Username or email <input id="username" type="text" required spellcheck="false" autocapitalize="off" autocomplete="off" /></label>
+        <label>Password <input id="password" type="password" required autocomplete="new-password" /></label>
+        <div class="wide row"><button class="primary" type="submit" id="save">Save login</button></div>
+      </form>
+    </section>
+    <section aria-labelledby="import-heading">
+      <h2 id="import-heading">Import from Chrome</h2>
+      <p class="muted">In Chrome: Settings → Passwords → Export passwords. Choose the file here, then delete it: it holds your passwords as plain text.</p>
+      <div class="row" style="margin-top:8px"><input id="csv" type="file" accept=".csv,text/csv" /></div>
+    </section>
+    <section aria-labelledby="list-heading">
+      <h2 id="list-heading">Your logins</h2>
+      <ul id="logins"></ul>
+    </section>
+    <p id="status" role="status"></p>
+    <script type="module" src="/src/vault/vault.ts"></script>
+  </body>
+</html>

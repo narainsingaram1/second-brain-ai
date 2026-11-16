@@ -41,7 +41,7 @@ pub fn socket_path() -> PathBuf {
 
 // ---- State ----
 
-struct Grant { token: String, tab_id: Value, label: String, site: String, screenshot: Option<String>, approved: bool, created: Instant }
+struct Grant { token: String, tab_id: Value, label: String, site: String, place: String, screenshot: Option<String>, approved: bool, created: Instant }
 
 #[derive(Default)]
 pub struct Hub {
@@ -172,7 +172,7 @@ impl Hub {
         let handle = new_id("g");
         let text = |k: &str| nc.get(k).and_then(Value::as_str).unwrap_or("").to_string();
         self.grants.lock().unwrap().insert(handle.clone(), Grant {
-            token, tab_id, label: text("label"), site: text("site"), screenshot: nc.get("screenshot").and_then(Value::as_str).map(String::from),
+            token, tab_id, label: text("label"), site: text("site"), place: text("where"), screenshot: nc.get("screenshot").and_then(Value::as_str).map(String::from),
             approved: false, created: Instant::now(),
         });
         nc.insert("token".into(), Value::String(handle));
@@ -215,7 +215,7 @@ pub async fn browser_confirm(app: AppHandle, window: Window, handle: String) -> 
         let grants = hub.grants.lock().unwrap();
         let g = grants.get(&handle).filter(|g| g.created.elapsed() < GRANT_TTL).ok_or("That step is no longer waiting. Look at the page again.")?;
         ApprovalPayload { label: g.label.clone(), site: g.site.clone(), reason: None,
-          details: vec!["In the Synapse tab group in Chrome.".into()], screenshot: g.screenshot.clone() }
+          details: vec![if g.place.is_empty() { "In the Synapse tab group in Chrome.".into() } else { g.place.clone() }], screenshot: g.screenshot.clone() }
     };
     let decision = approval::ask(&app, payload).await?;
     let hub = app.state::<Hub>();

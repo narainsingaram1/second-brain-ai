@@ -1,6 +1,7 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import { BrowserAgentSettings } from "./BrowserAgentSettings";
 import { DesktopControlSettings } from "./DesktopControlSettings";
+import { SavedLoginsSettings } from "./SavedLoginsSettings";
 import { PermissionsSettings } from "./PermissionsSettings";
 import { AgentToolsSettings } from "./AgentToolsSettings";
 import React, { useEffect, useState } from "react";
@@ -212,6 +213,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
 
           <BrowserAgentSettings />
           <DesktopControlSettings />
+          <SavedLoginsSettings />
           <AgentToolsSettings />
 
 
