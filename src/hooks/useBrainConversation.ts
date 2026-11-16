@@ -24,6 +24,7 @@ import { getVisionModel } from "../services/openrouter";
 import { combineToolsets, webToolset } from "../services/webTools";
 import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
 import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
+import { browserFiles } from "../services/browserFiles";
 import { AgentAuditLog } from "../services/agentAudit";
 import { loadUserPolicy, saveUserPolicy } from "../services/agentPolicy";
 import { hasNativeApproval, nativeConfirm, withdrawNative } from "../services/nativeApproval";
@@ -439,7 +440,7 @@ export function useBrainConversation(
           // read most other sites; without a server (desktop builds) this browser tries them directly.
           externalTools: options.externalTools ?? combineToolsets(
             webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
-            browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm })) : undefined,
+            browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm, files: browserFiles(() => latest.current, () => user) })) : undefined,
             desktop && router ? router.wrap(desktopToolset()) : undefined,
             vault ? vaultToolset() : undefined),
           ...(browser || desktop ? { budget: BROWSER_BUDGET } : {}),

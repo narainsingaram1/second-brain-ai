@@ -148,6 +148,8 @@ export const explicitlyRemember = (prompt: string) =>
     if (new RegExp(`${LEAD}(?:remember|memori[sz]e|make a note|note (?:this|that) down|keep (?:this|that|it) in mind|keep in mind|don't forget that)\\b`).test(s))
       return !s.endsWith("?") || /\b(?:that|this)\b/.test(s);
     if (/\b(?:can|could|would|will) you (?:please )?(?:remember|memori[sz]e|keep in mind|make a note)\s+(?:that|this|my|i\b|i'm|i've|we\b|we're|our)/.test(s)) return true;
+    // "I want you to remember all this", "I'd like you to save these details", "I need you to keep this".
+    if (/\b(?:i|we)(?: (?:really )?(?:want|need|would like)|'d like) you to (?:remember|memori[sz]e|keep in mind|save|store|keep track of|note down)\b/.test(s) && !s.endsWith("?")) return true;
     if (/\bsave (?:this|that|it|my|the)\b.{0,60}\b(?:memory|future|later)\b/.test(s)) return true;
     if (/\b(?:add|put|store) (?:this|that|it)\b.{0,30}\b(?:to|in|into) (?:your )?memory\b/.test(s)) return true;
     return /\bkeep\b.{0,40}\bin mind\b/.test(s) && !s.endsWith("?") && !/^i\b/.test(s);
@@ -593,6 +595,18 @@ export function conversationThreads(state: BrainState) {
     ...(state.conversations || []).filter((t) => t.id !== state.conversationId),
   ];
 }
+const looseText = (s: string) =>
+  s.normalize("NFKC").replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, " ").trim().toLowerCase();
+/**
+ * True when the excerpt is the user's own words: the same text ignoring case, spacing and curly quotes, or
+ * several such pieces joined by "…" (a quote of a few lines from a longer message).
+ */
+export function excerptIn(content: string, excerpt: string): boolean {
+  if (!excerpt.trim() || excerpt.length > 500) return false;
+  const text = looseText(content);
+  const pieces = excerpt.split(/\s*(?:\.{3}|…)\s*/).map(looseText).filter(Boolean);
+  return pieces.length > 0 && pieces.every((piece) => text.includes(piece));
+}
 export function memorySource(
   state: BrainState,
   messageId: string,
@@ -604,9 +618,7 @@ export function memorySource(
     );
     if (
       message &&
-      excerpt.trim() &&
-      excerpt.length <= 500 &&
-      message.content.includes(excerpt)
+      excerptIn(message.content, excerpt)
     )
       return { conversationId: thread.id, messageId, excerpt };
   }
@@ -665,7 +677,7 @@ export function prepareMemoryChange(
   const excerpt = typeof args.excerpt === "string" ? args.excerpt.trim() : "";
   const isCurrentQuote = currentMessage.role === "user" &&
     currentMessage.content === prompt && excerpt.length > 0 &&
-    excerpt.length <= 500 && currentMessage.content.includes(excerpt);
+    excerptIn(currentMessage.content, excerpt);
   const sourceState = {
     ...state,
     chatHistory: [...state.chatHistory.filter(m => m.id !== currentMessage.id), currentMessage],

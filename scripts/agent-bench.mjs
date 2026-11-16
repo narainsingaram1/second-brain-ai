@@ -248,6 +248,15 @@ const TASKS = [
     batches: [[{ action: "click", find: /button "Necessary cookies only"/ }], [{ action: "click", find: /button "Ask question"/ }]],
     check: "document.getElementById('out').textContent === 'Asking'",
     view: { has: [/button "Necessary cookies only"/], lacks: [/button "Ask question"/] } },
+  { name: "job-form", page: "job-form.html", about: "A job application: search-as-you-type school, button dropdown, résumé behind an Attach button",
+    batches: [[{ action: "type", find: /textbox "First name"/, text: "Ada" }, { action: "select", find: /combobox "School"/, value: "Georgia Tech" },
+      { action: "select", find: /combobox "Degree"/, value: "Bachelor's Degree" },
+      { action: "upload", find: /button "Attach"/, payload: { name: "resume.pdf", mime: "application/pdf", data: "JVBERi0xLjQgdGVzdA==" } }]],
+    check: "document.getElementById('out').textContent === \"Ada | School: Georgia Institute of Technology | Bachelor's Degree | resume.pdf (application/pdf, %PDF-1.4)\"",
+    view: { has: [/file-upload "Resume\/CV" accepts=".pdf,.docx"/] } },
+  { name: "open-dropdown", page: "job-form.html", about: "A dropdown list left open over the next field is closed, not reported as a blocker",
+    batches: [[{ action: "click", find: /combobox "School"/ }, { action: "click", find: /combobox "Degree"/ }]],
+    check: "document.getElementById('degree').getAttribute('aria-expanded') === 'true' && document.getElementById('school-list').hidden" },
 ];
 
 const refOf = (page, find) => { const line = page.elements.find(l => find.test(l)); const m = line && /^\[(\d+)\]/.exec(line); return m ? Number(m[1]) : null; };

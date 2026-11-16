@@ -79,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.3.2', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.4.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -604,4 +604,63 @@ test('timings: the agent loop records a trace per round and on each live step', 
   const plain = await AutonomousBrainAgent.execute('hi', state(), 'k', 'm', {});
   assert.equal(plain.status, 'complete');
   assert.equal(plain.trace, undefined, 'turns without live tools carry no trace');
+});
+
+test('upload steps: the app hands the file over in pieces, and the page gets it whole', async () => {
+  const log = [];
+  const { agent } = await pairedAgent({ default: (command, tab) => {
+    if (command.op === 'act' && command.step.action === 'upload') { log.push(command.step.payload); return { ok: true, value: `Attached "${command.step.payload.name}"` }; }
+    return shop([])(command, tab);
+  } });
+  const { tabId } = await agent.fromApp({ type: 'open', url: 'https://jobs.example/' }, APP);
+  await assert.rejects(agent.fromApp({ type: 'act', tabId, steps: [{ action: 'upload', ref: 1, file: 'resume-1' }] }, APP), /wasn't handed over/);
+  await agent.fromApp({ type: 'stage_file', fileId: 'resume-1', name: 'cv.pdf', mime: 'application/pdf', index: 0, total: 2, data: 'JVBERi0x' }, APP);
+  await assert.rejects(agent.fromApp({ type: 'act', tabId, steps: [{ action: 'upload', ref: 1, file: 'resume-1' }] }, APP), /wasn't handed over/, 'not until every piece is in');
+  await agent.fromApp({ type: 'stage_file', fileId: 'resume-1', name: 'c/v.pdf', mime: 'application/pdf', index: 1, total: 2, data: 'LjQ=' }, APP);
+  const out = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'upload', ref: 1, file: 'resume-1' }] }, APP);
+  assert.deepEqual(out.done, ['Attached "cv.pdf"']);
+  assert.deepEqual(log, [{ name: 'cv.pdf', mime: 'application/pdf', data: 'JVBERi0xLjQ=' }]);
+  await assert.rejects(agent.fromApp({ type: 'stage_file', fileId: '../x', index: 0, total: 1, data: '' }, APP), /Bad file id/);
+});
+
+test('a failed step after others ran reports what ran; an open dropdown is closed and the step retried', async () => {
+  let dismissed = 0, covered = true;
+  const { agent } = await pairedAgent({ default: (command, tab) => {
+    if (command.op === 'dismiss') { dismissed++; covered = false; return { ok: true, value: { dismissed: true } }; }
+    if (command.op === 'act' && command.step.ref === 9) return { ok: false, error: 'Element 9 is no longer on the page.' };
+    if (command.op === 'act' && command.step.ref === 5 && covered) return { ok: false, error: 'A dropdown list is still open over that element.', code: 'popup' };
+    return shop([])(command, tab);
+  } });
+  const { tabId } = await agent.fromApp({ type: 'open', url: 'https://jobs.example/' }, APP);
+  const retried = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'click', ref: 5 }] }, APP);
+  assert.equal(dismissed, 1); assert.deepEqual(retried.done, ['did click 5']);
+  const partial = await agent.fromApp({ type: 'act', tabId, steps: [{ action: 'type', ref: 1, text: 'Ada' }, { action: 'click', ref: 9 }, { action: 'click', ref: 1 }] }, APP);
+  assert.deepEqual(partial.done, ['did type 1']); assert.equal(partial.stoppedAt, 1);
+  assert.match(partial.stopReason, /Step 2 \(click\) failed: Element 9.*Steps before it ran/);
+  await assert.rejects(agent.fromApp({ type: 'act', tabId, steps: [{ action: 'click', ref: 9 }] }, APP), /no longer on the page/, 'a first-step failure is an error');
+  const many = Array.from({ length: 25 }, () => ({ action: 'scroll' }));
+  assert.equal((await agent.fromApp({ type: 'act', tabId, steps: many }, APP)).done.length, 25);
+  await assert.rejects(agent.fromApp({ type: 'act', tabId, steps: [...many, { action: 'scroll' }] }, APP), /At most 25/);
+});
+
+test('the toolset asks before attaching a file, then stages it in pieces under the 1 MB link limit', async () => {
+  const calls = [];
+  const bridge = { call: async req => { calls.push(req); return req.type === 'stage_file' ? { staged: true } : { tabId: 5, site: 'jobs.example', url: 'https://jobs.example/apply', title: 'Apply', elements: [], omitted: 0, text: '', done: ['Attached "cv.pdf"'] }; } };
+  const big = new Blob([new Uint8Array(900 * 1024).fill(65)], { type: 'application/pdf' });
+  const files = { list: () => [], load: async id => ({ file: { id, name: 'cv.pdf', mime: 'application/pdf', size: big.size, kind: 'résumé' }, blob: big }) };
+  const asked = [];
+  const steps = [{ action: 'type', ref: 1, text: 'Ada' }, { action: 'upload', ref: 2, file: 'resume-1' }];
+  const tools = browserToolset(bridge, { files, confirm: async req => { asked.push(req); return true; } });
+  const { output } = await tools.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
+  assert.match(asked[0].label, /Attach "cv\.pdf"/); assert.match(asked[0].reason, /copy of your résumé/);
+  const pieces = calls.filter(c => c.type === 'stage_file');
+  assert.equal(pieces.length, 3); assert.ok(pieces.every(p => JSON.stringify(p).length < 1024 * 1024));
+  assert.equal(atob(pieces.map(p => p.data).join('')).length, big.size);
+  assert.deepEqual(output.done, ['Attached "cv.pdf"']);
+
+  calls.length = 0;
+  const declined = browserToolset(bridge, { files, confirm: async () => false });
+  await declined.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
+  assert.deepEqual(calls.map(c => c.type), ['act']); assert.deepEqual(calls[0].steps, [steps[0]], 'only the steps before the declined attach run');
+  await assert.rejects(browserToolset(bridge, {}).execute('browser_act', { tabId: 5, steps: [steps[1]] }, new AbortController().signal), /isn't available/);
 });

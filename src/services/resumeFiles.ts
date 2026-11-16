@@ -48,7 +48,8 @@ export async function uploadResume(account: string, file: File): Promise<ResumeV
   return resume;
 }
 
-export async function downloadResume(account: string, resume: ResumeVersion): Promise<void> {
+/** The stored original: this device first, then the cloud backup. */
+export async function resumeBlob(account: string, resume: ResumeVersion): Promise<Blob> {
   let blob = await localFile(account || "guest", resume.id).catch(() => undefined);
   if (!blob && managedAuthEnabled) {
     const { data, error } = await getSupabase().storage.from(BUCKET).download(objectPath(account, resume));
@@ -57,6 +58,11 @@ export async function downloadResume(account: string, resume: ResumeVersion): Pr
     await localFile(account, resume.id, blob).catch(() => {});
   }
   if (!blob) throw new Error("This résumé is not available on this device.");
+  return blob;
+}
+
+export async function downloadResume(account: string, resume: ResumeVersion): Promise<void> {
+  const blob = await resumeBlob(account, resume);
   const url = URL.createObjectURL(blob), link = document.createElement("a");
   link.href = url; link.download = resume.name; link.click();
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);

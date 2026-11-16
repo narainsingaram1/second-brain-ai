@@ -14,7 +14,7 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.3.2";
+export const VERSION = "1.4.0";
 /** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
 export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
@@ -22,7 +22,11 @@ const LOCAL_APP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 const BLOCKED_HOSTS = ["chrome.google.com", "chromewebstore.google.com", "accounts.google.com/signin/v2/challenge"];
 const TOKEN_TTL_MS = 5 * 60_000;
 const LOAD_TIMEOUT_MS = 20_000;
-const MAX_STEPS = 10;
+const MAX_STEPS = 25;
+/** Files the app hands over for upload steps, in pieces that fit the desktop link's 1 MB message limit. */
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_FILE_PARTS = 64;
+const FILE_TTL_MS = 10 * 60_000;
 
 export function isAppOrigin(origin, extra = []) {
   return origin === NATIVE_ORIGIN || LOCAL_APP.test(origin) || STATIC_APP_ORIGINS.includes(origin) || extra.includes(origin);
@@ -70,6 +74,7 @@ const untimed = { time: (_phase, work) => work() };
 export function createAgent(chrome, { openPairing, now = () => Date.now(), random = () => crypto.randomUUID(), settle = 60, cdp = createCdp(chrome) } = {}) {
   const pendingPairs = new Map(); // requestId -> resolve
   const tokens = new Map(); // token -> { tabId, url, step, expires }
+  const files = new Map(); // fileId -> { name, mime, parts, total, expires }
   let stopped = false;
 
   const local = async key => (await chrome.storage.local.get(key))[key];
@@ -276,6 +281,28 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     return snapshot(tab.id, sw);
   });
 
+  /** Receives one piece of a file the app will attach in an upload step. */
+  function stageFile({ fileId, name, mime, index, total, data }) {
+    const id = String(fileId || "");
+    if (!/^[\w.-]{1,80}$/.test(id)) throw new Error("Bad file id.");
+    const count = Number(total), at = Number(index);
+    if (!Number.isInteger(count) || count < 1 || count > MAX_FILE_PARTS || !Number.isInteger(at) || at < 0 || at >= count || typeof data !== "string") throw new Error("Bad file piece.");
+    for (const [key, f] of files) if (f.expires < now()) files.delete(key);
+    let file = files.get(id);
+    if (!file || at === 0) {
+      file = { name: String(name || "file").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").slice(0, 200), mime: String(mime || "application/octet-stream").slice(0, 120), parts: Array.from({ length: count }, () => undefined), total: count, expires: now() + FILE_TTL_MS };
+      files.set(id, file);
+    }
+    file.parts[at] = data;
+    if (file.parts.reduce((n, p) => n + (p ? p.length : 0), 0) * 0.75 > MAX_FILE_BYTES) { files.delete(id); throw new Error("That file is too large to attach (25 MB at most)."); }
+    return { staged: true, received: file.parts.filter(p => p !== undefined).length, total: count };
+  }
+  function stagedFile(id) {
+    const file = files.get(String(id || ""));
+    if (!file || file.expires < now() || file.parts.some(p => p === undefined) || file.parts.length !== file.total) throw new Error("That file wasn't handed over yet. Try the upload step again.");
+    return { name: file.name, mime: file.mime, data: file.parts.join("") };
+  }
+
   const stepKey = step => JSON.stringify({ action: step.action, ref: step.ref ?? null, text: step.text ?? null, value: step.value ?? null, key: step.key ?? null,
     direction: step.direction ?? null, submit: !!step.submit, append: !!step.append });
 
@@ -306,7 +333,25 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
         tokens.delete(confirmToken); // One use only.
       }
       const before = tab.url;
-      const note = (await preciseStep(tab.id, step, sw)) ?? await run(tab.id, { op: "act", step }, sw);
+      const attempt = async () => step.action === "upload"
+        ? run(tab.id, { op: "act", step: { ...step, payload: stagedFile(step.file) } }, sw)
+        : (await preciseStep(tab.id, step, sw)) ?? await run(tab.id, { op: "act", step }, sw);
+      let note;
+      try {
+        try { note = await attempt(); }
+        catch (error) {
+          // A dropdown left open by the previous field: close it, let the page settle, and try once more.
+          if (error?.code !== "popup") throw error;
+          await run(tab.id, { op: "dismiss" }, sw);
+          await quiet(tab.id, sw);
+          note = await attempt();
+        }
+      } catch (error) {
+        if (i === 0) throw error;
+        // Earlier steps did run: say so, rather than losing them behind the error.
+        const message = error?.message || String(error);
+        return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, stopReason: `Step ${i + 1} (${step.action}) failed: ${message} Steps before it ran; it and the ones after it did not.` };
+      }
       done.push(note);
       tab = await afterAction(tab.id, sw);
       if (tab.url !== before) {
@@ -344,6 +389,7 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   async function stopAll() {
     stopped = true;
     tokens.clear();
+    files.clear();
     await cdp.detachAll();
     return { stopped: true };
   }
@@ -375,6 +421,7 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
       case "open": return open(message);
       case "snapshot": return timed(async sw => snapshot((await sw.time("checks", () => requireOwnTab(message.tabId))).id, sw));
       case "act": return act(message);
+      case "stage_file": return stageFile(message);
       case "read": return timed(async sw => run((await sw.time("checks", () => requireOwnTab(message.tabId))).id, { op: "read", offset: message.offset || 0 }, sw));
       case "tabs": return tabs();
       case "user_tabs": return userTabs();

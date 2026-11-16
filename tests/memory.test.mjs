@@ -773,11 +773,24 @@ test("saved personal facts survive storage reload and are retrieved in a fresh c
   }
 });
 
+test("memory excerpts match the user's words regardless of case, spacing and quotes", () => {
+  const message = "okay i want you to remember this\n\nFirst Name: Sam\nLast Name: Rivera\nGPA; 3.89/4.00\nI’m a US Citizen";
+  assert.ok(memory.excerptIn(message, "First Name: Sam"));
+  assert.ok(memory.excerptIn(message, "first name: sam last name: rivera"));
+  assert.ok(memory.excerptIn(message, "First Name: Sam … GPA; 3.89/4.00"));
+  assert.ok(memory.excerptIn(message, "I'm a US citizen"));
+  assert.ok(!memory.excerptIn(message, "First Name: Alex"));
+  assert.ok(!memory.excerptIn(message, "First Name: Sam … I live in Paris"));
+  assert.ok(!memory.excerptIn(message, "   "));
+});
+
 test("explicit remember/forget intent ignores questions, recall and idioms", () => {
   const remember = [
     ["Remember my writing preference", true], ["Remember that I'm vegetarian.", true], ["Please memorize my favorite color is teal", true],
     ["Can you remember that I prefer dark mode?", true], ["Save this to memory for the future", true], ["Keep in mind I hate 8am classes", true],
     ["Don't forget that I work Tuesdays", true],
+    ["okay i want you to remember all this stuff forever from now on unless i ask u to change\n\nFirst Name: Sam", true],
+    ["I'd like you to save these details for later", true], ["Do you want me to remember that?", false], ["I want to remember my mom's birthday", false],
     ["Do you remember when my exam is?", false], ["I can't remember my therapist's name", false], ["Remember when we talked about CS 1332?", false],
     ["What do you remember about me?", false], ["Remember I like tea, but don't save my address", false], ["Help me remember to study", false],
   ];

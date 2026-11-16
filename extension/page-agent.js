@@ -6,7 +6,7 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 4) return;
+  if (globalThis.__synapseAgent?.version === 5) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
@@ -93,6 +93,7 @@
     return text;
   }
   function nameOf(el) {
+    if (isFileInput(el)) return fileFieldName(el);
     const label = labelText(el);
     if (label) return label;
     if (isInput(el) && /^(submit|button|reset)$/.test(el.type)) return clean(el.value || el.type);
@@ -118,6 +119,7 @@
       if (type === "checkbox" || type === "radio") return type;
       if (type === "range") return "slider";
       if (type === "search") return "searchbox";
+      if (type === "file") return "file-upload";
       return "textbox";
     }
     if (el.isContentEditable) return "textbox";
@@ -164,6 +166,49 @@
     if (/^(searchbox|combobox)$/.test(el.getAttribute("role") || "")) return true;
     if (el.closest("[role=search], form[role=search], search")) return true;
     return SEARCHY.test([labelText(el), el.getAttribute("placeholder"), el.getAttribute("name"), el.id].filter(Boolean).join(" "));
+  }
+
+  const isFileInput = el => isInput(el) && el.type === "file";
+  /**
+   * A file field's name. Upload fields are usually hidden behind an "Attach" button, so their label is often the
+   * heading of the block around them ("Resume/CV", "Transcript").
+   */
+  function fileFieldName(el) {
+    const own = labelText(el) || clean(el.title || "");
+    if (own) return own;
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 5; depth++, node = node.parentElement) {
+      const first = String(node.innerText || "").split("\n").map(line => clean(line, 60)).find(Boolean);
+      if (first && !/^(attach|upload|browse|choose files?|select files?|drop files? here)$/i.test(first)) return first;
+    }
+    return clean(el.name || el.id || "file");
+  }
+  /** The file field an element stands for: itself, the control of its label, or the one upload field next to it. */
+  function fileInputFor(el) {
+    if (isFileInput(el)) return el;
+    if (tagOf(el) === "label" && isFileInput(el.control)) return el.control;
+    const inside = el.querySelectorAll?.("input[type=file]") || [];
+    if (inside.length === 1) return inside[0];
+    let node = el.parentElement;
+    for (let depth = 0; node && depth < 6; depth++, node = node.parentElement) {
+      const near = node.querySelectorAll("input[type=file]");
+      if (near.length === 1) return near[0];
+      if (near.length > 1) throw new Error("Several upload fields are near that element. Use the ref of the upload field itself (role file-upload).");
+    }
+    return null;
+  }
+  /** A dropdown or menu that floats over the page (an open combobox list, a menu), or null. */
+  function popupOf(node) {
+    return node?.closest?.("[role=listbox], [role=menu], [role=option], [role=menuitem], [class*='select__menu'], [class*='dropdown-menu'], [class*='autocomplete'], [class*='typeahead']") || null;
+  }
+  /** Closes an open dropdown list the way a person would: Escape in the field that opened it, then move focus away. */
+  function dismissPopups() {
+    const active = focusedElement();
+    if (isFocusable(active)) { keyEvent(active, "keydown", "Escape"); keyEvent(active, "keyup", "Escape"); active.blur?.(); }
+    for (const box of document.querySelectorAll("[role=combobox][aria-expanded=true], [aria-haspopup][aria-expanded=true]")) {
+      keyEvent(box, "keydown", "Escape"); keyEvent(box, "keyup", "Escape");
+    }
+    return { dismissed: true };
   }
 
   /** Role, name and the nearest stable anchor: what makes "the same control" after a framework re-renders it. */
@@ -219,6 +264,11 @@
       if (options.length) flags.push(`options=${JSON.stringify(options)}${el.options.length > 12 ? `+${el.options.length - 12}` : ""}`);
     }
     if (isInput(el) && /^(checkbox|radio)$/.test(el.type)) flags.push(el.checked ? "checked" : "unchecked");
+    if (isFileInput(el)) {
+      if (el.accept) flags.push(`accepts=${JSON.stringify(clean(el.accept, 60))}`);
+      const names = [...(el.files || [])].map(f => clean(f.name, 60));
+      if (names.length) flags.push(`attached=${JSON.stringify(names)}`);
+    }
     const ariaChecked = el.getAttribute("aria-checked"), expanded = el.getAttribute("aria-expanded"), selected = el.getAttribute("aria-selected");
     if (ariaChecked) flags.push(ariaChecked === "true" ? "checked" : "unchecked");
     if (expanded) flags.push(expanded === "true" ? "expanded" : "collapsed");
@@ -270,7 +320,8 @@
     for (const el of walk(scope)) {
       if (!el.matches?.(INTERACTIVE) || seen.has(el)) continue;
       if (isInput(el) && el.type === "hidden") continue;
-      if (!visible(el)) continue;
+      // Upload fields are usually hidden behind an "Attach" button: list them when the block around them shows.
+      if (!visible(el) && !(isFileInput(el) && !el.disabled && el.parentElement && (visible(el.parentElement) || (el.parentElement.parentElement && visible(el.parentElement.parentElement))))) continue;
       // A link wrapping a single button (or the reverse) is one target.
       if (el.parentElement && seen.has(el.parentElement) && el.parentElement.matches("a[href], button") && clean(el.innerText) === clean(el.parentElement.innerText)) continue;
       seen.add(el);
@@ -324,15 +375,27 @@
     return top;
   }
 
+  /**
+   * Makes sure a click would land on `el`. A dropdown list left open by an earlier field is closed first (that is
+   * what a person does); anything else on top (a cookie banner, a popup) is reported instead of clicked.
+   */
+  function uncover(el) {
+    let cover = coveredBy(el);
+    if (!cover || cover.closest("[role=dialog], dialog, [aria-modal=true]")?.contains(el)) return;
+    if (popupOf(cover) && !popupOf(cover).contains(el)) {
+      dismissPopups();
+      reveal(el);
+      cover = coveredBy(el);
+      if (!cover || cover.closest("[role=dialog], dialog, [aria-modal=true]")?.contains(el)) return;
+      if (popupOf(cover)) throw Object.assign(new Error(`A dropdown list is still open over that element (${clean(nameOf(cover) || "a list", 60)}). Pick an option in it, or press Escape, then try again.`), { code: "popup" });
+    }
+    throw new Error(`Something is covering that element (${clean(nameOf(cover) || cover.tagName.toLowerCase(), 60)}). Close or dismiss it first, then try again.`);
+  }
+
   function click(el) {
     if (el.disabled || el.getAttribute("aria-disabled") === "true") throw new Error(`"${nameOf(el) || "That element"}" is disabled. Check what the page still needs first.`);
     reveal(el);
-    const cover = coveredBy(el);
-    if (cover && !cover.closest("[role=dialog], dialog, [aria-modal=true]")?.contains(el)) {
-      const blocker = clean(nameOf(cover) || cover.tagName.toLowerCase(), 60);
-      // Something (a cookie banner, a popup) sits on top: report it instead of clicking the wrong thing.
-      throw new Error(`Something is covering that element (${blocker}). Close or dismiss it first, then try again.`);
-    }
+    uncover(el);
     el.focus?.({ preventScroll: true });
     pointer(el, "pointerover"); pointer(el, "mouseover");
     pointer(el, "pointerdown"); pointer(el, "mousedown");
@@ -393,7 +456,103 @@
       el.dispatchEvent(new Ev("input", { bubbles: true })); el.dispatchEvent(new Ev("change", { bubbles: true }));
       return `Selected "${clean(option.text)}" in "${nameOf(el)}"`;
     }
-    throw new Error("That is not a dropdown list. For custom menus, click it to open, then click the option.");
+    return chooseOption(el, choice);
+  }
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  const optionText = o => clean(o.innerText || o.textContent || o.getAttribute("aria-label") || "", 120);
+  const NOT_AN_OPTION = /^(no (options|results|matches)( found)?|loading\W*|searching\W*|type to search\W*)$/i;
+  /** Options shown for a custom dropdown: in the list it controls, or any open list on the page. */
+  function shownOptions(...controls) {
+    const lists = controls.flatMap(c => [c?.getAttribute?.("aria-controls"), c?.getAttribute?.("aria-owns")]).filter(Boolean)
+      .flatMap(ids => ids.split(/\s+/)).map(id => document.getElementById(id)).filter(Boolean);
+    const pool = lists.length ? lists.flatMap(l => [...l.querySelectorAll("[role=option], [class*='select__option']")]) : [];
+    const options = pool.length ? pool : [...document.querySelectorAll("[role=option], [class*='select__option']")];
+    return [...new Set(options)].filter(o => visible(o) && !o.closest("select") && !NOT_AN_OPTION.test(optionText(o)) && o.getAttribute("aria-disabled") !== "true");
+  }
+  /** The option a person would pick for `want`: the exact one, else the closest that contains every word. */
+  function bestOption(options, want) {
+    const norm = t => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+    const w = norm(want);
+    if (!w) return null;
+    const scored = options.map(o => ({ o, t: norm(optionText(o)) })).filter(x => x.t);
+    const exact = scored.find(x => x.t === w);
+    if (exact) return exact.o;
+    const words = w.split(" ");
+    const fits = scored.filter(x => x.t.startsWith(w) || x.t.includes(w) || words.every(word => x.t.split(" ").some(tw => tw.startsWith(word))));
+    fits.sort((a, b) => (b.t.startsWith(w) - a.t.startsWith(w)) || a.t.length - b.t.length);
+    return fits[0]?.o || null;
+  }
+  /**
+   * Custom dropdowns (comboboxes, search-as-you-type lists like a school or country picker): open it, type the
+   * choice when it takes text, wait for the list, and click the matching option.
+   */
+  async function chooseOption(el, choice) {
+    const want = clean(choice, 200);
+    if (!want) throw new Error("select needs the option's text in value.");
+    // Only a real text box takes typing: a button with role=combobox is opened by clicking.
+    const writable = node => !!node && ((isInput(node) && isTextField(node)) || isTextarea(node) || node.isContentEditable);
+    const field = writable(el) ? el : [...(el.querySelectorAll?.("input:not([type=hidden]):not([type=file]), textarea, [contenteditable=true]") || [])].find(writable) || null;
+    const looksLikeDropdown = el.matches?.("[role=combobox], [aria-haspopup], [aria-autocomplete], [aria-expanded]") || field?.matches?.("[role=combobox], [aria-autocomplete], [aria-haspopup]")
+      || /select|dropdown|combobox|picker/i.test(String(el.className || ""));
+    if (!looksLikeDropdown) throw new Error("That is not a dropdown list. Click it to see what it offers, or pick the dropdown's own ref.");
+    const name = nameOf(el) || (field ? nameOf(field) : "") || "the dropdown";
+    const typeable = field && !field.readOnly && !field.disabled && !secretReason(field);
+    reveal(el);
+    if (typeable) {
+      uncover(field);
+      field.focus({ preventScroll: true });
+      pointer(field, "mousedown"); pointer(field, "mouseup");
+      if (field.isContentEditable) { field.textContent = ""; docOf(field).execCommand("insertText", false, want); }
+      else {
+        setNativeValue(field, want);
+        field.dispatchEvent(new (winOf(field).InputEvent)("input", { bubbles: true, composed: true, data: want, inputType: "insertText" }));
+      }
+    } else click(el);
+    let seen = [];
+    const until = performance.now() + 5000;
+    while (performance.now() < until) {
+      await sleep(150);
+      const options = shownOptions(el, field);
+      seen = options.map(o => optionText(o));
+      const match = bestOption(options, want);
+      // A search box may still be showing results for an earlier query: give it a moment for the right one.
+      if (match) {
+        const text = optionText(match);
+        match.scrollIntoView?.({ block: "nearest", behavior: "instant" });
+        for (const t of ["pointerover", "mouseover", "pointerdown", "mousedown", "pointerup", "mouseup"]) pointer(match, t);
+        match.click();
+        await sleep(80);
+        return `Chose "${text}" in "${name}"`;
+      }
+    }
+    const active = typeable ? field : el;
+    keyEvent(active, "keydown", "Escape"); keyEvent(active, "keyup", "Escape");
+    throw new Error(`No option matching "${want}" showed up in "${name}". ${seen.length ? `Options shown: ${seen.slice(0, 15).map(t => JSON.stringify(t)).join(", ")}. Choose one of these (select again with its exact text).` : "Try a shorter or different spelling (e.g. the official name)."}`);
+  }
+
+  /** Puts a file the user chose to share into an upload field, the way picking it in the file dialog would. */
+  function attach(el, file) {
+    if (!file || typeof file.data !== "string") throw new Error("The file wasn't ready. Try the step again.");
+    const win = winOf(el);
+    const binary = atob(file.data);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new win.File([bytes], file.name, { type: file.mime || "application/octet-stream", lastModified: Date.now() });
+    const transfer = new win.DataTransfer();
+    transfer.items.add(blob);
+    const input = fileInputFor(el);
+    if (input) {
+      if (input.disabled) throw new Error(`"${nameOf(input)}" can't take a file right now.`);
+      input.files = transfer.files;
+      input.dispatchEvent(new win.Event("input", { bubbles: true, composed: true }));
+      input.dispatchEvent(new win.Event("change", { bubbles: true, composed: true }));
+      return `Attached "${file.name}" to "${nameOf(input)}"`;
+    }
+    // A drop zone with no file field: drop the file on it.
+    reveal(el);
+    for (const type of ["dragenter", "dragover", "drop"]) el.dispatchEvent(new win.DragEvent(type, { bubbles: true, cancelable: true, composed: true, dataTransfer: transfer, ...point(el) }));
+    return `Dropped "${file.name}" on "${nameOf(el)}"`;
   }
 
   function check(el, on) {
@@ -458,6 +617,7 @@
       case "press": return press(String(step.key || ""));
       case "scroll": return scroll(step.direction, el);
       case "hover": return hover(el ?? fail("hover needs a ref"));
+      case "upload": return attach(el ?? fail("upload needs a ref"), step.payload);
       default: throw new Error(`Unknown action "${step.action}".`);
     }
   }
@@ -487,9 +647,7 @@
   function pointFor(el) {
     if (el.disabled || el.getAttribute("aria-disabled") === "true") throw new Error(`"${nameOf(el) || "That element"}" is disabled. Check what the page still needs first.`);
     reveal(el);
-    const cover = coveredBy(el);
-    if (cover && !cover.closest("[role=dialog], dialog, [aria-modal=true]")?.contains(el))
-      throw new Error(`Something is covering that element (${clean(nameOf(cover) || cover.tagName.toLowerCase(), 60)}). Close or dismiss it first, then try again.`);
+    uncover(el);
     let { clientX: x, clientY: y } = point(el);
     // Same-origin frames: add each frame's offset up to the top document.
     for (let win = el.ownerDocument.defaultView; win && win !== win.top && win.frameElement; win = win.parent) {
@@ -553,7 +711,7 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 4,
+    version: 5,
     run(command) {
       try {
         if (command.op === "settle") return settle(command.options).then(value => ({ ok: true, value }));
@@ -563,7 +721,14 @@
         if (command.op === "unmark") return { ok: true, value: unmark() };
         if (command.op === "snapshot") return { ok: true, value: snapshot() };
         if (command.op === "inspect") return { ok: true, value: inspect(command.step) };
-        if (command.op === "act") return { ok: true, value: act(command.step) };
+        if (command.op === "act") {
+          const value = act(command.step);
+          // Custom dropdowns wait for their list to appear, so their step finishes later.
+          return value && typeof value.then === "function"
+            ? value.then(v => ({ ok: true, value: v }), error => ({ ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code }))
+            : { ok: true, value };
+        }
+        if (command.op === "dismiss") return { ok: true, value: dismissPopups() };
         if (command.op === "read") return { ok: true, value: read(command.offset) };
         return { ok: false, error: `Unknown operation ${command.op}` };
       } catch (error) {
