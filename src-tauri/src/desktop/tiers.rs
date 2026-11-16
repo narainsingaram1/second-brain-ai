@@ -81,6 +81,11 @@ impl Target {
     pub fn is_text(&self) -> bool {
         matches!(self.role.as_str(), "AXTextField" | "AXTextArea" | "AXComboBox")
     }
+    /// A checkbox or radio button: ticking it changes a setting or a form, it doesn't send or delete anything
+    /// ("I accept the terms"). Same rule as the browser's page agent.
+    pub fn is_toggle(&self) -> bool {
+        matches!(self.role.as_str(), "AXCheckBox" | "AXRadioButton")
+    }
 }
 
 pub fn is_consequential(name: &str) -> bool {
@@ -129,7 +134,7 @@ pub fn classify(bundle: &str, step: &Step, target: Option<&Target>, focused: Opt
         Step::Activate => (Tier::Soft, None),
         Step::Press { .. } | Step::Select { .. } => {
             let name = target.map(|t| t.name.as_str()).unwrap_or("");
-            if is_consequential(name) { (Tier::Hard, Some(format!("\"{name}\" commits something for you."))) } else { (Tier::Soft, None) }
+            if !target.is_some_and(Target::is_toggle) && is_consequential(name) { (Tier::Hard, Some(format!("\"{name}\" commits something for you."))) } else { (Tier::Soft, None) }
         }
         Step::Type { text, submit, .. } => {
             if secure_input { return (Tier::UserOnly, Some("A password field has the keyboard (secure input is on). Type it yourself.".into())); }
@@ -184,6 +189,10 @@ mod tests {
         assert_eq!(classify("com.apple.finder", &press(), Some(&t("AXButton", "", "Empty Trash")), None, false).0, Tier::Hard);
         assert_eq!(classify("com.apple.finder", &press(), Some(&t("AXMenuItem", "", "Move to Trash")), None, false).0, Tier::Hard);
         assert_eq!(classify("com.apple.Notes", &press(), Some(&t("AXButton", "", "New Note")), None, false).0, Tier::Soft);
+        // Ticking a box changes a form; the button that submits it is what asks.
+        assert_eq!(classify("com.apple.Safari", &press(), Some(&t("AXCheckBox", "", "I accept the terms")), None, false).0, Tier::Soft);
+        assert_eq!(classify("com.apple.Safari", &press(), Some(&t("AXRadioButton", "", "Allow all")), None, false).0, Tier::Soft);
+        assert_eq!(classify("com.apple.Safari", &press(), Some(&t("AXButton", "", "Accept")), None, false).0, Tier::Hard);
     }
 
     #[test]

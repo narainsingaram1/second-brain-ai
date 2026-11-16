@@ -287,6 +287,11 @@
 .agent-step-head time { flex-shrink: 0; font-family: var(--font-mono); font-size: 11px; color: var(--workspace-muted); }
 .agent-step-detail { margin: 2px 0 0; color: var(--workspace-muted); overflow-wrap: anywhere; }
 .agent-step.is-error .agent-step-detail { color: var(--workspace-danger); }
+.agent-step-timing { margin: 2px 0 0; color: var(--workspace-muted); font-size: 11.5px; }
+.agent-step-timing summary { cursor: pointer; width: fit-content; list-style: none; }
+.agent-step-timing summary::-webkit-details-marker { display: none; }
+.agent-step-timing summary:hover { color: var(--workspace-ink); }
+.agent-step-timing p { margin: 2px 0 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .agent-reasoning { margin: 6px 0 0; padding: 8px 10px; max-height: 240px; overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; line-height: 1.6; color: var(--workspace-secondary); background: var(--workspace-raised); border-radius: 8px; }
 .agent-step-items { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
 .agent-step-items li { max-width: 100%; }

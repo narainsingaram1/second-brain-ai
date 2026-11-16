@@ -124,7 +124,7 @@ export function desktopToolset(call: typeof desktopCall = desktopCall, readWordF
       }
       if (name === "desktop_look") {
         const view = await call<Record<string, any>>("desktop_look", { bundleId: String(args.bundleId || "") });
-        return { output: forModel(view), summary: `Looked at ${view.app}` };
+        return { output: forModel(view), summary: `Looked at ${view.app}`, timings: view.timings };
       }
       if (name === "desktop_read") {
         const bundleId = String(args.bundleId || "");
@@ -140,7 +140,7 @@ export function desktopToolset(call: typeof desktopCall = desktopCall, readWordF
       }
       if (name === "desktop_act") {
         const view = await call<Record<string, any>>("desktop_act", { bundleId: String(args.bundleId || ""), steps: args.steps });
-        return { output: forModel(view), summary: (view.done as string[] | undefined)?.join("; ") || "No steps ran" };
+        return { output: forModel(view), summary: (view.done as string[] | undefined)?.join("; ") || "No steps ran", timings: view.timings };
       }
       throw new Error(`Unsupported desktop tool ${name}.`);
     },
@@ -148,7 +148,8 @@ export function desktopToolset(call: typeof desktopCall = desktopCall, readWordF
 }
 
 function forModel(view: Record<string, any>) {
-  const { elements, omitted, ...rest } = view;
+  // Timings are for the trace, not the model.
+  const { elements, omitted, timings: _timings, ...rest } = view;
   return { pageOf: `app:${rest.bundleId}`, ...rest, elements: (elements as string[]).join("\n") + (omitted ? `\n…${omitted} more not shown` : ""), untrusted: UNTRUSTED };
 }
 

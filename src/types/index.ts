@@ -475,6 +475,8 @@ export interface AgentStep {
   hidden?: boolean;
   /** A "plan" step: the assistant's current plan, replaced each time it is updated. */
   plan?: AgentPlanItem[];
+  /** A live step (website or Mac app): where its time went, in ms, and how much it sent the model. */
+  timing?: { ms: number; phases?: Record<string, number>; chars?: number };
 }
 
 /** A change the assistant successfully executed and saved in the user's workspace during this turn. */

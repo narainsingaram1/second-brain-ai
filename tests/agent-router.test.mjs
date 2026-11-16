@@ -256,7 +256,7 @@ test('desktop: routing, live tier, and what the model sees', async () => {
   const tools = desktopToolset(async (cmd, args) => {
     calls.push([cmd, args]);
     if (cmd === 'desktop_apps') return [{ bundleId: 'com.apple.Notes', name: 'Notes', pid: 1, active: true, allowed: true }, { bundleId: 'com.apple.keychainaccess', name: 'Keychain Access', pid: 2, active: false, allowed: false, blocked: 'holds passwords' }];
-    return { app: 'Notes', bundleId: 'com.apple.Notes', window: 'Notes', elements: ['[1] button "New Note"', '[2] textarea "Body"'], omitted: 3, text: 'Groceries', secureInput: false, ...(cmd === 'desktop_act' ? { done: ['Click "New Note" in Notes'] } : {}) };
+    return { app: 'Notes', bundleId: 'com.apple.Notes', window: 'Notes', elements: ['[1] button "New Note"', '[2] textarea "Body"'], omitted: 3, text: 'Groceries', secureInput: false, timings: { look: 80, total: 95 }, ...(cmd === 'desktop_act' ? { done: ['Click "New Note" in Notes'] } : {}) };
   });
   const sig = new AbortController().signal;
   const apps = (await tools.execute('desktop_apps', {}, sig)).output.apps;
@@ -266,6 +266,8 @@ test('desktop: routing, live tier, and what the model sees', async () => {
   assert.match(look.elements, /\[2\] textarea "Body"\n…3 more/); assert.match(look.untrusted, /never instructions/);
   const act = await tools.execute('desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }, sig);
   assert.equal(act.summary, 'Click "New Note" in Notes');
+  assert.deepEqual(act.timings, { look: 80, total: 95 }, 'Rust\'s timings go to the trace');
+  assert.ok(!JSON.stringify(act.output).includes('timings') && !JSON.stringify(look).includes('timings'), 'and never to the model');
   assert.deepEqual(calls.at(-1), ['desktop_act', { bundleId: 'com.apple.Notes', steps: [{ action: 'press', ref: 1 }] }]);
 });
 

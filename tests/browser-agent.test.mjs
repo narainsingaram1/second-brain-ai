@@ -79,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.3.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.3.1', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -517,4 +517,66 @@ test('manifest: fixed ID for the native host, optional native messaging and debu
   assert.deepEqual(manifest.optional_permissions.sort(), ['debugger', 'nativeMessaging']);
   assert.ok(!manifest.permissions.includes('nativeMessaging') && !manifest.permissions.includes('debugger'));
   assert.equal(manifest.version, (await import('../extension/agent-core.js')).VERSION);
+});
+
+test('timings: the extension reports where each request spent its time', async () => {
+  let clock = 0;
+  const chrome = fakeChrome({ default: (command, tab) => { clock += { snapshot: 30, inspect: 5, act: 10, settle: 200 }[command.op] || 0; return shop([])(command, tab) || { ok: true, value: { quiet: true } }; } });
+  chrome.store.local.pairedOrigins = [APP];
+  const agent = agentWith(chrome, { now: () => clock });
+  const opened = await agent.fromApp({ type: 'open', url: 'https://shop.example/' }, APP);
+  assert.equal(opened.timings.snapshot, 30); assert.equal(opened.timings.settle, 200);
+  assert.ok(opened.timings.total >= 230, 'the total covers every phase');
+  const acted = await agent.fromApp({ type: 'act', tabId: opened.tabId, steps: [{ action: 'click', ref: 1 }, { action: 'click', ref: 1 }] }, APP);
+  assert.equal(acted.timings.inspect, 10, 'phases add up across the steps of one request');
+  assert.equal(acted.timings.act, 20);
+  assert.ok('inject' in acted.timings, 'injecting the page agent is measured on its own');
+  const read = await agent.fromApp({ type: 'read', tabId: opened.tabId }, APP);
+  assert.ok(read.timings.total >= 0);
+});
+
+test('timings: the toolset keeps them from the model and adds the approval wait', async () => {
+  const base = { tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop', elements: ['[1] button "Buy"'], omitted: 0, text: 't' };
+  const bridge = { call: async req => {
+    if (req.type === 'act' && !req.confirmToken) return { ...base, done: [], stoppedAt: 0, needsConfirmation: { token: 'tok', step: 0, label: 'Click "Buy"', site: 'shop.example' }, timings: { inspect: 4, total: 9 } };
+    return { ...base, ...(req.type === 'act' ? { done: ['Clicked'] } : {}), timings: { snapshot: 7, act: 3, inspect: 2, total: 20 } };
+  } };
+  const tools = browserToolset(bridge, { confirm: async () => true });
+  const sig = new AbortController().signal;
+  const open = await tools.execute('browser_open', { url: 'https://shop.example/' }, sig);
+  assert.deepEqual(open.timings, { snapshot: 7, act: 3, inspect: 2, total: 20 });
+  assert.ok(!JSON.stringify(open.output).includes('timings'), 'the model never sees timings');
+  const act = await tools.execute('browser_act', { tabId: 5, steps: [{ action: 'click', ref: 1 }] }, sig);
+  assert.equal(act.timings.inspect, 6, 'both rounds of a confirmed step are counted');
+  assert.equal(act.timings.total, 29);
+  assert.ok(act.timings.approval >= 0, 'the wait for the user is its own phase');
+  assert.ok(!JSON.stringify(act.output).includes('timings'));
+});
+
+test('timings: the agent loop records a trace per round and on each live step', async () => {
+  const replies = [
+    reply(null, [call('browser_open', { url: 'https://shop.example/' })]),
+    reply(null, [call('browser_act', { tabId: 5, steps: [{ action: 'scroll', direction: 'down' }] })]),
+    reply('Scrolled the shop page.'),
+  ];
+  globalThis.fetch = async () => replies.shift();
+  const external = browserToolset({ call: async req => ({ tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop', elements: ['[1] link "Deal"'], omitted: 0, text: 'x',
+    ...(req.type === 'act' ? { done: ['Scrolled down'] } : {}), timings: { settle: 120, snapshot: 15, total: 140 } }) });
+  delete globalThis.__synapseAgentTraces;
+  const result = await AutonomousBrainAgent.execute('Look through shop.example deals', state(), 'k', 'm', { externalTools: external, commit: async () => {} });
+  const { trace } = result;
+  assert.ok(trace, 'a turn with live steps carries a trace');
+  assert.equal(trace.summary.liveSteps, 2);
+  assert.equal(trace.summary.phases.settle, 240);
+  assert.equal(trace.summary.phases.total, undefined, 'per-step totals are not summed as a phase');
+  assert.ok(trace.rounds.length >= 3, 'every model request is a round');
+  assert.deepEqual(trace.rounds[0].tools.map(t => t.tool), ['browser_open']);
+  assert.ok(trace.rounds[0].tools[0].chars > 0, 'the size of what the model received is recorded');
+  const steps = result.activity.filter(s => s.kind === 'browser');
+  assert.ok(steps.every(s => s.timing && s.timing.phases.settle === 120), 'each live step shows its timing');
+  assert.equal(globalThis.__synapseAgentTraces.length, 1, 'the trace is kept in memory for export');
+  globalThis.fetch = async () => reply('Hello!');
+  const plain = await AutonomousBrainAgent.execute('hi', state(), 'k', 'm', {});
+  assert.equal(plain.status, 'complete');
+  assert.equal(plain.trace, undefined, 'turns without live tools carry no trace');
 });

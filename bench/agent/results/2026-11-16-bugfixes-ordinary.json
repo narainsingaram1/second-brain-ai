@@ -1,0 +1,431 @@
+{
+  "date": "2026-11-16T18:02:21.113Z",
+  "mode": "ordinary",
+  "runs": 3,
+  "chrome": "Chrome/158.0.8127.37",
+  "node": "v24.5.0",
+  "summary": {
+    "tasks": 11,
+    "passed": 10,
+    "knownGaps": 1,
+    "failed": [],
+    "rounds": 137,
+    "steps": 20,
+    "totalMs": 30422,
+    "msPerRound": 222,
+    "staleRefErrors": 4,
+    "confirmations": 2,
+    "phaseShare": {
+      "settle": 70.6,
+      "pause": 21.3,
+      "snapshot": 4.9,
+      "inject": 2.3,
+      "act": 0.3,
+      "load": 0.2,
+      "inspect": 0.1,
+      "read": 0
+    },
+    "avgViewTokens": 616
+  },
+  "tasks": [
+    {
+      "task": "search",
+      "ok": true,
+      "rounds": 5,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 2,
+      "scrolls": 0,
+      "ms": 837,
+      "phases": {
+        "pause": 183,
+        "load": 2,
+        "inject": 23,
+        "settle": 607,
+        "snapshot": 8,
+        "inspect": 1,
+        "act": 4
+      },
+      "views": {
+        "count": 5,
+        "avgChars": 337,
+        "maxChars": 514,
+        "maxElements": 7,
+        "maxOmitted": 0,
+        "totalChars": 1686
+      },
+      "okRuns": 3,
+      "msRange": [
+        834,
+        843
+      ]
+    },
+    {
+      "task": "react-form",
+      "ok": true,
+      "rounds": 6,
+      "steps": 5,
+      "errors": [
+        {
+          "code": "error",
+          "message": "Element 2 is no longer on the page. Take a new look at the page and use a current ref."
+        },
+        {
+          "code": "error",
+          "message": "Element 3 is no longer on the page. Take a new look at the page and use a current ref."
+        },
+        {
+          "code": "error",
+          "message": "Element 4 is no longer on the page. Take a new look at the page and use a current ref."
+        },
+        {
+          "code": "error",
+          "message": "Element 5 is no longer on the page. Take a new look at the page and use a current ref."
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 1675,
+      "phases": {
+        "pause": 366,
+        "load": 5,
+        "inject": 49,
+        "settle": 1216,
+        "snapshot": 9,
+        "inspect": 6,
+        "act": 11
+      },
+      "views": {
+        "count": 6,
+        "avgChars": 462,
+        "maxChars": 519,
+        "maxElements": 5,
+        "maxOmitted": 0,
+        "totalChars": 2772
+      },
+      "okRuns": 3,
+      "msRange": [
+        1665,
+        1679
+      ]
+    },
+    {
+      "task": "cookie-banner",
+      "ok": true,
+      "rounds": 4,
+      "steps": 2,
+      "errors": [
+        {
+          "code": "error",
+          "message": "Something is covering that element (Cookie consent). Close or dismiss it first, then try again."
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 832,
+      "phases": {
+        "pause": 183,
+        "load": 2,
+        "inject": 20,
+        "settle": 606,
+        "snapshot": 5,
+        "inspect": 1,
+        "act": 3
+      },
+      "views": {
+        "count": 4,
+        "avgChars": 211,
+        "maxChars": 248,
+        "maxElements": 3,
+        "maxOmitted": 0,
+        "totalChars": 844
+      },
+      "okRuns": 3,
+      "msRange": [
+        820,
+        837
+      ]
+    },
+    {
+      "task": "modal",
+      "ok": true,
+      "rounds": 3,
+      "steps": 3,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 1104,
+      "phases": {
+        "pause": 244,
+        "load": 2,
+        "inject": 23,
+        "settle": 811,
+        "snapshot": 7,
+        "inspect": 2,
+        "act": 6
+      },
+      "views": {
+        "count": 3,
+        "avgChars": 157,
+        "maxChars": 183,
+        "maxElements": 3,
+        "maxOmitted": 0,
+        "totalChars": 472
+      },
+      "okRuns": 3,
+      "msRange": [
+        1099,
+        1106
+      ]
+    },
+    {
+      "task": "long-article",
+      "ok": true,
+      "rounds": 7,
+      "steps": 0,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 304,
+      "phases": {
+        "pause": 61,
+        "load": 1,
+        "inject": 13,
+        "settle": 203,
+        "snapshot": 5,
+        "read": 12
+      },
+      "views": {
+        "count": 7,
+        "avgChars": 11279,
+        "maxChars": 12142,
+        "maxElements": 1,
+        "maxOmitted": 0,
+        "totalChars": 78951
+      },
+      "okRuns": 3,
+      "msRange": [
+        300,
+        304
+      ]
+    },
+    {
+      "task": "big-page",
+      "ok": true,
+      "rounds": 77,
+      "steps": 1,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 75,
+      "ms": 22262,
+      "phases": {
+        "pause": 4695,
+        "load": 53,
+        "inject": 437,
+        "settle": 15610,
+        "snapshot": 1385,
+        "act": 55,
+        "inspect": 1
+      },
+      "views": {
+        "count": 77,
+        "avgChars": 12612,
+        "maxChars": 12794,
+        "maxElements": 180,
+        "maxOmitted": 1620,
+        "totalChars": 971147
+      },
+      "okRuns": 3,
+      "msRange": [
+        22140,
+        22323
+      ]
+    },
+    {
+      "task": "iframe-same",
+      "ok": true,
+      "rounds": 2,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 827,
+      "phases": {
+        "pause": 183,
+        "load": 2,
+        "inject": 17,
+        "settle": 607,
+        "snapshot": 6,
+        "inspect": 1,
+        "act": 4
+      },
+      "views": {
+        "count": 2,
+        "avgChars": 257,
+        "maxChars": 265,
+        "maxElements": 4,
+        "maxOmitted": 0,
+        "totalChars": 514
+      },
+      "okRuns": 3,
+      "msRange": [
+        825,
+        830
+      ]
+    },
+    {
+      "task": "iframe-secret",
+      "ok": true,
+      "rounds": 3,
+      "steps": 1,
+      "errors": [],
+      "confirmations": 1,
+      "userOnly": 1,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 563,
+      "phases": {
+        "pause": 122,
+        "load": 2,
+        "inject": 14,
+        "settle": 406,
+        "snapshot": 7,
+        "inspect": 2,
+        "act": 1
+      },
+      "views": {
+        "count": 3,
+        "avgChars": 249,
+        "maxChars": 249,
+        "maxElements": 4,
+        "maxOmitted": 0,
+        "totalChars": 747
+      },
+      "okRuns": 3,
+      "msRange": [
+        562,
+        564
+      ]
+    },
+    {
+      "task": "iframe-cross",
+      "ok": false,
+      "rounds": 20,
+      "steps": 0,
+      "errors": [
+        {
+          "code": "not_found",
+          "message": "Never found /textbox \"Partner city\"/"
+        }
+      ],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 19,
+      "scrolls": 0,
+      "ms": 344,
+      "phases": {
+        "pause": 61,
+        "load": 1,
+        "inject": 47,
+        "settle": 202,
+        "snapshot": 23
+      },
+      "views": {
+        "count": 20,
+        "avgChars": 249,
+        "maxChars": 249,
+        "maxElements": 4,
+        "maxOmitted": 0,
+        "totalChars": 4980
+      },
+      "knownGap": "Cross-origin frames are invisible to the page agent (plan 2.5)",
+      "okRuns": 0,
+      "msRange": [
+        340,
+        354
+      ]
+    },
+    {
+      "task": "late-load",
+      "ok": true,
+      "rounds": 7,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 0,
+      "userOnly": 0,
+      "extraLooks": 4,
+      "scrolls": 0,
+      "ms": 849,
+      "phases": {
+        "pause": 184,
+        "load": 2,
+        "inject": 28,
+        "settle": 608,
+        "snapshot": 15,
+        "inspect": 2,
+        "act": 4
+      },
+      "views": {
+        "count": 7,
+        "avgChars": 974,
+        "maxChars": 1487,
+        "maxElements": 41,
+        "maxOmitted": 0,
+        "totalChars": 6820
+      },
+      "okRuns": 3,
+      "msRange": [
+        846,
+        853
+      ]
+    },
+    {
+      "task": "checkout",
+      "ok": true,
+      "rounds": 3,
+      "steps": 2,
+      "errors": [],
+      "confirmations": 1,
+      "userOnly": 1,
+      "extraLooks": 0,
+      "scrolls": 0,
+      "ms": 825,
+      "phases": {
+        "pause": 183,
+        "load": 2,
+        "inject": 18,
+        "settle": 606,
+        "snapshot": 6,
+        "inspect": 2,
+        "act": 3
+      },
+      "views": {
+        "count": 3,
+        "avgChars": 304,
+        "maxChars": 322,
+        "maxElements": 3,
+        "maxOmitted": 0,
+        "totalChars": 912
+      },
+      "okRuns": 3,
+      "msRange": [
+        825,
+        827
+      ]
+    }
+  ]
+}

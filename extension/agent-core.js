@@ -14,7 +14,7 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.3.0";
+export const VERSION = "1.3.1";
 /** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
 export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
@@ -41,6 +41,24 @@ export function checkTarget(raw, blocked = []) {
 
 const hostOf = url => { try { return new URL(url).hostname.replace(/^www\./, ""); } catch { return "this page"; } };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/**
+ * Where a request's time goes (inject, inspect, act, settle, load, snapshot…), in whole milliseconds. Returned
+ * with each result as `timings` for tracing only; the app strips it before the model sees the page.
+ */
+function stopwatch(now) {
+  const start = now();
+  const phases = {};
+  return {
+    async time(phase, work) {
+      const t = now();
+      try { return await work(); } finally { phases[phase] = (phases[phase] || 0) + Math.max(0, Math.round(now() - t)); }
+    },
+    result: () => ({ ...phases, total: Math.max(0, Math.round(now() - start)) }),
+  };
+}
+/** For internal calls nobody is timing. */
+const untimed = { time: (_phase, work) => work() };
 
 /**
  * @param chrome the extension API (or a fake with the same shape)
@@ -162,9 +180,9 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     }
   }
 
-  async function run(tabId, command) {
-    await chrome.scripting.executeScript({ target: { tabId }, files: ["page-agent.js"] });
-    const [result] = await chrome.scripting.executeScript({ target: { tabId }, func: c => globalThis.__synapseAgent.run(c), args: [command] });
+  async function run(tabId, command, sw = untimed) {
+    await sw.time("inject", () => chrome.scripting.executeScript({ target: { tabId }, files: ["page-agent.js"] }));
+    const [result] = await sw.time(command.op, () => chrome.scripting.executeScript({ target: { tabId }, func: c => globalThis.__synapseAgent.run(c), args: [command] }));
     const value = result?.result;
     if (!value) throw new Error("The page didn't respond. It may still be loading, or the browser doesn't allow scripts on it.");
     if (!value.ok) throw Object.assign(new Error(value.error), { code: value.code });
@@ -172,21 +190,24 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   }
 
   /** Waits until the page stops changing (or starts navigating). Never fails: a page mid-navigation can't answer. */
-  async function quiet(tabId) {
-    try { return await run(tabId, { op: "settle" }); } catch { return { navigating: true }; }
+  async function quiet(tabId, sw = untimed) {
+    try { return await run(tabId, { op: "settle" }, sw); } catch { return { navigating: true }; }
   }
 
   /** After an action: give the page a moment, wait for it to settle and finish any load it started. */
-  async function afterAction(tabId) {
-    await sleep(settle);
-    const first = await quiet(tabId);
-    let tab = await waitForLoad(tabId);
-    if (first?.navigating || tab.status !== "complete") { tab = await waitForLoad(tabId); await quiet(tabId); }
+  async function afterAction(tabId, sw = untimed) {
+    await sw.time("pause", () => sleep(settle));
+    const first = await quiet(tabId, sw);
+    let tab = await sw.time("load", () => waitForLoad(tabId));
+    if (first?.navigating || tab.status !== "complete") { tab = await sw.time("load", () => waitForLoad(tabId)); await quiet(tabId, sw); }
     return chrome.tabs.get(tabId);
   }
 
   /** A screenshot with the target boxed, for the user to see before allowing a step. Optional: null if unavailable. */
-  async function capture(tabId, focusRef) {
+  async function capture(tabId, focusRef, sw = untimed) {
+    return sw.time("screenshot", () => captureNow(tabId, focusRef));
+  }
+  async function captureNow(tabId, focusRef) {
     if (!(await cdp.ready(tabId))) return null;
     try {
       await run(tabId, { op: "mark", refs: focusRef ? [focusRef] : [], focus: focusRef });
@@ -196,28 +217,35 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   }
 
   /** Runs a step as trusted input when precise mode is on; null when it should run the ordinary way. */
-  async function preciseStep(tabId, step) {
+  async function preciseStep(tabId, step, sw = untimed) {
     if (!["click", "type", "press", "check", "uncheck"].includes(step.action) || !(await cdp.ready(tabId))) return null;
-    if (step.action === "press") { await cdp.key(tabId, String(step.key || "")); return `Pressed ${step.key}`; }
+    const input = work => sw.time("input", work);
+    if (step.action === "press") { await input(() => cdp.key(tabId, String(step.key || ""))); return `Pressed ${step.key}`; }
     if (step.action === "check" || step.action === "uncheck") return null; // Needs the current state: the page agent handles it.
     if (step.action === "click") {
-      const at = await run(tabId, { op: "point", ref: step.ref });
-      await cdp.click(tabId, at.x, at.y);
+      const at = await run(tabId, { op: "point", ref: step.ref }, sw);
+      await input(() => cdp.click(tabId, at.x, at.y));
       return `Clicked ${at.role} "${at.name}"`;
     }
-    const field = await run(tabId, { op: "focus", ref: step.ref, append: !!step.append });
+    const field = await run(tabId, { op: "focus", ref: step.ref, append: !!step.append }, sw);
     const text = String(step.text ?? "");
-    if (text) await cdp.insertText(tabId, text);
-    else if (!step.append) await cdp.key(tabId, "Backspace"); // Empty text clears the selected contents.
+    if (text) await input(() => cdp.insertText(tabId, text));
+    else if (!step.append) await input(() => cdp.key(tabId, "Backspace")); // Empty text clears the selected contents.
     let note = `Typed into "${field.name}"`;
-    if (step.submit) { await cdp.key(tabId, "Enter"); note += " and pressed Enter"; }
+    if (step.submit) { await input(() => cdp.key(tabId, "Enter")); note += " and pressed Enter"; }
     return note;
   }
 
-  async function snapshot(tabId) {
-    const page = await run(tabId, { op: "snapshot" });
+  async function snapshot(tabId, sw = untimed) {
+    const page = await run(tabId, { op: "snapshot" }, sw);
     return { tabId, site: hostOf(page.url), ...page };
   }
+  /** A request's result with where its time went. */
+  const timed = async (work) => {
+    const sw = stopwatch(now);
+    const value = await work(sw);
+    return { ...value, timings: sw.result() };
+  };
 
   async function addToGroup(tabId) {
     try {
@@ -229,40 +257,40 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     } catch { /* Tab groups are a convenience; the tab is still tracked. */ }
   }
 
-  async function open({ url, tabId }) {
+  const open = ({ url, tabId }) => timed(async sw => {
     const target = checkTarget(url, (await settings()).blocked);
     let tab;
     if (tabId !== undefined && tabId !== null) {
-      tab = await requireOwnTab(tabId);
+      tab = await sw.time("checks", () => requireOwnTab(tabId));
       tab = await chrome.tabs.update(tab.id, { url: target.href });
     } else {
       tab = await chrome.tabs.create({ url: target.href, active: false });
       await setOwnTabs([...(await ownTabs()), tab.id]);
-      await addToGroup(tab.id);
+      await sw.time("group", () => addToGroup(tab.id));
     }
-    await sleep(settle);
-    await waitForLoad(tab.id);
-    await quiet(tab.id);
+    await sw.time("pause", () => sleep(settle));
+    await sw.time("load", () => waitForLoad(tab.id));
+    await quiet(tab.id, sw);
     const loaded = await chrome.tabs.get(tab.id);
     checkTarget(loaded.url || target.href, (await settings()).blocked); // A redirect may land somewhere blocked.
-    return snapshot(tab.id);
-  }
+    return snapshot(tab.id, sw);
+  });
 
   const stepKey = step => JSON.stringify({ action: step.action, ref: step.ref ?? null, text: step.text ?? null, value: step.value ?? null, key: step.key ?? null,
     direction: step.direction ?? null, submit: !!step.submit, append: !!step.append });
 
-  async function act({ tabId, steps, confirmToken }) {
+  const act = ({ tabId, steps, confirmToken }) => timed(async sw => {
     if (!Array.isArray(steps) || !steps.length) throw new Error("Send at least one step.");
     if (steps.length > MAX_STEPS) throw new Error(`At most ${MAX_STEPS} steps at a time.`);
     stopped = false;
-    let tab = await requireOwnTab(tabId);
+    let tab = await sw.time("checks", () => requireOwnTab(tabId));
     const done = [];
     for (let i = 0; i < steps.length; i++) {
-      if (stopped) return { ...(await snapshot(tab.id)), done, stoppedAt: i, stopReason: "Stopped by the user." };
+      if (stopped) return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, stopReason: "Stopped by the user." };
       const step = steps[i];
-      const info = await run(tab.id, { op: "inspect", step });
+      const info = await run(tab.id, { op: "inspect", step }, sw);
       if (info.userOnly) {
-        return { ...(await snapshot(tab.id)), done, stoppedAt: i, blocked: { step: i, reason: `"${info.name || "That field"}" is a ${info.userOnly}. Ask the user to fill it in themselves in the Synapse tab group, then continue.` } };
+        return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, blocked: { step: i, reason: `"${info.name || "That field"}" is a ${info.userOnly}. Ask the user to fill it in themselves in the Synapse tab group, then continue.` } };
       }
       if (info.consequential || info.submitsText) {
         const grant = confirmToken && tokens.get(confirmToken);
@@ -272,23 +300,23 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
           tokens.set(token, { tabId: tab.id, url: tab.url, step: stepKey(step), expires: now() + TOKEN_TTL_MS });
           const label = step.action === "type" ? `Send "${String(step.text || "").slice(0, 120)}" in "${info.name || "a text box"}"`
             : step.action === "press" ? `Press ${step.key} on "${info.name || "the focused control"}"` : `Click "${info.name || "this button"}"`;
-          const screenshot = await capture(tab.id, step.ref);
-          return { ...(await snapshot(tab.id)), done, stoppedAt: i, needsConfirmation: { token, step: i, label, site: hostOf(tab.url), ...(screenshot ? { screenshot } : {}) } };
+          const screenshot = await capture(tab.id, step.ref, sw);
+          return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, needsConfirmation: { token, step: i, label, site: hostOf(tab.url), ...(screenshot ? { screenshot } : {}) } };
         }
         tokens.delete(confirmToken); // One use only.
       }
       const before = tab.url;
-      const note = (await preciseStep(tab.id, step)) ?? await run(tab.id, { op: "act", step });
+      const note = (await preciseStep(tab.id, step, sw)) ?? await run(tab.id, { op: "act", step }, sw);
       done.push(note);
-      tab = await afterAction(tab.id);
+      tab = await afterAction(tab.id, sw);
       if (tab.url !== before) {
         checkTarget(tab.url, (await settings()).blocked);
         // Refs belong to the old page; the rest of the steps must be planned against the new one.
-        if (i < steps.length - 1) return { ...(await snapshot(tab.id)), done, stoppedAt: i + 1, stopReason: "The page changed, so the remaining steps were not run. Plan them against the new page." };
+        if (i < steps.length - 1) return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i + 1, stopReason: "The page changed, so the remaining steps were not run. Plan them against the new page." };
       }
     }
-    return { ...(await snapshot(tab.id)), done };
-  }
+    return { ...(await snapshot(tab.id, sw)), done };
+  });
 
   async function tabs() {
     const list = [];
@@ -345,9 +373,9 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     if (!paired.includes(origin)) throw Object.assign(new Error("Connect Synapse to the browser extension first (Settings → Browser agent)."), { code: "not_paired" });
     switch (message.type) {
       case "open": return open(message);
-      case "snapshot": return snapshot((await requireOwnTab(message.tabId)).id);
+      case "snapshot": return timed(async sw => snapshot((await sw.time("checks", () => requireOwnTab(message.tabId))).id, sw));
       case "act": return act(message);
-      case "read": return run((await requireOwnTab(message.tabId)).id, { op: "read", offset: message.offset || 0 });
+      case "read": return timed(async sw => run((await sw.time("checks", () => requireOwnTab(message.tabId))).id, { op: "read", offset: message.offset || 0 }, sw));
       case "tabs": return tabs();
       case "user_tabs": return userTabs();
       case "borrow": return borrow(message);
