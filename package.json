@@ -15,7 +15,9 @@
     "test": "node --test tests/*.test.mjs",
     "build:independent": "node scripts/build-independent.mjs",
     "build:api": "node scripts/build-api.mjs",
-    "bench:agent": "node scripts/agent-bench.mjs"
+    "bench:agent": "node scripts/agent-bench.mjs",
+    "bench:views": "node scripts/agent-views.mjs",
+    "bench:model": "node scripts/agent-model-bench.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

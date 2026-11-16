@@ -53,7 +53,7 @@ function generated(name) {
   return null;
 }
 
-function serve() {
+export function serve() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const name = path.basename(url.pathname);
@@ -74,7 +74,7 @@ function chromePath() {
   return candidates.find(p => existsSync(p));
 }
 
-async function launch() {
+export async function launch() {
   const exe = chromePath();
   if (!exe) throw new Error("Chrome not found. Install Google Chrome or set CHROME_PATH.");
   const profile = await mkdtemp(path.join(tmpdir(), "synapse-bench-"));
@@ -107,7 +107,7 @@ async function launch() {
 
 // ---- One tab, run the way agent-core runs it ----
 
-async function openTab(cdp, agentSource, usePrecise) {
+export async function openTab(cdp, agentSource, usePrecise) {
   const { targetId } = await cdp.send("Target.createTarget", { url: "about:blank" });
   const { sessionId } = await cdp.send("Target.attachToTarget", { targetId, flatten: true });
   const send = (method, params) => cdp.send(method, params, sessionId);
@@ -240,6 +240,14 @@ const TASKS = [
     batches: [[{ action: "type", find: /textbox "Delivery notes"/, text: "Leave at the door" }, { action: "type", find: /textbox "Card number"/, text: "4242 4242 4242 4242", expectUserOnly: true }],
       [{ action: "click", find: /button "Place order"/ }]],
     check: "document.getElementById('out').textContent === 'Order placed'", expect: { confirmations: 1, userOnly: 1 } },
+  { name: "flyout-dialog", page: "flyout-dialog.html", about: "An empty, 1px-wide open role=dialog (like Amazon's cart flyout) must not hide the page",
+    batches: [[{ action: "click", find: /button "Add Aluminium laptop stand to cart"/ }]],
+    check: "document.getElementById('cart').textContent === 'Cart (1)'",
+    view: { has: [/button "Add Aluminium laptop stand to cart"/, /searchbox "Search"/] } },
+  { name: "consent-dialog", page: "consent-dialog.html", about: "A real cookie dialog on top of the page takes over the view until it is dismissed",
+    batches: [[{ action: "click", find: /button "Necessary cookies only"/ }], [{ action: "click", find: /button "Ask question"/ }]],
+    check: "document.getElementById('out').textContent === 'Asking'",
+    view: { has: [/button "Necessary cookies only"/], lacks: [/button "Ask question"/] } },
 ];
 
 const refOf = (page, find) => { const line = page.elements.find(l => find.test(l)); const m = line && /^\[(\d+)\]/.exec(line); return m ? Number(m[1]) : null; };
@@ -339,6 +347,7 @@ function combine(runs) {
 }
 
 export const TASK_NAMES = TASKS.map(t => t.name);
+export const BENCH_TASKS = TASKS;
 export const chromeAvailable = () => !!chromePath();
 
 /** Runs the benchmark and returns its report. `onTask` hears each task's combined result as it finishes. */

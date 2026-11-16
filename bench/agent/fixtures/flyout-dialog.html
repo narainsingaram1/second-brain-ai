@@ -1,0 +1,17 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Shop: laptop stand</title>
+<style>
+.flyout{display:none} .flyout.open{display:block}
+/* Like Amazon's cart flyout: an open role=dialog that is 1px wide and has nothing in it. */
+#rail{position:fixed;top:0;right:0;width:1px;height:100vh}
+</style></head><body>
+<header><a href="#">Shop</a> <input type="search" aria-label="Search" value="laptop stand"> <button>Go</button>
+<div class="flyout" role="dialog" aria-modal="false"><a href="#">Sign in</a><a href="#">Your lists</a></div></header>
+<main><h1>Results for "laptop stand"</h1>
+<div><h2>Aluminium laptop stand</h2><button id="add1">Add Aluminium laptop stand to cart</button></div>
+<div><h2>Wooden laptop stand</h2><button id="add2">Add Wooden laptop stand to cart</button></div>
+<p id="cart">Cart (0)</p></main>
+<div id="rail" role="dialog" aria-modal="false"></div>
+<script>
+let n = 0;
+for (const b of document.querySelectorAll("main button")) b.onclick = () => { document.getElementById("cart").textContent = `Cart (${++n})`; };
+</script></body></html>

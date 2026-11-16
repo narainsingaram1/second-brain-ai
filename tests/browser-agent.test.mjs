@@ -79,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.3.1', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.3.2', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -327,7 +327,7 @@ const reply = (content, tool_calls) => Response.json({ choices: [{ finish_reason
 const state = () => ({ userId: 'u', tasks: [{ id: 'essay', title: 'Write essay', status: 'not_started', completed: false, priority: 'medium', section: 'Academic', dueDate: '2026-11-20' }],
   goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Academic'], subsections: { Academic: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' });
 
-test('the agent loop: browser steps always run, old page views are compacted, and later record edits are gated', async () => {
+test('the agent loop: browser steps always run, old page views keep the cached prefix, and later record edits are gated', async () => {
   const requests = [];
   const replies = [
     reply(null, [call('browser_open', { url: 'https://shop.example/' })]),
@@ -349,11 +349,36 @@ test('the agent loop: browser steps always run, old page views are compacted, an
   });
   assert.equal(acts, 2, 'the same step twice runs twice: pages change between calls');
   const tools = requests[3].messages.filter(m => m.role === 'tool').map(m => JSON.parse(m.content));
-  assert.ok(tools[0].superseded && tools[1].superseded, 'older views of the tab were compacted');
+  assert.ok(!tools.some(t => t.superseded), 'a few small old views stay as they were: rewriting them would break the cached prefix');
   assert.match(tools[2].elements, /Deal 2/);
+  const plain = m => JSON.stringify({ role: m.role, content: Array.isArray(m.content) ? m.content.map(p => p.text).join('') : m.content, tool_calls: m.tool_calls });
+  for (let r = 1; r < 4; r++) {
+    const before = requests[r - 1].messages.slice(1).map(plain), now = requests[r].messages.slice(1, before.length + 1).map(plain);
+    assert.deepEqual(now, before, `round ${r} starts with round ${r - 1}'s messages unchanged`);
+  }
   assert.match(proposals[0].reason, /web page/, 'changing records after browsing needs approval');
   assert.ok(result.activity.some(s => s.kind === 'browser' && /Opened shop\.example/.test(s.label)));
   assert.ok(!requests[0].messages[0].content.some?.(p => /cannot click/.test(p.text)) && !String(JSON.stringify(requests[0].messages[0])).includes('you cannot click'), 'the "no browser" note is left out when the browser is available');
+});
+
+test('out-of-date page views are stubbed all at once when they pile up, not one per step', async () => {
+  const requests = [];
+  const replies = [
+    ...Array.from({ length: 5 }, () => reply(null, [call('browser_look', { tabId: 5 })])),
+    reply('Done looking.'),
+  ];
+  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return replies.shift(); };
+  let looks = 0;
+  const external = browserToolset({ call: async () => ({ tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop',
+    elements: [`[1] link "Deal ${++looks}"`], omitted: 0, text: `${looks} `.repeat(7000) }) });
+  await AutonomousBrainAgent.execute('Keep checking shop.example deals', state(), 'k', 'm', { externalTools: external, commit: async () => {} });
+  const viewsAt = r => requests[r].messages.filter(m => m.role === 'tool').map(m => JSON.parse(m.content));
+  // Each view is about 14k characters; three stale ones pass the 40k budget when the fourth newer view arrives.
+  assert.ok(!viewsAt(3).some(v => v.superseded), 'two stale views are kept in full');
+  const after = viewsAt(4);
+  assert.deepEqual(after.map(v => !!v.superseded), [true, true, true, false], 'all stale views go in one batch; the latest stays');
+  assert.match(after[3].elements, /Deal 4/);
+  assert.deepEqual(viewsAt(5).slice(0, 3), after.slice(0, 3), 'after a batch, earlier messages stay unchanged again');
 });
 
 /** Adds a fake chrome.debugger to a fake Chrome; records every protocol command. */

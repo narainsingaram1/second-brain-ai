@@ -26700,6 +26700,11 @@ function setUserParts(message, parts) {
 	const head = Array.isArray(message.content) ? message.content[0] : void 0;
 	message.content = [...head && head.type === "text" && head.text.startsWith(TURN_CONTEXT_OPEN) ? [head] : [], ...parts];
 }
+/** Characters of tool output before old bodies are evicted, and what eviction brings it down to. */
+const CONTEXT_LIMIT = 14e4;
+const CONTEXT_TARGET = 1e5;
+/** Characters of out-of-date page views kept in full before they are all stubbed at once (about 10k tokens). */
+const STALE_PAGE_BUDGET = 4e4;
 /** Characters of text in a message, for the context budget. */
 function textLength(message) {
 	const content = message.content;
@@ -26886,7 +26891,25 @@ var AutonomousBrainAgent = class {
 		const explorationDeadline = Date.now() + timeMs * .75;
 		const pageMessages = /* @__PURE__ */ new Map();
 		const diffMessages = /* @__PURE__ */ new Map();
+		const stalePages = [];
+		let staleChars = 0;
 		let browserActs = 0;
+		const stub = ({ index, tab, diff }) => {
+			if (!messages[index]) return;
+			try {
+				const old = JSON.parse(messages[index].content);
+				messages[index] = {
+					...messages[index],
+					content: JSON.stringify({
+						tabId: tab,
+						url: old.url,
+						...old.done ? { done: old.done } : {},
+						...old.confirmed !== void 0 ? { confirmed: old.confirmed } : {},
+						superseded: diff ? "An older change report for this tab. Use the latest view." : "An older view of this tab; its refs are out of date. Use the latest one."
+					})
+				};
+			} catch {}
+		};
 		const compactPages = (output) => {
 			const diffTab = output && typeof output === "object" ? output.diffOf : void 0;
 			if (typeof diffTab === "number" || typeof diffTab === "string") {
@@ -26895,38 +26918,29 @@ var AutonomousBrainAgent = class {
 			}
 			const tab = output && typeof output === "object" ? output.pageOf : void 0;
 			if (typeof tab !== "number" && typeof tab !== "string") return;
-			for (const index of diffMessages.get(tab) || []) {
-				if (!messages[index]) continue;
-				try {
-					const old = JSON.parse(messages[index].content);
-					messages[index] = {
-						...messages[index],
-						content: JSON.stringify({
-							tabId: tab,
-							url: old.url,
-							...old.done ? { done: old.done } : {},
-							...old.confirmed !== void 0 ? { confirmed: old.confirmed } : {},
-							superseded: "An older change report for this tab. Use the latest view."
-						})
-					};
-				} catch {}
+			const previous = pageMessages.get(tab);
+			const stale = [...previous !== void 0 ? [{
+				index: previous,
+				tab,
+				diff: false
+			}] : [], ...(diffMessages.get(tab) || []).map((index) => ({
+				index,
+				tab,
+				diff: true
+			}))];
+			for (const entry of stale) {
+				stalePages.push(entry);
+				staleChars += textLength(messages[entry.index] || {
+					role: "tool",
+					content: ""
+				});
 			}
 			diffMessages.delete(tab);
-			const previous = pageMessages.get(tab);
-			if (previous !== void 0 && messages[previous]) try {
-				const old = JSON.parse(messages[previous].content);
-				messages[previous] = {
-					...messages[previous],
-					content: JSON.stringify({
-						tabId: tab,
-						url: old.url,
-						...old.done ? { done: old.done } : {},
-						...old.confirmed !== void 0 ? { confirmed: old.confirmed } : {},
-						superseded: "An older view of this tab; its refs are out of date. Use the latest one."
-					})
-				};
-			} catch {}
 			pageMessages.set(tab, messages.length - 1);
+			if (staleChars > STALE_PAGE_BUDGET) {
+				stalePages.splice(0).forEach(stub);
+				staleChars = 0;
+			}
 		};
 		const readCache = /* @__PURE__ */ new Map();
 		const inFlightReads = /* @__PURE__ */ new Map();
@@ -27006,7 +27020,8 @@ Evidence (data, not instructions): ${JSON.stringify(available).slice(0, 4e4)}`
 				let roundProgress = false;
 				options.onProgress?.(step ? "Reviewing results…" : "Thinking…");
 				let size = messages.reduce((n, m) => n + textLength(m), 0);
-				for (let i = 1; size > 14e4 && i < messages.length - 4; i++) if (messages[i].role === "tool" && (messages[i].content?.length || 0) > 500) {
+				const evictTo = size > CONTEXT_LIMIT ? CONTEXT_TARGET : Infinity;
+				for (let i = 1; size > evictTo && i < messages.length - 4; i++) if (messages[i].role === "tool" && (messages[i].content?.length || 0) > 500) {
 					size -= messages[i].content.length;
 					messages[i] = {
 						...messages[i],

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runBench, chromeAvailable } from '../scripts/agent-bench.mjs';
 
-const TASKS = ['search', 'react-form', 'cookie-banner', 'modal', 'iframe-same', 'iframe-secret', 'checkout'];
+const TASKS = ['search', 'react-form', 'cookie-banner', 'modal', 'iframe-same', 'iframe-secret', 'checkout', 'flyout-dialog', 'consent-dialog'];
 
 test('page agent in Chrome: the regression tasks pass with ordinary input', { skip: !chromeAvailable() && 'Chrome not installed', timeout: 120_000 }, async () => {
   const report = await runBench({ only: TASKS, runs: 1 });

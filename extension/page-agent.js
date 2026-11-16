@@ -6,7 +6,7 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 3) return;
+  if (globalThis.__synapseAgent?.version === 4) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
@@ -234,9 +234,36 @@
     return [...parts, ...flags].join(" ");
   }
 
+  /**
+   * The dialog the user is looking at, if one is in the way. Sites mark plenty of closed or collapsed panels as
+   * dialogs (Amazon keeps a 1px-wide open role=dialog for its cart flyout), so one counts only when it has a real
+   * size, a control the user could use, and is on top where it sits. Otherwise the whole page is shown.
+   */
+  function openDialog() {
+    const candidates = [...document.querySelectorAll("dialog[open], [role=dialog], [role=alertdialog], [aria-modal=true]")].filter(visible);
+    for (let i = candidates.length - 1; i >= 0; i--) {
+      const d = candidates[i];
+      const rect = d.getBoundingClientRect();
+      if (rect.width < 24 || rect.height < 24) continue;
+      let usable = false;
+      for (const el of walk(d)) { if (el !== d && el.matches?.(INTERACTIVE) && visible(el)) { usable = true; break; } }
+      if (!usable) continue;
+      // On top: what is under the middle of its visible part belongs to it (a native modal is always on top).
+      // (Inside a shadow root the hit is retargeted to an outer host, so that check is skipped there.)
+      if (!(tagOf(d) === "dialog" && d.matches(":modal")) && !(d.getRootNode() instanceof ShadowRoot)) {
+        const x = Math.min(Math.max((Math.max(rect.left, 0) + Math.min(rect.right, innerWidth)) / 2, 0), innerWidth - 1);
+        const y = Math.min(Math.max((Math.max(rect.top, 0) + Math.min(rect.bottom, innerHeight)) / 2, 0), innerHeight - 1);
+        const hit = document.elementFromPoint(x, y);
+        if (hit && !d.contains(hit)) continue;
+      }
+      return d;
+    }
+    return null;
+  }
+
   /** The page as the agent sees it: what can be acted on (on screen first) and the main readable text. */
   function snapshot() {
-    const dialog = [...document.querySelectorAll("dialog[open], [role=dialog], [role=alertdialog], [aria-modal=true]")].filter(visible).pop();
+    const dialog = openDialog();
     const scope = dialog || document.body || document.documentElement;
     const seen = new Set();
     const found = [];
@@ -526,7 +553,7 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 3,
+    version: 4,
     run(command) {
       try {
         if (command.op === "settle") return settle(command.options).then(value => ({ ok: true, value }));

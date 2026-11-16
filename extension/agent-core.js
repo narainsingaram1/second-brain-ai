@@ -14,7 +14,7 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.3.1";
+export const VERSION = "1.3.2";
 /** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
 export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
