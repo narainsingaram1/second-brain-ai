@@ -952,6 +952,23 @@ function getSupabase() {
 	} });
 	return client;
 }
+// src/utils/noteImages.ts
+/**
+* Images pasted into notes are stored inline as data URLs so they sync and work offline with the note.
+* Anything that shows note text to a model or a person editing raw Markdown swaps that data for a short
+* token (`note-image:1`) and swaps it back on the way in, so images never flood context or get lost.
+*/
+const DATA_IMAGE = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
+const TOKEN = /note-image:(\d+)/g;
+const hasInlineImages = (text) => text.includes("data:image/");
+/** Puts back the image data that `hideNoteImages(original)` replaced. Unknown tokens are left as written. */
+function restoreNoteImages(text, original) {
+	if (!text || !text.includes("note-image:") || !hasInlineImages(original)) return text;
+	const images = original.match(DATA_IMAGE) || [];
+	return text.replace(TOKEN, (token, n) => images[Number(n) - 1] ?? token);
+}
+/** Note text without image Markdown, for summaries and previews. */
+const stripNoteImages = (text) => text.replace(/!\[[^\]]*\]\((?:data:image\/[^)\s]+|[^)\s]+)(?:\s+"[^"]*")?\)/g, " ").replace(/<img\b[^>]*>/gi, " ");
 new Set("a an and are as at be been but by can could did do does for from had has have how i if in into is it its me my of on or our so than that the their them then there these they this to too was we were what when where which who why will with you your about after again all also am any because before being both each few more most other over same should some such through under until up very just".split(" "));
 new AbortController();
 // src/services/memoryTools.ts
@@ -14570,7 +14587,7 @@ const EDIT_TOOLS = [
 		noteId: d_("ID of the existing note (knowledge record)."),
 		newTitle: s_,
 		appendContent: d_("Markdown to add at the end of the note."),
-		replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note."),
+		replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each ![...](note-image:N) where its image should stay."),
 		folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
 		workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
 		tags: {
@@ -16579,7 +16596,7 @@ function prepareMutation(name, args, state) {
 			const html = /^\s*<[a-z][^>]*>/i.test(current);
 			const escape = (t) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 			const appended = args.appendContent === void 0 ? current : html ? `${current}${args.appendContent.trim().split(/\n{2,}/).map((p) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`).join("")}` : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${args.appendContent.trim()}`;
-			const content = args.replaceContent !== void 0 ? args.replaceContent : appended;
+			const content = args.replaceContent !== void 0 ? restoreNoteImages(args.replaceContent, current) : appended;
 			const title = args.newTitle?.trim();
 			return {
 				type: "knowledge",
@@ -16588,7 +16605,7 @@ function prepareMutation(name, args, state) {
 				record: {
 					...note,
 					content,
-					...content !== current ? { summary: content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {},
+					...content !== current ? { summary: stripNoteImages(content).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {},
 					...title ? {
 						title,
 						subject: title

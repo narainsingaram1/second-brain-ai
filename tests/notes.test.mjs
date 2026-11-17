@@ -31,3 +31,23 @@ test('opening and reading blank or literal text does not require a content mutat
   assert.match(result, /alert\(1\)/);
   assert.match(result, /knowledge:abc/);
 });
+
+test('pasted image width survives Markdown and image data stays out of AI text', async () => {
+  const src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const markdown = `Before\n\n![diagram|320](${src})\n\n![](https://example.com/b.png)`;
+  const parsed = manager.parse(markdown);
+  const images = allNodes(parsed).filter(n => n.type === 'image');
+  assert.equal(images[0].attrs.width, 320);
+  assert.equal(images[0].attrs.alt, 'diagram');
+  assert.equal(images[1].attrs.width, null);
+  assert.deepEqual(manager.parse(manager.serialize(parsed)), parsed);
+  assert.match(manager.serialize(parsed), /!\[diagram\|320\]\(data:image\/png/);
+
+  const { hideNoteImages, restoreNoteImages, stripNoteImages } = await server.ssrLoadModule('/src/utils/noteImages.ts');
+  const hidden = hideNoteImages(markdown);
+  assert.doesNotMatch(hidden, /base64/);
+  assert.match(hidden, /note-image:1/);
+  assert.equal(restoreNoteImages(hidden, markdown), markdown);
+  assert.equal(restoreNoteImages(`Rewritten\n\n${hidden.split('\n\n')[1]}`, markdown), `Rewritten\n\n![diagram|320](${src})`);
+  assert.doesNotMatch(stripNoteImages(markdown), /data:|example\.com/);
+});

@@ -6,6 +6,7 @@ import { bestScore, courseLabel, courseTasks, dueCards, studyOf } from "../utils
 import { gradingForAssistant } from "../utils/grades";
 import { cachedDocumentText } from "./studyDocuments";
 import { providerFetch } from "./providerTransport";
+import { hasInlineImages, hideNoteImages } from "../utils/noteImages";
 
 export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health" | "workout" | "workout_plan";
 
@@ -148,7 +149,9 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
     ...state.goals.map(data => ({ type: "goal" as const, title: data.title, date: data.targetDate, data, source: data as unknown })),
     ...state.habits.map(data => ({ type: "habit" as const, title: data.name, date: undefined, data, source: data as unknown })),
     ...state.journalEntries.map(data => ({ type: "journal" as const, title: data.title, date: data.date, data, source: data as unknown })),
-    ...state.knowledgeItems.map(data => ({ type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data, source: data as unknown })),
+    // Inline image data would drown the model; it sees `note-image:N` tokens that update_note restores.
+    ...state.knowledgeItems.map(item => { const data = item.content && hasInlineImages(item.content) ? { ...item, content: hideNoteImages(item.content) } : item;
+      return { type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data, source: data as unknown }; }),
     ...(state.events || []).map(data => ({ type: "event" as const, title: data.title, date: data.date, data, source: data as unknown })),
     ...(state.healthDays || []).map(data => ({ type: "health" as const, title: `Health ${data.date}`, date: data.date, data, source: data as unknown })),
     ...(state.workouts || []).map(data => ({ type: "workout" as const, title: `${data.name} ${data.date}`, date: data.date, data, source: data as unknown })),

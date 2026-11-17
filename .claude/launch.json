@@ -30,6 +30,15 @@
         "VITE_AUTH_PROVIDER=local npx vite --port 1431 --strictPort"
       ],
       "port": 1431
+    },
+    {
+      "name": "synapse-notes",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "VITE_AUTH_PROVIDER=local npx vite --port 1437 --strictPort"
+      ],
+      "port": 1437
     }
   ]
 }

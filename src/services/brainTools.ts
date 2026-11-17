@@ -61,7 +61,7 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     noteId: d_("ID of the existing note (knowledge record)."),
     newTitle: s_,
     appendContent: d_("Markdown to add at the end of the note."),
-    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note."),
+    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each ![...](note-image:N) where its image should stay."),
     folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
     workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
     tags: { type: "array", items: s_ },
@@ -574,6 +574,7 @@ import { normalizeTask, setTaskStatus } from "../utils/taskState";
 import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, logSolve, PROBLEM_STAGES, removeWorkspace, safeTrackerUrl, WORKSPACE_COLORS } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source, type RetrievalContext } from "./brainRetrieval";
+import { restoreNoteImages, stripNoteImages } from "../utils/noteImages";
 
 const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health", "workout", "workout_plan"];
 const str = { type: "string" };
@@ -1155,10 +1156,10 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const appended = args.appendContent === undefined ? current
         : html ? `${current}${args.appendContent.trim().split(/\n{2,}/).map((p: string) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`).join("")}`
         : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${args.appendContent.trim()}`;
-      const content = args.replaceContent !== undefined ? args.replaceContent : appended;
+      const content = args.replaceContent !== undefined ? restoreNoteImages(args.replaceContent, current) : appended;
       const title = args.newTitle?.trim();
       return { type: "knowledge", action: name, expected: note, record: { ...note, content,
-        ...(content !== current ? { summary: content.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {}),
+        ...(content !== current ? { summary: stripNoteImages(content).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {}),
         ...(title ? { title, subject: title } : {}), ...(moveTo !== undefined ? { folderId: moveTo } : {}), ...(args.tags ? { tags: args.tags } : {}),
         updatedAt: new Date().toISOString() } };
     }
