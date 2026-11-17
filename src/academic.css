@@ -16,11 +16,11 @@
   padding: 18px; display: flex; flex-direction: column; gap: 6px; transition: border-color 0.15s, box-shadow 0.15s;
 }
 .ac-course-card:hover { border-color: var(--ws-blue); box-shadow: 0 8px 28px #17112212; }
-.ac-course-card h3 { font-size: 15px; font-weight: 620; letter-spacing: -0.01em; line-height: 1.35; }
+.ac-course-card h3 { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.35; }
 .ac-course-card > p { font-size: 13px; color: var(--workspace-muted); }
 .ac-course-top { display: flex; justify-content: space-between; align-items: center; color: var(--workspace-muted); }
 .ac-course-code {
-  display: inline-block; font-size: 12px; font-weight: 500; letter-spacing: 0.4px; padding: 3px 8px; border-radius: 6px;
+  display: inline-block; font-size: 12px; font-weight: 500; letter-spacing: 0; padding: 3px 8px; border-radius: 6px;
   color: var(--ws-blue); background: color-mix(in srgb, var(--ws-blue) 13%, transparent);
 }
 .ac-course-meta { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 10px; font-size: 13px; color: var(--workspace-muted); }
@@ -33,10 +33,10 @@
 .ac-course-header { display: flex; flex-direction: column; gap: 12px; }
 .ac-course-header .ws-back { align-self: flex-start; }
 .ac-course-title { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
-.ac-course-title h2 { font-size: 24px; font-weight: 640; letter-spacing: -0.01em; margin-top: 8px; }
+.ac-course-title h2 { font-size: 24px; font-weight: 600; letter-spacing: -0.01em; margin-top: 8px; }
 .ac-course-title p { font-size: 14px; color: var(--workspace-muted); margin-top: 4px; }
 .ac-upcoming {
-  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; font-size: 13px; padding: 9px 12px; border-radius: 9px;
+  display: flex; align-items: center; gap: 8px 14px; flex-wrap: wrap; font-size: 13px; padding: 8px 12px; border-radius: 9px;
   background: var(--workspace-raised); color: var(--workspace-ink);
 }
 .ac-upcoming small { color: var(--workspace-muted); margin-left: 3px; }
@@ -48,7 +48,7 @@
 .ac-folder { display: flex; align-items: center; border-radius: 8px; padding-right: 4px; }
 .ac-folder:hover, .ac-folder.is-active { background: var(--workspace-hover); }
 .ac-folder.is-active { color: var(--workspace-accent); }
-.ac-folder-name { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 7px 10px; font-size: 14px; text-align: left; }
+.ac-folder-name { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 8px 10px; font-size: 14px; text-align: left; }
 .ac-folder > .ac-folder-name { padding-left: 0; }
 button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-folder-name span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -61,16 +61,16 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-docs { position: relative; min-height: 320px; display: flex; flex-direction: column; gap: 12px; }
 .ac-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ac-search {
-  display: flex; align-items: center; gap: 7px; flex: 1; min-width: 160px; max-width: 320px; padding: 0 11px; height: 39px;
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 160px; max-width: 320px; padding: 0 12px; height: 39px;
   border: 1px solid var(--workspace-line); border-radius: 8px; color: var(--workspace-muted);
 }
 .ac-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none; font-size: 14px; color: var(--workspace-ink); }
-.ac-upload { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 9px; background: var(--workspace-raised); font-size: 14px; }
+.ac-upload { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 9px; background: var(--workspace-raised); font-size: 14px; }
 .ac-upload > span { flex: 1; min-width: 0; color: var(--workspace-muted); }
 .ac-upload strong { color: var(--workspace-ink); font-weight: 500; margin-right: 4px; }
 .ac-upload.is-error { color: var(--ws-rose); background: color-mix(in srgb, var(--ws-rose) 10%, transparent); }
 .ac-doc-list { display: flex; flex-direction: column; }
-.ac-doc-list li { display: flex; align-items: center; gap: 12px; padding: 11px 6px; border-top: 1px solid var(--workspace-line); border-radius: 6px; }
+.ac-doc-list li { display: flex; align-items: center; gap: 12px; padding: 12px 6px; border-top: 1px solid var(--workspace-line); border-radius: 6px; }
 .ac-doc-list li:first-child { border-top: 0; }
 .ac-doc-list li.is-selected { background: color-mix(in srgb, var(--workspace-accent) 7%, transparent); }
 .ac-check {
@@ -110,7 +110,7 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 /* Dialogs */
 .ac-small-dialog { max-width: 400px; padding-top: 20px; }
 .ac-preview { max-width: 760px; }
-.ac-preview-body { padding: 0 25px 16px; overflow-y: auto; min-height: 120px; }
+.ac-preview-body { padding: 0 24px 16px; overflow-y: auto; min-height: 120px; }
 .ac-preview-body pre {
   white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; line-height: 1.7;
   padding: 14px 16px; border-radius: 10px; background: var(--workspace-raised);
@@ -118,7 +118,7 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-preview-actions span { flex: 1; }
 .ac-generate { max-width: 580px; }
 .ac-pick-list { display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto; border: 1px solid var(--workspace-line); border-radius: 9px; padding: 4px; }
-.ws-form-body .ac-pick-list label { flex-direction: row; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 6px; font-weight: 500; cursor: pointer; }
+.ws-form-body .ac-pick-list label { flex-direction: row; align-items: center; gap: 8px; padding: 8px 8px; border-radius: 6px; font-weight: 500; cursor: pointer; }
 .ac-pick-list label:hover { background: var(--workspace-hover); }
 .ac-pick-list input { position: absolute; opacity: 0; pointer-events: none; }
 
@@ -131,7 +131,7 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-deck-main > span:last-child { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ac-deck-main strong { font-size: 13px; font-weight: 500; }
 .ac-deck-main small { font-size: 13px; color: var(--workspace-muted); }
-.ac-card-table { display: flex; flex-direction: column; gap: 6px; padding: 0 0 14px 25px; }
+.ac-card-table { display: flex; flex-direction: column; gap: 6px; padding: 0 0 14px 24px; }
 .ac-card-line { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 9px; background: var(--workspace-raised); }
 .ac-card-line > div { flex: 1; min-width: 0; font-size: 14px; line-height: 1.55; }
 .ac-card-line p { color: var(--workspace-muted); white-space: pre-wrap; }
@@ -139,7 +139,7 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-card-due { white-space: nowrap; padding-top: 2px; }
 .ac-add-card { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
 .ac-add-card input {
-  flex: 1; min-width: 160px; height: 39px; padding: 0 11px; font-size: 14px; border-radius: 8px;
+  flex: 1; min-width: 160px; height: 39px; padding: 0 12px; font-size: 14px; border-radius: 8px;
   border: 1px solid var(--workspace-line); background: var(--workspace-panel); color: var(--workspace-ink);
 }
 
@@ -153,7 +153,7 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
   min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 28px;
   text-align: center; border-radius: 14px; border: 1px solid var(--workspace-line); background: var(--workspace-raised); overflow-y: auto;
 }
-.ac-flashcard small { font-size: 12px;  letter-spacing: 1px; color: var(--workspace-muted); }
+.ac-flashcard small { font-size: 12px;  letter-spacing: 0; color: var(--workspace-muted); }
 .ac-flashcard strong { font-size: 18px; font-weight: 500; line-height: 1.45; letter-spacing: -0.01em; white-space: pre-wrap; }
 .ac-flashcard p { font-size: 14px; line-height: 1.65; white-space: pre-wrap; padding-top: 14px; border-top: 1px solid var(--workspace-line); width: 100%; }
 .ac-flashcard em { font-size: 12px; color: var(--workspace-muted); font-style: normal; }
@@ -183,7 +183,7 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-choice.is-muted { opacity: 0.55; }
 .ac-short { display: flex; flex-direction: column; gap: 8px; align-items: flex-end; }
 .ac-short textarea {
-  width: 100%; padding: 11px 12px; border-radius: 10px; font-size: 13px; line-height: 1.6; resize: vertical;
+  width: 100%; padding: 12px 12px; border-radius: 10px; font-size: 13px; line-height: 1.6; resize: vertical;
   border: 1px solid var(--workspace-line); background: var(--workspace-panel); color: var(--workspace-ink);
 }
 .ac-feedback { padding: 12px 14px; border-radius: 10px; font-size: 14px; line-height: 1.65; display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
@@ -390,13 +390,13 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 /* Re-reading materials whose images were never read */
 .ac-reread { flex-shrink: 0; font-size: 12px; }
 .ac-reread-note {
-  display: flex; align-items: center; gap: 12px; margin: 0 25px 14px; padding: 10px 12px; border-radius: 10px;
+  display: flex; align-items: center; gap: 12px; margin: 0 24px 14px; padding: 10px 12px; border-radius: 10px;
   background: var(--workspace-tint); color: var(--workspace-secondary); font-size: 13px; line-height: 1.5;
 }
 .ac-reread-note span { flex: 1; }
 
 /* Code, tables and diagrams inside questions and flashcards */
-.ac-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; padding: 1px 5px; border-radius: 5px; background: var(--workspace-raised); }
+.ac-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; padding: 1px 4px; border-radius: 5px; background: var(--workspace-raised); }
 .ac-code-block {
   display: block; width: 100%; margin: 8px 0; padding: 10px 12px; border-radius: 8px; text-align: left; overflow-x: auto; white-space: pre;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.55; font-weight: 400; letter-spacing: 0;

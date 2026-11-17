@@ -1211,7 +1211,7 @@ export const App: React.FC = () => {
       {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
       {/* ========================================================= */}
       {!isChatTab && activeTab !== "home" && !activeTab.startsWith("workspace") && (
-        <div className="fixed bottom-6 right-6 z-30 flex flex-col items-end">
+        <div className="quick-add-dock fixed bottom-6 right-6 z-30 flex flex-col items-end">
           {/* Quick Pop-up Menu */}
           {isQuickAddMenuOpen && (
             <div className="quick-add-menu">

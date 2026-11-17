@@ -9,26 +9,26 @@
 .events-agenda { display: flex; flex-direction: column; gap: 28px; }
 .events-day { display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 24px; }
 .events-date { display: flex; flex-direction: column; gap: 4px; padding-top: 18px; }
-.events-date > span { color: var(--workspace-ink); font-size: 14px; font-weight: 550; }
+.events-date > span { color: var(--workspace-ink); font-size: 14px; font-weight: 500; }
 .events-date time { color: var(--workspace-muted); font-size: 13px; }
 .events-day-list { border: 1px solid var(--workspace-line); border-radius: 12px; background: var(--workspace-panel); overflow: hidden; }
 .events-row { display: grid; grid-template-columns: 152px minmax(0, 1fr) auto; gap: 20px; padding: 20px; border-top: 1px solid var(--workspace-line); }
 .events-row:first-child { border-top: 0; }
-.events-time { display: flex; align-items: flex-start; gap: 7px; color: var(--workspace-secondary); font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums; }
+.events-time { display: flex; align-items: flex-start; gap: 8px; color: var(--workspace-secondary); font-size: 12px; line-height: 22px; font-variant-numeric: tabular-nums; }
 .events-time > svg { flex-shrink: 0; margin-top: 4px; }
 .events-time small { display: block; margin-top: 4px; color: var(--workspace-muted); font-size: 11px; line-height: 1.5; }
 .events-details { min-width: 0; }
 .events-title-line { display: flex; align-items: baseline; gap: 8px 12px; flex-wrap: wrap; }
-.events-title { text-align: left; color: var(--workspace-ink); font-size: 15px; font-weight: 550; line-height: 22px; overflow-wrap: anywhere; }
+.events-title { text-align: left; color: var(--workspace-ink); font-size: 15px; font-weight: 500; line-height: 22px; overflow-wrap: anywhere; }
 button.events-title:hover { color: var(--workspace-accent); }
 .events-kind-label { font-size: 11px; line-height: 20px; color: var(--workspace-muted); white-space: nowrap; }
 .events-kind-google .events-kind-label { color: var(--workspace-accent); }
-.events-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 7px; color: var(--workspace-muted); font-size: 12px; }
+.events-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 8px; color: var(--workspace-muted); font-size: 12px; }
 .events-meta > span { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; min-width: 0; }
 .events-meta svg { flex-shrink: 0; }
-.events-notes { color: var(--workspace-secondary); font-size: 13px; line-height: 1.6; margin-top: 9px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.events-notes { color: var(--workspace-secondary); font-size: 13px; line-height: 1.6; margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .events-row-actions { display: flex; align-items: flex-start; gap: 8px; }
-.events-link { display: inline-flex; align-items: center; gap: 5px; color: var(--workspace-accent); font-size: 12px; padding: 6px 8px; border-radius: 7px; white-space: nowrap; }
+.events-link { display: inline-flex; align-items: center; gap: 4px; color: var(--workspace-accent); font-size: 12px; padding: 6px 8px; border-radius: 7px; white-space: nowrap; }
 .events-link:hover { background: var(--workspace-tint); }
 .events-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 76px 24px; border: 1px dashed var(--workspace-line-strong); border-radius: 14px; text-align: center; color: var(--workspace-muted); }
 .events-empty h2 { font-size: 18px; color: var(--workspace-ink); font-weight: 500; }
@@ -314,7 +314,7 @@ button.events-title:hover { color: var(--workspace-accent); }
 .tally-cell:active { transform: scale(0.94); }
 .tally-cell.is-today { border-style: solid; }
 .tally-cell.is-done { border: 0; background: var(--workspace-accent-strong); }
-.dark .tally-cell.is-done { color: #0f0f10; background: var(--workspace-accent); }
+.dark .tally-cell.is-done { color: #fff; background: var(--workspace-accent-strong); }
 @media (max-width: 767px) { .stat-strip.is-three { grid-template-columns: minmax(0, 1fr); } .stat-strip.is-three > * { border-left: 0; border-top: 1px solid var(--workspace-line); } .stat-strip.is-three > :first-child { border-top: 0; } }
 /* Large figures use Geist with tabular digits; mono stays for dates, counts and meta. */
 .stat-strip .figure, .knowledge-shortcuts .figure, .tally-streak .figure { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
@@ -329,14 +329,14 @@ button.events-title:hover { color: var(--workspace-accent); }
 .routines-error { color: var(--workspace-danger); border-color: var(--workspace-danger); }
 .routines-list, .routines-page .events-empty { margin-top: 24px; }
 .routines-row.is-paused .events-title, .routines-row.is-paused .events-notes { opacity: 0.55; }
-.routines-heading { margin: 36px 0 12px; color: var(--workspace-ink); font-size: 14px; font-weight: 550; }
+.routines-heading { margin: 36px 0 12px; color: var(--workspace-ink); font-size: 14px; font-weight: 500; }
 .routines-heading-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .routines-heading-row .routines-heading { margin-bottom: 12px; }
 .routines-templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .routines-template { display: flex; flex-direction: column; gap: 4px; padding: 14px 16px; text-align: left; border: 1px solid var(--workspace-line); border-radius: 12px; background: var(--workspace-panel); transition: border-color 0.15s; }
 .routines-template:hover:not(:disabled) { border-color: var(--workspace-accent); }
 .routines-template:disabled { opacity: 0.5; cursor: default; }
-.routines-template strong { color: var(--workspace-ink); font-size: 13px; font-weight: 550; }
+.routines-template strong { color: var(--workspace-ink); font-size: 13px; font-weight: 500; }
 .routines-template span { color: var(--workspace-muted); font-size: 12px; line-height: 1.45; }
 .routines-run.is-failed .events-kind-label { color: var(--workspace-danger); }
 .routines-run .events-notes.is-expanded { display: block; -webkit-line-clamp: unset; overflow: visible; }

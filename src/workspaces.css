@@ -45,7 +45,7 @@
   font-size: 30px;
   letter-spacing: -1.2px;
   font-weight: 500;
-  margin: 7px 0 9px;
+  margin: 8px 0 8px;
 }
 .ws-page-heading > div > p:last-child {
   font-size: 13px;
@@ -57,7 +57,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 15px;
+  padding: 10px 16px;
   border-radius: 8px;
   border: 1px solid transparent;
   font-size: 14px;
@@ -100,7 +100,7 @@
   border: 1px solid var(--workspace-line);
   background: var(--workspace-panel);
   border-radius: 14px;
-  padding: 23px;
+  padding: 24px;
   text-align: left;
   min-height: 237px;
   display: flex;
@@ -154,7 +154,7 @@
   justify-content: space-between;
   gap: 10px;
   border-top: 1px solid var(--workspace-line);
-  padding-top: 15px;
+  padding-top: 16px;
   font-size: 12px;
   color: var(--workspace-muted);
   margin-top: auto;
@@ -167,7 +167,7 @@
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  padding: 25px;
+  padding: 24px;
   color: var(--workspace-muted);
   background: color-mix(in srgb, var(--workspace-panel) 25%, transparent);
 }
@@ -181,7 +181,7 @@
   border-radius: 50%;
   background: var(--workspace-panel);
   border: 1px solid var(--workspace-line);
-  margin-bottom: 17px;
+  margin-bottom: 16px;
 }
 .ws-new-card strong {
   font-weight: 500;
@@ -189,7 +189,7 @@
 }
 .ws-new-card p {
   font-size: 13px;
-  margin-top: 7px;
+  margin-top: 8px;
   line-height: 1.8;
 }
 .ws-back {
@@ -198,7 +198,7 @@
   gap: 6px;
   color: var(--workspace-muted);
   font-size: 13px;
-  margin-bottom: 19px;
+  margin-bottom: 20px;
 }
 .ws-back:hover {
   color: var(--workspace-accent);
@@ -208,7 +208,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding: 27px 28px;
+  padding: 28px 28px;
   border: 1px solid var(--workspace-line);
   border-radius: 13px;
   background: linear-gradient(
@@ -219,7 +219,7 @@
 }
 .ws-hero-main {
   display: flex;
-  gap: 19px;
+  gap: 20px;
   align-items: center;
   min-width: 0;
 }
@@ -232,9 +232,9 @@
 .ws-hero-eyebrow {
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: 1.6px;
+  letter-spacing: 0;
   color: var(--ws-color);
-  margin-bottom: 5px;
+  margin-bottom: 4px;
 }
 .ws-hero h1 {
   font-size: 30px;
@@ -246,7 +246,7 @@
 .ws-hero p {
   font-size: 14px;
   color: var(--workspace-muted);
-  margin-top: 7px;
+  margin-top: 8px;
   line-height: 1.75;
   max-width: 560px;
   overflow-wrap: anywhere;
@@ -275,7 +275,7 @@
   display: flex;
   gap: 24px;
   border-bottom: 1px solid var(--workspace-line);
-  margin: 13px 0 25px;
+  margin: 12px 0 24px;
   overflow-x: auto;
 }
 .ws-tabs button {
@@ -312,7 +312,7 @@
   background: var(--workspace-panel);
   border: 1px solid var(--workspace-line);
   border-radius: 11px;
-  padding: 18px 19px;
+  padding: 18px 20px;
 }
 .ws-stat > div {
   display: flex;
@@ -382,7 +382,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 5px;
+  gap: 4px;
   font-size: 12px;
   font-weight: 500;
   color: var(--workspace-accent);
@@ -395,8 +395,8 @@
 .ws-practice-summary {
   display: flex;
   align-items: center;
-  gap: 29px;
-  padding: 4px 0 13px;
+  gap: 28px;
+  padding: 4px 0 12px;
 }
 .ws-progress-ring {
   width: 118px;
@@ -406,7 +406,7 @@
     var(--ws-purple) var(--progress),
     var(--workspace-raised) 0
   );
-  padding: 9px;
+  padding: 8px;
   flex-shrink: 0;
   transform: rotate(-90deg);
 }
@@ -486,7 +486,7 @@
   justify-content: space-between;
   font-size: 12px;
   color: var(--workspace-muted);
-  margin: 19px 0 10px;
+  margin: 20px 0 10px;
 }
 .ws-activity-heading small {
   font-size: 12px;
@@ -515,7 +515,7 @@
 }
 .ws-pipeline {
   display: grid;
-  margin: -3px 0 19px;
+  margin: -3px 0 20px;
   gap: 3px;
 }
 .ws-pipeline > button {
@@ -523,7 +523,7 @@
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  padding: 12px 7px;
+  padding: 12px 8px;
   border-radius: 7px;
   text-align: left;
 }
@@ -536,7 +536,7 @@
   font-weight: 500;
 }
 .ws-pipeline svg {
-  margin-left: 11px;
+  margin-left: 12px;
   color: var(--workspace-muted);
 }
 .ws-stage-dot {
@@ -552,7 +552,7 @@
   border-radius: 6px;
   border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
   background: color-mix(in srgb, currentColor 7%, var(--workspace-panel));
-  padding: 5px 6px;
+  padding: 4px 6px;
   font-size: 12px;
   font-weight: 500;
   max-width: 130px;
@@ -604,7 +604,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 16px 0 7px;
+  padding: 16px 0 8px;
   color: var(--workspace-success);
 }
 .ws-radar-empty strong {
@@ -615,16 +615,16 @@
 .ws-radar-empty p {
   color: var(--workspace-muted);
   font-size: 13px;
-  margin-top: 5px;
+  margin-top: 4px;
 }
 .ws-due-list > button {
   display: flex;
   align-items: center;
-  gap: 13px;
+  gap: 12px;
   width: 100%;
   text-align: left;
   border-top: 1px solid var(--workspace-line);
-  padding: 13px 0;
+  padding: 12px 0;
 }
 .ws-due-list > button:hover strong {
   color: var(--workspace-accent);
@@ -671,14 +671,14 @@
   color: var(--workspace-muted);
   font-size: 14px;
   line-height: 1.8;
-  margin: 10px 0 23px;
+  margin: 10px 0 24px;
 }
 .ws-tracker-heading {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 15px;
-  margin-bottom: 23px;
+  gap: 16px;
+  margin-bottom: 24px;
 }
 .ws-tracker-heading h2 {
   font-size: 20px;
@@ -688,18 +688,18 @@
 .ws-tracker-heading p {
   color: var(--workspace-muted);
   font-size: 13px;
-  margin-top: 7px;
+  margin-top: 8px;
 }
 .ws-toolbar {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 17px;
+  margin-bottom: 16px;
 }
 .ws-search {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   border: 1px solid var(--workspace-line);
   border-radius: 8px;
   background: var(--workspace-panel);
@@ -714,7 +714,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  padding: 11px 0;
+  padding: 12px 0;
   font-size: 13px;
   color: var(--workspace-ink);
 }
@@ -739,7 +739,7 @@
   margin-left: auto;
 }
 .ws-view-toggle button {
-  padding: 7px;
+  padding: 8px;
   border-radius: 5px;
   color: var(--workspace-muted);
 }
@@ -764,7 +764,7 @@
   font-size: 12px;
   color: var(--workspace-muted);
   font-weight: 500;
-  padding: 13px 17px;
+  padding: 12px 16px;
   background: color-mix(
     in srgb,
     var(--workspace-raised) 45%,
@@ -773,7 +773,7 @@
   border-bottom: 1px solid var(--workspace-line);
 }
 .ws-table td {
-  padding: 17px;
+  padding: 16px;
   border-bottom: 1px solid var(--workspace-line);
   color: var(--workspace-muted);
 }
@@ -818,7 +818,7 @@
   color: var(--workspace-muted);
   display: inline-flex;
   flex-shrink: 0;
-  padding: 5px;
+  padding: 4px;
 }
 .ws-record-link:hover {
   color: var(--workspace-accent);
@@ -845,7 +845,7 @@
 }
 .ws-pill {
   font-size: 12px;
-  padding: 4px 7px;
+  padding: 4px 8px;
   border-radius: 5px;
   background: color-mix(in srgb, currentColor 8%, var(--workspace-panel));
 }
@@ -868,10 +868,10 @@
 }
 .ws-table-footer {
   display: flex;
-  gap: 15px;
+  gap: 16px;
   justify-content: space-between;
   border-top: 1px solid var(--workspace-line);
-  padding: 12px 17px;
+  padding: 12px 16px;
   font-size: 12px;
   color: var(--workspace-muted);
 }
@@ -897,7 +897,7 @@
   border-radius: 17px;
   color: var(--workspace-accent);
   background: var(--workspace-hover);
-  margin-bottom: 21px;
+  margin-bottom: 20px;
 }
 .ws-empty h3 {
   font-size: 17px;
@@ -907,7 +907,7 @@
 .ws-empty p {
   font-size: 14px;
   color: var(--workspace-muted);
-  margin: 10px 0 23px;
+  margin: 10px 0 24px;
   max-width: 340px;
   line-height: 1.9;
 }
@@ -949,7 +949,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 11px;
+  gap: 12px;
 }
 .ws-board-card > p {
   font-size: 12px;
@@ -1027,7 +1027,7 @@
   overflow: hidden;
 }
 .ws-dialog-heading {
-  padding: 24px 25px 19px;
+  padding: 24px 24px 20px;
   display: flex;
   align-items: flex-start;
   gap: 12px;
@@ -1037,7 +1037,7 @@
   flex: 1;
 }
 .ws-dialog-heading .ws-icon {
-  margin-bottom: 17px;
+  margin-bottom: 16px;
 }
 .ws-dialog-heading h2 {
   font-size: 20px;
@@ -1049,13 +1049,13 @@
   font-size: 13px;
   color: var(--workspace-muted);
   line-height: 1.8;
-  margin-top: 7px;
+  margin-top: 8px;
 }
 .ws-form-body {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 4px 25px 24px;
+  padding: 4px 24px 24px;
   overflow-y: auto;
 }
 .ws-form-body label {
@@ -1082,7 +1082,7 @@
   width: 100%;
   font-size: 14px;
   font-weight: 400;
-  padding: 10px 11px;
+  padding: 10px 12px;
   min-height: 39px;
   outline: none;
 }
@@ -1172,10 +1172,10 @@
 }
 .ws-dialog-actions {
   border-top: 1px solid var(--workspace-line);
-  padding: 17px 25px;
+  padding: 16px 24px;
   display: flex;
   justify-content: flex-end;
-  gap: 9px;
+  gap: 8px;
   flex-shrink: 0;
 }
 .ws-form-grid {
@@ -1197,7 +1197,7 @@
   margin-bottom: 12px;
 }
 .ws-tracker-dialog .ws-form-body {
-  gap: 15px;
+  gap: 16px;
 }
 .ws-confirm {
   max-width: 420px;
@@ -1221,7 +1221,7 @@
   margin-top: 12px;
 }
 .ws-confirm .ws-dialog-actions {
-  margin: 25px -26px 0;
+  margin: 24px -26px 0;
 }
 .ws-danger {
   background: #b95970;
@@ -1232,7 +1232,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 7px;
+  margin-bottom: 8px;
 }
 .sidebar-workspace-label .nav-label {
   margin: 0;
@@ -1283,10 +1283,10 @@
     gap: 10px;
   }
   .ws-stat {
-    padding: 16px 13px;
+    padding: 16px 12px;
   }
   .ws-hero {
-    padding: 23px;
+    padding: 24px;
   }
   .ws-hero-actions .ws-button span {
     display: none;
@@ -1353,14 +1353,14 @@
   }
   .ws-hero-eyebrow {
     font-size: 7px;
-    letter-spacing: 0.9px;
+    letter-spacing: 0;
   }
   .ws-hero-actions {
     flex-direction: column;
     gap: 2px;
   }
   .ws-hero-actions .ws-button {
-    padding: 7px;
+    padding: 8px;
     min-height: 30px;
   }
   .ws-tabs {
@@ -1412,7 +1412,7 @@
   .ws-tracker-heading {
     align-items: flex-start;
     flex-direction: column;
-    gap: 17px;
+    gap: 16px;
   }
   .ws-tracker-heading h2 {
     font-size: 20px;
@@ -1447,7 +1447,7 @@
     border-radius: 12px;
   }
   .ws-dialog-heading {
-    padding: 20px 18px 17px;
+    padding: 20px 18px 16px;
   }
   .ws-dialog-heading h2 {
     font-size: 18px;
@@ -1456,7 +1456,7 @@
     padding: 0 18px 20px;
   }
   .ws-dialog-actions {
-    padding: 15px 18px;
+    padding: 16px 18px;
   }
   .ws-form-grid {
     gap: 10px;
@@ -1468,7 +1468,7 @@
     padding: 12px;
   }
   .ws-confirm {
-    padding: 23px 20px 0;
+    padding: 24px 20px 0;
   }
   .ws-confirm .ws-dialog-actions {
     margin-left: -20px;
@@ -1482,7 +1482,7 @@
     font-size: 12px;
   }
   .ws-due-list > button {
-    gap: 9px;
+    gap: 8px;
   }
   .ws-due-list strong {
     font-size: 13px;

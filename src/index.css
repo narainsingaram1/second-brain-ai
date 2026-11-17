@@ -26,7 +26,7 @@
 .note-document-eyebrow { color: var(--note-muted); font-size: 13px; }
 .note-document-header input[aria-label="Note title"] { line-height: 1.25; padding-block: 6px; }
 .note-reading-controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 2px; color: var(--note-muted); font-size: 12px; }
-.note-reading-controls > span { display: flex; align-items: center; gap: 7px; }
+.note-reading-controls > span { display: flex; align-items: center; gap: 8px; }
 .note-reading-controls > span::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--workspace-success); }
 .note-reading-controls label { display: flex; align-items: center; gap: 8px; }
 .note-reading-controls select { background: transparent; padding: 4px 6px; border: 1px solid var(--note-line); border-radius: 7px; color: var(--note-ink); }
@@ -105,7 +105,7 @@
 .note-image:hover .note-image-handle, .note-image.is-selected .note-image-handle, .note-image.is-resizing .note-image-handle,
 .note-image:hover .note-image-tools, .note-image.is-selected .note-image-tools { opacity: 1; }
 .note-image.is-resizing { user-select: none; }
-.note-image-chip { font-size: 12px; padding: 4px 9px; border-radius: 6px; border: 1px solid var(--note-line); color: var(--note-muted); background: var(--workspace-surface, transparent); }
+.note-image-chip { font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--note-line); color: var(--note-muted); background: var(--workspace-surface, transparent); }
 .note-image-chip:hover, .note-image-chip[aria-pressed="true"] { color: var(--note-ink); background: var(--workspace-raised); }
 .note-image-draw { color: var(--workspace-accent); font-weight: 600; margin-left: 4px; }
 .ProseMirror[contenteditable="false"] .note-image-handle, .ProseMirror[contenteditable="false"] .note-image-tools { display: none; }
@@ -126,7 +126,7 @@
 .annotator-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #fff; }
 .annotator-dot { display: block; border-radius: 999px; }
 .annotator-actions { display: flex; gap: 8px; margin-left: auto; }
-.annotator-cancel, .annotator-save { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; font-size: 14px; }
+.annotator-cancel, .annotator-save { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 14px; }
 .annotator-cancel { color: #cbd2de; } .annotator-cancel:hover { background: #232836; }
 .annotator-save { background: #fff; color: #111827; font-weight: 600; } .annotator-save:disabled { opacity: .5; }
 .annotator-tool:focus-visible, .annotator-swatch:focus-visible, .annotator-save:focus-visible, .annotator-cancel:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
