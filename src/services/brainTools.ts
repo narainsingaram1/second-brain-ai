@@ -61,7 +61,7 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     noteId: d_("ID of the existing note (knowledge record)."),
     newTitle: s_,
     appendContent: d_("Markdown to add at the end of the note."),
-    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each ![...](note-image:N) where its image should stay."),
+    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each image line (![...](synapse-img:...) or ![...](note-image:N)) exactly where its image should stay."),
     folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
     workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
     tags: { type: "array", items: s_ },

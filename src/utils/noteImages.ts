@@ -1,7 +1,7 @@
 /**
- * Images pasted into notes are stored inline as data URLs so they sync and work offline with the note.
- * Anything that shows note text to a model or a person editing raw Markdown swaps that data for a short
- * token (`note-image:1`) and swaps it back on the way in, so images never flood context or get lost.
+ * Notes reference images in the image store (`synapse-img:…`). Older notes may still hold inline
+ * `data:image/…` images until they are next opened; anything that shows note text to a model or in raw
+ * Markdown swaps that data for a short token (`note-image:1`) and back, so it never floods context.
  */
 const DATA_IMAGE = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
 const TOKEN = /note-image:(\d+)/g;
@@ -38,20 +38,15 @@ export const MAX_NOTE_IMAGE_EDGE = 1600;
 const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 const SUPPORTED = /^image\/(png|jpe?g|webp|gif|bmp|avif)$/i;
 
-function readAsDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(blob);
-  });
-}
+const toBlob = (canvas: HTMLCanvasElement, type: string, quality?: number) =>
+  new Promise<Blob | null>(resolve => canvas.toBlob(resolve, type, quality));
 
-export function encodeCanvas(canvas: HTMLCanvasElement, preferPng = false): string {
-  const webp = canvas.toDataURL("image/webp", 0.86);
-  if (webp.startsWith("data:image/webp")) return webp; // WebKit can't encode WebP and silently returns PNG.
-  const png = preferPng ? canvas.toDataURL("image/png") : "";
-  if (png && png.length < 1_200_000) return png;
+/** Compact image bytes from a canvas: WebP where the engine can encode it, else PNG for small screenshots, else JPEG. */
+export async function canvasBlob(canvas: HTMLCanvasElement, preferPng = false): Promise<Blob> {
+  const webp = await toBlob(canvas, "image/webp", 0.86);
+  if (webp?.type === "image/webp") return webp; // WebKit can't encode WebP and silently returns PNG.
+  const png = preferPng ? await toBlob(canvas, "image/png") : null;
+  if (png && png.size < 900_000) return png;
   const context = canvas.getContext("2d");
   if (context) { // JPEG has no alpha: flatten onto white rather than black.
     context.globalCompositeOperation = "destination-over";
@@ -59,25 +54,27 @@ export function encodeCanvas(canvas: HTMLCanvasElement, preferPng = false): stri
     context.fillRect(0, 0, canvas.width, canvas.height);
     context.globalCompositeOperation = "source-over";
   }
-  return canvas.toDataURL("image/jpeg", 0.85);
+  const jpeg = await toBlob(canvas, "image/jpeg", 0.85);
+  if (!jpeg) throw new Error("Your browser could not encode this image.");
+  return jpeg;
 }
 
 /** Decodes, orients and downsizes an image for a note. Small GIFs stay as-is so they keep animating. */
-export async function prepareNoteImage(file: Blob): Promise<{ src: string; width: number; height: number }> {
+export async function prepareNoteImage(file: Blob): Promise<Blob> {
   if (!SUPPORTED.test(file.type)) throw new Error("Use a PNG, JPEG, WebP or GIF image.");
   if (file.size > MAX_SOURCE_BYTES) throw new Error("That image is larger than 25 MB.");
+  if (/gif/i.test(file.type) && file.size < 1_500_000) return file;
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
     const ratio = Math.min(1, MAX_NOTE_IMAGE_EDGE / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * ratio)), height = Math.max(1, Math.round(bitmap.height * ratio));
-    if (/gif/i.test(file.type) && file.size < 1_500_000) return { src: await readAsDataUrl(file), width: bitmap.width, height: bitmap.height };
     const canvas = document.createElement("canvas");
-    canvas.width = width; canvas.height = height;
+    canvas.width = Math.max(1, Math.round(bitmap.width * ratio));
+    canvas.height = Math.max(1, Math.round(bitmap.height * ratio));
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Your browser could not process this image.");
     context.imageSmoothingQuality = "high";
-    context.drawImage(bitmap, 0, 0, width, height);
-    return { src: encodeCanvas(canvas, /png|gif|bmp/i.test(file.type)), width, height };
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return await canvasBlob(canvas, /png|gif|bmp/i.test(file.type));
   } finally {
     bitmap.close();
   }

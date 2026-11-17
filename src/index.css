@@ -114,6 +114,7 @@
 .note-image-error { font-size: 13px; color: #dc2626; margin: -8px 0 12px; }
 
 /* Image annotator */
+.annotator:focus { outline: none; }
 .annotator { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; background: rgba(10,12,18,.94); color: #e5e7eb; }
 .annotator-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 16px; background: #151821; border-bottom: 1px solid #262b38; }
 .annotator-group { display: flex; align-items: center; gap: 3px; }
@@ -139,3 +140,8 @@
 .annotator-message { display: flex; align-items: center; gap: 8px; color: #cbd2de; font-size: 14px; max-width: 420px; text-align: center; line-height: 1.5; }
 .annotator-hint { padding: 0 16px 10px; text-align: center; font-size: 12px; color: #7d8597; }
 @media (max-width: 640px) { .annotator-bar { gap: 6px 10px; padding: 8px; } .annotator-hint { display: none; } }
+.note-image.is-loading .note-image-frame, .note-image.is-missing .note-image-frame { min-width: 220px; min-height: 120px; border-radius: 8px; background: var(--workspace-raised); }
+.note-image.is-loading .note-image-frame { animation: note-image-pulse 1.2s ease-in-out infinite; }
+.note-image.is-missing .note-image-frame::after { content: "Image not available on this device yet"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; line-height: 1.4; color: var(--note-muted); padding: 12px; text-align: center; }
+@keyframes note-image-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .note-image.is-loading .note-image-frame { animation: none; } }

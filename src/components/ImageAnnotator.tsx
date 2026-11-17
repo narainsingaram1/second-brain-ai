@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, Circle, Eraser, Highlighter, Loader2, MoveUpRight, Pencil, Redo2, Square, Trash2, Type, Undo2, X } from "lucide-react";
-import { encodeCanvas } from "../utils/noteImages";
+import { canvasBlob } from "../utils/noteImages";
+import { resolveImageUrl } from "../services/noteImageStore";
 
 type Point = [number, number];
 type Tool = "pen" | "highlighter" | "arrow" | "rect" | "ellipse" | "text" | "eraser";
@@ -86,7 +87,7 @@ function hits(ctx: CanvasRenderingContext2D, s: Shape, p: Point, slack: number):
   return Math.abs(Math.hypot(nx, ny) - 1) * Math.min(rx, ry) <= reach;
 }
 
-interface Props { src: string; onSave: (dataUrl: string) => void; onClose: () => void }
+interface Props { src: string; onSave: (image: Blob) => void | Promise<void>; onClose: () => void }
 
 /** Full-screen drawing layer over a note image. Marks stay editable (undo, erase) until saved, then are flattened in. */
 export function ImageAnnotator({ src, onSave, onClose }: Props) {
@@ -142,7 +143,7 @@ export function ImageAnnotator({ src, onSave, onClose }: Props) {
 
   useEffect(() => {
     const img = new Image();
-    if (!src.startsWith("data:") && !src.startsWith("blob:")) img.crossOrigin = "anonymous";
+    if (/^https?:/i.test(src)) img.crossOrigin = "anonymous";
     img.onload = () => {
       const ratio = Math.min(1, MAX_EDGE / Math.max(img.naturalWidth, img.naturalHeight));
       const w = Math.round(img.naturalWidth * ratio), h = Math.round(img.naturalHeight * ratio);
@@ -152,7 +153,9 @@ export function ImageAnnotator({ src, onSave, onClose }: Props) {
       setStatus("ready");
     };
     img.onerror = () => setStatus("error");
-    img.src = src;
+    let cancelled = false;
+    resolveImageUrl(src).then(url => { if (!cancelled) img.src = url; }).catch(() => { if (!cancelled) setStatus("error"); });
+    return () => { cancelled = true; };
   }, [src]);
 
   const change = (next: Shape[]) => {
@@ -230,7 +233,7 @@ export function ImageAnnotator({ src, onSave, onClose }: Props) {
     const ctx = out.getContext("2d")!;
     ctx.drawImage(base, 0, 0);
     for (const s of shapes) drawShape(ctx, s);
-    try { onSave(encodeCanvas(out, /^data:image\/png/.test(src))); }
+    try { await onSave(await canvasBlob(out, /\.png$|^data:image\/png/.test(src))); }
     catch { setStatus("error"); setSaving(false); }
   };
 
@@ -243,23 +246,30 @@ export function ImageAnnotator({ src, onSave, onClose }: Props) {
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "TEXTAREA") return;
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? redoLast() : undo(); }
-      else if (mod && e.key.toLowerCase() === "y") { e.preventDefault(); redoLast(); }
-      else if (e.key === "Escape") { e.preventDefault(); close(); }
-      else if (!mod && !e.altKey) {
-        const found = TOOLS.find(t => t[3] === e.key.toLowerCase());
-        if (found) setTool(found[0]);
-        else if (/^[1-8]$/.test(e.key)) setColor(COLORS[Number(e.key) - 1]);
-      }
+      const found = !mod && !e.altKey ? TOOLS.find(t => t[3] === e.key.toLowerCase()) : undefined;
+      const colour = !mod && !e.altKey && /^[1-8]$/.test(e.key);
+      const handled = (mod && /^[zy]$/i.test(e.key)) || e.key === "Escape" || !!found || colour;
+      if (!handled) return;
+      // Consume it here (capture phase) so it never reaches the note editor behind the dialog.
+      e.preventDefault();
+      e.stopPropagation();
+      if (mod && e.key.toLowerCase() === "z") e.shiftKey ? redoLast() : undo();
+      else if (mod) redoLast();
+      else if (e.key === "Escape") close();
+      else if (found) setTool(found[0]);
+      else setColor(COLORS[Number(e.key) - 1]);
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
   }, [undo, redoLast, close]);
+  // Take focus from the note behind the dialog, so stray keys can't type into it.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { dialogRef.current?.focus(); }, []);
 
   const iconButton = (label: string, Icon: typeof Pencil, onClick: () => void, pressed?: boolean, disabled?: boolean) =>
     <button key={label} type="button" title={label} aria-label={label} aria-pressed={pressed} disabled={disabled} onClick={onClick} className="annotator-tool"><Icon size={18} strokeWidth={1.9} /></button>;
 
-  return createPortal(<div className="annotator" role="dialog" aria-modal="true" aria-label="Draw on image">
+  return createPortal(<div ref={dialogRef} tabIndex={-1} className="annotator" role="dialog" aria-modal="true" aria-label="Draw on image">
     <div className="annotator-bar" role="toolbar" aria-label="Drawing tools">
       <div className="annotator-group">
         {TOOLS.map(([id, label, Icon, key]) => iconButton(`${label} (${key.toUpperCase()})`, Icon, () => setTool(id), tool === id))}

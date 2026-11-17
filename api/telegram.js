@@ -5728,9 +5728,9 @@ const memory = /* @__PURE__ */ new Map();
 const cachedDocumentText = (id) => memory.get(id);
 // src/utils/noteImages.ts
 /**
-* Images pasted into notes are stored inline as data URLs so they sync and work offline with the note.
-* Anything that shows note text to a model or a person editing raw Markdown swaps that data for a short
-* token (`note-image:1`) and swaps it back on the way in, so images never flood context or get lost.
+* Notes reference images in the image store (`synapse-img:…`). Older notes may still hold inline
+* `data:image/…` images until they are next opened; anything that shows note text to a model or in raw
+* Markdown swaps that data for a short token (`note-image:1`) and back, so it never floods context.
 */
 const DATA_IMAGE = /data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=]+/gi;
 const TOKEN = /note-image:(\d+)/g;
@@ -22136,7 +22136,7 @@ const EDIT_TOOLS = [
 		noteId: d_("ID of the existing note (knowledge record)."),
 		newTitle: s_,
 		appendContent: d_("Markdown to add at the end of the note."),
-		replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each ![...](note-image:N) where its image should stay."),
+		replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each image line (![...](synapse-img:...) or ![...](note-image:N)) exactly where its image should stay."),
 		folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
 		workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
 		tags: {
