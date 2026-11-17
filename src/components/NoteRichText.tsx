@@ -1,7 +1,26 @@
-import { forwardRef, memo, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, lazy, memo, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import { noteExtensions } from "./noteExtensions";
-import { Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
+import { ANNOTATE_EVENT, type AnnotateDetail } from "./noteImage";
+import { imageFilesFrom } from "../utils/imageInput";
+import { prepareNoteImage } from "../utils/noteImages";
+import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
+
+const ImageAnnotator = lazy(() => import("./ImageAnnotator").then(m => ({ default: m.ImageAnnotator })));
+
+/** Compresses pasted/dropped/picked images and inserts them at `pos` (or the selection) as one undo step. */
+async function insertImages(view: EditorView, files: File[], onError: (message: string) => void, pos?: number) {
+  const images = await Promise.all(files.slice(0, 12).map(file => prepareNoteImage(file).catch((err: Error) => { onError(err.message); return null; })));
+  const type = view.state.schema.nodes.image;
+  const nodes = images.filter(Boolean).map(image => type.create({ src: image!.src, alt: null }));
+  if (!nodes.length || view.isDestroyed) return;
+  const tr = pos == null ? view.state.tr.replaceSelectionWith(nodes[0]) : view.state.tr.insert(Math.min(pos, view.state.doc.content.size), nodes[0]);
+  let at = tr.mapping.map(pos ?? view.state.selection.from);
+  for (const node of nodes.slice(1)) { tr.insert(at, node); at += node.nodeSize; }
+  view.dispatch(tr.scrollIntoView());
+  view.focus();
+}
 
 interface Props { content: string; onChange: (markdown: string) => void; readOnly?: boolean }
 
@@ -34,6 +53,12 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
   const [linkOpen, setLinkOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState("");
+  const [annotating, setAnnotating] = useState<AnnotateDetail | null>(null);
+  const [imageError, setImageError] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+  const showImageError = (message: string) => { setImageError(message); setTimeout(() => setImageError(""), 5000); };
+  const errorRef = useRef(showImageError);
+  errorRef.current = showImageError;
   const editor = useEditor({
     extensions,
     content,
@@ -41,7 +66,30 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
     immediatelyRender: false,
     shouldRerenderOnTransaction: false,
     editable: !readOnly,
-    editorProps: { attributes: { class: "note-prose", role: "textbox", "aria-label": "Note content", "aria-multiline": "true" } },
+    editorProps: {
+      attributes: { class: "note-prose", role: "textbox", "aria-label": "Note content", "aria-multiline": "true" },
+      // Screenshots and copied images arrive as files; plain HTML/text pastes go through ProseMirror untouched.
+      handlePaste: (view, event) => {
+        const files = imageFilesFrom(event.clipboardData);
+        if (!files.length || !view.editable) return false;
+        event.preventDefault();
+        void insertImages(view, files, m => errorRef.current(m));
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        const files = moved ? [] : imageFilesFrom(event.dataTransfer);
+        if (!files.length || !view.editable) return false;
+        event.preventDefault();
+        const pos = view.posAtCoords({ left: event.clientX, top: event.clientY })?.pos;
+        void insertImages(view, files, m => errorRef.current(m), pos);
+        return true;
+      },
+      handleDoubleClickOn: (view, pos, node) => {
+        if (node.type.name !== "image" || !view.editable) return false;
+        setAnnotating({ pos, src: node.attrs.src });
+        return true;
+      },
+    },
     onUpdate: ({ editor }) => {
       // Editing stays in ProseMirror. Convert the full document only after a pause,
       // with a bounded interval for long uninterrupted writing sessions.
@@ -54,6 +102,13 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
   useImperativeHandle(ref, () => ({ flush: () => editor ? publish(editor) : publishedRef.current }), [editor]);
   useEffect(() => () => clearTimers(), []);
   useEffect(() => { if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly); }, [editor, readOnly]);
+  useEffect(() => {
+    const dom = editor?.view.dom;
+    if (!dom) return;
+    const open = (e: Event) => setAnnotating((e as CustomEvent<AnnotateDetail>).detail);
+    dom.addEventListener(ANNOTATE_EVENT, open);
+    return () => dom.removeEventListener(ANNOTATE_EVENT, open);
+  }, [editor]);
   useEffect(() => {
     // Echoes of our own autosave never reparse the document or move the cursor.
     if (editor && content !== publishedRef.current) {
@@ -101,6 +156,7 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         {tool("Quote", Quote, () => { editor.chain().focus().toggleBlockquote().run(); }, state?.quote)}
         {tool("Code block", Code, () => { editor.chain().focus().toggleCodeBlock().run(); }, state?.codeBlock)}
         {tool("Divider", Minus, () => { editor.chain().focus().setHorizontalRule().run(); })}
+        {tool("Insert image (or paste / drop one)", ImagePlus, () => fileInput.current?.click())}
         {divider}
         {tool("Add or edit link", Link2, () => { setLinkUrl(editor.getAttributes("link").href || ""); setLinkError(""); setLinkOpen(!linkOpen); }, state?.link)}
         {state?.link && tool("Remove link", Unlink, () => { editor.chain().focus().extendMarkRange("link").unsetLink().run(); })}
@@ -109,6 +165,12 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         {tool("Undo", Undo2, () => { editor.chain().focus().undo().run(); }, false, !state?.undo)}
         {tool("Redo", Redo2, () => { editor.chain().focus().redo().run(); }, false, !state?.redo)}
       </div>
+      <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={e => {
+        const files = Array.from(e.target.files || []);
+        e.target.value = "";
+        if (files.length) void insertImages(editor.view, files, showImageError);
+      }} />
+      {imageError && <p className="note-image-error" role="alert">{imageError}</p>}
       {linkOpen && <form className="note-link-form" onSubmit={e => {
         e.preventDefault();
         const url = linkUrl.trim();
@@ -121,6 +183,16 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       </form>}
     </>}
     <EditorContent editor={editor} />
-    {!readOnly && <p className="note-writing-hint">Markdown shortcuts work as you type · Select text to format · ⌘/Ctrl+Z to undo</p>}
+    {!readOnly && <p className="note-writing-hint">Markdown shortcuts work as you type · Paste or drop images, drag their edges to resize, double-click to draw · ⌘/Ctrl+Z to undo</p>}
+    {annotating && <Suspense fallback={null}><ImageAnnotator src={annotating.src} onClose={() => { setAnnotating(null); editor.commands.focus(); }} onSave={src => {
+      let pos = annotating.pos, node = editor.state.doc.nodeAt(pos);
+      if (node?.type.name !== "image" || node.attrs.src !== annotating.src) { // Find it again if the note changed meanwhile.
+        node = null;
+        editor.state.doc.descendants((n, p) => { if (!node && n.type.name === "image" && n.attrs.src === annotating.src) { node = n; pos = p; } return !node; });
+      }
+      if (node) editor.view.dispatch(editor.state.tr.setNodeMarkup(pos, undefined, { ...node.attrs, src }));
+      else showImageError("The image moved while you were drawing, so the drawing wasn’t applied.");
+      setAnnotating(null);
+    }} /></Suspense>}
   </div>;
 }));

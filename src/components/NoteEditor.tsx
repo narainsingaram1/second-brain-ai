@@ -1,9 +1,10 @@
 import { queryOpenRouter } from "../services/openrouter";
-import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback, useMemo } from "react";
 import { KnowledgeItem, NoteFolder } from "../types";
 import { folderPath } from "../utils/noteFolders";
 import { createPortal } from "react-dom";
 import type { NoteRichTextHandle } from "./NoteRichText";
+import { hideNoteImages, restoreNoteImages, stripNoteImages } from "../utils/noteImages";
 const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
 import {
   ArrowLeft,
@@ -158,10 +159,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
 
     pendingSaveRef.current = () => {
-      const summarySnippet =
-        newContent.trim().length > 200
-          ? newContent.trim().slice(0, 197) + "..."
-          : newContent.trim() || newTitle;
+      const text = stripNoteImages(newContent).trim();
+      const summarySnippet = text.length > 200 ? text.slice(0, 197) + "..." : text || newTitle;
 
       const updated: KnowledgeItem = {
         ...note,
@@ -253,7 +252,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       return;
     }
 
-    const latestContent = currentContent();
+    const original = currentContent();
+    const latestContent = hideNoteImages(original);
     setIsAILoading(true);
     setAiMenuOpen(false);
 
@@ -291,7 +291,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         handleContentChange(currentContent() + "\n\n## AI Summary & Takeaways\n" + aiResponse);
         setAiNotice("Summary added");
       } else if (action === "polish") {
-        handleContentChange(aiResponse);
+        handleContentChange(restoreNoteImages(aiResponse, original));
         setAiNotice("Note tidied");
       } else if (action === "expand") {
         handleContentChange(currentContent() + "\n\n" + aiResponse);
@@ -307,7 +307,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   };
 
   // Word count & read time
-  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  const prose = useMemo(() => stripNoteImages(content), [content]);
+  const words = prose.trim().split(/\s+/).filter(Boolean).length;
   const readTime = Math.ceil(words / 200);
 
   const editorView = (
@@ -599,13 +600,13 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       <div className="note-content-workspace flex-1 min-h-[450px]">
         {mode === "source" ? <textarea
           aria-label="Markdown source"
-          value={content}
-          onChange={e => handleContentChange(e.target.value)}
+          value={hideNoteImages(content)}
+          onChange={e => handleContentChange(restoreNoteImages(e.target.value, content))}
           placeholder="Write Markdown here…"
           className="note-source"
         /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={note.id} content={content} onChange={handleContentChange} readOnly={mode === "preview"} /></Suspense>}
       </div>
-      <div className="note-editor-footer"><span>{words} words · {content.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
+      <div className="note-editor-footer"><span>{words} words · {prose.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
     </div>
   );
   return <><div ref={inlineHostRef} />{portalHost ? createPortal(editorView, portalHost) : editorView}</>;

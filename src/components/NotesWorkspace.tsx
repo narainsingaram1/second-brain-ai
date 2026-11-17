@@ -10,6 +10,7 @@ import { FolderTree, RenameInput, WorkspaceGlyph, type DropBinding } from "./not
 import { Menu, MenuDivider, MenuItem, MoveToList, byName } from "./notes/Menu";
 import { folderMoveBlocked, folderPath, subtreeIds } from "../utils/noteFolders";
 import "../notes.css";
+import { stripNoteImages } from "../utils/noteImages";
 
 interface NotesWorkspaceProps {
   items: KnowledgeItem[];
@@ -47,7 +48,7 @@ const store = {
 
 const titleOf = (n: KnowledgeItem) => n.title || n.subject || "Untitled";
 const plainText = (n: KnowledgeItem) =>
-  (n.content || (n.summary && n.summary !== titleOf(n) ? n.summary : ""))
+  stripNoteImages(n.content || (n.summary && n.summary !== titleOf(n) ? n.summary : ""))
     .replace(/<\/(p|h\d|li|div|blockquote)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/^\s*(#{1,6}|>|[-*+]\s\[[ x]\]|[-*+]|\d+\.)\s+/gm, "").replace(/(\*\*|__|`{1,3}|~~)/g, "")
