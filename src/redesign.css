@@ -169,7 +169,7 @@ kbd {
   width: 28px;
   height: 28px;
   flex-shrink: 0;
-  background: url("/iris-logo.png") center / contain no-repeat;
+  background: url("/iris-mark.svg") center / contain no-repeat;
 }
 .icon-control {
   display: inline-flex;
@@ -227,7 +227,7 @@ kbd {
   font-weight: 500;
   color: var(--workspace-muted);
   padding-left: 10px;
-  margin-bottom: 5px;
+  margin-bottom: 4px;
   line-height: 18px;
 }
 .sidebar-workspace-label {
@@ -875,7 +875,7 @@ kbd {
 }
 .workspace-dialog label {
   color: var(--workspace-muted);
-  font-weight: 550;
+  font-weight: 500;
 }
 .workspace-dialog input:not([type="checkbox"]):not([type="color"]),
 .workspace-dialog textarea,
@@ -945,3 +945,53 @@ kbd {
 @keyframes app-skeleton-pulse { 50% { opacity: 0.5; } }
 @media (max-width: 767px) { .app-skeleton-location { display: none; } }
 @media (prefers-reduced-motion: reduce) { .app-skeleton-bar { animation: none; } }
+
+/* Polish pass: quieter chrome, one primary action per page, a flat mark. */
+:root:not(.dark) { --workspace-sidebar: #f6f6f7; --workspace-canvas: #fbfbfb; }
+.iris-mark { width: 24px; height: 24px; border-radius: 6px; }
+.iris-brand { font-size: 15px; gap: 8px; }
+.sidebar-brand-row { margin-bottom: 12px; }
+.sidebar-capture,
+.dark .sidebar-capture {
+  height: 36px;
+  border: 1px solid var(--workspace-line);
+  border-radius: 8px;
+  background: var(--workspace-panel);
+  color: var(--workspace-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+}
+.sidebar-capture:hover, .dark .sidebar-capture:hover { background: var(--workspace-panel); border-color: var(--workspace-line-strong); }
+.sidebar-capture svg { color: var(--workspace-muted); }
+.sidebar-capture kbd, .dark .sidebar-capture kbd {
+  background: var(--workspace-raised);
+  color: var(--workspace-muted);
+  border: 1px solid var(--workspace-line);
+}
+.nav-group { margin-top: 20px; }
+.nav-label { font-size: 12px; padding-left: 10px; margin-bottom: 4px; line-height: 16px; }
+.sidebar-nav button, .sidebar-settings { height: 32px; border-radius: 8px; font-size: 13.5px; }
+.sidebar-nav button[aria-current="page"] {
+  background: var(--workspace-panel);
+  box-shadow: 0 0 0 1px var(--workspace-line), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.dark .sidebar-nav button[aria-current="page"] { background: #232325; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.sidebar-nav button small { font-family: var(--font-mono); font-size: 12px; }
+.synapse-header { height: 52px; min-height: 52px; background: var(--workspace-canvas); }
+.header-location strong { font-size: 14px; font-weight: 500; }
+.workspace-search { height: 32px; border-radius: 8px; font-size: 13px; box-shadow: none; background: var(--workspace-sidebar); }
+.workspace-search:hover { background: var(--workspace-panel); }
+.page-heading { padding-bottom: 20px; }
+.workspace-primary { height: 36px; padding: 0 14px; }
+
+/* Pages already carry their own create button and the sidebar has New, so the floating one is for small screens. */
+@media (min-width: 1024px) { .quick-add-dock { display: none; } }
+
+/* Assistant mark in chat */
+.chat-welcome-mark { width: 40px; height: 40px; margin: 0 0 20px; }
+.chat-assistant-avatar-wrap { background: none; border: 0; box-shadow: none; }
+.chat-assistant-avatar { width: 24px; height: 24px; }
+
+/* Stat cards are numbers: no decorative icons. */
+.ws-stat > div svg { display: none; }
+.dark .iris-mark, .dark .chat-welcome-mark { box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.12); border-radius: 6px; }
+.dark .chat-welcome-mark { border-radius: 10px; }

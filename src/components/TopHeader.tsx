@@ -51,7 +51,7 @@ export function TopHeader({
         aria-label="Search workspace"
       >
         <Search size={15} strokeWidth={1.5} className="shrink-0" />
-        <span>Search anything...</span>
+        <span>Search</span>
         <kbd>⌘K</kbd>
       </button>
       <div className="header-actions">

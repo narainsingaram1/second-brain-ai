@@ -414,7 +414,7 @@ export function webSources(tool: string, output: unknown): Source[] {
     if (!label) try { label = new URL(url).hostname.replace(/^www\./, ""); } catch { return null; }
     return { id: url, type: "web", title: label.slice(0, 200), snippet: snippet.slice(0, 300), url };
   };
-  const list = tool === "web_search" && Array.isArray(o.sources) ? o.sources.map((s: any) => page(s?.url, s?.title, s?.excerpt || ""))
+  const list = tool === "web_search" && Array.isArray(o.sources) ? o.sources.map((s: any) => page(s?.url, s?.title, s?.excerpt || s?.note || s?.passages?.[0] || ""))
     : tool === "read_url" ? [page(o.url, o.title, o.description || "")] : [];
   return list.filter((s: Source | null): s is Source => !!s);
 }

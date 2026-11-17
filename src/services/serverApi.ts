@@ -24,7 +24,7 @@ let canRelay: boolean | undefined;
  * Asks the app's server to read a link, because browsers can't read most other sites. Returns null when
  * there is no server to ask (desktop builds, static hosts), so the caller fetches the page itself.
  */
-export async function readUrlOnServer(url: string, offset: number, signal: AbortSignal): Promise<Record<string, unknown> | null> {
+export async function readUrlOnServer(url: string, offset: number, signal: AbortSignal, limit?: number): Promise<Record<string, unknown> | null> {
   if (canRelay === false) return null;
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (managedAuthEnabled) {
@@ -32,7 +32,7 @@ export async function readUrlOnServer(url: string, offset: number, signal: Abort
   }
   let response: Response;
   try {
-    response = await fetch("/api/read", { method: "POST", headers, body: JSON.stringify({ url, offset }), signal });
+    response = await fetch("/api/read", { method: "POST", headers, body: JSON.stringify({ url, offset, ...(limit ? { limit } : {}) }), signal });
   } catch (error) {
     if (signal.aborted) throw error;
     return null;

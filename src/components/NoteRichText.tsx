@@ -5,21 +5,47 @@ import { noteExtensions } from "./noteExtensions";
 import { ANNOTATE_EVENT, type AnnotateDetail } from "./noteImage";
 import { imageFilesFrom } from "../utils/imageInput";
 import { prepareNoteImage } from "../utils/noteImages";
+import { storeNoteImage } from "../services/noteImageStore";
 import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
+
+const PAUSE_MS = 600, MAX_UNSAVED_MS = 5000;
+const whenIdle = (run: () => void): number => typeof requestIdleCallback === "function"
+  ? requestIdleCallback(run, { timeout: 400 }) : window.setTimeout(run, 0);
+const cancelIdle = (handle: number) => { if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle); else clearTimeout(handle); };
 
 const ImageAnnotator = lazy(() => import("./ImageAnnotator").then(m => ({ default: m.ImageAnnotator })));
 
 /** Compresses pasted/dropped/picked images and inserts them at `pos` (or the selection) as one undo step. */
 async function insertImages(view: EditorView, files: File[], onError: (message: string) => void, pos?: number) {
-  const images = await Promise.all(files.slice(0, 12).map(file => prepareNoteImage(file).catch((err: Error) => { onError(err.message); return null; })));
+  const refs = await Promise.all(files.slice(0, 12).map(file => prepareNoteImage(file).then(storeNoteImage)
+    .catch((err: Error) => { onError(err.message || "That image couldn’t be saved."); return null; })));
   const type = view.state.schema.nodes.image;
-  const nodes = images.filter(Boolean).map(image => type.create({ src: image!.src, alt: null }));
+  const nodes = refs.filter(Boolean).map(src => type.create({ src, alt: null }));
   if (!nodes.length || view.isDestroyed) return;
   const tr = pos == null ? view.state.tr.replaceSelectionWith(nodes[0]) : view.state.tr.insert(Math.min(pos, view.state.doc.content.size), nodes[0]);
   let at = tr.mapping.map(pos ?? view.state.selection.from);
   for (const node of nodes.slice(1)) { tr.insert(at, node); at += node.nodeSize; }
   view.dispatch(tr.scrollIntoView());
   view.focus();
+}
+
+/** Moves inline `data:` images (older notes, assistant edits, pasted HTML) into the image store. */
+async function externalizeImages(editor: Editor) {
+  const inline = new Set<string>();
+  editor.state.doc.descendants(node => { if (node.type.name === "image" && /^data:image\//.test(node.attrs.src || "")) inline.add(node.attrs.src); });
+  if (!inline.size) return;
+  const refs = new Map<string, string>();
+  for (const src of inline) {
+    try { refs.set(src, await storeNoteImage(await (await fetch(src)).blob())); } catch { /* Leave it inline. */ }
+  }
+  if (!refs.size || editor.isDestroyed) return;
+  const tr = editor.state.tr;
+  editor.state.doc.descendants((node, pos) => {
+    const ref = node.type.name === "image" && refs.get(node.attrs.src);
+    if (ref) tr.setNodeMarkup(pos, undefined, { ...node.attrs, src: ref });
+  });
+  // Not an edit the user should undo; it still marks the note changed so the smaller text is saved.
+  editor.view.dispatch(tr.setMeta("addToHistory", false));
 }
 
 interface Props { content: string; onChange: (markdown: string) => void; readOnly?: boolean }
@@ -34,16 +60,24 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
   const dirtyRef = useRef(false);
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const maxTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleHandle = useRef<number | null>(null);
   const clearTimers = () => {
     if (idleTimer.current) clearTimeout(idleTimer.current);
     if (maxTimer.current) clearTimeout(maxTimer.current);
-    idleTimer.current = maxTimer.current = null;
+    if (idleHandle.current != null) cancelIdle(idleHandle.current);
+    idleTimer.current = maxTimer.current = idleHandle.current = null;
+  };
+  // Serializing and saving run in a gap between keystrokes, never inside one.
+  const publishWhenIdle = (instance: Editor) => {
+    if (idleHandle.current != null) return;
+    idleHandle.current = whenIdle(() => { idleHandle.current = null; publish(instance); });
   };
   const publish = (instance: Editor) => {
     clearTimers();
     if (!dirtyRef.current) return publishedRef.current;
     dirtyRef.current = false;
     const markdown = instance.getMarkdown();
+    if (markdown.includes("data:image/")) void externalizeImages(instance); // e.g. images inside pasted HTML
     if (markdown !== publishedRef.current) {
       publishedRef.current = markdown;
       onChangeRef.current(markdown);
@@ -93,10 +127,11 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
     onUpdate: ({ editor }) => {
       // Editing stays in ProseMirror. Convert the full document only after a pause,
       // with a bounded interval for long uninterrupted writing sessions.
+      // Each publish is one save, so it waits for a pause in typing (or at most a few seconds).
       dirtyRef.current = true;
       if (idleTimer.current) clearTimeout(idleTimer.current);
-      idleTimer.current = setTimeout(() => publish(editor), 300);
-      if (!maxTimer.current) maxTimer.current = setTimeout(() => publish(editor), 2000);
+      idleTimer.current = setTimeout(() => publishWhenIdle(editor), PAUSE_MS);
+      if (!maxTimer.current) maxTimer.current = setTimeout(() => publishWhenIdle(editor), MAX_UNSAVED_MS);
     },
   });
   useImperativeHandle(ref, () => ({ flush: () => editor ? publish(editor) : publishedRef.current }), [editor]);
@@ -117,6 +152,7 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       publishedRef.current = content;
       editor.commands.setContent(content, { contentType: "markdown", emitUpdate: false });
     }
+    if (editor && content.includes("data:image/")) void externalizeImages(editor);
   }, [editor, content]);
   const state = useEditorState({ editor, selector: ({ editor: e }) => e ? {
     bold: e.isActive("bold"), italic: e.isActive("italic"), strike: e.isActive("strike"), highlight: e.isActive("highlight"),
@@ -184,7 +220,8 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
     </>}
     <EditorContent editor={editor} />
     {!readOnly && <p className="note-writing-hint">Markdown shortcuts work as you type · Paste or drop images, drag their edges to resize, double-click to draw · ⌘/Ctrl+Z to undo</p>}
-    {annotating && <Suspense fallback={null}><ImageAnnotator src={annotating.src} onClose={() => { setAnnotating(null); editor.commands.focus(); }} onSave={src => {
+    {annotating && <Suspense fallback={null}><ImageAnnotator src={annotating.src} onClose={() => { setAnnotating(null); editor.commands.focus(); }} onSave={async blob => {
+      const src = await storeNoteImage(blob);
       let pos = annotating.pos, node = editor.state.doc.nodeAt(pos);
       if (node?.type.name !== "image" || node.attrs.src !== annotating.src) { // Find it again if the note changed meanwhile.
         node = null;

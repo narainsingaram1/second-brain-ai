@@ -11,7 +11,6 @@ import {
   Pencil,
   Plus,
   Sparkles,
-  Sun,
   Trash2,
   Unlock,
   X,
@@ -220,14 +219,8 @@ export function DailyPlannerView({
     <section className="planner-page" aria-label="Daily planner">
       <header className="planner-heading">
         <div>
-          <span className="planner-eyebrow">
-            <Sun size={14} /> A LITTLE INTENTION GOES A LONG WAY
-          </span>
-          <h1>Your day, by design.</h1>
-          <p>
-            A realistic plan for everything on your plate. Always yours to
-            change.
-          </p>
+          <h1>Daily planner</h1>
+          <p>Commitments, deadlines and habits laid out as one realistic day</p>
         </div>
         <button
           className="planner-outline"
@@ -345,18 +338,8 @@ export function DailyPlannerView({
       <div className="planner-layout">
         <div className="planner-main">
           <div className="planner-hero">
-            <div className="planner-hero-icon">
-              <Sparkles size={22} />
-            </div>
             <div>
-              <span className="planner-eyebrow">
-                MAKE SPACE FOR WHAT MATTERS
-              </span>
-              <h2>
-                {plan
-                  ? "A plan, not a pressure test."
-                  : "Let’s give your day some shape."}
-              </h2>
+              <h2>{plan ? "Today’s plan" : "No plan for this day yet"}</h2>
               <p>
                 {plan?.summary ||
                   "Iris brings together your commitments, deadlines and habits, then finds room for focused work and real breaks."}
@@ -370,7 +353,7 @@ export function DailyPlannerView({
               disabled={busy || loadingCalendar || !!editing || !!routine}
               onClick={() => void generate()}
             >
-              <Sparkles size={16} className={busy ? "animate-pulse" : ""} />
+              <Sparkles size={16} />
               {busy ? "Planning…" : plan ? "Replan my day" : "Plan my day"}
             </button>
           </div>
@@ -698,12 +681,10 @@ export function DailyPlannerView({
             </div>
           ) : (
             <div className="planner-empty">
-              <Sun size={36} strokeWidth={1} />
-              <h3>A fresh page for your day.</h3>
+              <h3>Nothing scheduled</h3>
               <p>
-                Add your weekly commitments, then let Iris connect the dots.
-                <br />
-                You can also build your plan one block at a time.
+                Add your weekly commitments and let Iris plan around them, or
+                build the day one block at a time
               </p>
             </div>
           )}
@@ -943,9 +924,9 @@ export function DailyPlannerView({
             )}
           </section>
           <div className="planner-tip">
-            <Sparkles size={17} />
+            <LockKeyhole size={16} />
             <p>
-              <strong>Keep the parts that work.</strong>Lock a block before
+              <strong>Keep the parts that work</strong>Lock a block before
               replanning. Iris will build the rest of your day around it.
             </p>
           </div>

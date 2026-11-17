@@ -103,42 +103,88 @@ test('PDFs, files and blocked pages give a plain explanation', async () => {
   await assert.rejects(web.readUrl('https://example.com/private', 0, a, signal()), /refused access/);
 });
 
-test('web search uses the provider web plugin and returns its sources', async () => {
+test('web search lists results with a fast model through the Exa plugin and keeps every listed source', async () => {
   let body;
   globalThis.fetch = async (url, opts) => {
     assert.match(url, /openrouter\.ai\/api\/v1\/chat\/completions$/);
     body = JSON.parse(opts.body);
-    return Response.json({ choices: [{ message: { content: 'GT plays Clemson on Saturday at 3:30 PM [ramblinwreck.com](https://ramblinwreck.com/s).', annotations: [
-      { type: 'url_citation', url_citation: { url: 'https://ramblinwreck.com/s', title: 'Schedule' } },
+    return Response.json({ choices: [{ message: { content: [
+      '- [Schedule](https://ramblinwreck.com/s) (2026-11-10): GT plays Clemson on Saturday at 3:30 PM.',
+      '- [ESPN](https://www.espn.com/gt?utm_source=x): Clemson game set for Nov 22.',
+      '- [Bad](javascript:alert(1)): nope'].join('\n'), annotations: [
+      { type: 'url_citation', url_citation: { url: 'https://ramblinwreck.com/s', title: 'Schedule', content: 'Kickoff 3:30 PM ET.' } },
       { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'bad' } }] } }] });
   };
   const out = await web.webSearch('georgia tech football next game', 'sk-test', 'test-model', signal());
-  assert.deepEqual(body.plugins, [{ id: 'web', max_results: 8 }]);
-  assert.equal(body.model, 'test-model');
+  assert.deepEqual(body.plugins, [{ id: 'web', max_results: 8, engine: 'exa' }]);
+  assert.equal(body.model, 'anthropic/claude-haiku-5.5', 'listing results uses the fast model');
   assert.deepEqual(body.usage, { include: true }, 'OpenRouter is asked for the cost');
-  assert.match(out.summary, /Clemson/);
-  assert.deepEqual(out.sources, [{ title: 'Schedule', url: 'https://ramblinwreck.com/s' }]);
+  assert.deepEqual(out.queries, ['georgia tech football next game']);
+  assert.equal(out.summary, undefined, 'no summary stands in for the evidence');
+  assert.deepEqual(out.sources, [
+    { title: 'Schedule', url: 'https://ramblinwreck.com/s', note: '(2026-11-10): GT plays Clemson on Saturday at 3:30 PM.', excerpt: 'Kickoff 3:30 PM ET.' },
+    { title: 'ESPN', url: 'https://www.espn.com/gt?utm_source=x', note: 'Clemson game set for Nov 22.' }]);
 });
 
-test('web search hands the assistant each source with its excerpt, and keeps cost out of what the model sees', async () => {
-  globalThis.fetch = async () => Response.json({
-    usage: { prompt_tokens: 900, completion_tokens: 120, cost: 0.004 },
-    choices: [{ message: { content: 'Summary.', annotations: [
-      { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'NYL Interview Question | Glassdoor', content: '  The interview consists of three sections.\n The first part focuses on coding fundamentals.' } },
-      { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'dup' } }] } }] });
+test('several queries run at once, results are merged by page, and domain filters reach the engine', async () => {
+  const bodies = [];
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body); bodies.push(body);
+    const q = body.messages[1].content;
+    const lines = q.includes('first') ? ['- [A](https://a.com/x): a1', '- [B](https://b.com/y): b1'] : ['- [B](https://www.b.com/y/#top): b2', '- [C](https://c.com/z): c2'];
+    return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.001 }, choices: [{ message: { content: lines.join('\n') } }] });
+  };
   const set = web.webToolset(access({}), 'k', 'm');
-  const res = await set.execute('web_search', { query: 'nyl intern interview' }, signal());
-  assert.deepEqual(res.usage, { inputTokens: 900, outputTokens: 120, cost: 0.004 });
+  const res = await set.execute('web_search', { queries: ['first phrasing', 'second phrasing', 'first phrasing'], domains: ['https://www.Reddit.com/', 'bad domain'], excludeDomains: ['pinterest.com'] }, signal());
+  assert.equal(bodies.length, 2, 'duplicate queries are searched once');
+  assert.deepEqual(bodies[0].plugins[0].include_domains, ['reddit.com']);
+  assert.deepEqual(bodies[0].plugins[0].exclude_domains, ['pinterest.com']);
+  assert.deepEqual(res.output.sources.map(s => s.url), ['https://b.com/y', 'https://a.com/x', 'https://c.com/z'], 'a page both queries found ranks first');
+  assert.equal(res.output.sources[0].note, 'b1 | b2');
+  assert.deepEqual(res.usage, { inputTokens: 200, outputTokens: 20, cost: 0.002 });
   assert.equal(res.output.usage, undefined, 'the model never sees billing');
-  assert.deepEqual(res.output.sources, [{ title: 'NYL Interview Question | Glassdoor', url: 'https://www.glassdoor.com/Interview/q.htm',
-    excerpt: 'The interview consists of three sections. The first part focuses on coding fundamentals.' }]);
-  assert.match(res.output.tip, /another phrasing/);
+});
+
+test('the best results are opened and only the passages that match the question come back', async () => {
+  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '- [Guide](https://guide.com/a): interview steps\n- [Other](https://other.com/b): off-topic' } }] });
+  const filler = Array.from({ length: 30 }, (_, i) => `<p>Unrelated paragraph ${i} about company picnics and parking rules for visitors on the campus.</p>`).join('');
+  const pages = access({
+    'https://guide.com/a': () => html(`<html><title>Guide</title><body><article>${filler}<p>The software engineer intern interview has three rounds: an online coding assessment, a technical interview, and a behavioral interview.</p>${filler}</article></body></html>`),
+  });
+  const set = web.webToolset(pages, 'k', 'm');
+  const res = await set.execute('web_search', { queries: ['software engineer intern interview rounds'] }, signal());
+  const guide = res.output.sources.find(s => s.url === 'https://guide.com/a');
+  assert.ok(guide.passages.length >= 1 && guide.passages.length <= 3);
+  assert.match(guide.passages.join(' '), /three rounds: an online coding assessment/);
+  assert.ok(guide.passages.join(' ').length < 3000, 'the page is cut down to what matters');
+  assert.equal(res.output.sources.find(s => s.url === 'https://other.com/b').passages, undefined, 'off-topic results are not opened');
+  assert.deepEqual(pages.seen, ['https://guide.com/a']);
+  assert.match(res.output.read, /top 1 pages were opened/);
+});
+
+test('a page that cannot be opened keeps its excerpt and says why', async () => {
+  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '- [Locked](https://locked.com/p): facts', annotations: [
+    { type: 'url_citation', url_citation: { url: 'https://locked.com/p', title: 'Locked', content: 'Excerpt from the engine.' } }] } }] });
+  const set = web.webToolset(access({ 'https://locked.com/p': () => new Response('no', { status: 403 }) }), 'k', 'm');
+  const res = await set.execute('web_search', { query: 'legacy single query' }, signal());
+  assert.deepEqual(res.output.queries, ['legacy single query']);
+  assert.equal(res.output.sources[0].excerpt, 'Excerpt from the engine.');
+  assert.match(res.output.sources[0].unread, /refused access/);
+});
+
+test('passages rank by how well they match the queries and stay in page order', () => {
+  const text = ['Intro about the company.', 'Parking is in lot B.', 'Interview questions included two sum and a system design question.', 'Cafeteria hours.', 'The interview ended with behavioral questions about teamwork.']
+    .map(p => p + ' ' + 'filler words here. '.repeat(40)).join('\n\n');
+  const best = web.bestPassages(text, ['interview questions'], 2);
+  assert.equal(best.length, 2);
+  assert.match(best[0], /two sum/); assert.match(best[1], /behavioral/);
+  assert.equal(web.pageKey('https://www.x.com/a/?utm_source=t#h'), web.pageKey('https://x.com/a'));
 });
 
 test('a reply that searched the web lists those pages as linked sources, and records time, tokens and cost', async () => {
   const replies = [
-    { usage: { prompt_tokens: 1000, completion_tokens: 20, cost: 0.01 }, choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ id: 's1', type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ query: 'nyl tdav interview' }) } }] } }] },
-    { usage: { prompt_tokens: 500, completion_tokens: 80, cost: 0.002 }, choices: [{ message: { content: 'Found one report.', annotations: [
+    { usage: { prompt_tokens: 1000, completion_tokens: 20, cost: 0.01 }, choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ id: 's1', type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ queries: 'nyl tdav interview' }) } }] } }] },
+    { usage: { prompt_tokens: 500, completion_tokens: 80, cost: 0.002 }, choices: [{ message: { content: '- [Interview Questions | Glassdoor](https://www.glassdoor.com/Interview/q.htm): three sections', annotations: [
       { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'Interview Questions | Glassdoor', content: 'Three sections.' } }] } }] },
     { usage: { prompt_tokens: 1400, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 900 } }, choices: [{ finish_reason: 'stop', message: { content: 'One report on [Glassdoor](https://www.glassdoor.com/Interview/q.htm) mentions three sections.' } }] },
   ];
@@ -235,4 +281,17 @@ test('the browser reads links through its relay first and fetches directly only 
   const fallback = await web.readUrl('https://example.com/a', 0, { ...direct, relay: async () => null }, signal());
   assert.equal(fallback.title, 'Direct');
   await assert.rejects(web.readUrl('http://10.0.0.1/', 0, { ...direct, relay: async () => { throw new Error('should not be asked'); } }, signal()), /private|this computer/i);
+});
+
+test('a read can ask for more than one chunk, up to a cap, and the relay passes the limit through', async () => {
+  const long = `<p>${'word '.repeat(40_000)}</p>`;
+  const a = access({ 'https://long.example.com/': () => html(long) });
+  assert.equal((await web.readUrl('https://long.example.com/', 0, a, signal())).text.length, 15_000);
+  assert.equal((await web.readUrl('https://long.example.com/', 0, a, signal(), 60_000)).text.length, 60_000);
+  assert.equal((await web.readUrl('https://long.example.com/', 0, a, signal(), 10 ** 9)).text.length, web.MAX_LIMIT);
+  const asked = [];
+  const relayed = { ...a, relay: async (url, offset, _s, limit) => { asked.push(limit); return { url, text: 'relayed' }; } };
+  await web.readUrl('https://long.example.com/', 0, relayed, signal());
+  await web.readUrl('https://long.example.com/', 0, relayed, signal(), 80_000);
+  assert.deepEqual(asked, [undefined, 80_000]);
 });

@@ -87,7 +87,10 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
     case "search_conversations": return { kind: "memory", label: `Searching past chats for ${quote(args.query)}` };
     case "recall_conversation": return { kind: "memory", label: "Rereading an earlier message" };
     case "organize_memory": return { kind: "memory", label: "Organizing a memory" };
-    case "web_search": return { kind: "web", label: `Searching the web for ${quote(args.query)}` };
+    case "web_search": {
+      const queries = Array.isArray(args.queries) && args.queries.length ? args.queries : [args.query];
+      return { kind: "web", label: `Searching the web for ${quote(queries[0])}${queries.length > 1 ? ` and ${queries.length - 1} more` : ""}` };
+    }
     case "vault_list": return { kind: "records", label: "Checking your saved logins" };
     case "read_url": return { kind: "web", label: `Reading ${host(args.url)}` };
     case "list_calendar_events": return { kind: "calendar", label: `Checking your Google Calendar, ${args.from} to ${args.to}` };
@@ -120,7 +123,7 @@ export function describeResult(name: string, args: Record<string, any>, output: 
     case "read_record": return output.title ? { label: `Read ${quote(output.title)}` } : {};
     case "read_records": return { items: titles(output.records) };
     case "search_conversations": return { detail: `${count(output.results?.length ?? 0, "message", "messages")} found` };
-    case "web_search": return { detail: Array.isArray(output.sources) && output.sources.length ? `${count(output.sources.length, "source", "sources")}` : undefined,
+    case "web_search": return { detail: Array.isArray(output.sources) && output.sources.length ? `${count(output.sources.length, "source", "sources")}${output.sources.some((x: any) => x?.passages) ? `, ${output.sources.filter((x: any) => x?.passages).length} read` : ""}` : undefined,
       items: (output.sources || []).map((s: any) => `${s.title}|${s.url}`) };
     case "read_url": return { label: `Read ${output.title ? quote(output.title) : host(output.url)}`, items: [`${output.title || host(output.url)}|${output.url}`] };
     case "list_calendar_events": return { detail: count(output.events?.length ?? 0, "event", "events"), items: titles(output.events) };

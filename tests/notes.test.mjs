@@ -2,6 +2,9 @@ import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 import { MarkdownManager } from '@tiptap/markdown';
+import { readFile } from 'node:fs/promises';
+import { PGlite } from '@electric-sql/pglite';
+import { owner, other } from './helpers/supabaseDb.mjs';
 const server = await createServer({ cacheDir: '/private/tmp/synapse-notes-tests', configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
 const { noteExtensions } = await server.ssrLoadModule('/src/components/noteExtensions.ts');
@@ -50,4 +53,40 @@ test('pasted image width survives Markdown and image data stays out of AI text',
   assert.equal(restoreNoteImages(hidden, markdown), markdown);
   assert.equal(restoreNoteImages(`Rewritten\n\n${hidden.split('\n\n')[1]}`, markdown), `Rewritten\n\n![diagram|320](${src})`);
   assert.doesNotMatch(stripNoteImages(markdown), /data:|example\.com/);
+});
+
+test('notes keep short image references that round-trip and are found for export', async () => {
+  const ref = 'synapse-img:0123456789abcdef0123456789abcdef.webp';
+  const parsed = manager.parse(`Text\n\n![chart|300](${ref})`);
+  const image = allNodes(parsed).find(n => n.type === 'image');
+  assert.equal(image.attrs.src, ref);
+  assert.equal(image.attrs.width, 300);
+  assert.match(manager.serialize(parsed), /!\[chart\|300\]\(synapse-img:0123456789abcdef0123456789abcdef\.webp\)/);
+  const { imageRefsIn, isImageRef } = await server.ssrLoadModule('/src/services/noteImageStore.ts');
+  assert.deepEqual(imageRefsIn(`![](${ref}) and again ![](${ref}) ![](https://x.test/a.png)`), ['0123456789abcdef0123456789abcdef.webp']);
+  assert.ok(isImageRef(ref));
+  assert.ok(!isImageRef('data:image/png;base64,AAAA'));
+});
+
+test('note image bucket is private and only the owner can add or read images', async () => {
+  const db = new PGlite();
+  try {
+    await db.exec(`create role anon;create role authenticated;create schema auth;create schema storage;
+     create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid $$;
+     create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
+     create table storage.objects(bucket_id text,name text,primary key(bucket_id,name));
+     alter table storage.objects enable row level security;
+     grant usage on schema auth,storage to authenticated,anon;
+     grant select,insert on storage.objects to authenticated;`);
+    const migration = await readFile(new URL('../supabase/migrations/202611190001_note_images.sql', import.meta.url), 'utf8');
+    await db.exec(migration); await db.exec(migration);
+    const bucket = (await db.query("select * from storage.buckets where id='note-images'")).rows[0];
+    assert.equal(bucket.public, false);
+    assert.deepEqual(bucket.allowed_mime_types, ['image/webp', 'image/png', 'image/jpeg', 'image/gif']);
+    await db.query("select set_config('request.jwt.claim.sub',$1,false)", [owner]); await db.exec('set role authenticated');
+    await db.query("insert into storage.objects values('note-images',$1)", [`${owner}/abc.webp`]);
+    await assert.rejects(db.query("insert into storage.objects values('note-images',$1)", [`${other}/abc.webp`]), e => e.code === '42501');
+    await db.exec('reset role'); await db.query("select set_config('request.jwt.claim.sub',$1,false)", [other]); await db.exec('set role authenticated');
+    assert.equal((await db.query('select * from storage.objects')).rows.length, 0);
+  } finally { await db.close(); }
 });

@@ -1,10 +1,11 @@
 import { queryOpenRouter } from "../services/openrouter";
-import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback, useMemo, startTransition } from "react";
 import { KnowledgeItem, NoteFolder } from "../types";
 import { folderPath } from "../utils/noteFolders";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import type { NoteRichTextHandle } from "./NoteRichText";
 import { hideNoteImages, restoreNoteImages, stripNoteImages } from "../utils/noteImages";
+import { IMAGE_REF, inlineImageRefs } from "../services/noteImageStore";
 const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
 import {
   ArrowLeft,
@@ -88,12 +89,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const deletedRef = useRef(false);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const flushSave = () => {
-    richEditorRef.current?.flush();
+  const urgentSaveRef = useRef(false);
+  const flushSave = (commitNow = false) => {
+    urgentSaveRef.current = true;
+    try { richEditorRef.current?.flush(); } finally { urgentSaveRef.current = false; }
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     const save = pendingSaveRef.current;
     pendingSaveRef.current = null;
-    save?.();
+    // When the page is going away, commit the app state now so its emergency copy includes the last words.
+    if (save) { if (commitNow) flushSync(save); else save(); }
   };
   // Layout cleanup runs before the child editor detaches, preserving the final keystroke.
   useLayoutEffect(() => () => {
@@ -101,12 +105,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     else if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
   }, []);
   useEffect(() => {
-    const onHidden = () => { if (document.visibilityState === "hidden") flushSave(); };
-    window.addEventListener("pagehide", flushSave);
-    document.addEventListener("visibilitychange", onHidden);
+    // Capture phase runs before the app's own hide handlers, which write the emergency copy.
+    const onPageHide = () => flushSave(true);
+    const onHidden = () => { if (document.visibilityState === "hidden") flushSave(true); };
+    window.addEventListener("pagehide", onPageHide, true);
+    document.addEventListener("visibilitychange", onHidden, true);
     return () => {
-      window.removeEventListener("pagehide", flushSave);
-      document.removeEventListener("visibilitychange", onHidden);
+      window.removeEventListener("pagehide", onPageHide, true);
+      document.removeEventListener("visibilitychange", onHidden, true);
     };
   }, []);
 
@@ -192,6 +198,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     setContent(val);
     autoSaveContentRef.current(val);
   }, []);
+  // The rich editor already waits for a pause before publishing, so save right away instead of
+  // debouncing again (which would serialize the note a second time if typing resumed).
+  const handleRichChange = useCallback((val: string) => {
+    handleContentChange(val);
+    if (urgentSaveRef.current) return; // flushSave is running and commits the pending save itself.
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    const save = pendingSaveRef.current;
+    pendingSaveRef.current = null;
+    // A routine autosave re-renders the whole app; as a transition, the next keystroke can interrupt it.
+    // Saves on close, page hide and unmount go through flushSave instead, synchronously.
+    if (save) startTransition(save);
+  }, [handleContentChange]);
 
   const handleFolderChange = (val: string | null) => {
     setFolderId(val);
@@ -227,15 +245,22 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   };
 
   // Copy markdown
+  // Markdown that leaves the app carries its images inline, since references only resolve in Synapse.
   const handleCopy = () => {
-    navigator.clipboard.writeText(`# ${title}\n\n${currentContent()}`);
+    const markdown = `# ${title}\n\n${currentContent()}`;
+    if (!markdown.includes(IMAGE_REF) || typeof ClipboardItem === "undefined") void navigator.clipboard.writeText(markdown);
+    else {
+      // WebKit only allows clipboard writes started inside the click, so hand it a promise of the text.
+      const text = inlineImageRefs(markdown).then(full => new Blob([full], { type: "text/plain" }));
+      void navigator.clipboard.write([new ClipboardItem({ "text/plain": text })]).catch(() => navigator.clipboard.writeText(markdown));
+    }
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
 
   // Export note as text
-  const handleExport = () => {
-    const blob = new Blob([`# ${title}\n\n${currentContent()}`], { type: "text/markdown" });
+  const handleExport = async () => {
+    const blob = new Blob([`# ${title}\n\n${await inlineImageRefs(currentContent())}`], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -604,7 +629,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           onChange={e => handleContentChange(restoreNoteImages(e.target.value, content))}
           placeholder="Write Markdown here…"
           className="note-source"
-        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={note.id} content={content} onChange={handleContentChange} readOnly={mode === "preview"} /></Suspense>}
+        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={note.id} content={content} onChange={handleRichChange} readOnly={mode === "preview"} /></Suspense>}
       </div>
       <div className="note-editor-footer"><span>{words} words · {prose.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
     </div>

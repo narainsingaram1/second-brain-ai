@@ -26,7 +26,7 @@
 .note-document-eyebrow { color: var(--note-muted); font-size: 13px; }
 .note-document-header input[aria-label="Note title"] { line-height: 1.25; padding-block: 6px; }
 .note-reading-controls { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 14px 2px; color: var(--note-muted); font-size: 12px; }
-.note-reading-controls > span { display: flex; align-items: center; gap: 7px; }
+.note-reading-controls > span { display: flex; align-items: center; gap: 8px; }
 .note-reading-controls > span::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--workspace-success); }
 .note-reading-controls label { display: flex; align-items: center; gap: 8px; }
 .note-reading-controls select { background: transparent; padding: 4px 6px; border: 1px solid var(--note-line); border-radius: 7px; color: var(--note-ink); }
@@ -105,7 +105,7 @@
 .note-image:hover .note-image-handle, .note-image.is-selected .note-image-handle, .note-image.is-resizing .note-image-handle,
 .note-image:hover .note-image-tools, .note-image.is-selected .note-image-tools { opacity: 1; }
 .note-image.is-resizing { user-select: none; }
-.note-image-chip { font-size: 12px; padding: 4px 9px; border-radius: 6px; border: 1px solid var(--note-line); color: var(--note-muted); background: var(--workspace-surface, transparent); }
+.note-image-chip { font-size: 12px; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--note-line); color: var(--note-muted); background: var(--workspace-surface, transparent); }
 .note-image-chip:hover, .note-image-chip[aria-pressed="true"] { color: var(--note-ink); background: var(--workspace-raised); }
 .note-image-draw { color: var(--workspace-accent); font-weight: 600; margin-left: 4px; }
 .ProseMirror[contenteditable="false"] .note-image-handle, .ProseMirror[contenteditable="false"] .note-image-tools { display: none; }
@@ -114,6 +114,7 @@
 .note-image-error { font-size: 13px; color: #dc2626; margin: -8px 0 12px; }
 
 /* Image annotator */
+.annotator:focus { outline: none; }
 .annotator { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; background: rgba(10,12,18,.94); color: #e5e7eb; }
 .annotator-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 10px 16px; background: #151821; border-bottom: 1px solid #262b38; }
 .annotator-group { display: flex; align-items: center; gap: 3px; }
@@ -125,7 +126,7 @@
 .annotator-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px #fff; }
 .annotator-dot { display: block; border-radius: 999px; }
 .annotator-actions { display: flex; gap: 8px; margin-left: auto; }
-.annotator-cancel, .annotator-save { display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; font-size: 14px; }
+.annotator-cancel, .annotator-save { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; font-size: 14px; }
 .annotator-cancel { color: #cbd2de; } .annotator-cancel:hover { background: #232836; }
 .annotator-save { background: #fff; color: #111827; font-weight: 600; } .annotator-save:disabled { opacity: .5; }
 .annotator-tool:focus-visible, .annotator-swatch:focus-visible, .annotator-save:focus-visible, .annotator-cancel:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
@@ -139,3 +140,8 @@
 .annotator-message { display: flex; align-items: center; gap: 8px; color: #cbd2de; font-size: 14px; max-width: 420px; text-align: center; line-height: 1.5; }
 .annotator-hint { padding: 0 16px 10px; text-align: center; font-size: 12px; color: #7d8597; }
 @media (max-width: 640px) { .annotator-bar { gap: 6px 10px; padding: 8px; } .annotator-hint { display: none; } }
+.note-image.is-loading .note-image-frame, .note-image.is-missing .note-image-frame { min-width: 220px; min-height: 120px; border-radius: 8px; background: var(--workspace-raised); }
+.note-image.is-loading .note-image-frame { animation: note-image-pulse 1.2s ease-in-out infinite; }
+.note-image.is-missing .note-image-frame::after { content: "Image not available on this device yet"; position: absolute; inset: 0; display: grid; place-items: center; font-size: 13px; line-height: 1.4; color: var(--note-muted); padding: 12px; text-align: center; }
+@keyframes note-image-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .note-image.is-loading .note-image-frame { animation: none; } }

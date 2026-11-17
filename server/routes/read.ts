@@ -1,4 +1,4 @@
-import { readUrl } from "../../src/services/webTools";
+import { MAX_LIMIT, readUrl } from "../../src/services/webTools";
 import { productionDeps, type Deps } from "../lib/context";
 import { HttpError, json, readJson, route } from "../lib/http";
 
@@ -28,9 +28,10 @@ export function readHandlers(deps: Deps = productionDeps) {
       await allowed(request, deps);
       const web = deps.web?.();
       if (!web) throw new HttpError(503, "Opening links isn't available on this server.");
-      const body = await readJson<{ url?: unknown; offset?: unknown }>(request, 10_000);
+      const body = await readJson<{ url?: unknown; offset?: unknown; limit?: unknown }>(request, 10_000);
+      const limit = Math.min(Math.max(Number(body.limit) || 0, 0), MAX_LIMIT) || undefined;
       try {
-        return json(await readUrl(String(body.url || ""), Number(body.offset) || 0, web, request.signal));
+        return json(await readUrl(String(body.url || ""), Number(body.offset) || 0, web, request.signal, limit));
       } catch (error) {
         if (request.signal.aborted) throw error;
         // readUrl's messages say why the page couldn't be read, in words meant for the user.

@@ -45,6 +45,7 @@ import { rememberedTab, rememberTab, rememberTheme } from "./utils/startupMemory
 import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation";
 import { referenceTitle } from "./utils/chatPresentation";
 import { removeFolder, syncWorkspaceFolders } from "./utils/noteFolders";
+import { retryPendingImageUploads } from "./services/noteImageStore";
 
 // Pages other than the chat load on first visit (and are prefetched once the app is idle), so startup
 // only parses the code for the chat, the shell and the dialogs.
@@ -188,6 +189,8 @@ export const App: React.FC = () => {
   const historyFuture = useRef<BrainState[]>([]);
   const lastMutation = useRef<{ key: string; at: number } | null>(null);
   useEffect(() => { historyPast.current = []; historyFuture.current = []; }, [state?.userId]);
+  // Note images saved while offline (or before sign-in finished) are uploaded once an account is ready.
+  useEffect(() => { if (state?.userId) void retryPendingImageUploads(); }, [state?.userId]);
 
   const conversation = useBrainConversation(state, setState, before => {
     historyPast.current = [...historyPast.current.slice(-29), before];
@@ -1208,7 +1211,7 @@ export const App: React.FC = () => {
       {/* FLOATING BOTTOM "+ Add" BUTTON (Tabs other than Home)     */}
       {/* ========================================================= */}
       {!isChatTab && activeTab !== "home" && !activeTab.startsWith("workspace") && (
-        <div className="fixed bottom-6 right-6 z-30 flex flex-col items-end">
+        <div className="quick-add-dock fixed bottom-6 right-6 z-30 flex flex-col items-end">
           {/* Quick Pop-up Menu */}
           {isQuickAddMenuOpen && (
             <div className="quick-add-menu">

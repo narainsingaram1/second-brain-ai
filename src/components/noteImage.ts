@@ -1,6 +1,7 @@
 import Image from "@tiptap/extension-image";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { formatImageAlt, parseImageAlt } from "../utils/noteImages";
+import { cachedImageUrl, isImageRef, resolveImageUrl } from "../services/noteImageStore";
 
 /** Fired on the editor DOM when someone asks to draw on an image; NoteRichText opens the annotator. */
 export const ANNOTATE_EVENT = "note-image-annotate";
@@ -27,7 +28,17 @@ export const NoteImage = Image.extend({
       ...this.parent?.(),
       width: { default: null, parseHTML: el => Number(el.getAttribute("width")) || null, renderHTML: a => a.width ? { width: a.width } : {} },
       height: { default: null, rendered: false },
+      // Stored-image references aren't URLs a browser can load: plain HTML (TipTap's first render, copying
+      // between notes) carries the reference in data-src and a loadable URL, if there is one yet, in src.
+      src: {
+        default: null,
+        parseHTML: el => el.getAttribute("data-src") || el.getAttribute("src"),
+        renderHTML: a => isImageRef(a.src) ? { src: cachedImageUrl(a.src) || null, "data-src": a.src } : { src: a.src },
+      },
     };
+  },
+  parseHTML() {
+    return [{ tag: "img[data-src]" }, { tag: "img[src]" }];
   },
   parseMarkdown: (token, helpers) => {
     const { alt, width } = parseImageAlt(token.text);
@@ -76,8 +87,21 @@ export const NoteImage = Image.extend({
       dom.append(frame, tools);
 
       const maxWidth = () => (dom.parentElement?.clientWidth || dom.clientWidth || 800);
+      let shownSrc: string | null = null;
+      const showSource = () => {
+        const src: string = node.attrs.src || "";
+        if (src === shownSrc) return;
+        shownSrc = src;
+        if (!isImageRef(src)) { img.src = src; dom.classList.remove("is-loading", "is-missing"); return; }
+        const cached = cachedImageUrl(src);
+        if (cached) { img.src = cached; dom.classList.remove("is-loading", "is-missing"); return; }
+        dom.classList.add("is-loading");
+        dom.classList.remove("is-missing");
+        resolveImageUrl(src).then(url => { if (shownSrc === src) { img.src = url; dom.classList.remove("is-loading"); } })
+          .catch(() => { if (shownSrc === src) { dom.classList.remove("is-loading"); dom.classList.add("is-missing"); img.removeAttribute("src"); } });
+      };
       const apply = () => {
-        if (img.getAttribute("src") !== node.attrs.src) img.src = node.attrs.src || "";
+        showSource();
         img.alt = node.attrs.alt || "";
         if (node.attrs.title) img.title = node.attrs.title; else img.removeAttribute("title");
         frame.style.width = node.attrs.width ? `${node.attrs.width}px` : "";

@@ -61,7 +61,7 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     noteId: d_("ID of the existing note (knowledge record)."),
     newTitle: s_,
     appendContent: d_("Markdown to add at the end of the note."),
-    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each ![...](note-image:N) where its image should stay."),
+    replaceContent: d_("New full markdown body. Only when the user asks to rewrite the note. Keep each image line (![...](synapse-img:...) or ![...](note-image:N)) exactly where its image should stay."),
     folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
     workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
     tags: { type: "array", items: s_ },
@@ -633,6 +633,11 @@ export function parseToolArguments(raw: string, schema: Record<string, any>): Re
       return result;
     }
     if (rule.type === "array" && Array.isArray(value)) return value.map(child => normalize(child, rule.items));
+    // A list sent as JSON text, or one string where a list of strings is expected, is the same list.
+    if (rule.type === "array" && typeof value === "string" && value.trim()) {
+      try { const parsed = JSON.parse(value); if (Array.isArray(parsed)) return parsed.map(child => normalize(child, rule.items)); } catch { /* plain text */ }
+      if (rule.items?.type === "string") return [value.trim()];
+    }
     if (typeof value === "string") {
       const text = value.trim();
       if (rule.type === "integer" && /^[+-]?\d+(?:\.0+)?$/.test(text)) return Number(text);
