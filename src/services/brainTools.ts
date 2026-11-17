@@ -633,6 +633,11 @@ export function parseToolArguments(raw: string, schema: Record<string, any>): Re
       return result;
     }
     if (rule.type === "array" && Array.isArray(value)) return value.map(child => normalize(child, rule.items));
+    // A list sent as JSON text, or one string where a list of strings is expected, is the same list.
+    if (rule.type === "array" && typeof value === "string" && value.trim()) {
+      try { const parsed = JSON.parse(value); if (Array.isArray(parsed)) return parsed.map(child => normalize(child, rule.items)); } catch { /* plain text */ }
+      if (rule.items?.type === "string") return [value.trim()];
+    }
     if (typeof value === "string") {
       const text = value.trim();
       if (rule.type === "integer" && /^[+-]?\d+(?:\.0+)?$/.test(text)) return Number(text);
