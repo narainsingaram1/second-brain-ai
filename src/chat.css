@@ -1122,3 +1122,14 @@
 .chat-file-chip button { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); width: 20px; height: 20px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; color: var(--workspace-muted); }
 .chat-file-chip button:hover { background: var(--workspace-hover); color: var(--workspace-ink); }
 .chat-message-files { max-width: 85%; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+/* Questions the assistant asks mid-task: tap a choice or type a short answer, and it carries on. */
+.ask-user-form { margin: 4px 0 0; }
+.ask-user-question { margin: 10px 0 0 24px; padding: 0; border: 0; min-width: 0; }
+.ask-user-question legend { padding: 0; margin-bottom: 6px; font-weight: 600; color: var(--workspace-ink); overflow-wrap: anywhere; }
+.ask-user-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.ask-user-choice { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--workspace-line-strong); background: var(--workspace-panel, #fff); color: var(--workspace-ink); font-size: 13px; text-align: left; overflow-wrap: anywhere; transition: background-color 150ms var(--ease), border-color 150ms var(--ease); }
+.ask-user-choice:hover { border-color: var(--workspace-ink); }
+.ask-user-choice.is-on { background: var(--workspace-ink, #171717); border-color: var(--workspace-ink, #171717); color: var(--workspace-panel, #fff); }
+.ask-user-input { width: 100%; max-width: 420px; padding: 6px 10px; border: 1px solid var(--workspace-line-strong); border-radius: 8px; background: var(--workspace-panel, #fff); color: var(--workspace-ink); font: inherit; }
+.ask-user-input:focus { outline: 2px solid var(--workspace-ink); outline-offset: 1px; }

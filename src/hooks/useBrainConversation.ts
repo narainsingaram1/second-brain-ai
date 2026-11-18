@@ -23,6 +23,7 @@ import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../servic
 import { getVisionModel } from "../services/openrouter";
 import { combineToolsets, webToolset } from "../services/webTools";
 import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
+import type { UserAnswers, UserQuestionRequest } from "../services/askUser";
 import { createAgentRouter, type ActivityToast } from "../services/toolRouter";
 import { browserFiles } from "../services/browserFiles";
 import { AgentAuditLog } from "../services/agentAudit";
@@ -84,7 +85,14 @@ export interface BrainConversation {
   /** Soft (T1) steps the assistant just took on a website, shown without stopping it. */
   agentToasts?: ActivityToast[];
   dismissAgentToast?: (id: string) => void;
+  /** Questions the assistant asked mid-task, waiting for the user's answers. */
+  userQuestion?: UserQuestionRequest | null;
+  /** The answers by question id, or null for "not now". */
+  answerUserQuestion?: (answers: UserAnswers | null) => void;
 }
+
+/** How long a question waits for an answer before the assistant carries on without one. */
+const QUESTION_WAIT_MS = 20 * 60_000;
 
 /** Website work gets more room than an ordinary turn: pages load slowly and tasks take many steps. */
 const BROWSER_BUDGET = { steps: 120, tools: 240, timeMs: 15 * 60_000 };
@@ -126,6 +134,12 @@ export function useBrainConversation(
     resolve?.(answer);
   };
   const browserConfirmNative = useRef(false);
+  const [userQuestion, setUserQuestion] = useState<UserQuestionRequest | null>(null);
+  const questionResolver = useRef<((answers: UserAnswers | null) => void) | null>(null);
+  const answerUserQuestion = (answers: UserAnswers | null) => {
+    const resolve = questionResolver.current; questionResolver.current = null; setUserQuestion(null);
+    resolve?.(answers);
+  };
   // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
   const [followUps, setFollowUps] = useState<{ messageId: string; items: string[]; loading: boolean } | null>(null);
   const followUpRequest = useRef<AbortController | null>(null);
@@ -143,7 +157,7 @@ export function useBrainConversation(
   useEffect(() => {
     if (!hasNativeApproval()) return;
     let unlisten: (() => void) | undefined, gone = false;
-    void import("@tauri-apps/api/event").then(({ listen }) => listen("agent-stop", () => { answerBrowserConfirm(false); active.current?.abort(); }))
+    void import("@tauri-apps/api/event").then(({ listen }) => listen("agent-stop", () => { answerBrowserConfirm(false); answerUserQuestion(null); active.current?.abort(); }))
       .then(off => { if (gone) off(); else unlisten = off; }).catch(() => {});
     return () => { gone = true; unlisten?.(); };
   }, []);
@@ -370,6 +384,16 @@ export function useBrainConversation(
       if (answer === "deny_site") neverOn(request.site);
       return answer === true;
     };
+    /** A question the assistant asks mid-task: the card waits in the chat, and the turn goes on with the answers. */
+    const askUser = (request: UserQuestionRequest, stepSignal: AbortSignal) => new Promise<UserAnswers | null>(resolve => {
+      questionResolver.current?.(null);
+      const done = (answers: UserAnswers | null) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(answers); };
+      const onAbort = () => { if (questionResolver.current === done) { questionResolver.current = null; setUserQuestion(null); } done(null); };
+      const timer = setTimeout(() => { if (questionResolver.current === done) answerUserQuestion(null); }, QUESTION_WAIT_MS);
+      stepSignal.addEventListener("abort", onAbort, { once: true });
+      questionResolver.current = done;
+      if (isCurrent()) setUserQuestion(request); else done(null);
+    });
     const askInChat = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<BrowserAnswer>(resolve => {
       confirmResolver.current?.(false);
       const done = (answer: BrowserAnswer) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(answer); };
@@ -444,6 +468,8 @@ export function useBrainConversation(
             desktop && router ? router.wrap(desktopToolset()) : undefined,
             vault ? vaultToolset() : undefined),
           ...(browser || desktop ? { budget: BROWSER_BUDGET } : {}),
+          // Turns that run here can ask the user live; Telegram and server turns ask in the reply instead.
+          ask: options.ask ?? askUser,
           getMemory: () =>
             isCurrent()
               ? latest.current?.agentMemory
@@ -780,9 +806,11 @@ export function useBrainConversation(
     activity,
     draft,
     followUps,
-    stop: () => { answerBrowserConfirm(false); active.current?.abort(); },
+    stop: () => { answerBrowserConfirm(false); answerUserQuestion(null); active.current?.abort(); },
     browserConfirm,
     answerBrowserConfirm,
+    userQuestion,
+    answerUserQuestion,
     agentToasts,
     dismissAgentToast,
     startNew: () => switchConversation(),

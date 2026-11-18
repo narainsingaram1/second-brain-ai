@@ -6,7 +6,7 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 6) return;
+  if (globalThis.__synapseAgent?.version === 7) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
@@ -27,6 +27,28 @@
     base = Number(next);
     nextRef = base + 1;
   }
+  // Every change to the page since the agent arrived, so the extension can tell whether a step did anything.
+  let mutations = 0;
+  try {
+    new MutationObserver(list => { for (const m of list) if (!(m.target === markHost || markHost?.contains?.(m.target) || [...(m.addedNodes || []), ...(m.removedNodes || [])].some(n => n === markHost))) { mutations++; return; } })
+      .observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+  } catch { /* No document yet. */ }
+  /** What the extension compares before and after a step: the page changed, moved, or focus went somewhere. */
+  function pulse(ref) {
+    const active = focusedElement();
+    let state = "", value;
+    if (ref !== undefined && ref !== null) {
+      const el = refs.get(Number(ref))?.deref();
+      if (!el || !el.isConnected) state = "gone";
+      else {
+        state = [el.checked, el.selected, ...["aria-checked", "aria-expanded", "aria-selected", "aria-pressed", "class"].map(a => el.getAttribute(a))].join("|");
+        if (isTextField(el)) value = valueOf(el);
+      }
+    }
+    return { mutations, url: location.href, scroll: Math.round(scrollY), focus: active && isFocusable(active) ? (ids.get(active) || `${tagOf(active)}:${nameOf(active)}`) : "",
+      state, ...(value !== undefined ? { value } : {}) };
+  }
+
   /** "top", "covered" (a same-origin frame its parent already shows) or "frame" (a cross-origin frame). */
   function frameKind() {
     if (isTop) return "top";
@@ -339,8 +361,9 @@
     const scope = dialog || document.body || document.documentElement;
     const seen = new Set();
     const found = [];
+    const pointers = pointerFinder();
     for (const el of walk(scope)) {
-      if (!el.matches?.(INTERACTIVE) || seen.has(el)) continue;
+      if (seen.has(el) || !(el.matches?.(INTERACTIVE) || pointers(el))) continue;
       if (isInput(el) && el.type === "hidden") continue;
       // Upload fields are usually hidden behind an "Attach" button: list them when the block around them shows.
       if (!visible(el) && !(isFileInput(el) && !el.disabled && el.parentElement && (visible(el.parentElement) || (el.parentElement.parentElement && visible(el.parentElement.parentElement))))) continue;
@@ -359,6 +382,34 @@
       url: location.href, title: document.title, dialog: dialog ? clean(nameOf(dialog) || "A dialog is open", 80) : "",
       elements, omitted: Math.max(0, found.length - MAX_ELEMENTS), text, frames: crossFrames(scope),
       scroll: { y: Math.round(scrollY), height: Math.round(document.documentElement.scrollHeight), viewport: innerHeight },
+    };
+  }
+
+  /**
+   * Elements a site made clickable with a script instead of a button or link (a card, a menu row, a day in a
+   * calendar): the mouse turns into a pointer over them. Only the outermost such element counts, and only one
+   * with something to name it by. Style lookups are capped so a huge page stays fast.
+   */
+  const POINTER_TAGS = new Set(["div", "span", "li", "img", "svg", "td", "th", "p", "i", "label", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "figure", "dt", "dd"]);
+  function pointerFinder(budget = 6000) {
+    const cursor = new WeakMap();
+    const pointerOf = el => {
+      if (!el || el.nodeType !== 1) return false;
+      if (cursor.has(el)) return cursor.get(el);
+      let on = false;
+      if (budget > 0) { budget--; try { on = winOf(el).getComputedStyle(el).cursor === "pointer"; } catch { /* Detached. */ } }
+      cursor.set(el, on);
+      return on;
+    };
+    return el => {
+      if (!POINTER_TAGS.has(tagOf(el)) || budget <= 0 || !pointerOf(el)) return false;
+      const parent = el.parentElement || el.getRootNode()?.host;
+      if (parent && pointerOf(parent)) return false; // Part of a bigger clickable thing.
+      if (el.closest("a[href], button, [role=button], [role=link], label[for]") && el.closest("a[href], button, [role=button], [role=link], label[for]") !== el) return false;
+      if (el.querySelector(INTERACTIVE)) return false; // A wrapper: its real controls are listed instead.
+      const r = el.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8 || r.width * r.height > innerWidth * innerHeight * 0.5) return false;
+      return !!nameOf(el);
     };
   }
 
@@ -382,6 +433,82 @@
       list.push({ src: src.slice(0, 300), title: clean(el.title || el.getAttribute("aria-label") || "", 80) });
     }
     return list.slice(0, 8);
+  }
+
+  /**
+   * What is at a point of this frame's viewport, looking through open shadow roots and same-origin frames.
+   * A cross-origin frame there is reported with the point inside it, for the extension to ask that frame.
+   */
+  function at(x, y) {
+    let doc = document, px = x, py = y, el = null;
+    for (let depth = 0; depth < 8; depth++) {
+      el = doc.elementFromPoint(px, py);
+      while (el?.shadowRoot) { const inner = el.shadowRoot.elementFromPoint(px, py); if (!inner || inner === el) break; el = inner; }
+      if (!el) return { nothing: true };
+      if (tagOf(el) === "iframe" || tagOf(el) === "frame") {
+        const r = el.getBoundingClientRect();
+        let inner = null;
+        try { inner = el.contentDocument; } catch { /* Cross-origin. */ }
+        const lx = px - r.left - el.clientLeft, ly = py - r.top - el.clientTop;
+        if (!inner) {
+          let src = "";
+          try { src = new URL(el.src, location.href).href; } catch { /* None. */ }
+          return { frame: { src, x: lx, y: ly, width: el.clientWidth, height: el.clientHeight } };
+        }
+        doc = inner; px = lx; py = ly;
+        continue;
+      }
+      break;
+    }
+    // The control the point belongs to: the nearest interactive or pointer element around it.
+    let target = el.closest(INTERACTIVE);
+    for (let up = el, i = 0; !target && up && i < 6; up = up.parentElement, i++) {
+      try { if (winOf(up).getComputedStyle(up).cursor === "pointer") target = up; } catch { /* Detached. */ }
+    }
+    target ||= el;
+    return { ref: refFor(target), role: roleOf(target), name: nameOf(target), consequential: consequential(target), textField: isTextField(target),
+      userOnly: isTextField(target) ? secretReason(target) : "", x: px, y: py };
+  }
+  /** A click at a point of this frame, the ordinary way (for canvases and widgets with no element per control). */
+  function clickAt(x, y) {
+    const hit = at(x, y);
+    if (hit.frame || hit.nothing) throw new Error("There's nothing this agent can click at that point.");
+    const el = resolve(hit.ref);
+    const target = el.ownerDocument.elementFromPoint(hit.x, hit.y) || el;
+    const extra = { clientX: hit.x, clientY: hit.y };
+    for (const t of ["pointerover", "mouseover", "pointerdown", "mousedown", "pointerup", "mouseup", "click"]) pointer(target, t, extra);
+    return `Clicked ${hit.role} "${hit.name}" at (${Math.round(x)}, ${Math.round(y)})`;
+  }
+  /** Cross-origin frames in this document with their content box, to place a frame's points in this viewport. */
+  function frameRects() {
+    const list = [];
+    for (const el of walk(document.body || document.documentElement)) {
+      if (tagOf(el) !== "iframe" && tagOf(el) !== "frame") continue;
+      try { if (el.contentDocument) continue; } catch { /* Cross-origin: list it. */ }
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+      let src = "";
+      try { src = new URL(el.src, location.href).href; } catch { /* None. */ }
+      list.push({ src, x: r.left + el.clientLeft, y: r.top + el.clientTop, width: el.clientWidth, height: el.clientHeight });
+    }
+    return list;
+  }
+  /** A field's current contents, to check typing took. */
+  function valueOf(el) {
+    if ("value" in el && !el.isContentEditable) return String(el.value ?? "");
+    return clean(el.innerText || el.textContent || "", 2000);
+  }
+  /**
+   * The page as a self-contained HTML file for a test fixture: no scripts, nothing typed into fields, and no
+   * password values. Cross-origin frames keep their address only.
+   */
+  function capture() {
+    const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll("script, noscript, synapse-marks, link[rel=preload], link[rel=modulepreload]").forEach(n => n.remove());
+    clone.querySelectorAll("input, textarea").forEach(n => { n.removeAttribute("value"); if (n.localName === "textarea") n.textContent = ""; });
+    clone.querySelectorAll("*").forEach(n => { for (const a of [...n.attributes]) if (/^on/i.test(a.name)) n.removeAttribute(a.name); });
+    const html = `<!doctype html>\n<!-- Captured from ${location.href.replace(/--/g, "")} -->\n${clone.outerHTML}`;
+    return { url: location.href, title: document.title, html: html.slice(0, 3_000_000) };
   }
 
   /** This frame's view for the extension, or why it has none. */
@@ -658,8 +785,13 @@
     }
     if (step.ref === undefined || step.ref === null) return { exists: true };
     const el = resolve(step.ref);
+    // A click that toggles, opens another tab or downloads may have worked without changing this page: never retried.
+    const anchor = el.closest("a[href]");
+    const once = isToggle(el) || /^(switch|option|tab|menuitemcheckbox|menuitemradio)$/.test(roleOf(el)) || isFileInput(el)
+      || !!(anchor && ((anchor.target && anchor.target !== "_self") || anchor.hasAttribute("download")));
     return { exists: true, role: roleOf(el), name: nameOf(el), consequential: step.action === "click" && consequential(el),
-      submitsText: step.action === "type" && !!step.submit && !searchLike(el), userOnly: step.action === "type" ? secretReason(el) : "" };
+      submitsText: step.action === "type" && !!step.submit && !searchLike(el), userOnly: step.action === "type" ? secretReason(el) : "",
+      once, pulse: pulse(step.ref) };
   }
 
   function act(step) {
@@ -740,11 +872,14 @@
     markHost.style.cssText = "position:fixed;inset:0;z-index:2147483647;pointer-events:none;contain:strict;";
     const root = markHost.attachShadow({ mode: "closed" });
     const wanted = refList?.length ? refList : [...refs.keys()];
-    for (const ref of wanted.slice(0, 80)) {
+    let shown = 0;
+    for (const ref of wanted) {
+      if (shown >= 150) break;
       const el = refs.get(Number(ref))?.deref();
-      if (!el || !el.isConnected || !visible(el)) continue;
+      if (!el || !el.isConnected) continue;
       const r = el.getBoundingClientRect();
-      if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth) continue;
+      if (r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth || !visible(el)) continue;
+      shown++;
       const hot = focus !== undefined && Number(focus) === Number(ref);
       const color = hot ? "#e5484d" : "#6e56cf";
       const box = document.createElement("div");
@@ -767,11 +902,18 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 6,
+    version: 7,
     run(command) {
       try {
         setBase(command.base);
         if (command.op === "frame") return { ok: true, value: frameSnapshot(command) };
+        if (command.op === "pulse") return { ok: true, value: pulse(command.ref) };
+        if (command.op === "at") return { ok: true, value: at(Number(command.x), Number(command.y)) };
+        if (command.op === "clickAt") return { ok: true, value: clickAt(Number(command.x), Number(command.y)) };
+        if (command.op === "frameRects") return { ok: true, value: frameRects() };
+        if (command.op === "frameInfo") return { ok: true, value: { url: location.href, width: innerWidth, height: innerHeight } };
+        if (command.op === "value") return { ok: true, value: valueOf(resolve(command.ref)) };
+        if (command.op === "capture") return { ok: true, value: capture() };
         if (command.op === "settle") return settle(command.options).then(value => ({ ok: true, value }));
         if (command.op === "point") return { ok: true, value: pointFor(resolve(command.ref)) };
         if (command.op === "focus") return { ok: true, value: focusForTyping(resolve(command.ref), !!command.append) };

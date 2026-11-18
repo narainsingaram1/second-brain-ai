@@ -855,7 +855,7 @@ test('streamed reasoning blocks are reassembled and sent back with the tool call
     `data: ${JSON.stringify(events[0])}\n\ndata: ${JSON.stringify(events[2])}\n\ndata: ${JSON.stringify({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'c1', function: { name: 'search_records', arguments: '{"query":"scooter"}' } }] } }] })}\n\ndata: ${JSON.stringify(events[4])}\n\ndata: [DONE]\n\n`,
     `data: ${JSON.stringify({ choices: [{ delta: { content: 'Nothing saved about scooters yet.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
   ];
-  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift(), { headers: { 'content-type': 'text/event-stream' } }); };
+  globalThis.fetch = async (_url, opts) => { if (!opts?.body) throw new Error('offline'); requests.push(JSON.parse(opts.body)); return new Response(replies.shift(), { headers: { 'content-type': 'text/event-stream' } }); };
   const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
   const st = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Inbox'], subsections: { Inbox: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
   await AutonomousBrainAgent.execute('Do I have notes about scooters?', st, 'k', 'm', { onText: () => {} });
@@ -890,7 +890,7 @@ test('tool calls a model writes as text are run as real calls, typed by the tool
     `data: ${JSON.stringify({ choices: [{ delta: { content: '<tool_call>\n<function=search_records>\n<parameter=query>\nscooter\n</parameter>\n</function>\n</tool_call>' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
     `data: ${JSON.stringify({ choices: [{ delta: { content: 'You have no notes about scooters yet.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`,
   ];
-  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift(), { headers: { 'content-type': 'text/event-stream' } }); };
+  globalThis.fetch = async (_url, opts) => { if (!opts?.body) throw new Error('offline'); requests.push(JSON.parse(opts.body)); return new Response(replies.shift(), { headers: { 'content-type': 'text/event-stream' } }); };
   const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
   const st = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], sections: ['Inbox'], subsections: { Inbox: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
   const result = await AutonomousBrainAgent.execute('Do I have notes about scooters?', st, 'k', 'm', { onText: () => {} });
@@ -984,7 +984,7 @@ test('a follow-up sees what the earlier reply did on a website, and can go back 
 
   // The model is sent the note with the earlier reply, and never echoes it back to the user.
   const requests = [];
-  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(textReply(`You lost 5 points on question 4.\n[What you did for this reply (your tool steps; not shown to the user): Opened gradescope.com]`), { headers: { 'content-type': 'text/event-stream' } }); };
+  globalThis.fetch = async (_url, opts) => { if (!opts?.body) throw new Error('offline'); requests.push(JSON.parse(opts.body)); return new Response(textReply(`You lost 5 points on question 4.\n[What you did for this reply (your tool steps; not shown to the user): Opened gradescope.com]`), { headers: { 'content-type': 'text/event-stream' } }); };
   const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
   const { result } = { result: await AutonomousBrainAgent.execute('Which questions did I lose points on?', { ...blankState(), chatHistory: history.slice(0, 2) }, 'k', 'm', { onText: () => {} }) };
   const sent = requests[0].messages.find(m => m.role === 'assistant' && String(m.content).includes('95/100'));
@@ -992,11 +992,11 @@ test('a follow-up sees what the earlier reply did on a website, and can go back 
   assert.equal(result.queryAnswer, 'You lost 5 points on question 4.');
 });
 
-async function runWith(replies, options = {}, prompt = 'Find scooters') {
+async function runWith(replies, options = {}, prompt = 'Find scooters', model = 'm') {
   const requests = [];
-  globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return new Response(replies.shift() ?? textReply(''), { headers: { 'content-type': 'text/event-stream' } }); };
+  globalThis.fetch = async (_url, opts) => { if (!opts?.body) throw new Error('offline'); requests.push(JSON.parse(opts.body)); return new Response(replies.shift() ?? textReply(''), { headers: { 'content-type': 'text/event-stream' } }); };
   const { AutonomousBrainAgent } = await server.ssrLoadModule('/src/services/agentDispatcher.ts');
-  const result = await AutonomousBrainAgent.execute(prompt, blankState(), 'k', 'm', { onText: () => {}, ...options });
+  const result = await AutonomousBrainAgent.execute(prompt, blankState(), 'k', model, { onText: () => {}, ...options });
   return { result, requests };
 }
 
@@ -1026,6 +1026,59 @@ test('browsing keeps going through a few failed steps instead of giving up after
   assert.equal(looks, 4, 'three failures, then it got through');
   assert.equal(result.queryAnswer, 'Added the Hover-1 Alpha to your cart.');
   assert.ok(requests.every(r => r.tool_choice !== 'none'), 'never forced to wrap up');
+});
+
+test('a browser screenshot reaches the model as an image after the tool results, and only the newest is kept', async () => {
+  const shot = 'data:image/jpeg;base64,AAAA';
+  const external = { definitions: [{ type: 'function', function: { name: 'browser_screenshot', description: '', parameters: { type: 'object', properties: { tabId: { type: 'integer' } }, required: ['tabId'], additionalProperties: false } } }],
+    instructions: '', execute: async () => ({ output: { pageOf: 1, tabId: 1, url: 'https://shop.example/', elements: '[1] button "Buy"' }, image: { name: 'shop.example screenshot', dataUrl: shot }, summary: 'Took a screenshot' }) };
+  const replies = [callReply('browser_screenshot', { tabId: 1 }), callReply('browser_screenshot', { tabId: 1 }), textReply('The page shows a Buy button.')];
+  const { result, requests } = await runWith(replies, { externalTools: external }, 'What is on shop.example?', 'anthropic/claude-sonnet-5.5');
+  assert.equal(result.queryAnswer, 'The page shows a Buy button.');
+  const second = requests[1].messages;
+  const toolAt = second.findIndex(m => m.role === 'tool');
+  const image = second[toolAt + 1];
+  assert.equal(image.role, 'user', 'the image comes right after the tool result');
+  assert.ok(image.content.some(p => p.type === 'image_url' && p.image_url.url === shot));
+  assert.ok(!second[toolAt].content.includes('base64'), 'the tool result itself carries no image data');
+  const third = requests[2].messages;
+  const images = third.filter(m => Array.isArray(m.content) && m.content.some(p => p.type === 'image_url'));
+  assert.equal(images.length, 1, 'an older screenshot is dropped once a newer one arrives');
+  assert.ok(third.some(m => m.role === 'user' && /older screenshot/.test(m.content)));
+});
+
+test('ask_user: the turn waits for the answers (without its time limit running) and carries on with them', async () => {
+  const asked = [];
+  const ask = async request => { asked.push(request); await new Promise(r => setTimeout(r, 300)); return { q1: 'Yes', q2: '(555) 123-4567' }; };
+  const replies = [callReply('ask_user', { context: 'For your application', questions: [{ question: 'Authorized to work in the US?', choices: ['Yes', 'No'] }, { question: 'Phone number?', placeholder: '(555) 123-4567' }] }),
+    textReply('Filled it in with your answers.')];
+  const { result, requests } = await runWith(replies, { ask, budget: { timeMs: 150 } }, 'Apply to this job');
+  assert.equal(result.queryAnswer, 'Filled it in with your answers.', 'waiting longer than the time limit did not stop the turn');
+  assert.ok(requests[0].tools.some(t => t.function.name === 'ask_user'));
+  assert.equal(asked[0].context, 'For your application');
+  assert.deepEqual(asked[0].questions.map(q => q.choices || null), [['Yes', 'No'], null]);
+  const tool = requests[1].messages.find(m => m.role === 'tool');
+  const output = JSON.parse(tool.content);
+  assert.equal(output.answered, true);
+  assert.deepEqual(output.answers, [{ question: 'Authorized to work in the US?', answer: 'Yes' }, { question: 'Phone number?', answer: '(555) 123-4567' }]);
+  assert.match(result.activity.find(s => s.kind === 'ask').items[0], /Authorized.*→ Yes/);
+});
+
+test('ask_user is offered only where someone can answer live, and an unanswered question says not to guess', async () => {
+  const { requests } = await runWith([textReply('Hi.')], {}, 'Hello');
+  assert.ok(!requests[0].tools?.some(t => t.function.name === 'ask_user'));
+  const replies = [callReply('ask_user', { questions: [{ question: 'Which school?' }] }), textReply('I still need your school.')];
+  const { requests: second } = await runWith(replies, { ask: async () => null }, 'Fill the form');
+  const output = JSON.parse(second[1].messages.find(m => m.role === 'tool').content);
+  assert.equal(output.answered, false); assert.match(output.note, /Don't guess/);
+});
+
+test('tabs still open from earlier work are in the next message\'s context, so it continues there', async () => {
+  const external = { definitions: [{ type: 'function', function: { name: 'browser_look', description: '', parameters: { type: 'object', properties: { tabId: { type: 'integer' } }, required: ['tabId'], additionalProperties: false } } }],
+    instructions: '', context: async () => '## Browser tabs still open\n- tab 7: Apply — https://careers.example.com/apply', execute: async () => ({ output: {} }) };
+  const { requests } = await runWith([textReply('Continuing.')], { externalTools: external }, 'continue');
+  const last = requests[0].messages.at(-1);
+  assert.match(JSON.stringify(last.content), /tab 7: Apply/);
 });
 
 test('create_goal accepts the fields the goal form has and explains rejected arguments', () => {

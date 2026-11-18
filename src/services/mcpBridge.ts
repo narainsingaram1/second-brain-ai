@@ -35,7 +35,8 @@ export function createMcpHandler(makeTools: (client: string) => Promise<External
     session.last = now();
     if (!session.tools.definitions.some(d => d.function.name === call.name)) throw new Error(`${call.name} isn't available right now (is Chrome connected and the app allowed?).`);
     const result = await session.tools.execute(call.name, call.arguments || {}, session.controller.signal);
-    return result.output;
+    // A screenshot travels beside the output; the app's MCP server sends it as an image block.
+    return result.image ? { ...(result.output as object), __image: result.image.dataUrl } : result.output;
   };
 }
 

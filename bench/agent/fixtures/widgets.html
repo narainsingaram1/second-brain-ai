@@ -1,0 +1,29 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Plans</title>
+<style>
+  .card { display:inline-block; width:180px; padding:16px; margin:8px; border:1px solid #ccc; border-radius:8px; cursor:pointer; }
+  .card span { cursor:pointer; }
+  canvas { border:1px solid #999; cursor:crosshair; }
+</style></head><body><main>
+<h1>Pick a plan</h1>
+<!-- Clickable through a script only: no button, link, role or tabindex. -->
+<div class="card" id="basic"><span>Basic plan</span><p>$5 a month</p></div>
+<div class="card" id="pro"><span>Pro plan</span><p>$12 a month</p></div>
+<p id="plan">No plan</p>
+<!-- A seat map drawn on a canvas: seats have no elements at all. -->
+<canvas id="seats" width="300" height="100" aria-label="Seat map"></canvas>
+<p id="seat">No seat</p>
+<!-- Ignores clicks a script makes (isTrusted is false for those), like some anti-bot buttons. -->
+<button id="real" type="button">Load details</button>
+<p id="details"></p>
+</main><script>
+for (const id of ['basic', 'pro']) document.getElementById(id).addEventListener('click', () => { document.getElementById('plan').textContent = `Chose ${id}`; });
+const canvas = document.getElementById('seats');
+const ctx = canvas.getContext('2d');
+['A', 'B', 'C'].forEach((s, i) => { ctx.fillStyle = '#cde'; ctx.fillRect(10 + i * 100, 20, 80, 60); ctx.fillStyle = '#000'; ctx.fillText(`Seat ${s}`, 30 + i * 100, 55); });
+canvas.addEventListener('click', e => {
+  const r = canvas.getBoundingClientRect();
+  const seat = ['A', 'B', 'C'][Math.floor((e.clientX - r.left - 10) / 100)];
+  if (seat) document.getElementById('seat').textContent = `Seat ${seat}`;
+});
+document.getElementById('real').addEventListener('click', e => { if (e.isTrusted) document.getElementById('details').textContent = 'Details loaded'; });
+</script></body></html>

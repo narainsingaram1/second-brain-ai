@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
-import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, MousePointerClick, PenLine, Search, ShieldCheck, SquarePen, Monitor } from "lucide-react";
+import { AlertCircle, Ban, BookMarked, Brain, CalendarDays, Check, ChevronDown, Circle, CircleDashed, Database, Globe, ImageIcon, ListChecks, Mail, MessageCircleQuestion, MousePointerClick, PenLine, Search, ShieldCheck, SquarePen, Monitor } from "lucide-react";
 import type { AgentPlanItem, AgentStep, AgentStepKind } from "../types";
 import { splitStepItem } from "../services/agentActivity";
 import { describeTimings } from "../services/agentTrace";
 
 const ICONS: Record<AgentStepKind, typeof Brain> = {
   think: Brain, prepare: Database, records: Search, web: Globe, email: Mail, calendar: CalendarDays, change: SquarePen,
-  memory: BookMarked, image: ImageIcon, approval: ShieldCheck, write: PenLine, plan: ListChecks, browser: MousePointerClick, desktop: Monitor,
+  memory: BookMarked, image: ImageIcon, approval: ShieldCheck, write: PenLine, plan: ListChecks, browser: MousePointerClick, desktop: Monitor, ask: MessageCircleQuestion,
 };
 
 export function duration(ms: number): string {

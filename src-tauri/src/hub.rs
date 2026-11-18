@@ -356,7 +356,7 @@ fn serve_mcp(app: AppHandle, stream: UnixStream, reader: BufReader<UnixStream>) 
                         let answer = rx.recv_timeout(Duration::from_secs(600));
                         hub.pending.lock().unwrap().remove(&call_id);
                         match answer {
-                            Ok(v) if v["ok"] == true => rpc_result(&id, json!({ "content": [{ "type": "text", "text": v["output"].to_string() }], "isError": false })),
+                            Ok(v) if v["ok"] == true => rpc_result(&id, json!({ "content": mcp_content(&v["output"]), "isError": false })),
                             Ok(v) => rpc_result(&id, json!({ "content": [{ "type": "text", "text": v["error"].as_str().unwrap_or("Failed.") }], "isError": true })),
                             Err(_) => rpc_result(&id, json!({ "content": [{ "type": "text", "text": "Synapse didn't answer in time (is its window open?)." }], "isError": true })),
                         }
@@ -369,6 +369,19 @@ fn serve_mcp(app: AppHandle, stream: UnixStream, reader: BufReader<UnixStream>) 
         writer.flush()?;
     }
     Ok(())
+}
+
+/// A tool's output as MCP content: its JSON as text, and a screenshot (`__image`, a data URL) as an image block.
+fn mcp_content(output: &Value) -> Value {
+    let mut output = output.clone();
+    let image = output.as_object_mut().and_then(|o| o.remove("__image"));
+    let mut content = vec![json!({ "type": "text", "text": output.to_string() })];
+    if let Some(url) = image.as_ref().and_then(Value::as_str) {
+        if let Some((head, data)) = url.strip_prefix("data:").and_then(|rest| rest.split_once(";base64,")) {
+            content.push(json!({ "type": "image", "data": data, "mimeType": head }));
+        }
+    }
+    Value::Array(content)
 }
 
 // ---- Relays (this binary started by Chrome or by an MCP client; no window) ----

@@ -517,6 +517,7 @@ export function combineToolsets(...sets: Array<ExternalToolset | undefined>): Ex
     definitions: present.flatMap(s => s.definitions),
     instructions: present.map(s => s.instructions).filter(Boolean).join("\n\n"),
     prepare: (name, args, signal) => owner(name).prepare?.(name, args, signal) ?? Promise.resolve(undefined),
+    context: async signal => (await Promise.all(present.map(s => s.context?.(signal).catch(() => "") ?? ""))).filter(Boolean).join("\n\n"),
     execute: (name, args, signal, context) => owner(name).execute(name, args, signal, context),
   };
 }
