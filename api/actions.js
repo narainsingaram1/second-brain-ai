@@ -14584,7 +14584,7 @@ const EDIT_TOOLS = [
 			description: "Titles of new milestones to append."
 		}
 	}, ["goalId"]),
-	fn$4("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, or set its tags. Prefer appendContent for additions so existing text is preserved.", {
+	fn$4("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, set its tags, or correct or delete the transcript of a recording made into it. Prefer appendContent for additions so existing text is preserved.", {
 		noteId: d_("ID of the existing note (knowledge record)."),
 		newTitle: s_,
 		appendContent: d_("Markdown to add at the end of the note."),
@@ -14594,7 +14594,8 @@ const EDIT_TOOLS = [
 		tags: {
 			type: "array",
 			items: s_
-		}
+		},
+		replaceTranscript: d_("New full transcript of the note's recording (read the note first; keep its [mm:ss] times and ── Recording N ── dividers), e.g. to fix misheard names. An empty string deletes the transcript.")
 	}, ["noteId"]),
 	fn$4("create_habit", "Create a new recurring habit to track. Use only when the user asks to start tracking a habit or routine.", {
 		name: s_,
@@ -16597,8 +16598,10 @@ function prepareMutation(name, args, state) {
 				args.replaceContent,
 				args.folderId,
 				args.workspaceId,
-				args.tags
+				args.tags,
+				args.replaceTranscript
 			].some((v) => v !== void 0)) throw new Error("Supply at least one field to update.");
+			if (args.replaceTranscript !== void 0 && typeof args.replaceTranscript !== "string") throw new Error("replaceTranscript must be text.");
 			const moveTo = args.folderId === "root" ? null : args.folderId || args.workspaceId ? noteFolderArg(state, args.folderId, args.workspaceId) : void 0;
 			const current = note.content || "";
 			const html = /^\s*<[a-z][^>]*>/i.test(current);
@@ -16606,12 +16609,23 @@ function prepareMutation(name, args, state) {
 			const appended = args.appendContent === void 0 ? current : html ? `${current}${args.appendContent.trim().split(/\n{2,}/).map((p) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`).join("")}` : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${args.appendContent.trim()}`;
 			const content = args.replaceContent !== void 0 ? restoreNoteImages(args.replaceContent, current) : appended;
 			const title = args.newTitle?.trim();
+			const transcript = args.replaceTranscript === void 0 ? void 0 : args.replaceTranscript.trim();
+			const { transcript: _oldTranscript, ...withoutTranscript } = note;
 			return {
 				type: "knowledge",
 				action: name,
 				expected: note,
 				record: {
-					...note,
+					...transcript === void 0 ? note : transcript ? {
+						...note,
+						transcript
+					} : {
+						...withoutTranscript,
+						...note.recording ? { recording: {
+							...note.recording,
+							notesPending: void 0
+						} } : {}
+					},
 					content,
 					...content !== current ? { summary: stripNoteImages(content).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {},
 					...title ? {

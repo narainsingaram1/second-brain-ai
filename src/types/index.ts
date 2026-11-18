@@ -418,6 +418,23 @@ export interface KnowledgeItem {
   itemCount?: number;
   createdAt?: string;
   updatedAt?: string;
+  /** Transcript of recordings made into this note: paragraphs starting "[mm:ss]", recordings divided by "── Recording N ──". */
+  transcript?: string;
+  recording?: NoteRecordingInfo;
+}
+
+export interface NoteRecordingInfo {
+  /** Total recorded audio, across every recording into the note. */
+  durationSec: number;
+  recordedAt: string;
+  /** When notes were last written from the transcript. */
+  notesGeneratedAt?: string;
+  /** The transcript was saved but notes have not been written from it yet. */
+  notesPending?: boolean;
+  /** What the user typed before notes were first written, kept so nothing they wrote is lost. */
+  myNotes?: string;
+  /** Bumped when the recorder replaces the note body, so an open editor reloads it. */
+  revision?: number;
 }
 
 export type Note = KnowledgeItem;

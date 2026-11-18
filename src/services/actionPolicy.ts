@@ -65,6 +65,7 @@ export function approvalReason(tool: string, ctx: TurnContext, args: Record<stri
   if (tool === "send_email" || tool === "send_draft") return "Sending email always needs your approval. It cannot be unsent.";
   if (tier === "external_irreversible") return "Actions outside Synapse always need your approval.";
   if (tool.startsWith("delete_")) return "Deleting needs your approval.";
+  if (tool === "update_note" && typeof args.replaceTranscript === "string" && !args.replaceTranscript.trim()) return "Deleting a recording's transcript needs your approval.";
   if (ctx.askBeforeChanges) return "You asked to approve every change.";
   // After reading content the user did not write, the model may only add records, not change or remove them.
   if (ctx.untrustedRead && !tool.startsWith("create_") && tool !== "log_journal") return "This change came after reading an email, a web page, an uploaded document or a past conversation, which could contain instructions that are not yours.";
@@ -75,7 +76,7 @@ export function approvalReason(tool: string, ctx: TurnContext, args: Record<stri
 const LABELS: Record<string, string> = {
   title: "Title", name: "Name", status: "Status", dueDate: "Due date", dueTime: "Due time", description: "Description", section: "Section",
   subsection: "Subsection", priority: "Priority", date: "Date", startTime: "Start", endTime: "End", location: "Location", content: "Content",
-  progress: "Progress", targetDate: "Target date", completed: "Completed", notes: "Notes",
+  progress: "Progress", targetDate: "Target date", completed: "Completed", notes: "Notes", transcript: "Transcript",
 };
 const show = (value: unknown) => {
   if (value === undefined || value === null || value === "") return "—";
