@@ -14,7 +14,7 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.4.0";
+export const VERSION = "1.5.0";
 /** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
 export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
@@ -27,6 +27,21 @@ const MAX_STEPS = 25;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_FILE_PARTS = 64;
 const FILE_TTL_MS = 10 * 60_000;
+/**
+ * Cross-origin frames (an embedded Greenhouse or Lever application, a sign-up or booking widget) are read and
+ * driven separately. Each gets a block of refs: frame slot k numbers its elements from k * FRAME_SPAN + 1, so a
+ * ref alone says which frame it belongs to. Keep equal to FRAME_SPAN in page-agent.js.
+ */
+const FRAME_SPAN = 100000;
+const MAX_FRAME_ELEMENTS = 160;
+const MAX_ELEMENTS_TOTAL = 300;
+const FRAME_TEXT = 2500;
+/** How long to wait for a visible cross-origin frame that hasn't answered yet (still loading). */
+const FRAME_WAIT_MS = 2400;
+/** Frames that hold a CAPTCHA: the agent doesn't touch them, the user solves it. */
+/** Ad frames: never what the user asked about, and they crowd the view. */
+const AD_FRAME = /(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|adservice\.google\.|amazon-adsystem\.com|adnxs\.com|taboola\.com|outbrain\.com|criteo\.(?:com|net)|moatads\.com)/i;
+const CAPTCHA_FRAME = /(?:google\.com\/recaptcha|recaptcha\.net|hcaptcha\.com|challenges\.cloudflare\.com|arkoselabs\.com|funcaptcha\.com|captcha-delivery\.com)/i;
 
 export function isAppOrigin(origin, extra = []) {
   return origin === NATIVE_ORIGIN || LOCAL_APP.test(origin) || STATIC_APP_ORIGINS.includes(origin) || extra.includes(origin);
@@ -85,6 +100,35 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   /** The user's own tabs lent to the agent (shared or borrowed). */
   const lentTabs = async () => (await session("lentTabs")) || [];
   const setLentTabs = tabs => chrome.storage.session.set({ lentTabs: tabs });
+  /** Per tab, the cross-origin frames the agent reads: frameId -> { slot, url }. Survives the worker sleeping. */
+  const frameMaps = async () => (await session("frameSlots")) || {};
+  const framesOf = async tabId => (await frameMaps())[tabId] || {};
+  async function setFrames(tabId, map) {
+    const all = await frameMaps();
+    if (map && Object.keys(map).length) all[tabId] = map; else delete all[tabId];
+    await chrome.storage.session.set({ frameSlots: all });
+  }
+  /** The frame that ran the last step in each tab: where a key press without a ref goes. */
+  const lastFrame = new Map();
+
+  /** Which frame a ref lives in (0 is the page itself), and the ref block the frame was given. */
+  async function frameOfRef(tabId, ref) {
+    const slot = Math.floor(Number(ref) / FRAME_SPAN);
+    if (!slot) return { frameId: 0, base: 0 };
+    const entry = Object.entries(await framesOf(tabId)).find(([, f]) => f.slot === slot);
+    if (!entry) throw new Error(`Element ${ref} is no longer on the page. Take a new look at the page and use a current ref.`);
+    // Never act in a frame from a site the user blocked. (A sandboxed or srcdoc frame has no web address.)
+    if (/^https?:/i.test(entry[1].url || "")) checkTarget(entry[1].url, (await settings()).blocked);
+    return { frameId: Number(entry[0]), base: slot * FRAME_SPAN };
+  }
+  /** Where a step runs: its ref's frame, or for a key press without one, the frame the agent last worked in. */
+  async function frameOfStep(tabId, step) {
+    if (step.ref !== undefined && step.ref !== null) return frameOfRef(tabId, step.ref);
+    if (step.action === "press" && lastFrame.get(tabId)) {
+      try { return await frameOfRef(tabId, lastFrame.get(tabId)); } catch { /* That frame is gone: the page itself. */ }
+    }
+    return { frameId: 0, base: 0 };
+  }
 
   async function requireOwnTab(tabId) {
     const id = Number(tabId);
@@ -185,9 +229,18 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     }
   }
 
-  async function run(tabId, command, sw = untimed) {
-    await sw.time("inject", () => chrome.scripting.executeScript({ target: { tabId }, files: ["page-agent.js"] }));
-    const [result] = await sw.time(command.op, () => chrome.scripting.executeScript({ target: { tabId }, func: c => globalThis.__synapseAgent.run(c), args: [command] }));
+  async function run(tabId, command, sw = untimed, frame = { frameId: 0, base: 0 }) {
+    const target = frame.frameId ? { tabId, frameIds: [frame.frameId] } : { tabId };
+    const args = [frame.frameId ? { ...command, base: frame.base } : command];
+    let result;
+    try {
+      await sw.time("inject", () => chrome.scripting.executeScript({ target, files: ["page-agent.js"] }));
+      [result] = await sw.time(command.op, () => chrome.scripting.executeScript({ target, func: c => globalThis.__synapseAgent.run(c), args }));
+    } catch (error) {
+      // The frame went away (the embed reloaded or navigated): its refs are gone with it.
+      if (frame.frameId && /frame/i.test(error?.message || "")) throw new Error("That part of the page reloaded. Take a new look at the page and use a current ref.");
+      throw error;
+    }
     const value = result?.result;
     if (!value) throw new Error("The page didn't respond. It may still be loading, or the browser doesn't allow scripts on it.");
     if (!value.ok) throw Object.assign(new Error(value.error), { code: value.code });
@@ -200,8 +253,10 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   }
 
   /** After an action: give the page a moment, wait for it to settle and finish any load it started. */
-  async function afterAction(tabId, sw = untimed) {
+  async function afterAction(tabId, sw = untimed, frame = { frameId: 0, base: 0 }) {
     await sw.time("pause", () => sleep(settle));
+    // An embedded form reacts inside its own frame: let it settle too.
+    if (frame.frameId) { try { await run(tabId, { op: "settle" }, sw, frame); } catch { /* It navigated or went away. */ } }
     const first = await quiet(tabId, sw);
     let tab = await sw.time("load", () => waitForLoad(tabId));
     if (first?.navigating || tab.status !== "complete") { tab = await sw.time("load", () => waitForLoad(tabId)); await quiet(tabId, sw); }
@@ -209,21 +264,24 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   }
 
   /** A screenshot with the target boxed, for the user to see before allowing a step. Optional: null if unavailable. */
-  async function capture(tabId, focusRef, sw = untimed) {
-    return sw.time("screenshot", () => captureNow(tabId, focusRef));
+  async function capture(tabId, focusRef, sw = untimed, frame = { frameId: 0, base: 0 }) {
+    return sw.time("screenshot", () => captureNow(tabId, focusRef, frame));
   }
-  async function captureNow(tabId, focusRef) {
+  async function captureNow(tabId, focusRef, frame) {
     if (!(await cdp.ready(tabId))) return null;
     try {
-      await run(tabId, { op: "mark", refs: focusRef ? [focusRef] : [], focus: focusRef });
+      await run(tabId, { op: "mark", refs: focusRef ? [focusRef] : [], focus: focusRef }, untimed, frame);
       return await cdp.screenshot(tabId);
     } catch { return null; }
-    finally { try { await run(tabId, { op: "unmark" }); } catch { /* Page moved on. */ } }
+    finally { try { await run(tabId, { op: "unmark" }, untimed, frame); } catch { /* Page moved on. */ } }
   }
 
   /** Runs a step as trusted input when precise mode is on; null when it should run the ordinary way. */
-  async function preciseStep(tabId, step, sw = untimed) {
+  async function preciseStep(tabId, step, sw = untimed, frame = { frameId: 0, base: 0 }) {
     if (!["click", "type", "press", "check", "uncheck"].includes(step.action) || !(await cdp.ready(tabId))) return null;
+    // Inside a cross-origin frame the page agent can't tell where the frame sits in the window, so clicks and
+    // typing there use ordinary input. A key press goes to whatever has focus either way.
+    if (frame.frameId && step.action !== "press") return null;
     const input = work => sw.time("input", work);
     if (step.action === "press") { await input(() => cdp.key(tabId, String(step.key || ""))); return `Pressed ${step.key}`; }
     if (step.action === "check" || step.action === "uncheck") return null; // Needs the current state: the page agent handles it.
@@ -242,9 +300,88 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   }
 
   async function snapshot(tabId, sw = untimed) {
-    const page = await run(tabId, { op: "snapshot" }, sw);
-    return { tabId, site: hostOf(page.url), ...page };
+    const { frames: expected = [], ...page } = await run(tabId, { op: "snapshot" }, sw);
+    // Most pages have no cross-origin frame worth reading: skip the extra round trips unless one is showing or
+    // the model may still hold refs into one.
+    const known = Object.keys(await framesOf(tabId)).length;
+    const views = expected.length || known ? await sw.time("frames", () => frameViews(tabId, expected.length)) : [];
+    return { tabId, site: hostOf(page.url), ...mergeFrames(page, views, (await settings()).blocked, expected) };
   }
+
+  /** Asks every frame in the tab for its view (one injection for all of them). Null if the browser refused. */
+  async function askFrames(tabId) {
+    try {
+      await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ["page-agent.js"] });
+      return await chrome.scripting.executeScript({ target: { tabId, allFrames: true }, func: c => globalThis.__synapseAgent?.run(c), args: [{ op: "frame", textLimit: FRAME_TEXT }] });
+    } catch { return null; } // A frame mid-navigation can fail the whole call: the page itself still works.
+  }
+
+  /**
+   * The views of the tab's cross-origin frames, each with its own block of refs. Waits a little for visible
+   * frames the page shows that haven't answered yet (an embedded form still loading after a tab switch).
+   */
+  async function frameViews(tabId, expected) {
+    const started = now();
+    for (;;) {
+      const results = await askFrames(tabId);
+      if (!results) return [];
+      const known = await framesOf(tabId);
+      const map = {};
+      const used = new Set(Object.values(known).map(f => f.slot));
+      const views = [];
+      for (const r of results) {
+        const frameId = Number(r?.frameId);
+        if (!frameId) continue; // The page itself (or a test double without frames).
+        let view = r.result?.ok ? r.result.value : null;
+        if (!view || view.covered) continue;
+        let slot = known[frameId]?.slot;
+        if (!slot) { slot = 1; while (used.has(slot)) slot++; used.add(slot); }
+        if (view.needsBase || view.base !== slot * FRAME_SPAN) {
+          const [again] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, func: c => globalThis.__synapseAgent?.run(c), args: [{ op: "frame", base: slot * FRAME_SPAN, textLimit: FRAME_TEXT }] }).catch(() => []);
+          view = again?.result?.ok ? again.result.value : null;
+          if (!view || view.covered || view.needsBase) continue;
+        }
+        map[frameId] = { slot, url: String(view.url || "") };
+        views.push({ frameId, ...view });
+      }
+      await setFrames(tabId, map); // Frames that are gone drop out, and their refs with them.
+      const answered = views.filter(v => !v.hidden).length;
+      if (answered >= expected || now() - started > FRAME_WAIT_MS) return views;
+      await sleep(300);
+    }
+  }
+
+  /** The page's own view plus what its frames show, within one element budget. */
+  function mergeFrames(page, views, blockedHosts, expected = []) {
+    const elements = [...page.elements];
+    let { omitted = 0, text = "" } = page;
+    const notes = [];
+    for (const view of views) {
+      if (view.hidden || view.kind !== "frame") continue;
+      const host = hostOf(view.url);
+      let blocked = false;
+      try { checkTarget(view.url || "about:blank", blockedHosts); } catch { blocked = true; }
+      if (blocked) { notes.push(`An embedded frame from ${host} is on a site you can't act on; the user has to do that part.`); continue; }
+      if (AD_FRAME.test(view.url || "")) continue;
+      if (CAPTCHA_FRAME.test(view.url || "")) { notes.push(`A CAPTCHA (from ${host}) is on the page: the user has to solve it themselves.`); continue; }
+      const room = Math.max(0, Math.min(MAX_FRAME_ELEMENTS, MAX_ELEMENTS_TOTAL - elements.length, view.elements.length));
+      // A busy page shouldn't crowd out the embedded form: give the frame at least a fair share.
+      const take = view.elements.slice(0, Math.max(room, Math.min(view.elements.length, 80)));
+      omitted += (view.omitted || 0) + view.elements.length - take.length;
+      if (take.length) elements.push(`(inside an embedded frame from ${host})`, ...take);
+      if (view.text) text += `\n\n[Embedded frame from ${host}]\n${view.text}`;
+    }
+    // A frame that never answered (the browser wouldn't let the agent in, or it is still loading): name its
+    // address, so the assistant can open the embedded page on its own instead of giving up.
+    const origins = new Set(views.map(v => { try { return new URL(v.url).origin; } catch { return ""; } }));
+    for (const frame of expected) {
+      let origin = "";
+      try { origin = new URL(frame.src).origin; } catch { continue; }
+      if (!origins.has(origin)) notes.push(`An embedded frame${frame.title ? ` "${frame.title}"` : ""} from ${hostOf(frame.src)} couldn't be read in place. If the task is in it, open its address directly with browser_open: ${frame.src}`);
+    }
+    return { ...page, elements, omitted, text: notes.length ? `${notes.join("\n")}\n\n${text}` : text };
+  }
+
   /** A request's result with where its time went. */
   const timed = async (work) => {
     const sw = stopwatch(now);
@@ -273,6 +410,8 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
       await setOwnTabs([...(await ownTabs()), tab.id]);
       await sw.time("group", () => addToGroup(tab.id));
     }
+    await setFrames(tab.id, null); // A new page: its frames will be numbered afresh.
+    lastFrame.delete(tab.id);
     await sw.time("pause", () => sleep(settle));
     await sw.time("load", () => waitForLoad(tab.id));
     await quiet(tab.id, sw);
@@ -315,7 +454,8 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     for (let i = 0; i < steps.length; i++) {
       if (stopped) return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, stopReason: "Stopped by the user." };
       const step = steps[i];
-      const info = await run(tab.id, { op: "inspect", step }, sw);
+      const frame = await frameOfStep(tab.id, step);
+      const info = await run(tab.id, { op: "inspect", step }, sw, frame);
       if (info.userOnly) {
         return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, blocked: { step: i, reason: `"${info.name || "That field"}" is a ${info.userOnly}. Ask the user to fill it in themselves in the Synapse tab group, then continue.` } };
       }
@@ -327,22 +467,22 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
           tokens.set(token, { tabId: tab.id, url: tab.url, step: stepKey(step), expires: now() + TOKEN_TTL_MS });
           const label = step.action === "type" ? `Send "${String(step.text || "").slice(0, 120)}" in "${info.name || "a text box"}"`
             : step.action === "press" ? `Press ${step.key} on "${info.name || "the focused control"}"` : `Click "${info.name || "this button"}"`;
-          const screenshot = await capture(tab.id, step.ref, sw);
+          const screenshot = await capture(tab.id, step.ref, sw, frame);
           return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, needsConfirmation: { token, step: i, label, site: hostOf(tab.url), ...(screenshot ? { screenshot } : {}) } };
         }
         tokens.delete(confirmToken); // One use only.
       }
       const before = tab.url;
       const attempt = async () => step.action === "upload"
-        ? run(tab.id, { op: "act", step: { ...step, payload: stagedFile(step.file) } }, sw)
-        : (await preciseStep(tab.id, step, sw)) ?? await run(tab.id, { op: "act", step }, sw);
+        ? run(tab.id, { op: "act", step: { ...step, payload: stagedFile(step.file) } }, sw, frame)
+        : (await preciseStep(tab.id, step, sw, frame)) ?? await run(tab.id, { op: "act", step }, sw, frame);
       let note;
       try {
         try { note = await attempt(); }
         catch (error) {
           // A dropdown left open by the previous field: close it, let the page settle, and try once more.
           if (error?.code !== "popup") throw error;
-          await run(tab.id, { op: "dismiss" }, sw);
+          await run(tab.id, { op: "dismiss" }, sw, frame);
           await quiet(tab.id, sw);
           note = await attempt();
         }
@@ -353,7 +493,8 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
         return { ...(await snapshot(tab.id, sw)), done, stoppedAt: i, stopReason: `Step ${i + 1} (${step.action}) failed: ${message} Steps before it ran; it and the ones after it did not.` };
       }
       done.push(note);
-      tab = await afterAction(tab.id, sw);
+      if (step.ref !== undefined && step.ref !== null) lastFrame.set(tab.id, frame.frameId ? frame.base + 1 : 0);
+      tab = await afterAction(tab.id, sw, frame);
       if (tab.url !== before) {
         checkTarget(tab.url, (await settings()).blocked);
         // Refs belong to the old page; the rest of the steps must be planned against the new one.
@@ -462,6 +603,8 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
   /** Forget tabs the user closed. */
   async function tabClosed(tabId) {
     await cdp.detach(tabId);
+    await setFrames(tabId, null);
+    lastFrame.delete(tabId);
     await setOwnTabs((await ownTabs()).filter(t => t !== tabId));
     await setLentTabs((await lentTabs()).filter(t => t !== tabId));
   }

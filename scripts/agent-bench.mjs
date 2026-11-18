@@ -60,6 +60,7 @@ export function serve() {
     try {
       const body = url.pathname.startsWith("/fixtures/") ? (generated(name) ?? await readFile(path.join(FIXTURES, name), "utf8")) : null;
       if (body === null) { res.writeHead(404).end(); return; }
+      if (url.searchParams.has("slow")) await sleep(700); // A frame that loads after the page has settled.
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(body);
     } catch { res.writeHead(404).end(); }
   });
@@ -74,12 +75,13 @@ function chromePath() {
   return candidates.find(p => existsSync(p));
 }
 
-export async function launch() {
+/** @param extraArgs more Chrome flags (the frame test keeps cross-origin frames in one process so it can reach them). */
+export async function launch(extraArgs = []) {
   const exe = chromePath();
   if (!exe) throw new Error("Chrome not found. Install Google Chrome or set CHROME_PATH.");
   const profile = await mkdtemp(path.join(tmpdir(), "synapse-bench-"));
   const proc = spawn(exe, ["--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`, "--no-first-run", "--no-default-browser-check",
-    "--disable-extensions", "--window-size=1280,900", "--host-resolver-rules=MAP localhost 127.0.0.1", "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
+    "--disable-extensions", "--window-size=1280,900", "--host-resolver-rules=MAP localhost 127.0.0.1", ...extraArgs, "about:blank"], { stdio: ["ignore", "ignore", "pipe"] });
   const wsUrl = await new Promise((resolve, reject) => {
     let buffer = "";
     const timer = setTimeout(() => reject(new Error("Chrome didn't start in time.")), 15_000);
@@ -231,7 +233,7 @@ const TASKS = [
       [{ action: "press", key: "Enter", before: "document.getElementById('same').contentDocument.getElementById('send').focus()" }]],
     check: "document.getElementById('same').contentDocument.getElementById('pw').value === ''", expect: { confirmations: 1, userOnly: 1 },
     view: { has: [/textbox "Password" user-only/, /button "Send message" needs-confirmation/] } },
-  { name: "iframe-cross", page: "iframe-form.html", about: "Fill a form inside a cross-origin frame", knownGap: "Cross-origin frames are invisible to the page agent (plan 2.5)",
+  { name: "iframe-cross", page: "iframe-form.html", about: "Fill a form inside a cross-origin frame", knownGap: "This replay drives only the top frame; agent-core reads cross-origin frames separately (tests/page-agent-frames-chrome.test.mjs)",
     batches: [[{ action: "type", find: /textbox "Partner city"/, text: "Rome" }]], check: null },
   { name: "late-load", page: "late-load.html", about: "Load more, then pick an item that arrives after a 1.5 s CSS-only spinner",
     batches: [[{ action: "click", find: /button "Load more"/ }], [{ action: "click", find: /button "Item 21"/ }]],

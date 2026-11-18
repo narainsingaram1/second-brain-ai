@@ -79,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.4.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.5.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
