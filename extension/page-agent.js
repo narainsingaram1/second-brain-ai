@@ -6,7 +6,7 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 5) return;
+  if (globalThis.__synapseAgent?.version === 6) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
@@ -15,6 +15,25 @@
   const ids = new WeakMap(); // element -> ref
   const byPrint = new Map(); // fingerprint -> refs, so a re-rendered element keeps its number
   let nextRef = 1;
+  // Frames: the extension gives each cross-origin frame its own block of refs (base), so one number names one
+  // element across the whole tab. The top frame is 0. Same-origin frames are part of their parent's view.
+  const FRAME_SPAN = 100000;
+  const isTop = window === window.top;
+  let base = isTop ? 0 : null;
+  function setBase(next) {
+    if (next === undefined || next === null || next === base) return;
+    // A new block (the extension forgot this frame): the old numbers mean nothing now.
+    refs.clear(); byPrint.clear();
+    base = Number(next);
+    nextRef = base + 1;
+  }
+  /** "top", "covered" (a same-origin frame its parent already shows) or "frame" (a cross-origin frame). */
+  function frameKind() {
+    if (isTop) return "top";
+    let owner = null;
+    try { owner = window.frameElement; } catch { /* Cross-origin parent. */ }
+    return owner ? "covered" : "frame";
+  }
 
   const INTERACTIVE = "a[href], button, input, textarea, select, summary, [contenteditable=''], [contenteditable='true'], [tabindex]:not([tabindex='-1']), " +
     "[role=button], [role=link], [role=checkbox], [role=radio], [role=tab], [role=menuitem], [role=menuitemcheckbox], [role=menuitemradio], [role=option], " +
@@ -224,7 +243,10 @@
     const same = byPrint.get(print) || [];
     // Reuse the number of a control that was replaced by an identical one (the old element is gone).
     ref = same.find(old => { const prev = refs.get(old)?.deref(); return !prev || !prev.isConnected; });
-    if (!ref) { ref = nextRef++; same.push(ref); byPrint.set(print, same); }
+    if (!ref) {
+      if (base > 0 && nextRef >= base + FRAME_SPAN) nextRef = base + 1; // Wrap within this frame's block.
+      ref = nextRef++; same.push(ref); byPrint.set(print, same);
+    }
     ids.set(el, ref); refs.set(ref, new WeakRef(el));
     return ref;
   }
@@ -335,9 +357,43 @@
     const text = clean(main?.innerText || "", MAX_TEXT * 2).slice(0, MAX_TEXT);
     return {
       url: location.href, title: document.title, dialog: dialog ? clean(nameOf(dialog) || "A dialog is open", 80) : "",
-      elements, omitted: Math.max(0, found.length - MAX_ELEMENTS), text,
+      elements, omitted: Math.max(0, found.length - MAX_ELEMENTS), text, frames: crossFrames(scope),
       scroll: { y: Math.round(scrollY), height: Math.round(document.documentElement.scrollHeight), viewport: innerHeight },
     };
+  }
+
+  /**
+   * Cross-origin frames big enough to hold a form (an embedded job application, a payment or sign-up widget).
+   * The page agent can't see into them; the extension reads each one separately and waits for these to answer.
+   */
+  function crossFrames(scope) {
+    const list = [];
+    for (const el of walk(scope)) {
+      if (tagOf(el) !== "iframe" && tagOf(el) !== "frame") continue;
+      let src = "";
+      try { src = new URL(el.src, location.href).href; } catch { /* No address. */ }
+      let readable = false;
+      try { readable = !!el.contentDocument && !(el.contentDocument.location.href === "about:blank" && /^https?:/.test(src) && new URL(src).origin !== location.origin); }
+      catch { /* Cross-origin. */ }
+      // (A cross-origin frame still loading shows an about:blank document of its own: count it, it will answer soon.)
+      if (readable || !visible(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 100 || r.height < 40) continue; // Tracking pixels and badges.
+      list.push({ src: src.slice(0, 300), title: clean(el.title || el.getAttribute("aria-label") || "", 80) });
+    }
+    return list.slice(0, 8);
+  }
+
+  /** This frame's view for the extension, or why it has none. */
+  function frameSnapshot(command) {
+    const kind = frameKind();
+    if (kind === "covered") return { covered: true };
+    if (base === null) return { needsBase: true, url: location.href };
+    if (innerWidth < 2 || innerHeight < 2) return { hidden: true, url: location.href };
+    const page = snapshot();
+    // A frame's own "offscreen" is measured against the frame, not the window the user sees: leave it out.
+    if (kind === "frame") page.elements = page.elements.map(line => line.replace(/ offscreen$/, ""));
+    return { ...page, kind, base, ...(command.textLimit ? { text: page.text.slice(0, command.textLimit) } : {}) };
   }
 
   // ---- Input that arrives the way a person's would ----
@@ -711,9 +767,11 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 5,
+    version: 6,
     run(command) {
       try {
+        setBase(command.base);
+        if (command.op === "frame") return { ok: true, value: frameSnapshot(command) };
         if (command.op === "settle") return settle(command.options).then(value => ({ ok: true, value }));
         if (command.op === "point") return { ok: true, value: pointFor(resolve(command.ref)) };
         if (command.op === "focus") return { ok: true, value: focusForTyping(resolve(command.ref), !!command.append) };
