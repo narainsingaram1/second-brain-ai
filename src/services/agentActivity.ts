@@ -76,6 +76,10 @@ export function describeCall(name: string, args: Record<string, any>): { kind: A
   if (name.startsWith("browser_")) return { kind: "browser", label: describeBrowserCall(name, args) };
   if (name.startsWith("desktop_")) return { kind: "desktop", label: describeDesktopCall(name, args) };
   switch (name) {
+    case "ask_user": {
+      const questions = Array.isArray(args.questions) ? args.questions : [];
+      return { kind: "ask", label: questions.length > 1 ? `Asking you ${questions.length} questions` : "Asking you a question" };
+    }
     case "query_records": {
       const range = args.dateFrom && args.dateTo ? ` from ${args.dateFrom} to ${args.dateTo}` : args.dateFrom ? ` from ${args.dateFrom}` : args.dateTo ? ` through ${args.dateTo}` : "";
       return { kind: "records", label: `Looking through your ${noun(args.type, true)}${range}${args.text ? ` mentioning ${quote(args.text)}` : ""}` };
@@ -133,7 +137,14 @@ export function describeResult(name: string, args: Record<string, any>, output: 
     case "browser_act": {
       const did: string[] = Array.isArray(output.done) ? output.done : [];
       const detail = output.declined || output.userOnly || output.stopped || (did.length ? undefined : "Nothing ran");
-      return { ...(output.site ? { label: `${did.length ? "Worked on" : "Looked at"} ${output.site}` } : {}), ...(detail ? { detail } : {}), items: did.slice(0, 10) };
+      // The page it ended on comes first, so the next message knows where the work stands.
+      const page = output.url ? [`${clip(output.title || output.site || output.url)}|${output.url}`] : [];
+      return { ...(output.site ? { label: `${did.length ? "Worked on" : "Looked at"} ${output.site}` } : {}), ...(detail ? { detail } : {}), items: [...page, ...did.slice(0, 10)] };
+    }
+    case "ask_user": {
+      const answers: Array<{ question: string; answer: string }> = Array.isArray(output.answers) ? output.answers : [];
+      if (!output.answered) return { label: "Asked you, no answer", detail: "No answer came" };
+      return { label: answers.length > 1 ? `You answered ${answers.length} questions` : "You answered", items: answers.map(a => `${clip(a.question)} → ${clip(a.answer)}`) };
     }
     case "apply_changes": return Array.isArray(output.changes) ? { items: output.changes.map((c: any) => c.summary).filter(Boolean).slice(0, 50) } : {};
   }

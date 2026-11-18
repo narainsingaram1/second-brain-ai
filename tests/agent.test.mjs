@@ -1047,6 +1047,40 @@ test('a browser screenshot reaches the model as an image after the tool results,
   assert.ok(third.some(m => m.role === 'user' && /older screenshot/.test(m.content)));
 });
 
+test('ask_user: the turn waits for the answers (without its time limit running) and carries on with them', async () => {
+  const asked = [];
+  const ask = async request => { asked.push(request); await new Promise(r => setTimeout(r, 300)); return { q1: 'Yes', q2: '(555) 123-4567' }; };
+  const replies = [callReply('ask_user', { context: 'For your application', questions: [{ question: 'Authorized to work in the US?', choices: ['Yes', 'No'] }, { question: 'Phone number?', placeholder: '(555) 123-4567' }] }),
+    textReply('Filled it in with your answers.')];
+  const { result, requests } = await runWith(replies, { ask, budget: { timeMs: 150 } }, 'Apply to this job');
+  assert.equal(result.queryAnswer, 'Filled it in with your answers.', 'waiting longer than the time limit did not stop the turn');
+  assert.ok(requests[0].tools.some(t => t.function.name === 'ask_user'));
+  assert.equal(asked[0].context, 'For your application');
+  assert.deepEqual(asked[0].questions.map(q => q.choices || null), [['Yes', 'No'], null]);
+  const tool = requests[1].messages.find(m => m.role === 'tool');
+  const output = JSON.parse(tool.content);
+  assert.equal(output.answered, true);
+  assert.deepEqual(output.answers, [{ question: 'Authorized to work in the US?', answer: 'Yes' }, { question: 'Phone number?', answer: '(555) 123-4567' }]);
+  assert.match(result.activity.find(s => s.kind === 'ask').items[0], /Authorized.*→ Yes/);
+});
+
+test('ask_user is offered only where someone can answer live, and an unanswered question says not to guess', async () => {
+  const { requests } = await runWith([textReply('Hi.')], {}, 'Hello');
+  assert.ok(!requests[0].tools?.some(t => t.function.name === 'ask_user'));
+  const replies = [callReply('ask_user', { questions: [{ question: 'Which school?' }] }), textReply('I still need your school.')];
+  const { requests: second } = await runWith(replies, { ask: async () => null }, 'Fill the form');
+  const output = JSON.parse(second[1].messages.find(m => m.role === 'tool').content);
+  assert.equal(output.answered, false); assert.match(output.note, /Don't guess/);
+});
+
+test('tabs still open from earlier work are in the next message\'s context, so it continues there', async () => {
+  const external = { definitions: [{ type: 'function', function: { name: 'browser_look', description: '', parameters: { type: 'object', properties: { tabId: { type: 'integer' } }, required: ['tabId'], additionalProperties: false } } }],
+    instructions: '', context: async () => '## Browser tabs still open\n- tab 7: Apply — https://careers.example.com/apply', execute: async () => ({ output: {} }) };
+  const { requests } = await runWith([textReply('Continuing.')], { externalTools: external }, 'continue');
+  const last = requests[0].messages.at(-1);
+  assert.match(JSON.stringify(last.content), /tab 7: Apply/);
+});
+
 test('create_goal accepts the fields the goal form has and explains rejected arguments', () => {
   const s = state();
   const parse = args => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === 'create_goal').function.parameters);

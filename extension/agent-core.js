@@ -427,8 +427,21 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     } catch { /* Tab groups are a convenience; the tab is still tracked. */ }
   }
 
+  /** An address without its #fragment, for telling whether a page is already open. */
+  const samePage = (a, b) => { try { const x = new URL(a), y = new URL(b); x.hash = ""; y.hash = ""; return x.href === y.href; } catch { return false; } };
+
   const open = ({ url, tabId }) => timed(async sw => {
     const target = checkTarget(url, (await settings()).blocked);
+    // Already open in one of the agent's tabs (from earlier in the conversation): show that tab as it is rather
+    // than loading a fresh copy, which would lose a half-filled form. Passing its tabId reloads it on purpose.
+    if (tabId === undefined || tabId === null) {
+      for (const id of [...(await ownTabs())].reverse()) {
+        let existing;
+        try { existing = await chrome.tabs.get(id); } catch { continue; }
+        if (!samePage(existing.url || "", target.href)) continue;
+        return { ...(await snapshot(existing.id, sw)), reused: true };
+      }
+    }
     let tab;
     if (tabId !== undefined && tabId !== null) {
       tab = await sw.time("checks", () => requireOwnTab(tabId));

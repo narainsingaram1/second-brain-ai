@@ -5,6 +5,7 @@ import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
 import { BrowserConfirmCard } from "./BrowserConfirmCard";
+import { AskUserCard } from "./AskUserCard";
 import { AgentToasts } from "./AgentToasts";
 import { conversationTitle, isNearBottom } from "../utils/chatPresentation";
 import { ConversationMessage } from "./ConversationMessage";
@@ -301,6 +302,8 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
               message={{ id: draft?.id || "live-turn", role: "assistant", content: draft?.content || "", timestamp: "", activity: conversation.activity }} />}
             {conversation.busy && conversation.browserConfirm && conversation.answerBrowserConfirm &&
               <BrowserConfirmCard request={conversation.browserConfirm} onAnswer={conversation.answerBrowserConfirm} />}
+            {conversation.busy && conversation.userQuestion && conversation.answerUserQuestion &&
+              <AskUserCard request={conversation.userQuestion} onAnswer={conversation.answerUserQuestion} />}
             {conversation.busy && !!conversation.agentToasts?.length &&
               <AgentToasts toasts={conversation.agentToasts} onDismiss={id => conversation.dismissAgentToast?.(id)} onStop={conversation.stop} />}
           </> : <div className="chat-welcome-inner">

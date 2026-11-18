@@ -369,7 +369,7 @@ test('out-of-date page views are stubbed all at once when they pile up, not one 
   ];
   globalThis.fetch = async (_url, opts) => { requests.push(JSON.parse(opts.body)); return replies.shift(); };
   let looks = 0;
-  const external = browserToolset({ call: async () => ({ tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop',
+  const external = browserToolset({ call: async req => req.type === 'tabs' ? { tabs: [] } : ({ tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop',
     elements: [`[1] link "Deal ${++looks}"`], omitted: 0, text: `${looks} `.repeat(7000) }) });
   await AutonomousBrainAgent.execute('Keep checking shop.example deals', state(), 'k', 'm', { externalTools: external, commit: async () => {} });
   const viewsAt = r => requests[r].messages.filter(m => m.role === 'tool').map(m => JSON.parse(m.content));
@@ -716,4 +716,42 @@ test('captured failures become fixture pages with their frames beside them', asy
     const [task] = JSON.parse(await readFile(join(dir, 'captured.json'), 'utf8'));
     assert.equal(task.page, `captured/${names[0]}.html`); assert.deepEqual(task.view.has, []);
   } finally { await rm(dir, { recursive: true, force: true }); }
+});
+
+test('opening a page that is already open goes back to that tab as it was, instead of loading a fresh copy', async () => {
+  const log = [];
+  const { chrome, agent } = await pairedAgent({ default: shop(log) });
+  const first = await agent.fromApp({ type: 'open', url: 'https://shop.example/apply?ref=x' }, APP);
+  const tabsBefore = chrome._tabs.size;
+  const again = await agent.fromApp({ type: 'open', url: 'https://shop.example/apply?ref=x#form' }, APP);
+  assert.equal(again.tabId, first.tabId); assert.equal(again.reused, true);
+  assert.equal(chrome._tabs.size, tabsBefore, 'no new tab');
+  const other = await agent.fromApp({ type: 'open', url: 'https://shop.example/other' }, APP);
+  assert.notEqual(other.tabId, first.tabId);
+  const reload = await agent.fromApp({ type: 'open', tabId: first.tabId, url: 'https://shop.example/apply?ref=x' }, APP);
+  assert.equal(reload.reused, undefined, 'passing the tab reloads it on purpose');
+});
+
+test('the toolset tells the next message which tabs are still open, and says so when a page was reused', async () => {
+  const bridge = { call: async req => {
+    if (req.type === 'tabs') return { tabs: [{ tabId: 7, url: 'https://careers.example.com/apply', title: 'Apply now', site: 'careers.example.com' }] };
+    if (req.type === 'open') return { tabId: 7, site: 'careers.example.com', url: 'https://careers.example.com/apply', title: 'Apply now', elements: [], omitted: 0, text: '', reused: true };
+    return {};
+  } };
+  const tools = browserToolset(bridge);
+  const sig = new AbortController().signal;
+  assert.match(await tools.context(sig), /tab 7: Apply now — https:\/\/careers\.example\.com\/apply/);
+  const opened = await tools.execute('browser_open', { url: 'https://careers.example.com/apply' }, sig);
+  assert.match(opened.output.reused, /already open in tab 7/);
+  assert.equal(opened.summary, 'Went back to careers.example.com');
+  const empty = browserToolset({ call: async () => ({ tabs: [] }) });
+  assert.equal(await empty.context(sig), '');
+});
+
+test('questions from the model are cleaned up before the chat shows them', async () => {
+  const { questionRequest, answersOutput } = await load('/src/services/askUser.ts');
+  const request = questionRequest({ context: '  For   your form ', questions: [{ question: 'Degree?', choices: ['BS', 'BS', 'MS'], multiple: true }, { question: 'Why?', choices: ['Only one'] }, { question: '  ' }] }, 'r1');
+  assert.deepEqual(request, { id: 'r1', context: 'For your form', questions: [{ id: 'q1', question: 'Degree?', choices: ['BS', 'MS'], multiple: true }, { id: 'q2', question: 'Why?' }] });
+  assert.throws(() => questionRequest({ questions: [] }), /at least one question/);
+  assert.deepEqual(answersOutput(request, { q1: 'BS, MS' }).answers.map(a => a.answer), ['BS, MS', '(skipped: the user chose not to answer)']);
 });
