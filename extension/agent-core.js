@@ -14,7 +14,7 @@
 
 import { createCdp } from "./cdp.js";
 
-export const VERSION = "1.6.0";
+export const VERSION = "1.7.0";
 /** The Synapse desktop app, connected through Chrome native messaging (see background.js). */
 export const NATIVE_ORIGIN = "native:desktop";
 export const STATIC_APP_ORIGINS = ["https://synapse-narain-brain.coolfiregoon.chatgpt.site", "https://second-brain-ai-src-tauri.vercel.app"];
@@ -38,6 +38,10 @@ const MAX_ELEMENTS_TOTAL = 300;
 const FRAME_TEXT = 2500;
 /** How long to wait for a visible cross-origin frame that hasn't answered yet (still loading). */
 const FRAME_WAIT_MS = 2400;
+/** How long a wait step (or an expect) watches the page by default, and at most. */
+const WAIT_MS = 5000;
+const EXPECT_MS = 3000;
+const MAX_WAIT_MS = 15_000;
 /** Frames that hold a CAPTCHA: the agent doesn't touch them, the user solves it. */
 /** Ad frames: never what the user asked about, and they crowd the view. */
 const AD_FRAME = /(?:doubleclick\.net|googlesyndication\.com|googleadservices\.com|adservice\.google\.|amazon-adsystem\.com|adnxs\.com|taboola\.com|outbrain\.com|criteo\.(?:com|net)|moatads\.com)/i;
@@ -613,7 +617,65 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
     return changed ? "" : "It changed nothing on the page.";
   }
 
-  const act = ({ tabId, steps, confirmToken }) => timed(async sw => {
+  /**
+   * A step that names its element ({ target: { name, role? } }) instead of giving a ref: found on the page, then
+   * in the embedded frames the agent knows about. Exactly one match, or an error the model can act on.
+   */
+  async function resolveTarget(tabId, step, sw) {
+    let miss;
+    try { return { ...step, ref: (await run(tabId, { op: "target", target: step.target }, sw)).ref }; }
+    catch (error) { if (error?.code !== "no_target") throw error; miss = error; }
+    for (const [frameId, f] of Object.entries(await framesOf(tabId))) {
+      try { return { ...step, ref: (await run(tabId, { op: "target", target: step.target }, sw, { frameId: Number(frameId), base: f.slot * FRAME_SPAN })).ref }; }
+      catch (error) { if (error?.code !== "no_target") throw error; }
+    }
+    throw miss;
+  }
+
+  /** Whether words are on the page or in one of its embedded frames. */
+  async function showsText(tabId, text, sw) {
+    if ((await run(tabId, { op: "hasText", text }, sw).catch(() => ({ found: false }))).found) return true;
+    for (const [frameId, f] of Object.entries(await framesOf(tabId))) {
+      if ((await run(tabId, { op: "hasText", text }, sw, { frameId: Number(frameId), base: f.slot * FRAME_SPAN }).catch(() => ({ found: false }))).found) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Waits until a condition holds: `text` appears, `gone` disappears, the address contains `url`. Returns
+   * { met, waited } or, when it never held, also what was still missing.
+   */
+  async function waitUntil(tabId, { text, gone, url } = {}, timeout = WAIT_MS, sw = untimed) {
+    const started = now();
+    for (;;) {
+      const missing = [];
+      if (url && !String((await chrome.tabs.get(tabId)).url || "").includes(String(url))) missing.push(`the address doesn't contain "${url}"`);
+      if (text && !(await showsText(tabId, String(text), sw))) missing.push(`"${text}" isn't on the page`);
+      if (gone && (await showsText(tabId, String(gone), sw))) missing.push(`"${gone}" is still on the page`);
+      const waited = now() - started;
+      if (!missing.length) return { met: true, waited };
+      if (waited >= timeout || stopped) return { met: false, waited, missing: missing.join("; ") };
+      await sleep(150);
+    }
+  }
+
+  /** Finds elements and text by words anywhere on the page and in its embedded frames. */
+  const findOnPage = ({ tabId, query }) => timed(async sw => {
+    const tab = await sw.time("checks", () => requireOwnTab(tabId));
+    const top = await sw.time("find", () => run(tab.id, { op: "find", query }, sw));
+    const elements = [...top.elements];
+    const text = [...top.text];
+    for (const [frameId, f] of Object.entries(await framesOf(tab.id))) {
+      try {
+        const inner = await run(tab.id, { op: "find", query, limit: 6 }, sw, { frameId: Number(frameId), base: f.slot * FRAME_SPAN });
+        if (inner.elements.length) elements.push(`(inside an embedded frame from ${hostOf(f.url)})`, ...inner.elements);
+        text.push(...inner.text.map(t => `[embedded frame from ${hostOf(f.url)}] ${t}`));
+      } catch { /* The frame went away. */ }
+    }
+    return { tabId: tab.id, url: tab.url, site: hostOf(tab.url), ...top, elements, text };
+  });
+
+  const act = ({ tabId, steps, confirmToken, expect }) => timed(async sw => {
     if (!Array.isArray(steps) || !steps.length) throw new Error("Send at least one step.");
     if (steps.length > MAX_STEPS) throw new Error(`At most ${MAX_STEPS} steps at a time.`);
     stopped = false;
@@ -625,6 +687,18 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
       if (stopped) return finish({ stoppedAt: i, stopReason: "Stopped by the user." });
       let step = steps[i];
       try {
+        // ---- A pause until the page shows (or stops showing) something: no element, nothing to confirm ----
+        if (step.action === "wait") {
+          const timeout = Math.min(Math.max(Number(step.ms) || WAIT_MS, 100), MAX_WAIT_MS);
+          if (!step.text && !step.gone) { await sw.time("wait", () => sleep(timeout)); done.push(`waited ${timeout} ms`); continue; }
+          const waited = await sw.time("wait", () => waitUntil(tab.id, { text: step.text, gone: step.gone }, timeout, sw));
+          tab = await chrome.tabs.get(tab.id);
+          if (!waited.met) return finish({ stoppedAt: i, stopReason: `Step ${i + 1} (wait) timed out after ${waited.waited} ms: ${waited.missing}. Steps before it ran; it and the ones after it did not.` });
+          done.push(`waited ${waited.waited} ms for ${step.text ? `"${step.text}"` : `"${step.gone}" to go`}`);
+          continue;
+        }
+        // ---- A step that names its element instead of giving a ref ----
+        if ((step.ref === undefined || step.ref === null) && step.target && step.x === undefined) step = await resolveTarget(tab.id, step, sw);
         // ---- What the step acts on, and whether it may run ----
         let frame, info, located = null;
         const isPoint = (step.ref === undefined || step.ref === null) && step.x !== undefined && step.y !== undefined;
@@ -717,6 +791,12 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
         return finish({ stoppedAt: i, stopReason: `Step ${i + 1} (${step.action}) failed: ${message} Steps before it ran; it and the ones after it did not.` });
       }
     }
+    // ---- Did the page end up as the model expected? Checked here, so it needs no extra look to confirm ----
+    if (expect && (expect.text || expect.gone || expect.url)) {
+      const timeout = Math.min(Math.max(Number(expect.ms) || EXPECT_MS, 100), MAX_WAIT_MS);
+      const result = await sw.time("expect", () => waitUntil(tab.id, expect, timeout, sw));
+      return finish({ expect: result.met ? { met: true } : { met: false, missing: result.missing } });
+    }
     return finish({});
   });
 
@@ -800,6 +880,7 @@ export function createAgent(chrome, { openPairing, now = () => Date.now(), rando
       case "screenshot": return screenshot(message);
       case "capture": return capturePage(message);
       case "stage_file": return stageFile(message);
+      case "find": return findOnPage(message);
       case "read": return timed(async sw => run((await sw.time("checks", () => requireOwnTab(message.tabId))).id, { op: "read", offset: message.offset || 0 }, sw));
       case "tabs": return tabs();
       case "user_tabs": return userTabs();

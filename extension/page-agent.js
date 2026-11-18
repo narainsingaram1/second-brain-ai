@@ -6,7 +6,7 @@
 // refs the way a person's input would arrive. It never reads password values and refuses to type into
 // password or payment fields. Plain DOM code with no extension APIs, so it can be tested in any page.
 (() => {
-  if (globalThis.__synapseAgent?.version === 7) return;
+  if (globalThis.__synapseAgent?.version === 8) return;
 
   const MAX_ELEMENTS = 180;
   const MAX_TEXT = 6000;
@@ -355,10 +355,8 @@
     return null;
   }
 
-  /** The page as the agent sees it: what can be acted on (on screen first) and the main readable text. */
-  function snapshot() {
-    const dialog = openDialog();
-    const scope = dialog || document.body || document.documentElement;
+  /** Everything in scope a person could act on, on screen first, then by distance from the screen. */
+  function candidates(scope) {
     const seen = new Set();
     const found = [];
     const pointers = pointerFinder();
@@ -375,6 +373,14 @@
       found.push({ el, order: onScreen ? 0 : Math.abs(rect.top) / innerHeight + 1 });
     }
     found.sort((a, b) => a.order - b.order);
+    return found;
+  }
+
+  /** The page as the agent sees it: what can be acted on (on screen first) and the main readable text. */
+  function snapshot() {
+    const dialog = openDialog();
+    const scope = dialog || document.body || document.documentElement;
+    const found = candidates(scope);
     const elements = found.slice(0, MAX_ELEMENTS).map(f => describe(f.el));
     const main = dialog || document.querySelector("main, [role=main]") || document.body;
     const text = clean(main?.innerText || "", MAX_TEXT * 2).slice(0, MAX_TEXT);
@@ -894,6 +900,82 @@
   }
   function unmark() { markHost?.remove(); markHost = null; return { marked: 0 }; }
 
+  // ---- Finding things by what they say ----
+  const fold = text => clean(text, 100000).toLowerCase();
+  /** How well an element's name matches the words asked for: 3 exact, 2 contains them as a phrase, 1 has every word, 0 not at all. */
+  function matchScore(name, query) {
+    const n = fold(name), q = fold(query);
+    if (!q || !n) return 0;
+    if (n === q) return 3;
+    if (n.includes(q)) return 2;
+    const words = q.split(" ").filter(w => w.length > 1);
+    return words.length && words.every(w => n.includes(w)) ? 1 : 0;
+  }
+
+  /**
+   * Elements and text lines anywhere on the page (not only the first screens a look shows) that match a query,
+   * best first, with refs that work in the next action. The best element is scrolled into view.
+   */
+  function find(query, limit = 12) {
+    const q = clean(query, 200);
+    if (!q) throw new Error("find needs a query: the words to look for.");
+    const dialog = openDialog();
+    const scope = dialog || document.body || document.documentElement;
+    const hits = candidates(scope).map((f, i) => ({ el: f.el, i, score: Math.max(matchScore(nameOf(f.el), q), matchScore(f.el.getAttribute("aria-label") || f.el.title || "", q)) }))
+      .filter(h => h.score > 0).sort((a, b) => b.score - a.score || a.i - b.i);
+    if (hits.length) reveal(hits[0].el);
+    const elements = hits.slice(0, limit).map(h => describe(h.el));
+    // Text: the lines of the page that mention it, with a little context around the words.
+    const text = clean(((dialog || document.body)?.innerText || ""), 2_000_000);
+    const lines = String((dialog || document.body)?.innerText || "").split(/\n+/).map(l => clean(l, 100000)).filter(Boolean);
+    const lower = fold(q), words = lower.split(" ").filter(w => w.length > 1);
+    const textHits = [];
+    let textCount = 0;
+    for (const line of lines) {
+      const l = line.toLowerCase();
+      if (!(l.includes(lower) || (words.length > 1 && words.every(w => l.includes(w))))) continue;
+      textCount++;
+      if (textHits.length >= 6) continue;
+      const at = Math.max(0, l.indexOf(words.find(w => l.includes(w)) || lower));
+      const start = Math.max(0, at - 120);
+      textHits.push(`${start ? "…" : ""}${line.slice(start, start + 300)}${start + 300 < line.length ? "…" : ""}`);
+    }
+    return { query: q, ...(dialog ? { dialog: clean(nameOf(dialog) || "A dialog is open", 80) } : {}), elements, moreElements: Math.max(0, hits.length - limit),
+      text: textHits, moreText: Math.max(0, textCount - textHits.length), pageChars: text.length };
+  }
+
+  /**
+   * The element a step names instead of giving a ref: { name, role? }. One clear match only: an exact name
+   * wins, otherwise the only element whose name contains the words. Ambiguity is an error that lists the
+   * candidates, so the model picks a ref rather than the agent guessing.
+   */
+  function target(spec) {
+    const want = clean(spec?.name, 200);
+    if (!want) throw new Error("A target needs the element's name (its visible text or label).");
+    const role = spec?.role ? String(spec.role).toLowerCase() : "";
+    const dialog = openDialog();
+    const scope = dialog || document.body || document.documentElement;
+    const all = candidates(scope).map(f => f.el).filter(el => !role || roleOf(el) === role || (role === "textbox" && isTextField(el)));
+    const scored = all.map(el => ({ el, score: matchScore(nameOf(el), want) })).filter(h => h.score >= 2);
+    const exact = scored.filter(h => h.score === 3);
+    const pool = exact.length ? exact : scored;
+    // The same control listed twice (one on screen, one in a hidden copy) is still one choice: prefer visible on screen.
+    const onScreen = pool.filter(h => { const r = h.el.getBoundingClientRect(); return r.bottom > 0 && r.top < innerHeight; });
+    const choice = pool.length === 1 ? pool : onScreen.length === 1 ? onScreen : null;
+    if (choice) return { ref: refFor(choice[0].el), line: describe(choice[0].el) };
+    if (!pool.length) throw Object.assign(new Error(`Nothing named "${want}"${role ? ` with role ${role}` : ""} is on the page${dialog ? " (a dialog is open: only it can be used)" : ""}.`), { code: "no_target" });
+    throw Object.assign(new Error(`${pool.length} elements match "${want}": ${pool.slice(0, 5).map(h => describe(h.el)).join("; ")}. Use one of these refs.`), { code: "ambiguous" });
+  }
+
+  /** Whether the page's text (and its same-origin frames') shows these words now. */
+  function hasText(words) {
+    const q = fold(words);
+    if (!q) return false;
+    const docs = [document];
+    for (const frame of document.querySelectorAll("iframe, frame")) { try { if (frame.contentDocument?.body) docs.push(frame.contentDocument); } catch { /* Cross-origin. */ } }
+    return docs.some(doc => fold(doc.body?.innerText || "").includes(q) || [...doc.querySelectorAll("input, textarea")].some(f => fold(f.value || "").includes(q)));
+  }
+
   function read(offset = 0) {
     const text = clean(document.body?.innerText || "", 2_000_000);
     const start = Math.max(0, Math.min(Number(offset) || 0, text.length));
@@ -902,7 +984,7 @@
   }
 
   globalThis.__synapseAgent = {
-    version: 7,
+    version: 8,
     run(command) {
       try {
         setBase(command.base);
@@ -930,6 +1012,9 @@
         }
         if (command.op === "dismiss") return { ok: true, value: dismissPopups() };
         if (command.op === "read") return { ok: true, value: read(command.offset) };
+        if (command.op === "find") return { ok: true, value: find(command.query, command.limit) };
+        if (command.op === "target") return { ok: true, value: target(command.target) };
+        if (command.op === "hasText") return { ok: true, value: { found: hasText(command.text) } };
         return { ok: false, error: `Unknown operation ${command.op}` };
       } catch (error) {
         return { ok: false, error: error instanceof Error ? error.message : String(error), code: error?.code };

@@ -26,7 +26,7 @@ export interface BrowserStep { action: string; ref?: number; text?: string; subm
 /** What the extension learned about a step's element (its `inspect` result). */
 export interface StepInspection { consequential?: boolean; submitsText?: boolean; userOnly?: string }
 
-const READ_ONLY_STEPS = new Set(["scroll", "hover"]);
+const READ_ONLY_STEPS = new Set(["scroll", "hover", "wait"]);
 
 /** The tier of one step, once the element it targets is known. */
 export function classifyBrowserStep(step: BrowserStep, info: StepInspection = {}): RiskTier {
@@ -42,10 +42,12 @@ export function classifyBrowserStep(step: BrowserStep, info: StepInspection = {}
 
 /** The least a browser tool call can be, before the extension looks at the page. */
 export function browserCallFloor(name: string, args: Record<string, unknown> = {}): RiskTier {
-  if (name === "browser_look" || name === "browser_screenshot" || name === "browser_read" || name === "browser_tabs" || name === "browser_user_tabs" || name === "browser_files") return 0;
+  if (name === "browser_look" || name === "browser_find" || name === "browser_screenshot" || name === "browser_read" || name === "browser_tabs" || name === "browser_user_tabs" || name === "browser_files") return 0;
   // The extension pauses for the user's go-ahead before lending a tab; this floor is for the router.
   if (name === "browser_borrow") return 1;
-  if (name === "browser_open" || name === "browser_close") return 1;
+  if (name === "browser_close") return 1;
+  // Opening a page is soft; steps run right after loading count like the same steps in browser_act.
+  if (name === "browser_open") return raise(1, browserCallFloor("browser_act", args));
   if (name === "browser_act") {
     const steps = Array.isArray(args.steps) ? args.steps as BrowserStep[] : [];
     return steps.reduce<RiskTier>((tier, s) => Math.max(tier, classifyBrowserStep(s)) as RiskTier, 0);
