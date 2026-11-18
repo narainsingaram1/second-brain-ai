@@ -6,6 +6,10 @@ import { createPortal, flushSync } from "react-dom";
 import type { NoteRichTextHandle } from "./NoteRichText";
 import { hideNoteImages, restoreNoteImages, stripNoteImages } from "../utils/noteImages";
 import { IMAGE_REF, inlineImageRefs } from "../services/noteImageStore";
+import { lectureRecorder } from "../services/lectureRecorder";
+import { useLectureRecorder } from "../hooks/useLectureRecorder";
+import { RecorderPanel } from "./notes/RecorderPanel";
+import { TranscriptView } from "./notes/TranscriptView";
 const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
 import {
   ArrowLeft,
@@ -26,6 +30,7 @@ import {
   Eye,
   Edit3,
   Loader2,
+  Mic,
 } from "lucide-react";
 
 interface NoteEditorProps {
@@ -37,6 +42,8 @@ interface NoteEditorProps {
   openRouterKey?: string;
   selectedModel?: string;
   onGenerateTasks?: (tasks: { title: string; priority?: string }[]) => void;
+  /** Start recording as soon as the note opens (it was created with "Record"). */
+  recordOnOpen?: boolean;
 }
 
 type EditorMode = "write" | "source" | "preview";
@@ -50,7 +57,11 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   openRouterKey,
   selectedModel,
   onGenerateTasks,
+  recordOnOpen,
 }) => {
+  // Saves build on the newest copy, so they never undo a transcript the recorder just added.
+  const noteRef = useRef(note);
+  noteRef.current = note;
   const [title, setTitle] = useState(note.title || note.subject || "");
   const [content, setContent] = useState(note.content ?? note.summary ?? "");
   const [folderId, setFolderId] = useState<string | null>(note.folderId || null);
@@ -142,6 +153,51 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     };
   }, [isFullscreen]);
 
+  // ---- Recording -------------------------------------------------------------------------------
+  const recorder = useLectureRecorder();
+  const session = recorder.sessions.find(s => s.noteId === note.id);
+  const generation = recorder.generations.find(g => g.noteId === note.id);
+  const generating = !!generation?.running;
+  const busyElsewhere = !!recorder.liveId && recorder.liveId !== session?.id;
+  const [recorderOpen, setRecorderOpen] = useState(!!recordOnOpen);
+  const [pane, setPane] = useState<"notes" | "transcript">("notes");
+  const [editorRevision, setEditorRevision] = useState(0);
+  useEffect(() => {
+    lectureRecorder.setViewing(note.id);
+    return () => lectureRecorder.setViewing(undefined);
+  }, [note.id]);
+  useEffect(() => {
+    // The recorder reads the note to write it up; give it the words typed a moment ago.
+    const onFlush = (event: Event) => { if ((event as CustomEvent<{ noteId: string }>).detail?.noteId === note.id) flushSave(true); };
+    window.addEventListener("synapse-recorder-flush", onFlush);
+    return () => window.removeEventListener("synapse-recorder-flush", onFlush);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [note.id]);
+  // The recorder replaced the body (notes written, or undone): show the new text.
+  const revision = note.recording?.revision || 0;
+  const seenRevision = useRef(revision);
+  useEffect(() => {
+    if (revision === seenRevision.current) return;
+    seenRevision.current = revision;
+    pendingSaveRef.current = null;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    contentRef.current = note.content ?? "";
+    setContent(contentRef.current);
+    if (note.title && note.title !== title) setTitle(note.title);
+    setEditorRevision(r => r + 1);
+    setPane("notes");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [revision]);
+  const hasTranscript = !!note.transcript?.trim();
+  const regenerate = () => {
+    if (confirm("Rewrite this note from the transcript? The current note body is replaced (you can undo right after).")) void lectureRecorder.generateNotes(note.id);
+  };
+  const deleteTranscript = () => {
+    if (!confirm("Delete this note's transcript? The notes stay; the transcript can't be recovered.")) return;
+    lectureRecorder.deleteTranscript(note.id);
+    setPane("notes");
+  };
+
   // Update local state when note prop changes
   useEffect(() => {
     setTitle(note.title || note.subject || "");
@@ -166,10 +222,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
 
     pendingSaveRef.current = () => {
       const text = stripNoteImages(newContent).trim();
-      const summarySnippet = text.length > 200 ? text.slice(0, 197) + "..." : text || newTitle;
+      const summarySnippet = text.length > 200 ? text.slice(0, 197) + "..." : text;
 
       const updated: KnowledgeItem = {
-        ...note,
+        ...noteRef.current,
         id: note.id,
         title: newTitle.trim() || "Untitled Note",
         subject: newTitle.trim() || "Untitled Note",
@@ -452,6 +508,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             </button>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setRecorderOpen(open => !open)}
+            aria-pressed={!!session || recorderOpen}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${session?.status === "recording" ? "bg-rose-50 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300" : "bg-raised text-muted hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+            title="Record a lecture or meeting into this note"
+          >
+            <Mic className="w-3.5 h-3.5" />
+            <span>{session?.status === "recording" ? "Recording" : session ? "Recording paused" : "Record"}</span>
+          </button>
+
           {/* AI Note Assistant Dropdown */}
           <div className="relative">
             <button
@@ -564,6 +631,20 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
       )}
 
+      {(session || generation || recorderOpen || note.recording?.notesPending) && (
+        <RecorderPanel
+          noteId={note.id}
+          session={session}
+          generation={generation}
+          blocked={recorder.blocked}
+          busyElsewhere={busyElsewhere}
+          notesPending={!!note.recording?.notesPending}
+          hasTranscript={hasTranscript}
+          autoStart={recordOnOpen}
+          onClose={recorderOpen && !session ? () => setRecorderOpen(false) : undefined}
+        />
+      )}
+
       <div className="note-document-header">
       <div className="note-document-eyebrow">Note</div>
       {/* Note Title Input */}
@@ -614,6 +695,15 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
       </div>
 
       </div>
+      {hasTranscript && (
+        <div className="rec-tabs" role="tablist" aria-label="Note or transcript">
+          <button type="button" role="tab" aria-selected={pane === "notes"} onClick={() => setPane("notes")}>Notes</button>
+          <button type="button" role="tab" aria-selected={pane === "transcript"} onClick={() => { currentContent(); setPane("transcript"); }}>Transcript</button>
+        </div>
+      )}
+      {pane === "transcript" && hasTranscript ? (
+        <TranscriptView transcript={note.transcript!} durationSec={note.recording?.durationSec} generating={generating} onRegenerate={regenerate} onDelete={deleteTranscript} />
+      ) : <>
       <div className="note-reading-controls">
         <span>{mode === "write" ? "Live editing" : mode === "source" ? "Markdown source" : "Reading view"}</span>
         <label>Text size
@@ -622,15 +712,17 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </select>
         </label>
       </div>
-      <div className="note-content-workspace flex-1 min-h-[450px]">
+      <div className={`note-content-workspace flex-1 min-h-[450px] ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
         {mode === "source" ? <textarea
           aria-label="Markdown source"
           value={hideNoteImages(content)}
           onChange={e => handleContentChange(restoreNoteImages(e.target.value, content))}
           placeholder="Write Markdown here…"
+          readOnly={generating}
           className="note-source"
-        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={note.id} content={content} onChange={handleRichChange} readOnly={mode === "preview"} /></Suspense>}
+        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={`${note.id}:${editorRevision}`} content={content} onChange={handleRichChange} readOnly={mode === "preview" || generating} /></Suspense>}
       </div>
+      </>}
       <div className="note-editor-footer"><span>{words} words · {prose.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
     </div>
   );

@@ -47,6 +47,8 @@ import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation
 import { referenceTitle } from "./utils/chatPresentation";
 import { removeFolder, syncWorkspaceFolders } from "./utils/noteFolders";
 import { retryPendingImageUploads } from "./services/noteImageStore";
+import { lectureRecorder } from "./services/lectureRecorder";
+import { RecordingPill } from "./components/notes/RecordingPill";
 
 // Pages other than the chat load on first visit (and are prefetched once the app is idle), so startup
 // only parses the code for the chat, the shell and the dialogs.
@@ -532,6 +534,18 @@ export const App: React.FC = () => {
 
   if (startupError) return <div className="p-8"><p>{startupError}</p><button onClick={() => window.location.reload()}>Retry</button></div>;
 
+  // The lecture recorder reads and updates notes through these (also to recover a recording after a crash).
+  useEffect(() => {
+    if (!hasState) return;
+    lectureRecorder.configure({
+      apiKey: latestSaveState.current?.openRouterKey,
+      model: latestSaveState.current?.selectedModel,
+      getNote: id => latestSaveState.current?.knowledgeItems.find(n => n.id === id),
+      updateNote: (id, change) => setState(prev => prev && ({ ...prev, knowledgeItems: prev.knowledgeItems.map(n => (n.id === id ? change(n) : n)) })),
+      createNote: note => setState(prev => prev && ({ ...prev, knowledgeItems: [note, ...prev.knowledgeItems] })),
+    });
+  }, [hasState, state?.openRouterKey, state?.selectedModel]);
+
   if (!state) return <AppSkeleton />;
 
   // Toggle Theme
@@ -934,7 +948,7 @@ export const App: React.FC = () => {
       ...item,
       title: item.title || item.subject,
       subject: item.title || item.subject,
-      content: item.content || item.summary || "",
+      content: item.content ?? item.summary ?? "", // An empty body stays empty (not filled with the summary).
       summary:
         item.summary ||
         (item.content && item.content.length > 200
@@ -1493,6 +1507,10 @@ export const App: React.FC = () => {
         }
       />
 
+      <RecordingPill
+        titleOf={id => { const n = state.knowledgeItems.find(k => k.id === id); return n?.title || n?.subject || "Note"; }}
+        onOpen={id => window.dispatchEvent(new CustomEvent("synapse-navigate-to-record", { detail: { type: "knowledge", id } }))}
+      />
       {navToast && (
         <div className="nav-destination-toast" role="status" aria-live="polite">
           <span className="nav-toast-pin" aria-hidden="true">📍</span>

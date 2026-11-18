@@ -5278,7 +5278,7 @@ function recordProse(type, d) {
 		case "goal": return lines(`Goal: ${d.title}`, `${d.sector} goal, ${d.timeframe}, ${d.status}, ${d.progress ?? 0}% done${d.targetDate ? `, target ${d.targetDate}` : ""}`, d.metrics && `Metric: ${d.metrics}`, d.why && `Why: ${d.why}`, d.description && `Details: ${d.description}`, checklist(d.milestones) && `Milestones: ${checklist(d.milestones)}`);
 		case "habit": return lines(`Habit: ${d.name}`, `${d.frequency}${d.timeOfDay ? `, ${d.timeOfDay}` : ""}, ${d.streak}-day streak (best ${d.bestStreak})`, d.description && `Details: ${d.description}`);
 		case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list$2(d.wins) && `Wins: ${list$2(d.wins)}`, list$2(d.challenges) && `Challenges: ${list$2(d.challenges)}`, plain(d.content), list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
-		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content));
+		case "knowledge": return lines(`Note: ${d.title || d.subject}`, list$2(d.tags) && `Tags: ${list$2(d.tags)}`, d.summary && !String(d.content || "").startsWith(d.summary) && `Summary: ${d.summary}`, plain(d.content), d.transcript && `Transcript of the recording:\n${d.transcript}`);
 		case "event": return lines(`${String(d.kind || "event").replace(/^./, (c) => c.toUpperCase())}: ${d.title}`, `${d.date}, ${eventTimeLabel(d)}`, d.location && `Location: ${d.location}`, list$2(d.attendees) && `With: ${list$2(d.attendees)}`, d.link && "Has a meeting link", d.notes && `Notes: ${d.notes}`);
 		case "course": return lines(`Course: ${d.label}`, d.term && `Term: ${d.term}`, d.instructor && `Instructor: ${d.instructor}`, `${d.documentCount} documents, ${d.deckCount} flashcard decks (${d.cardsDue} cards due), ${d.quizCount} practice quizzes, ${d.openTasks} open tasks`, list$2(d.documentNames) && `Materials: ${list$2(d.documentNames)}`, list$2(d.folderNames) && `Folders: ${list$2(d.folderNames)}`, d.grading && `Grade: ${d.grading.currentGrade ?? "no scores yet"}${d.grading.currentGrade !== null ? `% (${d.grading.letter})` : ""}, ${d.grading.completedPercentOfCourse}% of the course graded`, d.grading && `Grade categories: ${d.grading.categories.map((c) => `${c.name} ${c.weight}%${c.average !== null ? ` avg ${c.average}%` : ""}`).join(", ")}`);
 		case "document": return lines(`Course document: ${d.name} (${d.course}${d.folder ? ` / ${d.folder}` : ""})`, d.summary && `Summary: ${d.summary}`, d.content || "[The extracted text of this document is not loaded on this device.]");
@@ -21722,7 +21722,7 @@ const EDIT_TOOLS = [
 			description: "Titles of new milestones to append."
 		}
 	}, ["goalId"]),
-	fn$1("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, or set its tags. Prefer appendContent for additions so existing text is preserved.", {
+	fn$1("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, set its tags, or correct or delete the transcript of a recording made into it. Prefer appendContent for additions so existing text is preserved.", {
 		noteId: d_("ID of the existing note (knowledge record)."),
 		newTitle: s_,
 		appendContent: d_("Markdown to add at the end of the note."),
@@ -21732,7 +21732,8 @@ const EDIT_TOOLS = [
 		tags: {
 			type: "array",
 			items: s_
-		}
+		},
+		replaceTranscript: d_("New full transcript of the note's recording (read the note first; keep its [mm:ss] times and ── Recording N ── dividers), e.g. to fix misheard names. An empty string deletes the transcript.")
 	}, ["noteId"]),
 	fn$1("create_habit", "Create a new recurring habit to track. Use only when the user asks to start tracking a habit or routine.", {
 		name: s_,
@@ -23972,8 +23973,10 @@ function prepareMutation(name, args, state) {
 				args.replaceContent,
 				args.folderId,
 				args.workspaceId,
-				args.tags
+				args.tags,
+				args.replaceTranscript
 			].some((v) => v !== void 0)) throw new Error("Supply at least one field to update.");
+			if (args.replaceTranscript !== void 0 && typeof args.replaceTranscript !== "string") throw new Error("replaceTranscript must be text.");
 			const moveTo = args.folderId === "root" ? null : args.folderId || args.workspaceId ? noteFolderArg(state, args.folderId, args.workspaceId) : void 0;
 			const current = note.content || "";
 			const html = /^\s*<[a-z][^>]*>/i.test(current);
@@ -23981,12 +23984,23 @@ function prepareMutation(name, args, state) {
 			const appended = args.appendContent === void 0 ? current : html ? `${current}${args.appendContent.trim().split(/\n{2,}/).map((p) => `<p>${escape(p).replace(/\n/g, "<br>")}</p>`).join("")}` : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${args.appendContent.trim()}`;
 			const content = args.replaceContent !== void 0 ? restoreNoteImages(args.replaceContent, current) : appended;
 			const title = args.newTitle?.trim();
+			const transcript = args.replaceTranscript === void 0 ? void 0 : args.replaceTranscript.trim();
+			const { transcript: _oldTranscript, ...withoutTranscript } = note;
 			return {
 				type: "knowledge",
 				action: name,
 				expected: note,
 				record: {
-					...note,
+					...transcript === void 0 ? note : transcript ? {
+						...note,
+						transcript
+					} : {
+						...withoutTranscript,
+						...note.recording ? { recording: {
+							...note.recording,
+							notesPending: void 0
+						} } : {}
+					},
 					content,
 					...content !== current ? { summary: stripNoteImages(content).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {},
 					...title ? {
@@ -25118,6 +25132,7 @@ function approvalReason(tool, ctx, args = {}) {
 	if (tool === "send_email" || tool === "send_draft") return "Sending email always needs your approval. It cannot be unsent.";
 	if (tier === "external_irreversible") return "Actions outside Synapse always need your approval.";
 	if (tool.startsWith("delete_")) return "Deleting needs your approval.";
+	if (tool === "update_note" && typeof args.replaceTranscript === "string" && !args.replaceTranscript.trim()) return "Deleting a recording's transcript needs your approval.";
 	if (ctx.askBeforeChanges) return "You asked to approve every change.";
 	if (ctx.untrustedRead && !tool.startsWith("create_") && tool !== "log_journal") return "This change came after reading an email, a web page, an uploaded document or a past conversation, which could contain instructions that are not yours.";
 	if (ctx.changes >= 5) return `This would be more than 5 changes in one request.`;
@@ -25141,7 +25156,8 @@ const LABELS = {
 	progress: "Progress",
 	targetDate: "Target date",
 	completed: "Completed",
-	notes: "Notes"
+	notes: "Notes",
+	transcript: "Transcript"
 };
 const show = (value) => {
 	if (value === void 0 || value === null || value === "") return "—";

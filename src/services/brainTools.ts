@@ -57,7 +57,7 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     reopenMilestones: { type: "array", items: s_, description: "Milestone IDs or exact titles to mark not completed." },
     addMilestones: { type: "array", items: s_, description: "Titles of new milestones to append." },
   }, ["goalId"]),
-  fn("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, or set its tags. Prefer appendContent for additions so existing text is preserved.", {
+  fn("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, set its tags, or correct or delete the transcript of a recording made into it. Prefer appendContent for additions so existing text is preserved.", {
     noteId: d_("ID of the existing note (knowledge record)."),
     newTitle: s_,
     appendContent: d_("Markdown to add at the end of the note."),
@@ -65,6 +65,7 @@ const EDIT_TOOLS: OpenRouterTool[] = [
     folderId: d_("Existing folder ID to move the note into, or 'root' to take it out of every folder."),
     workspaceId: d_("Move the note into this workspace's notes folder instead of giving folderId."),
     tags: { type: "array", items: s_ },
+    replaceTranscript: d_("New full transcript of the note's recording (read the note first; keep its [mm:ss] times and ── Recording N ── dividers), e.g. to fix misheard names. An empty string deletes the transcript."),
   }, ["noteId"]),
   fn("create_habit", "Create a new recurring habit to track. Use only when the user asks to start tracking a habit or routine.", {
     name: s_,
@@ -1152,7 +1153,8 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const note = state.knowledgeItems.find(n => n.id === args.noteId);
       if (!note) throw new Error("Note ID not found. Search notes; do not guess IDs.");
       if (args.appendContent !== undefined && args.replaceContent !== undefined) throw new Error("Use appendContent or replaceContent, not both.");
-      if (![args.newTitle, args.appendContent, args.replaceContent, args.folderId, args.workspaceId, args.tags].some(v => v !== undefined)) throw new Error("Supply at least one field to update.");
+      if (![args.newTitle, args.appendContent, args.replaceContent, args.folderId, args.workspaceId, args.tags, args.replaceTranscript].some(v => v !== undefined)) throw new Error("Supply at least one field to update.");
+      if (args.replaceTranscript !== undefined && typeof args.replaceTranscript !== "string") throw new Error("replaceTranscript must be text.");
       const moveTo = args.folderId === "root" ? null : args.folderId || args.workspaceId ? noteFolderArg(state, args.folderId, args.workspaceId) : undefined;
       const current = note.content || "";
       // Notes edited in the app may be stored as HTML; append in the same format.
@@ -1163,7 +1165,11 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
         : `${current.trimEnd()}${current.trim() ? "\n\n" : ""}${args.appendContent.trim()}`;
       const content = args.replaceContent !== undefined ? restoreNoteImages(args.replaceContent, current) : appended;
       const title = args.newTitle?.trim();
-      return { type: "knowledge", action: name, expected: note, record: { ...note, content,
+      const transcript = args.replaceTranscript === undefined ? undefined : args.replaceTranscript.trim();
+      const { transcript: _oldTranscript, ...withoutTranscript } = note;
+      const base: KnowledgeItem = transcript === undefined ? note
+        : transcript ? { ...note, transcript } : { ...withoutTranscript, ...(note.recording ? { recording: { ...note.recording, notesPending: undefined } } : {}) };
+      return { type: "knowledge", action: name, expected: note, record: { ...base, content,
         ...(content !== current ? { summary: stripNoteImages(content).replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 180) } : {}),
         ...(title ? { title, subject: title } : {}), ...(moveTo !== undefined ? { folderId: moveTo } : {}), ...(args.tags ? { tags: args.tags } : {}),
         updatedAt: new Date().toISOString() } };

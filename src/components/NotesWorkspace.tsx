@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight, ChevronRight, Clock, Copy, FileText, Folder, FolderInput, FolderPlus, Home, LayoutGrid,
-  List as ListIcon, Palette, PanelLeft, Pencil, Pin, PinOff, Plus, Search, Trash2, X,
+  List as ListIcon, Mic, Palette, PanelLeft, Pencil, Pin, PinOff, Plus, Search, Trash2, X,
 } from "lucide-react";
 import type { KnowledgeItem, NoteFolder, Workspace } from "../types";
 import { NoteEditor } from "./NoteEditor";
+import { useLectureRecorder } from "../hooks/useLectureRecorder";
 import { FolderModal } from "./FolderModal";
 import { FolderTree, RenameInput, WorkspaceGlyph, type DropBinding } from "./notes/FolderTree";
 import { Menu, MenuDivider, MenuItem, MoveToList, byName } from "./notes/Menu";
@@ -93,6 +94,8 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
   const [toast, setToast] = useState<Toast | null>(null);
   const [folderModal, setFolderModal] = useState<{ folder: NoteFolder | null; parentId: string | null } | null>(null);
   const itemsRef = useRef(items); itemsRef.current = items;
+  const recorder = useLectureRecorder();
+  const recordingNotes = useMemo(() => new Set(recorder.sessions.map(r => r.noteId)), [recorder.sessions]);
   const foldersRef = useRef(folders); foldersRef.current = folders;
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -204,6 +207,23 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
       createdAt: now, updatedAt: now, tags: [], pinned: false, favorite: false,
     };
     onSaveNote(note);
+    setSelectedNote(note);
+  };
+
+  /** A new note that starts recording as soon as it opens. */
+  const [recordOnOpen, setRecordOnOpen] = useState<string | null>(null);
+  const recordNote = () => {
+    const now = new Date();
+    const iso = now.toISOString();
+    const folderId = view.kind === "folder" ? currentId : scopeRoot;
+    const title = `Recording · ${now.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`;
+    const note: KnowledgeItem = {
+      id: `note-${Date.now()}`, title, subject: title, content: "", summary: "", folderId,
+      status: "Synthesized", startDate: iso.slice(0, 10), endDate: iso.slice(0, 10), domain: nameOf(folderId),
+      createdAt: iso, updatedAt: iso, tags: [], pinned: false, favorite: false,
+    };
+    onSaveNote(note);
+    setRecordOnOpen(note.id);
     setSelectedNote(note);
   };
 
@@ -324,7 +344,8 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
       <div className="note-page">
         <NoteEditor
           key={selectedNote.id}
-          note={selectedNote}
+          note={items.find(n => n.id === selectedNote.id) ?? selectedNote}
+          recordOnOpen={recordOnOpen === selectedNote.id}
           folders={scopeFolders}
           onSave={updated => { onSaveNote(updated); setSelectedNote(updated); }}
           onDelete={id => { onDeleteNote(id); setSelectedNote(null); onClearInitialSelectedNote?.(); }}
@@ -413,6 +434,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
         <footer>
           {showLocation && folderChip(n)}
           {(n.tags || []).slice(0, 2).map(t => <span key={t} className="nx-tag">#{t}</span>)}
+          {(n.transcript || recordingNotes.has(n.id)) && <Mic size={12} className="nx-pin" aria-label={recordingNotes.has(n.id) ? "Recording" : "Has a transcript"} />}
           <time>{when(n.updatedAt || n.createdAt)}</time>
         </footer>
       </article>
@@ -535,6 +557,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             {view.kind === "folder" && !query && (
               <button type="button" className="nx-btn" onClick={() => createFolder(currentId)}><FolderPlus size={15} /> New folder</button>
             )}
+            <button type="button" className="nx-btn" onClick={recordNote} title="New note that records a lecture or meeting and writes notes from it"><Mic size={15} /> Record</button>
             <button type="button" className="nx-btn nx-btn-primary" onClick={createNote}><Plus size={15} /> New note</button>
           </div>
         </header>
@@ -584,7 +607,8 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             <p>{query ? "Try a different word, or check the spelling." : view.kind === "pinned" ? "Pin a note from its menu to keep it here." : "Write a note here, or drop notes onto this folder in the sidebar."}</p>
             {!query && view.kind !== "pinned" && (
               <div className="nx-empty-actions">
-                <button type="button" className="nx-btn nx-btn-primary" onClick={createNote}><Plus size={15} /> New note</button>
+                <button type="button" className="nx-btn" onClick={recordNote} title="New note that records a lecture or meeting and writes notes from it"><Mic size={15} /> Record</button>
+            <button type="button" className="nx-btn nx-btn-primary" onClick={createNote}><Plus size={15} /> New note</button>
                 {view.kind === "folder" && <button type="button" className="nx-btn" onClick={() => createFolder(currentId)}><FolderPlus size={15} /> New folder</button>}
               </div>
             )}
