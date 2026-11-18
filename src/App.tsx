@@ -2,13 +2,14 @@
 import "./memory.css";
 import { renameTaskIcon } from "./utils/taskAppearance";
 import { followSubsectionRename } from "./utils/study";
-import { managedAuthEnabled } from "./services/managedAuth";
+import { authSession as managedAuthSession, localManagedUser, managedAuthEnabled } from "./services/managedAuth";
 import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud, REMOTE_CHANGE_EVENT } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
 import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder, CalendarEvent } from "./types";
-import { loadInitialState, persistLatestBrainState, writeEmergencySnapshot } from "./services/storage";
+import { loadCachedState, loadInitialState, persistLatestBrainState, writeEmergencySnapshot } from "./services/storage";
+import { rebaseEdits } from "./utils/rebaseEdits";
 import { initAuth } from "./services/auth";
 import { syncHabitStreaks, getLocalDateString } from "./utils/habitStreaks";
 import { normalizeTask, setTaskStatus, toggleTaskCompleted } from "./utils/taskState";
@@ -85,7 +86,17 @@ export const App: React.FC = () => {
   useEffect(() => { if (activeTab !== "knowledge") setNotesFolder(null); }, [activeTab]);
   useEffect(() => rememberTab(activeTab), [activeTab]);
   const theme = state?.theme;
-  useEffect(() => { if (theme) rememberTheme(theme); }, [theme]);
+  useEffect(() => {
+    if (!theme) return;
+    rememberTheme(theme);
+    document.documentElement.classList.toggle("dark", theme === "dark");
+  }, [theme]);
+  /**
+   * The cached copy on screen while the cloud copy loads (hosted accounts). Saves and cloud refreshes wait until
+   * the cloud copy arrives; edits made in the meantime are then carried over onto it.
+   */
+  const cachedBase = useRef<BrainState | null>(null);
+  const [hydrating, setHydrating] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   useEffect(() => {
@@ -217,8 +228,10 @@ export const App: React.FC = () => {
   const workspaceKey = state?.workspaces?.map(w => `${w.id}:${w.name}:${w.color}:${w.notes ? 1 : 0}`).join("|") || "";
   const workspaceFolderKey = state?.noteFolders?.filter(f => f.workspaceId).map(f => `${f.workspaceId}:${f.name}:${f.color}:${f.parentId || ""}`).join("|") || "";
   useEffect(() => {
+    // Runs on the cloud copy, not on the cached one shown before it, so stale folders are never carried over.
+    if (hydrating) return;
     setState(prev => (prev ? syncWorkspaceFolders(prev) : prev));
-  }, [workspaceKey, workspaceFolderKey]);
+  }, [workspaceKey, workspaceFolderKey, hydrating]);
 
   // Course document text lives outside the snapshot; load it so the assistant can search and read it.
   const studyDocumentKey = state?.study?.documents.map(d => d.id).join(",") || "";
@@ -235,10 +248,12 @@ export const App: React.FC = () => {
     updateSyncError();
     window.addEventListener("synapse-sync-status", updateSyncError);
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      const unsaved = !!pendingSave.current || savesInFlight.current > 0;
+      const heldEdits = !!cachedBase.current && latestSaveState.current !== cachedBase.current;
+      const unsaved = !!pendingSave.current || savesInFlight.current > 0 || heldEdits;
       flushSave();
       if (unsaved && latestSaveState.current) writeEmergencySnapshot(latestSaveState.current);
-      if (cloudEnabled && (unsaved || cloudStatus() !== "Synced")) {
+      // "Connecting…" with nothing edited is the cached copy still waiting for the cloud: nothing to lose.
+      if (cloudEnabled && (unsaved || !["Synced", "Connecting…"].includes(cloudStatus()))) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -253,17 +268,31 @@ export const App: React.FC = () => {
   // Load initial session & database state on mount
   useEffect(() => {
     let disposed = false;
+    let cloudLoaded = false;
+    // Hosted accounts open from the copy saved on this device while the cloud copy loads alongside.
+    if (managedAuthEnabled) {
+      localManagedUser()
+        .then(user => (user ? loadCachedState(user.id).then(cached => (cached ? { user, cached } : null)) : null))
+        .then(found => {
+          if (disposed || cloudLoaded || !found) return;
+          cachedBase.current = found.cached;
+          setHydrating(true);
+          setProviderProxyAuth(accessToken);
+          setSession(managedAuthSession(found.user));
+          setState(found.cached);
+        })
+        .catch(() => {});
+    }
     initAuth().then((authSession) => {
       if (disposed) return;
       setSession(authSession);
       return loadInitialState(authSession.currentUser?.id).then((loaded) => {
         if (disposed) return;
-        setState(loaded);
-        if (loaded.theme === "dark") {
-          document.documentElement.classList.add("dark");
-        } else {
-          document.documentElement.classList.remove("dark");
-        }
+        cloudLoaded = true;
+        const base = cachedBase.current;
+        cachedBase.current = null;
+        setHydrating(false);
+        setState(current => (base && current && current.userId === loaded.userId ? rebaseEdits(base, current, loaded) : loaded));
 
         // Hosted accounts: use the provider key stored encrypted on the server when there is one.
         if (managedAuthEnabled && authSession.currentUser) {
@@ -291,7 +320,12 @@ export const App: React.FC = () => {
           if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 10000 }); else setTimeout(warm, 3000);
         }
       });
-    }).catch(error => { if (!disposed) setStartupError(error.message || "Could not load your records."); });
+    }).catch(error => {
+      if (disposed) return;
+      // Opened from the cached copy: keep it on screen (read-only in effect, since saves are held) and say why.
+      if (cachedBase.current) setSyncError("Can't reach the cloud. Showing the copy saved on this device; changes won't be saved until you reload while online.");
+      else setStartupError(error.message || "Could not load your records.");
+    });
     return () => { disposed = true; };
   }, []);
 
@@ -299,7 +333,7 @@ export const App: React.FC = () => {
   // state is read when the download finishes, so the timer is not recreated on every edit.
   const hasState = !!state;
   useEffect(() => {
-    if (!cloudEnabled || !hasState || conversation.busy) return;
+    if (!cloudEnabled || !hasState || hydrating || conversation.busy) return;
     let disposed = false;
     const refresh = async () => {
       const base = latestSaveState.current;
@@ -311,7 +345,7 @@ export const App: React.FC = () => {
     window.addEventListener("focus", refresh);
     window.addEventListener(REMOTE_CHANGE_EVENT, refresh);
     return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener(REMOTE_CHANGE_EVENT, refresh); };
-  }, [hasState, conversation.busy]);
+  }, [hasState, hydrating, conversation.busy]);
 
   // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
   useEffect(() => {
@@ -363,7 +397,8 @@ export const App: React.FC = () => {
     saveNow(pending.userId);
   }, [saveNow]);
   useEffect(() => {
-    if (!state) return;
+    // The cached copy is not saved; edits to it are saved once they are carried over onto the cloud copy.
+    if (!state || hydrating) return;
     if (pendingSave.current && pendingSave.current.userId !== state.userId) flushSave();
     if (!pendingSave.current && Date.now() - lastSaveAt.current > 400) {
       saveNow(state.userId);
@@ -371,7 +406,7 @@ export const App: React.FC = () => {
     }
     if (pendingSave.current) window.clearTimeout(pendingSave.current.timer);
     pendingSave.current = { timer: window.setTimeout(flushSave, 400), userId: state.userId };
-  }, [state, session, flushSave, saveNow]);
+  }, [state, session, hydrating, flushSave, saveNow]);
   useEffect(() => {
     const onHide = () => {
       const unsaved = !!pendingSave.current || savesInFlight.current > 0;

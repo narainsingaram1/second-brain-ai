@@ -55,9 +55,9 @@ export function supabaseRecordTransport(userId: string, client: SupabaseClient<a
       return "records";
     },
     async readPreferences() {
-      const { data, error } = await client.from("brains").select("state,revision").eq("user_id", userId).single();
+      const { data, error } = await client.from("brains").select("state,revision,layout").eq("user_id", userId).single();
       if (error || !data) throw fail("load your preferences");
-      return { state: (data.state || {}) as Record<string, unknown>, revision: Number(data.revision) };
+      return { state: (data.state || {}) as Record<string, unknown>, revision: Number(data.revision), layout: Number(data.layout) || undefined };
     },
     async preferencesRevision() {
       const { data, error } = await client.from("brains").select("revision").eq("user_id", userId).single();

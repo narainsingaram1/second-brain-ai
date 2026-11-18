@@ -11,7 +11,8 @@ export class PreferencesConflict extends Error {}
 export interface RecordTransport {
   /** Moves the account to per-record storage if needed; "unsupported" when the database has no records support yet. */
   migrate(): Promise<"records" | "unsupported">;
-  readPreferences(): Promise<{ state: Record<string, unknown>; revision: number }>;
+  /** `layout` is 2 once the account is on per-record storage (when the transport can tell). */
+  readPreferences(): Promise<{ state: Record<string, unknown>; revision: number; layout?: number }>;
   preferencesRevision(): Promise<number>;
   /** Live records, or every change (including deletions) after `sinceSeq`. Implementations page internally. */
   readRecords(sinceSeq?: number): Promise<StoredRecord[]>;
@@ -60,9 +61,22 @@ export class RecordSync {
 
   /** Loads the workspace, or returns null if the database does not support records yet. */
   async load(): Promise<Partial<BrainState> | null> {
-    if (await this.transport.migrate() === "unsupported") return null;
-    const prefs = await this.transport.readPreferences();
-    const rows = await this.transport.readRecords();
+    // Accounts already on per-record storage (nearly all loads) read preferences and records together and skip
+    // the migration call, which locks the account row. Otherwise migrate first, then read.
+    const [early, earlyRows] = await Promise.all([
+      this.transport.readPreferences().catch(() => null),
+      this.transport.readRecords().catch(() => null),
+    ]);
+    let prefs: { state: Record<string, unknown>; revision: number };
+    let rows: StoredRecord[];
+    if (early?.layout === 2 && earlyRows) {
+      prefs = early;
+      rows = earlyRows;
+    } else {
+      if (await this.transport.migrate() === "unsupported") return null;
+      prefs = await this.transport.readPreferences();
+      rows = await this.transport.readRecords();
+    }
     this.synced.clear(); this.conflicted.clear(); this.ownSeqs.clear(); this.prefsJson.clear();
     this.prefsRevision = prefs.revision;
     for (const [key, value] of Object.entries(prefs.state)) this.prefsJson.set(key, JSON.stringify(value));

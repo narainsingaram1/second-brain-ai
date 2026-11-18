@@ -13,6 +13,8 @@ import { normalizeTask } from "../utils/taskState";
 import { resolveModel } from "./openrouter";
 import { boundConversations } from "../utils/conversationBudget";
 import { clearLocalUserStateCopy, loadUserStateFromDB, saveUserStateToDB } from "./database";
+import { readStartupCache, writeStartupCache } from "./startupCache";
+import { SERVER_HELD_KEY } from "./providerTransport";
 
 let lastSavedNativeKey: string | undefined;
 
@@ -29,6 +31,8 @@ let persistQueue: Promise<void> = Promise.resolve();
 export async function isTauriEnvironment(): Promise<boolean> {
   try {
     if (typeof window === "undefined") return false;
+    // Checked before loading the Tauri module, so the web app never waits on that import.
+    if (!(window as any).__TAURI_INTERNALS__ && !(window as any).__TAURI__) return false;
     const { invoke } = await import("@tauri-apps/api/core");
     return typeof invoke === "function" && Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
   } catch {
@@ -515,7 +519,6 @@ export const INITIAL_CHAT: AIMessage[] = [
 ];
 
 export async function loadInitialState(userId?: string): Promise<BrainState> {
-  const envKey = (typeof import.meta !== "undefined" && import.meta.env?.VITE_OPENROUTER_API_KEY) || "";
   const targetUserId = userId || "guest";
   let storedState: Partial<BrainState> = {};
   let loadedFrom = "none";
@@ -586,7 +589,28 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   }
 
   console.info(`[Storage] Brain state initialized from canonical store: ${loadedFrom}`);
+  return buildBrainState(storedState, targetUserId);
+}
 
+/**
+ * The account's last cloud-confirmed workspace on this device, ready to show while the cloud copy loads, or null.
+ * Only hosted accounts keep this copy; see startupCache.
+ */
+export async function loadCachedState(userId: string): Promise<BrainState | null> {
+  if (!managedAuthEnabled || !userId) return null;
+  const cached = await readStartupCache(userId);
+  if (!cached || !(cached.tasks || cached.habits || cached.goals)) return null;
+  try {
+    const state = buildBrainState(cached, userId);
+    // A key kept on the server shows as configured until the cloud load confirms it.
+    if (!state.openRouterKey && cached.openRouterKey === SERVER_HELD_KEY) state.openRouterKey = SERVER_HELD_KEY;
+    return state;
+  } catch { return null; }
+}
+
+/** Fills in defaults and normalizes a stored workspace. */
+function buildBrainState(storedState: Partial<BrainState>, targetUserId: string): BrainState {
+  const envKey = (typeof import.meta !== "undefined" && import.meta.env?.VITE_OPENROUTER_API_KEY) || "";
   const credentialKey = managedAuthEnabled ? `synapse_openrouter_key_${targetUserId}` : "synapse_openrouter_key";
   const finalKey = (managedAuthEnabled ? "" : storedState.openRouterKey || envKey) || (typeof localStorage !== "undefined" ? localStorage.getItem(credentialKey) : null) || "";
 
@@ -798,6 +822,8 @@ async function persistNow(state: BrainState, targetUserId: string): Promise<void
     if (cloudEnabled) {
       await saveCloud(cleanState);
       if (managedAuthEnabled) {
+        // The cloud confirmed this state, so the next reload can start from it.
+        writeStartupCache(targetUserId, cleanState);
         const key = `synapse_openrouter_key_${targetUserId}`;
         try {
           if (cleanState.openRouterKey) localStorage.setItem(key, cleanState.openRouterKey);

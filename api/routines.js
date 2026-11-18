@@ -1489,6 +1489,7 @@ async function authenticate(request) {
 		client
 	};
 }
+Promise.resolve();
 typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
 ({}).VITE_GOOGLE_ONLY;
 ({}).VITE_AUTH_PROVIDER;
@@ -3269,9 +3270,17 @@ var RecordSync = class {
 	}
 	/** Loads the workspace, or returns null if the database does not support records yet. */
 	async load() {
-		if (await this.transport.migrate() === "unsupported") return null;
-		const prefs = await this.transport.readPreferences();
-		const rows = await this.transport.readRecords();
+		const [early, earlyRows] = await Promise.all([this.transport.readPreferences().catch(() => null), this.transport.readRecords().catch(() => null)]);
+		let prefs;
+		let rows;
+		if (early?.layout === 2 && earlyRows) {
+			prefs = early;
+			rows = earlyRows;
+		} else {
+			if (await this.transport.migrate() === "unsupported") return null;
+			prefs = await this.transport.readPreferences();
+			rows = await this.transport.readRecords();
+		}
 		this.synced.clear();
 		this.conflicted.clear();
 		this.ownSeqs.clear();
@@ -3529,11 +3538,12 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 			return "records";
 		},
 		async readPreferences() {
-			const { data, error } = await client.from("brains").select("state,revision").eq("user_id", userId).single();
+			const { data, error } = await client.from("brains").select("state,revision,layout").eq("user_id", userId).single();
 			if (error || !data) throw fail("load your preferences");
 			return {
 				state: data.state || {},
-				revision: Number(data.revision)
+				revision: Number(data.revision),
+				layout: Number(data.layout) || void 0
 			};
 		},
 		async preferencesRevision() {

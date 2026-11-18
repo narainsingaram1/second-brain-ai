@@ -11,7 +11,11 @@ import {
   googleSignInAvailable,
   managedAuthConfigured,
   signInManagedGoogle,
+  localManagedUser,
+  verifiedManagedUser,
+  forgetVerifiedUser,
 } from "../services/managedAuth";
+import { clearStartupCache } from "../services/startupCache";
 import {
   Mail,
   Lock,
@@ -56,12 +60,18 @@ export function ManagedRoot() {
     const client = getSupabase();
     const validate = async () => {
       const current = ++version;
+      const keep = (next: User) => (prev: User | null) => (prev?.id === next.id && prev.updated_at === next.updated_at ? prev : next);
       try {
-        const { data: sessionData, error: sessionError } = await client.auth.getSession();
-        if (sessionError) throw sessionError;
-        const result = sessionData.session ? await client.auth.getUser() : null;
-        if (result?.error) throw result.error;
-        if (mounted && current === version) setUser(result?.data.user || null);
+        // A session saved on this device opens the app straight away (from its cached copy); the account server
+        // confirms it alongside, and a session it rejects returns to sign-in.
+        const local = await localManagedUser();
+        if (!local) {
+          if (mounted && current === version) setUser(null);
+          return;
+        }
+        if (mounted && current === version) { setUser(keep(local)); setLoading(false); }
+        const verified = await verifiedManagedUser();
+        if (mounted && current === version) setUser(keep(verified));
       } catch {
         if (mounted && current === version) {
           setUser(null);
@@ -75,8 +85,11 @@ export function ManagedRoot() {
     const { data: subscription } = client.auth.onAuthStateChange((event) => {
       if (event === "PASSWORD_RECOVERY" && mounted) setMode("recovery");
       if (["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED", "PASSWORD_RECOVERY"].includes(event)) {
+        // The account's details (or the account) changed: check it with the server again.
+        forgetVerifiedUser();
         if (mounted && event === "SIGNED_OUT") {
           clearRetrievalMemory();
+          void clearStartupCache();
           setUser(null);
           setLoading(false);
         }
