@@ -6,7 +6,7 @@ export function pgTransport(db, sent, PreferencesConflict = Error) {
   const rows = r => r.rows.map(x => ({ ...x, revision: Number(x.revision), seq: Number(x.seq), ord: Number(x.ord) }));
   return {
     async migrate() { await db.query('select public.migrate_brain_to_records()'); return 'records'; },
-    async readPreferences() { const r = (await db.query('select state, revision from public.brains')).rows[0]; return { state: r.state, revision: Number(r.revision) }; },
+    async readPreferences() { const r = (await db.query('select state, revision, layout from public.brains')).rows[0]; return { state: r.state, revision: Number(r.revision), layout: Number(r.layout) }; },
     async preferencesRevision() { return Number((await db.query('select revision from public.brains')).rows[0].revision); },
     async readRecords(since) {
       return since === undefined

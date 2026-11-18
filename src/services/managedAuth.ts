@@ -1,5 +1,6 @@
 import { createClient, type User, type SupabaseClient } from "@supabase/supabase-js";
 import type { AuthSession } from "../types";
+import { clearStartupCache } from "./startupCache";
 
 /** The macOS desktop app (Tauri). Google refuses OAuth inside embedded web views, so it signs in with email there. */
 export const isDesktopApp = typeof window !== "undefined" && Boolean((window as any).__TAURI_INTERNALS__ || (window as any).__TAURI__);
@@ -13,7 +14,7 @@ export const managedAuthConfigured = Boolean(url && key);
 type Database = {
   public: {
     Tables: {
-      brains: { Row: { user_id: string; state: Record<string, unknown>; revision: number; updated_at: string }; Insert: never; Update: never; Relationships: [] };
+      brains: { Row: { user_id: string; state: Record<string, unknown>; revision: number; layout: number; updated_at: string }; Insert: never; Update: never; Relationships: [] };
       brain_records: {
         Row: { user_id: string; collection: string; id: string; data: Record<string, unknown> | null; revision: number; seq: number; ord: number; deleted: boolean; updated_at: string };
         Insert: never; Update: never; Relationships: [];
@@ -51,14 +52,40 @@ export function authSession(user: User): AuthSession {
     createdAt: user.created_at, lastLoginAt: user.last_sign_in_at || user.created_at,
   } };
 }
+// The account is checked with the server once per page load and signed-in user, and every caller (the sign-in
+// gate, the app, cloud sync) shares that check, instead of each making its own round trip at startup.
+let verified: { userId: string; promise: Promise<User> } | undefined;
+/** The signed-in user from the session saved on this device, without a network request; null when signed out. */
+export async function localManagedUser(): Promise<User | null> {
+  const { data, error } = await getSupabase().auth.getSession();
+  return error ? null : data.session?.user ?? null;
+}
+/** The signed-in user, confirmed by the account server (shared by all callers for the same user). */
+export async function verifiedManagedUser(): Promise<User> {
+  const local = await localManagedUser();
+  if (!local) throw new Error("Sign in to access your records.");
+  if (verified?.userId !== local.id) {
+    const promise = getSupabase().auth.getUser().then(({ data, error }) => {
+      if (error || !data.user || data.user.id !== local.id) throw new Error("Sign in to access your records.");
+      return data.user;
+    });
+    const entry = { userId: local.id, promise };
+    // A failed check (offline, expired session) is retried by the next caller.
+    promise.catch(() => { if (verified === entry) verified = undefined; });
+    verified = entry;
+  }
+  return verified.promise;
+}
+/** Drops the shared check, e.g. after sign-out or when the account's details changed. */
+export function forgetVerifiedUser() { verified = undefined; }
 export async function getManagedSession(): Promise<AuthSession> {
-  const { data, error } = await getSupabase().auth.getUser();
-  if (error || !data.user) throw new Error("Sign in to access your records.");
-  return authSession(data.user);
+  return authSession(await verifiedManagedUser());
 }
 export async function signOutManaged() {
   const { error } = await getSupabase().auth.signOut({ scope: "local" });
   if (error) throw error;
+  forgetVerifiedUser();
+  await clearStartupCache();
 }
 export async function signInManagedGoogle() {
   try {

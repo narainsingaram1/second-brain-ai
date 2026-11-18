@@ -176,6 +176,7 @@ async function authenticate(request) {
 		client
 	};
 }
+Promise.resolve();
 typeof window !== "undefined" && Boolean(window.__TAURI_INTERNALS__ || window.__TAURI__);
 ({}).VITE_GOOGLE_ONLY;
 ({}).VITE_AUTH_PROVIDER;
@@ -209,11 +210,12 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 			return "records";
 		},
 		async readPreferences() {
-			const { data, error } = await client.from("brains").select("state,revision").eq("user_id", userId).single();
+			const { data, error } = await client.from("brains").select("state,revision,layout").eq("user_id", userId).single();
 			if (error || !data) throw fail("load your preferences");
 			return {
 				state: data.state || {},
-				revision: Number(data.revision)
+				revision: Number(data.revision),
+				layout: Number(data.layout) || void 0
 			};
 		},
 		async preferencesRevision() {

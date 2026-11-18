@@ -39,6 +39,15 @@
         "VITE_AUTH_PROVIDER=local npx vite --port 1437 --strictPort"
       ],
       "port": 1437
+    },
+    {
+      "name": "synapse-hosted",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": [
+        "-c",
+        "npx vite --port 1441 --strictPort"
+      ],
+      "port": 1441
     }
   ]
 }

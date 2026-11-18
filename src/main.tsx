@@ -1,5 +1,6 @@
 import { ManagedRoot } from "./components/ManagedRoot";
-import { managedAuthEnabled } from "./services/managedAuth";
+import { localManagedUser, managedAuthConfigured, managedAuthEnabled, verifiedManagedUser } from "./services/managedAuth";
+import { readStartupCache } from "./services/startupCache";
 import "./chat.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
@@ -11,6 +12,13 @@ import "./forms.css";
 import { applyRememberedTheme } from "./utils/startupMemory";
 
 applyRememberedTheme();
+
+// Start the account check and the read of this device's cached workspace before React renders; the sign-in
+// gate and the app reuse both instead of starting them later.
+if (managedAuthEnabled && managedAuthConfigured) {
+  verifiedManagedUser().catch(() => {});
+  localManagedUser().then(user => (user ? readStartupCache(user.id) : null)).catch(() => {});
+}
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
