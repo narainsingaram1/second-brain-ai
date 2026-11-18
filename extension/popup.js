@@ -24,7 +24,7 @@ async function render() {
   }) : [Object.assign(document.createElement("li"), { textContent: "None. The assistant asks before using one of your tabs.", className: "muted" })]));
   await renderShare();
   document.getElementById("blocked").value = status.blocked.join("\n");
-  document.getElementById("precise").checked = !!status.precise;
+  document.getElementById("precise").checked = !!status.precise; // On by default once the debugger permission is granted.
 }
 async function activeTab() { const [tab] = await chrome.tabs.query({ active: true, currentWindow: true }); return tab; }
 async function renderShare() {

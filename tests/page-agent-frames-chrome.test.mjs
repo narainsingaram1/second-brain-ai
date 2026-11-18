@@ -76,7 +76,30 @@ async function cdpChrome(cdp) {
       },
     },
   };
-  return { chrome, evalIn, frames, close: () => cdp.send('Target.closeTarget', { targetId }) };
+  return { chrome, evalIn, frames, send, close: () => cdp.send('Target.closeTarget', { targetId }) };
+}
+
+/** Real input and screenshots like extension/cdp.js, over the test's DevTools session. `ready` decides when it is on. */
+function realInput(send, ready = async () => true) {
+  const KEYS = { Enter: { code: 'Enter', keyCode: 13, text: '\r' }, Backspace: { code: 'Backspace', keyCode: 8 } };
+  return {
+    ready, detach: async () => {}, detachAll: async () => {},
+    async click(_tab, x, y) {
+      await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+      await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
+      await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+    },
+    move: (_tab, x, y) => send('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y }),
+    insertText: (_tab, text) => send('Input.insertText', { text }),
+    async key(_tab, name) { const k = KEYS[name]; const base = { key: name, code: k.code, windowsVirtualKeyCode: k.keyCode }; await send('Input.dispatchKeyEvent', { type: k.text ? 'keyDown' : 'rawKeyDown', ...base, ...(k.text ? { text: k.text } : {}) }); await send('Input.dispatchKeyEvent', { type: 'keyUp', ...base }); },
+    async shot() {
+      const { cssVisualViewport: v } = await send('Page.getLayoutMetrics');
+      const scale = Math.min(1, 1280 / v.clientWidth);
+      const { data } = await send('Page.captureScreenshot', { format: 'jpeg', quality: 60, clip: { x: v.pageX, y: v.pageY, width: v.clientWidth, height: v.clientHeight, scale } });
+      return { dataUrl: `data:image/jpeg;base64,${data}`, scale, width: Math.round(v.clientWidth * scale), height: Math.round(v.clientHeight * scale) };
+    },
+    async screenshot() { return (await this.shot()).dataUrl; },
+  };
 }
 
 const refOf = (page, re) => { const line = page.elements.find(l => re.test(l)); const m = line && /^\[(\d+)\]/.exec(line); return m ? Number(m[1]) : null; };
@@ -123,6 +146,66 @@ test('cross-origin frames: the embedded form is seen, filled and kept safe', { s
     assert.equal(page.done.length, 2, JSON.stringify(page));
     const frame = (await tab.frames()).find(f => f.frameId !== 0);
     assert.ok(frame, 'the embed is loaded');
+  } finally {
+    await cdp.close();
+    server.close();
+  }
+});
+
+test('any site: script-made clickables, canvases by point, and a step that did nothing is retried with real input', { skip: !chromeAvailable() && 'Chrome not installed', timeout: 90_000 }, async () => {
+  const server = await serve();
+  const cdp = await launch(['--disable-site-isolation-trials', '--disable-features=IsolateOrigins,site-per-process']);
+  const base = `http://localhost:${server.address().port}`;
+  try {
+    const tab = await cdpChrome(cdp);
+    const make = ready => createAgent(tab.chrome, { openPairing: () => {}, random: () => 'token', cdp: realInput(tab.send, ready) });
+
+    // Without real input: the clickable card is found and works; the button that ignores scripted clicks is
+    // reported as having done nothing, instead of passing silently.
+    let agent = make(async () => false);
+    let page = await agent.fromApp({ type: 'open', url: `${base}/fixtures/widgets.html` }, APP);
+    const card = refOf(page, /clickable "Basic plan/);
+    assert.ok(card, `a div made clickable by a script is listed: ${page.elements.join('\n')}`);
+    assert.equal(page.elements.filter(l => /Basic plan/.test(l)).length, 1, 'its text inside is not listed again');
+    page = await agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'click', ref: card }] }, APP);
+    assert.match(page.text, /Chose basic/);
+    assert.equal(page.noEffect, undefined, 'a click that worked is not reported');
+    page = await agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'click', ref: refOf(page, /button "Load details"/) }] }, APP);
+    assert.ok(!/Details loaded/.test(page.text));
+    assert.match(page.noEffect?.[0] || '', /changed nothing/, 'a click with no effect is reported');
+    await assert.rejects(agent.fromApp({ type: 'screenshot', tabId: 1 }, APP), /real input/, 'no screenshot without the debugger, with a way forward');
+
+    // Real input that only becomes available on the retry: ordinary input did nothing, real input works.
+    let calls = 0;
+    agent = make(async () => calls++ % 2 === 1);
+    page = await agent.fromApp({ type: 'open', tabId: 1, url: `${base}/fixtures/widgets.html` }, APP);
+    calls = 0;
+    page = await agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'click', ref: refOf(page, /button "Load details"/) }] }, APP);
+    assert.match(page.text, /Details loaded/);
+    assert.match(page.done[0], /with real input/);
+    assert.equal(page.noEffect, undefined);
+
+    // Screenshots and points: a seat on a canvas has no element; it is clicked by its place on the screenshot.
+    agent = make(async () => true);
+    const shot = await agent.fromApp({ type: 'screenshot', tabId: 1 }, APP);
+    assert.match(shot.screenshot, /^data:image\/jpeg;base64,/);
+    assert.ok(shot.shotSize.width > 0 && shot.elements.length);
+    const rect = await tab.evalIn("JSON.stringify(document.getElementById('seats').getBoundingClientRect())").then(JSON.parse);
+    page = await agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'click', x: rect.left + 150, y: rect.top + 50 }] }, APP);
+    assert.match(page.text, /Seat B/, JSON.stringify(page.done));
+    await tab.evalIn("document.body.style.minHeight = '3000px'; scrollBy(0, 40)");
+    await assert.rejects(agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'click', x: 10, y: 10 }] }, APP), /moved since your last screenshot/, 'stale points are refused');
+
+    // A point inside a cross-origin frame: found in that frame, clicked with real input at the exact spot.
+    page = await agent.fromApp({ type: 'open', tabId: 1, url: `${base}/fixtures/iframe-form.html` }, APP);
+    await agent.fromApp({ type: 'screenshot', tabId: 1 }, APP);
+    const frame = await tab.evalIn("JSON.stringify(document.getElementById('cross').getBoundingClientRect())").then(JSON.parse);
+    // Type into the partner city by point (the field is first in the frame's form), then press its button by ref.
+    const fieldAt = { x: frame.left + 120, y: frame.top + 18 };
+    page = await agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'type', x: fieldAt.x, y: fieldAt.y, text: 'Oslo' }] }, APP);
+    assert.match(page.done[0], /Partner city/, JSON.stringify(page));
+    page = await agent.fromApp({ type: 'act', tabId: 1, steps: [{ action: 'click', ref: refOf(page, /button "Partner next"/) }] }, APP);
+    assert.match(page.text, /City: Oslo/);
   } finally {
     await cdp.close();
     server.close();

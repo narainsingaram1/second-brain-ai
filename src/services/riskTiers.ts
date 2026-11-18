@@ -42,7 +42,7 @@ export function classifyBrowserStep(step: BrowserStep, info: StepInspection = {}
 
 /** The least a browser tool call can be, before the extension looks at the page. */
 export function browserCallFloor(name: string, args: Record<string, unknown> = {}): RiskTier {
-  if (name === "browser_look" || name === "browser_read" || name === "browser_tabs" || name === "browser_user_tabs" || name === "browser_files") return 0;
+  if (name === "browser_look" || name === "browser_screenshot" || name === "browser_read" || name === "browser_tabs" || name === "browser_user_tabs" || name === "browser_files") return 0;
   // The extension pauses for the user's go-ahead before lending a tab; this floor is for the router.
   if (name === "browser_borrow") return 1;
   if (name === "browser_open" || name === "browser_close") return 1;

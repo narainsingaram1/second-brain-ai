@@ -79,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.5.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.6.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -663,4 +663,57 @@ test('the toolset asks before attaching a file, then stages it in pieces under t
   await declined.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
   assert.deepEqual(calls.map(c => c.type), ['act']); assert.deepEqual(calls[0].steps, [steps[0]], 'only the steps before the declined attach run');
   await assert.rejects(browserToolset(bridge, {}).execute('browser_act', { tabId: 5, steps: [steps[1]] }, new AbortController().signal), /isn't available/);
+});
+
+test('screenshots go to the model as an image beside the page, steps that did nothing are reported and their page is kept for a fixture', async () => {
+  delete globalThis.__synapseAgentFailures;
+  const base = { tabId: 5, site: 'shop.example', url: 'https://shop.example/', title: 'Shop', omitted: 0, text: 'Text', elements: ['[1] button "Load"'] };
+  const calls = [];
+  const bridge = { call: async req => {
+    calls.push(req.type);
+    if (req.type === 'screenshot') return { ...base, screenshot: 'data:image/jpeg;base64,PIXELS', shotSize: { width: 1280, height: 800 }, timings: { screenshot: 40 } };
+    if (req.type === 'act') return { ...base, done: ['Clicked button "Load"'], noEffect: ['Step 1 (Clicked button "Load"): It changed nothing on the page.'] };
+    if (req.type === 'capture') return { url: base.url, title: 'Shop', html: '<!doctype html><html><body><button>Load</button></body></html>', frames: [] };
+    return { ...base };
+  } };
+  const tools = browserToolset(bridge, { confirm: async () => true });
+  const sig = new AbortController().signal;
+  const shot = await tools.execute('browser_screenshot', { tabId: 5 }, sig);
+  assert.equal(shot.image.dataUrl, 'data:image/jpeg;base64,PIXELS');
+  assert.ok(!JSON.stringify(shot.output).includes('PIXELS'), 'the image is not inside the JSON the model reads');
+  assert.match(shot.output.screenshot, /1280×800/);
+  assert.match(shot.output.elements, /\[1\] button "Load"/);
+  const acted = (await tools.execute('browser_act', { tabId: 5, steps: [{ action: 'click', ref: 1 }] }, sig)).output;
+  assert.match(acted.noEffect[0], /changed nothing/);
+  assert.ok(calls.includes('capture'));
+  const [failure] = globalThis.__synapseAgentFailures;
+  assert.equal(failure.site, 'shop.example'); assert.match(failure.problem, /changed nothing/); assert.match(failure.html, /<button>Load/);
+});
+
+test('point steps and screenshots: the tools offer them, and a screenshot is a read', async () => {
+  const { BROWSER_TOOLS } = await load('/src/services/browserAgent.ts');
+  const { browserCallFloor } = await load('/src/services/riskTiers.ts');
+  const step = BROWSER_TOOLS.find(t => t.function.name === 'browser_act').function.parameters.properties.steps.items.properties;
+  assert.ok(step.x && step.y);
+  assert.ok(BROWSER_TOOLS.some(t => t.function.name === 'browser_screenshot'));
+  assert.equal(browserCallFloor('browser_screenshot'), 0);
+});
+
+test('captured failures become fixture pages with their frames beside them', async () => {
+  const { mkdtemp, readFile, rm } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { writeFixtures } = await import('../scripts/agent-fixture.mjs');
+  const dir = await mkdtemp(join(tmpdir(), 'fixtures-'));
+  try {
+    const names = await writeFixtures([{ at: '2026-11-18T10:00:00Z', site: 'careers.example.com', url: 'https://careers.example.com/job', problem: 'It changed nothing on the page.', steps: [{ action: 'click', ref: 4 }],
+      html: '<html><body><iframe src="https://boards.greenhouse.io/embed/job_app?for=x&amp;token=1"></iframe></body></html>',
+      frames: [{ url: 'https://boards.greenhouse.io/embed/job_app?for=x&token=1', html: '<html><body><input id="first"></body></html>' }] }], { dir, list: join(dir, 'captured.json') });
+    assert.deepEqual(names, ['careers-example-com-2026-11-18']);
+    const page = await readFile(join(dir, `${names[0]}.html`), 'utf8');
+    assert.match(page, /src="careers-example-com-2026-11-18-frame-1\.html"/, 'the frame points at its local copy');
+    assert.match(await readFile(join(dir, `${names[0]}-frame-1.html`), 'utf8'), /id="first"/);
+    const [task] = JSON.parse(await readFile(join(dir, 'captured.json'), 'utf8'));
+    assert.equal(task.page, `captured/${names[0]}.html`); assert.deepEqual(task.view.has, []);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });

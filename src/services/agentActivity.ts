@@ -129,7 +129,7 @@ export function describeResult(name: string, args: Record<string, any>, output: 
     case "list_calendar_events": return { detail: count(output.events?.length ?? 0, "event", "events"), items: titles(output.events) };
     case "search_email": return { detail: count(output.results?.length ?? 0, "email", "emails"), items: titles(output.results, "subject") };
     case "read_email": return output.email?.subject ? { label: `Read ${quote(output.email.subject)}` } : {};
-    case "browser_open": case "browser_look": return output.site ? { label: `${name === "browser_open" ? "Opened" : "Looked at"} ${output.site}`, items: [`${clip(output.title || output.site)}|${output.url}`] } : {};
+    case "browser_open": case "browser_look": case "browser_screenshot": return output.site ? { label: `${name === "browser_open" ? "Opened" : name === "browser_screenshot" ? "Took a screenshot of" : "Looked at"} ${output.site}`, items: [`${clip(output.title || output.site)}|${output.url}`] } : {};
     case "browser_act": {
       const did: string[] = Array.isArray(output.done) ? output.done : [];
       const detail = output.declined || output.userOnly || output.stopped || (did.length ? undefined : "Nothing ran");

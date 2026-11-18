@@ -19191,6 +19191,16 @@ const BROWSER_TOOLS = [
 						minimum: 1,
 						description: "The element's number from the latest look at the page, e.g. 12 for [12]."
 					},
+					x: {
+						type: "number",
+						minimum: 0,
+						description: "click, hover or type at a point instead of a ref: x in pixels of your latest browser_screenshot of this tab. Only for things with no ref."
+					},
+					y: {
+						type: "number",
+						minimum: 0,
+						description: "The point's y, in pixels of that screenshot."
+					},
 					text: {
 						type: "string",
 						description: "type: the text to enter (replaces what is there unless append is true)."
@@ -19247,6 +19257,10 @@ const BROWSER_TOOLS = [
 		type: "integer",
 		minimum: 0
 	} }, ["tabId"]),
+	fn$2("browser_screenshot", "See an open tab as an image: the visible part of the page with every element's ref boxed and numbered, plus the element list. Use when the elements don't show what you need (a form that seems missing, a canvas, a map, a calendar grid, an odd widget), when a step changed nothing, or to check how the page really looks. Then act by ref, or for something with no ref, by its x/y point on this screenshot.", { tabId: {
+		type: "integer",
+		minimum: 0
+	} }, ["tabId"]),
 	fn$2("browser_read", "Read the full text of an open tab in chunks, for long pages (articles, order histories, terms). Pass nextOffset as offset to continue.", {
 		tabId: {
 			type: "integer",
@@ -19282,6 +19296,8 @@ new Set(BROWSER_TOOLS.map((t) => t.function.name));
 	"- Applying (\"apply to this\", a job link): do the application, don't just describe it. Open the posting, get to the form (Apply button or Application tab), fill every field you know from the user's memory, profile and résumé (name, email, phone, school, graduation date, links, work authorization, sponsorship), attach the current résumé, and answer simple questions you can answer truthfully. Ask the user, in one message listing them all, only for what you don't know: never invent facts, and leave voluntary self-identification (gender, race, veteran, disability) to them unless they told you their answer. Then click Submit: it asks the user. Record or update the Career tracker entry as applied (with today's date) only once the submission went through; until then it is not_started.",
 	"- Files: to attach a résumé, transcript or other document, call browser_files, then an upload step with the file's id on the upload field (role file-upload) or its Attach button. Use the current résumé unless the user named another. Each attach asks the user first. If the file the form wants isn't listed, tell the user to attach it in the chat (or add it as a résumé version in their Career workspace) and continue with the rest.",
 	"- If a result says a step failed, the steps before it ran: continue from the failed step, don't redo the earlier ones.",
+	"- `noEffect` means a step ran but the page didn't react (or a field doesn't show what you typed). Don't repeat it blindly: take a browser_screenshot to see what's really there (a covering popup, a different control, a widget that needs a point click), then adapt.",
+	"- When the page seems empty, a form or button you expect isn't in the elements, or the site is unusual (canvas, maps, custom widgets), take a browser_screenshot before concluding anything. Never tell the user something \"didn't render\" or \"isn't accessible\" until you have looked at a screenshot.",
 	"- Close cookie banners and pop-ups that cover the page (Reject non-essential, or close). Prefer the most privacy-preserving choice.",
 	"- Elements flagged user-only are passwords, card numbers and similar: you can't fill them. If a sign-in or payment details are needed, tell the user to complete that step in the Synapse tab group, then continue when they say so.",
 	"- Steps flagged needs-confirmation (buy, pay, send, post, delete, submit, book…) pause and ask the user. If the result says confirmed is false, the user declined: don't try another way, tell them it wasn't done.",

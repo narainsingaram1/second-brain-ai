@@ -57,8 +57,10 @@ export function serve() {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, "http://localhost");
     const name = path.basename(url.pathname);
+    // Fixtures may sit in a folder (captured/…), never outside the fixtures folder.
+    const file = path.join(FIXTURES, decodeURIComponent(url.pathname.slice("/fixtures/".length)));
     try {
-      const body = url.pathname.startsWith("/fixtures/") ? (generated(name) ?? await readFile(path.join(FIXTURES, name), "utf8")) : null;
+      const body = url.pathname.startsWith("/fixtures/") && file.startsWith(FIXTURES + path.sep) ? (generated(name) ?? await readFile(file, "utf8")) : null;
       if (body === null) { res.writeHead(404).end(); return; }
       if (url.searchParams.has("slow")) await sleep(700); // A frame that loads after the page has settled.
       res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" }).end(body);
@@ -204,7 +206,7 @@ export async function openTab(cdp, agentSource, usePrecise) {
 // A batch is one browser_act call (one model round). `find` picks the element line in the latest view; when no
 // line matches, the scripted model looks again (another round), or scrolls when `scrollToFind` is set.
 
-const TASKS = [
+const BASE_TASKS = [
   { name: "search", page: "search.html", about: "Search, wait for slow results, add one to the cart",
     batches: [[{ action: "type", find: /searchbox "Search products"/, text: "usb hub", submit: true }], [{ action: "click", find: /"Add Anker 7-in-1 USB-C Hub to cart"/ }]],
     check: "document.getElementById('cart').textContent === 'Cart (1)'" },
@@ -331,7 +333,8 @@ async function runTask(cdp, agentSource, base, task, usePrecise) {
           break;
         }
       }
-      result.ok = task.check ? !!(await tab.evalMain(task.check)) : false;
+      // A task that only checks the view passes when the view is right.
+      result.ok = task.check ? !!(await tab.evalMain(task.check)) : !task.batches.length && !!task.view?.has?.length;
       if (task.expect) result.ok &&= result.confirmations === task.expect.confirmations && result.userOnly === task.expect.userOnly;
       if (viewProblems.length) result.ok = false;
     }
@@ -357,13 +360,28 @@ function combine(runs) {
     rounds: median(runs.map(r => r.rounds)), phases: Object.fromEntries(Object.entries(phases).map(([k, v]) => [k, median(v)])) };
 }
 
-export const TASK_NAMES = TASKS.map(t => t.name);
-export const BENCH_TASKS = TASKS;
+export const TASK_NAMES = BASE_TASKS.map(t => t.name);
+export const BENCH_TASKS = BASE_TASKS;
 export const chromeAvailable = () => !!chromePath();
 
 /** Runs the benchmark and returns its report. `onTask` hears each task's combined result as it finishes. */
+/**
+ * Pages where the agent failed in real use (scripts/agent-fixture.mjs): each checks the first view has the
+ * elements listed in its view.has. An entry nobody has filled in yet is reported, not failed.
+ */
+async function capturedTasks() {
+  const list = path.join(ROOT, "bench/agent/captured.json");
+  if (!existsSync(list)) return [];
+  return JSON.parse(await readFile(list, "utf8")).map(t => ({
+    name: `captured:${t.name}`, page: t.page, about: t.about || "A page captured after a failure", batches: [],
+    view: { has: (t.view?.has || []).map(p => new RegExp(p)), lacks: (t.view?.lacks || []).map(p => new RegExp(p)) },
+    ...(t.view?.has?.length ? {} : { knownGap: "Add what the agent should see to view.has in bench/agent/captured.json" }),
+  }));
+}
+
 export async function runBench({ only = [], runs = 1, precise = false, onTask } = {}) {
   const agentSource = await readFile(path.join(ROOT, "extension/page-agent.js"), "utf8");
+  const TASKS = [...BASE_TASKS, ...(await capturedTasks())];
   const server = await serve();
   const base = `http://localhost:${server.address().port}`;
   const cdp = await launch();

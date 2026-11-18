@@ -110,6 +110,8 @@ const fn = (name: string, description: string, properties: Record<string, unknow
 const STEP = { type: "object", additionalProperties: false, required: ["action"], properties: {
   action: { type: "string", enum: ["click", "type", "select", "check", "uncheck", "press", "scroll", "hover", "upload"] },
   ref: { type: "integer", minimum: 1, description: "The element's number from the latest look at the page, e.g. 12 for [12]." },
+  x: { type: "number", minimum: 0, description: "click, hover or type at a point instead of a ref: x in pixels of your latest browser_screenshot of this tab. Only for things with no ref." },
+  y: { type: "number", minimum: 0, description: "The point's y, in pixels of that screenshot." },
   text: { type: "string", description: "type: the text to enter (replaces what is there unless append is true)." },
   submit: { type: "boolean", description: "type: press Enter afterwards (submits searches and forms)." },
   append: { type: "boolean", description: "type: add to the existing text instead of replacing it." },
@@ -129,6 +131,8 @@ export const BROWSER_TOOLS: OpenRouterTool[] = [
   fn("browser_act", "Do one or more things on an open page, in order: click, type, select, check, press a key, scroll, hover. Refs are the numbers from your latest look at that tab. Group steps that belong together (fill every field of a form, then click its button) into one call. Running stops early if the page changes. Returns the page as it is afterwards.",
     { tabId: { type: "integer", minimum: 0 }, steps: { type: "array", minItems: 1, maxItems: MAX_BROWSER_STEPS, items: STEP } }, ["tabId", "steps"]),
   fn("browser_look", "Look at an open tab again: its address, what can be clicked or typed into, and its main text. Use after waiting for something to load, or when your last look is out of date.",
+    { tabId: { type: "integer", minimum: 0 } }, ["tabId"]),
+  fn("browser_screenshot", "See an open tab as an image: the visible part of the page with every element's ref boxed and numbered, plus the element list. Use when the elements don't show what you need (a form that seems missing, a canvas, a map, a calendar grid, an odd widget), when a step changed nothing, or to check how the page really looks. Then act by ref, or for something with no ref, by its x/y point on this screenshot.",
     { tabId: { type: "integer", minimum: 0 } }, ["tabId"]),
   fn("browser_read", "Read the full text of an open tab in chunks, for long pages (articles, order histories, terms). Pass nextOffset as offset to continue.",
     { tabId: { type: "integer", minimum: 0 }, offset: { type: "integer", minimum: 0 } }, ["tabId"]),
@@ -154,6 +158,8 @@ export const BROWSER_INSTRUCTIONS = [
   "- Applying (\"apply to this\", a job link): do the application, don't just describe it. Open the posting, get to the form (Apply button or Application tab), fill every field you know from the user's memory, profile and résumé (name, email, phone, school, graduation date, links, work authorization, sponsorship), attach the current résumé, and answer simple questions you can answer truthfully. Ask the user, in one message listing them all, only for what you don't know: never invent facts, and leave voluntary self-identification (gender, race, veteran, disability) to them unless they told you their answer. Then click Submit: it asks the user. Record or update the Career tracker entry as applied (with today's date) only once the submission went through; until then it is not_started.",
   "- Files: to attach a résumé, transcript or other document, call browser_files, then an upload step with the file's id on the upload field (role file-upload) or its Attach button. Use the current résumé unless the user named another. Each attach asks the user first. If the file the form wants isn't listed, tell the user to attach it in the chat (or add it as a résumé version in their Career workspace) and continue with the rest.",
   "- If a result says a step failed, the steps before it ran: continue from the failed step, don't redo the earlier ones.",
+  "- `noEffect` means a step ran but the page didn't react (or a field doesn't show what you typed). Don't repeat it blindly: take a browser_screenshot to see what's really there (a covering popup, a different control, a widget that needs a point click), then adapt.",
+  "- When the page seems empty, a form or button you expect isn't in the elements, or the site is unusual (canvas, maps, custom widgets), take a browser_screenshot before concluding anything. Never tell the user something \"didn't render\" or \"isn't accessible\" until you have looked at a screenshot.",
   "- Close cookie banners and pop-ups that cover the page (Reject non-essential, or close). Prefer the most privacy-preserving choice.",
   "- Elements flagged user-only are passwords, card numbers and similar: you can't fill them. If a sign-in or payment details are needed, tell the user to complete that step in the Synapse tab group, then continue when they say so.",
   "- Steps flagged needs-confirmation (buy, pay, send, post, delete, submit, book…) pause and ask the user. If the result says confirmed is false, the user declined: don't try another way, tell them it wasn't done.",
@@ -186,6 +192,10 @@ interface PageSnapshot {
   done?: string[]; stoppedAt?: number; stopReason?: string;
   blocked?: { step: number; reason: string };
   needsConfirmation?: { token: string; step: number; label: string; site: string; screenshot?: string };
+  /** Steps that ran but the page didn't react to. */
+  noEffect?: string[];
+  /** browser_screenshot: the image, with its size in pixels. */
+  screenshot?: string; shotSize?: { width: number; height: number };
   /** Where the extension's time went, in ms. For tracing only: never shown to the model. */
   timings?: Timings;
 }
@@ -243,6 +253,7 @@ function forModel(page: PageSnapshot, extra: Record<string, unknown> = {}) {
     ...(page.dialog ? { dialog: page.dialog } : {}),
     ...(page.done?.length ? { done: page.done } : {}),
     ...(page.stopReason ? { stopped: page.stopReason } : {}),
+    ...(page.noEffect?.length ? { noEffect: page.noEffect } : {}),
     ...extra,
     elements: page.elements.join("\n") + (page.omitted ? `\n…${page.omitted} more further down (scroll to reach them)` : ""),
     ...(position ? { position } : {}),
@@ -269,6 +280,25 @@ async function base64Of(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
+/** A page where a step failed or did nothing, saved for turning into a test fixture (scripts/agent-fixture.mjs). */
+export interface CapturedFailure { at: string; site: string; url: string; title: string; problem: string; steps: unknown; html: string; frames: Array<{ url: string; html: string }> }
+const KEEP_FAILURES = 5;
+/**
+ * The last few failures stay in memory only, as `globalThis.__synapseAgentFailures`, so a developer can copy
+ * them out (`copy(JSON.stringify(__synapseAgentFailures))` in the devtools console). Nothing is stored or sent.
+ */
+function keepFailure(failure: CapturedFailure) {
+  const holder = globalThis as { __synapseAgentFailures?: CapturedFailure[] };
+  holder.__synapseAgentFailures = [...(holder.__synapseAgentFailures || []), failure].slice(-KEEP_FAILURES);
+}
+/** Problems worth a fixture: a step that failed or changed nothing. Not the user stopping, declining or a page change. */
+function problemOf(output: unknown): string {
+  const out = (output || {}) as { stopped?: string; noEffect?: string[] };
+  if (out.noEffect?.length) return out.noEffect.join(" ");
+  if (out.stopped && /failed:/.test(out.stopped)) return out.stopped;
+  return "";
+}
+
 /** The browser tools, backed by the extension. */
 export function browserToolset(bridge: Pick<BrowserLink, "call">, options: BrowserToolsetOptions = {}): ExternalToolset {
   const shown = new Map<number, ShownPage>();
@@ -286,6 +316,7 @@ export function browserToolset(bridge: Pick<BrowserLink, "call">, options: Brows
       diffOf: page.tabId, tabId: page.tabId, site: page.site, url: page.url, title: page.title,
       ...(page.done?.length ? { done: page.done } : {}),
       ...(page.stopReason ? { stopped: page.stopReason } : {}),
+      ...(page.noEffect?.length ? { noEffect: page.noEffect } : {}),
       ...extra,
       changes: nothing ? "No elements changed." : [
         diff.added.length ? `New:\n${diff.added.join("\n")}` : "",
@@ -301,6 +332,7 @@ export function browserToolset(bridge: Pick<BrowserLink, "call">, options: Brows
     const tabId = Number(args.tabId);
     let steps = (args.steps as Array<Record<string, unknown>>) || [];
     const done: string[] = [];
+    const noEffect: string[] = [];
     let token: string | undefined;
     let confirmed = false;
     const timings: Timings = {};
@@ -331,7 +363,8 @@ export function browserToolset(bridge: Pick<BrowserLink, "call">, options: Brows
       addTimings(timings, took);
       token = undefined;
       done.push(...(page.done || []));
-      const all = { ...page, done };
+      noEffect.push(...(page.noEffect || []));
+      const all = { ...page, done, noEffect };
       if (page.blocked) return timed(present(all, { userOnly: page.blocked.reason, notRun: steps.length - page.blocked.step }));
       if (!page.needsConfirmation) return timed(present(all, confirmed ? { confirmed: true } : {}));
       const { step, label, site, screenshot } = page.needsConfirmation;
@@ -346,6 +379,13 @@ export function browserToolset(bridge: Pick<BrowserLink, "call">, options: Brows
     }
     throw new Error("Too many confirmations in one call. Do fewer things per call.");
   };
+  /** Saves the page behind a failed step (best effort: it never holds up or fails the step itself). */
+  const captureFailure = async (tabId: number, problem: string, steps: unknown, signal: AbortSignal) => {
+    try {
+      const { value } = untime(await bridge.call<{ url: string; title: string; html: string; frames: Array<{ url: string; html: string }>; timings?: Timings }>({ type: "capture", tabId }, signal, 30_000));
+      if (value?.html) keepFailure({ at: new Date().toISOString(), site: quoteHost(value.url), url: value.url, title: value.title, problem, steps, html: value.html, frames: value.frames || [] });
+    } catch { /* An older extension, or the tab is gone. */ }
+  };
   return {
     definitions: BROWSER_TOOLS,
     instructions: BROWSER_INSTRUCTIONS,
@@ -356,9 +396,27 @@ export function browserToolset(bridge: Pick<BrowserLink, "call">, options: Brows
           return { output: present(page, {}, true), summary: `Opened ${page.site}`, link: page.url, timings };
         }
         case "browser_act": {
-          const { output, timings } = await act(args, signal);
+          let result: Awaited<ReturnType<typeof act>>;
+          try { result = await act(args, signal); }
+          catch (error) {
+            if (!signal.aborted) await captureFailure(Number(args.tabId), error instanceof Error ? error.message : String(error), args.steps, signal);
+            throw error;
+          }
+          const { output, timings } = result;
+          const problem = problemOf(output);
+          if (problem) await captureFailure(Number(args.tabId), problem, args.steps, signal);
           const out = output as { done?: string[]; url?: string };
           return { output, summary: out.done?.join("; ") || "No steps ran", ...(out.url ? { link: out.url } : {}), timings };
+        }
+        case "browser_screenshot": {
+          const { value: page, timings } = untime(await bridge.call<PageSnapshot>({ type: "screenshot", tabId: Number(args.tabId) }, signal, 60_000));
+          const { screenshot, shotSize, ...rest } = page;
+          if (!screenshot) throw new Error("The browser didn't return a screenshot.");
+          const size = shotSize ? `${shotSize.width}×${shotSize.height}` : "";
+          return {
+            output: present(rest, { screenshot: `Attached as an image after this result${size ? ` (${size} px)` : ""}. Each box's number is that element's ref. For something with no ref, give x and y in this image's pixels.` }, true),
+            image: { name: `${page.site} screenshot`, dataUrl: screenshot }, summary: `Took a screenshot of ${page.site}`, link: page.url, timings,
+          };
         }
         case "browser_look": { const { value: page, timings } = untime(await bridge.call<PageSnapshot>({ type: "snapshot", tabId: Number(args.tabId) }, signal)); return { output: present(page, {}, true), timings }; }
         case "browser_read": {
@@ -405,6 +463,7 @@ export function describeBrowserCall(name: string, args: Record<string, any>): st
     return steps.length > 1 ? `${verb} the page (${steps.length} steps)` : `${verb} the page`;
   }
   if (name === "browser_look") return "Looking at the page";
+  if (name === "browser_screenshot") return "Taking a screenshot of the page";
   if (name === "browser_read") return "Reading the page";
   if (name === "browser_tabs") return "Checking open tabs";
   if (name === "browser_files") return "Finding your files";

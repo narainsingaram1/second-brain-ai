@@ -30,8 +30,9 @@ export function createCdp(chrome) {
 
   async function enabled() {
     if (!chrome.debugger?.attach) return false;
+    // On whenever the user granted the debugger permission, unless they turned it off in the popup.
     const { precise } = await chrome.storage.local.get("precise");
-    if (!precise) return false;
+    if (precise === false) return false;
     try { return await chrome.permissions.contains({ permissions: ["debugger"] }); } catch { return false; }
   }
 
@@ -59,15 +60,19 @@ export function createCdp(chrome) {
     await send(tabId, "Input.dispatchKeyEvent", { type: "keyUp", ...base });
   }
 
+  async function move(tabId, x, y) { await send(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y }); }
+
   /** The visible part of the page as a JPEG data URL, at most `maxWidth` CSS pixels wide. */
-  async function screenshot(tabId, maxWidth = 1280) {
+  async function screenshot(tabId, maxWidth = 1280) { return (await shot(tabId, maxWidth)).dataUrl; }
+  /** The same, with the image's size and its scale (image pixels per CSS pixel), so points on it can be mapped back. */
+  async function shot(tabId, maxWidth = 1280) {
     const { cssVisualViewport: v } = await send(tabId, "Page.getLayoutMetrics");
     const scale = Math.min(1, maxWidth / Math.max(1, v.clientWidth));
     const { data } = await withTimeout(send(tabId, "Page.captureScreenshot", {
       format: "jpeg", quality: 60, captureBeyondViewport: false,
       clip: { x: v.pageX, y: v.pageY, width: v.clientWidth, height: v.clientHeight, scale },
     }), 5000, "Screenshot timed out.");
-    return `data:image/jpeg;base64,${data}`;
+    return { dataUrl: `data:image/jpeg;base64,${data}`, scale, width: Math.round(v.clientWidth * scale), height: Math.round(v.clientHeight * scale) };
   }
 
   async function detach(tabId) {
@@ -76,5 +81,5 @@ export function createCdp(chrome) {
   }
   async function detachAll() { await Promise.all([...attached].map(detach)); }
 
-  return { enabled, ready, click, insertText, key, screenshot, detach, detachAll, isAttached: tabId => attached.has(tabId) };
+  return { enabled, ready, click, move, insertText, key, screenshot, shot, detach, detachAll, isAttached: tabId => attached.has(tabId) };
 }
