@@ -2,8 +2,9 @@
  * Risk tiers for anything the assistant does outside Synapse (websites now, native apps next).
  *
  *   T0 read  — observes only (look, read, list tabs). Runs.
- *   T1 soft  — reversible or local (type in a normal field, select, open a tab). Runs, with a toast the user can stop.
- *   T2 hard  — commits something for the user (send, submit, pay, delete, post, merge). Waits for the user's live go-ahead.
+ *   T1 soft  — reversible or local (type in a normal field, select, attach a file, open a tab, open a form). Runs, with a toast the user can stop.
+ *   T2 hard  — the final action that commits something for the user (send, submit, pay, delete, post, merge). Waits for the user's live go-ahead.
+ *              In-between buttons (Apply, Reply, Upload, Remove a file…) are soft: only the final commit asks.
  *   T3 never — the user does it themselves (passwords, card numbers, one-time codes, CAPTCHAs, browser settings).
  *
  * The tier of a step on a page is decided by the extension from the element it resolves, not from the model's
@@ -16,7 +17,7 @@ export const TIER_NAMES: Record<RiskTier, string> = { 0: "read", 1: "soft", 2: "
 // tests/agent-router.test.mjs fails if the two drift apart.
 export const SECRET_AUTOCOMPLETE_SOURCE = String.raw`\b(current-password|new-password|one-time-code|cc-number|cc-csc|cc-exp|cc-exp-month|cc-exp-year)\b`;
 export const SECRET_LABEL_SOURCE = String.raw`\b(password|passcode|card ?number|credit card|debit card|cvv|cvc|csc|security code|expir\w* date|ssn|social security|routing number|account number|iban|swift|pin)\b`;
-export const CONSEQUENTIAL_SOURCE = String.raw`\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account|merge|approve|archive|revoke|deploy|release|empty trash|erase|move to (?:the )?trash|shut down|restart|log out|sign out|quit)\b`;
+export const CONSEQUENTIAL_SOURCE = String.raw`\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|delete|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|donate|accept|agree|authori[sz]e|allow|grant|connect|invite|save changes|update (?:payment|account)|close account|merge|approve|revoke|deploy|release|empty trash|erase|move to (?:the )?trash|shut down|restart|log out|sign out|quit)\b`;
 
 export const SECRET_AUTOCOMPLETE = new RegExp(SECRET_AUTOCOMPLETE_SOURCE, "i");
 export const SECRET_LABEL = new RegExp(SECRET_LABEL_SOURCE, "i");
@@ -33,8 +34,8 @@ export function classifyBrowserStep(step: BrowserStep, info: StepInspection = {}
   if (info.userOnly) return 3;
   if (info.consequential || info.submitsText) return 2;
   if (READ_ONLY_STEPS.has(step.action)) return 0;
-  // Attaching a file gives the site a copy of it: the browser tools ask the user before each one.
-  if (step.action === "upload") return 2;
+  // Attaching one of the user's own files (from browser_files) is a step in filling a form, like typing; the
+  // form's final Submit is what asks the user.
   // Enter on whatever has focus can submit a form the model never named: the extension re-checks it, but
   // the floor here is soft, never read.
   return 1;

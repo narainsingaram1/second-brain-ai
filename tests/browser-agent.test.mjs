@@ -643,7 +643,7 @@ test('a failed step after others ran reports what ran; an open dropdown is close
   await assert.rejects(agent.fromApp({ type: 'act', tabId, steps: [...many, { action: 'scroll' }] }, APP), /At most 25/);
 });
 
-test('the toolset asks before attaching a file, then stages it in pieces under the 1 MB link limit', async () => {
+test('the toolset attaches a file without asking, staging it in pieces under the 1 MB link limit', async () => {
   const calls = [];
   const bridge = { call: async req => { calls.push(req); return req.type === 'stage_file' ? { staged: true } : { tabId: 5, site: 'jobs.example', url: 'https://jobs.example/apply', title: 'Apply', elements: [], omitted: 0, text: '', done: ['Attached "cv.pdf"'] }; } };
   const big = new Blob([new Uint8Array(900 * 1024).fill(65)], { type: 'application/pdf' });
@@ -652,16 +652,12 @@ test('the toolset asks before attaching a file, then stages it in pieces under t
   const steps = [{ action: 'type', ref: 1, text: 'Ada' }, { action: 'upload', ref: 2, file: 'resume-1' }];
   const tools = browserToolset(bridge, { files, confirm: async req => { asked.push(req); return true; } });
   const { output } = await tools.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
-  assert.match(asked[0].label, /Attach "cv\.pdf"/); assert.match(asked[0].reason, /copy of your résumé/);
+  assert.equal(asked.length, 0, 'attaching does not ask; the final Submit does');
   const pieces = calls.filter(c => c.type === 'stage_file');
   assert.equal(pieces.length, 3); assert.ok(pieces.every(p => JSON.stringify(p).length < 1024 * 1024));
   assert.equal(atob(pieces.map(p => p.data).join('')).length, big.size);
   assert.deepEqual(output.done, ['Attached "cv.pdf"']);
 
-  calls.length = 0;
-  const declined = browserToolset(bridge, { files, confirm: async () => false });
-  await declined.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
-  assert.deepEqual(calls.map(c => c.type), ['act']); assert.deepEqual(calls[0].steps, [steps[0]], 'only the steps before the declined attach run');
   await assert.rejects(browserToolset(bridge, {}).execute('browser_act', { tabId: 5, steps: [steps[1]] }, new AbortController().signal), /isn't available/);
 });
 
@@ -799,6 +795,6 @@ test('browser call floors: find reads, open with steps counts its steps', async 
   const { browserCallFloor } = await load('/src/services/riskTiers.ts');
   assert.equal(browserCallFloor('browser_find'), 0);
   assert.equal(browserCallFloor('browser_open', { url: 'https://x' }), 1);
-  assert.equal(browserCallFloor('browser_open', { url: 'https://x', steps: [{ action: 'upload', target: { name: 'Attach' } }] }), 2);
+  assert.equal(browserCallFloor('browser_open', { url: 'https://x', steps: [{ action: 'upload', target: { name: 'Attach' } }] }), 1);
   assert.equal(browserCallFloor('browser_act', { steps: [{ action: 'wait', text: 'Done' }] }), 0);
 });

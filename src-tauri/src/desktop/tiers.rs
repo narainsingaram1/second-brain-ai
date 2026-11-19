@@ -5,7 +5,7 @@
 use regex::Regex;
 use std::sync::OnceLock;
 
-pub const CONSEQUENTIAL_SOURCE: &str = r#"\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|share|reply|comment|delete|remove|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|apply|donate|accept|agree|authori[sz]e|allow|grant|follow|connect|invite|upload|save changes|update (?:payment|account)|close account|merge|approve|archive|revoke|deploy|release|empty trash|erase|move to (?:the )?trash|shut down|restart|log out|sign out|quit)\b"#;
+pub const CONSEQUENTIAL_SOURCE: &str = r#"\b(buy|purchase|place (?:your )?order|pay(?: now)?|checkout|check out|complete (?:order|purchase|booking)|confirm|submit|send|post|publish|tweet|delete|discard|cancel (?:my |your )?(?:order|subscription|account|membership|booking|reservation)|unsubscribe|transfer|withdraw|deposit|book(?: now)?|reserve|subscribe|sign up|create (?:an )?account|register|donate|accept|agree|authori[sz]e|allow|grant|connect|invite|save changes|update (?:payment|account)|close account|merge|approve|revoke|deploy|release|empty trash|erase|move to (?:the )?trash|shut down|restart|log out|sign out|quit)\b"#;
 pub const SECRET_LABEL_SOURCE: &str = r#"\b(password|passcode|card ?number|credit card|debit card|cvv|cvc|csc|security code|expir\w* date|ssn|social security|routing number|account number|iban|swift|pin)\b"#;
 
 fn consequential() -> &'static Regex {
