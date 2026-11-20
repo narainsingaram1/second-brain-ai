@@ -144,20 +144,37 @@ function studyRecords(state: BrainState, ctx?: RetrievalContext) {
     }),
   ];
 }
+// Derived text is cached per source object and checked against the content it came from, so a search reuses the
+// passages of unchanged records and an edit (even one made in place) is always picked up.
+const recordChunkCache = new WeakMap<object, { prose: string; chunks: Source[] }>();
+const hiddenImageNotes = new WeakMap<object, { content: string; hidden: unknown }>();
+/** The note as the assistant sees it: inline image data replaced by `note-image:N` tokens. Same object when it has none. */
+function noteWithoutImages<T extends { content?: string }>(item: T): T {
+  if (!item.content || !hasInlineImages(item.content)) return item;
+  const known = hiddenImageNotes.get(item);
+  if (known && known.content === item.content) return known.hidden as T;
+  const hidden = { ...item, content: hideNoteImages(item.content) };
+  hiddenImageNotes.set(item, { content: item.content, hidden });
+  return hidden;
+}
+const STUDY_TYPES = new Set<RecordType>(["course", "document", "deck", "quiz"]);
+
 export function records(state: BrainState, type?: RecordType, ctx?: RetrievalContext): BrainRecord[] {
+  // Only the requested type is built: a lookup in one list should not walk every other list.
+  const want = (t: RecordType) => !type || type === t;
   return ([
-    ...state.tasks.map(data => ({ type: "task" as const, title: data.title, date: data.dueDate, data, source: data as unknown })),
-    ...state.goals.map(data => ({ type: "goal" as const, title: data.title, date: data.targetDate, data, source: data as unknown })),
-    ...state.habits.map(data => ({ type: "habit" as const, title: data.name, date: undefined, data, source: data as unknown })),
-    ...state.journalEntries.map(data => ({ type: "journal" as const, title: data.title, date: data.date, data, source: data as unknown })),
+    ...(want("task") ? state.tasks : []).map(data => ({ type: "task" as const, title: data.title, date: data.dueDate, data, source: data as unknown })),
+    ...(want("goal") ? state.goals : []).map(data => ({ type: "goal" as const, title: data.title, date: data.targetDate, data, source: data as unknown })),
+    ...(want("habit") ? state.habits : []).map(data => ({ type: "habit" as const, title: data.name, date: undefined, data, source: data as unknown })),
+    ...(want("journal") ? state.journalEntries : []).map(data => ({ type: "journal" as const, title: data.title, date: data.date, data, source: data as unknown })),
     // Inline image data would drown the model; it sees `note-image:N` tokens that update_note restores.
-    ...state.knowledgeItems.map(item => { const data = item.content && hasInlineImages(item.content) ? { ...item, content: hideNoteImages(item.content) } : item;
+    ...(want("knowledge") ? state.knowledgeItems : []).map(item => { const data = noteWithoutImages(item);
       return { type: "knowledge" as const, title: data.title || data.subject, date: data.startDate, data, source: data as unknown }; }),
-    ...(state.events || []).map(data => ({ type: "event" as const, title: data.title, date: data.date, data, source: data as unknown })),
-    ...(state.healthDays || []).map(data => ({ type: "health" as const, title: `Health ${data.date}`, date: data.date, data, source: data as unknown })),
-    ...(state.workouts || []).map(data => ({ type: "workout" as const, title: `${data.name} ${data.date}`, date: data.date, data, source: data as unknown })),
-    ...(state.workoutPlans || []).map(data => ({ type: "workout_plan" as const, title: data.name, date: undefined, data: { ...data, status: data.active ? "in_progress" : "on_hold" }, source: data as unknown })),
-    ...(state.trackerItems || []).map(data => ({
+    ...(want("event") ? state.events || [] : []).map(data => ({ type: "event" as const, title: data.title, date: data.date, data, source: data as unknown })),
+    ...(want("health") ? state.healthDays || [] : []).map(data => ({ type: "health" as const, title: `Health ${data.date}`, date: data.date, data, source: data as unknown })),
+    ...(want("workout") ? state.workouts || [] : []).map(data => ({ type: "workout" as const, title: `${data.name} ${data.date}`, date: data.date, data, source: data as unknown })),
+    ...(want("workout_plan") ? state.workoutPlans || [] : []).map(data => ({ type: "workout_plan" as const, title: data.name, date: undefined, data: { ...data, status: data.active ? "in_progress" : "on_hold" }, source: data as unknown })),
+    ...(want("tracker") ? state.trackerItems || [] : []).map(data => ({
       type: "tracker" as const,
       title: data.title,
       date: trackerDate(data),
@@ -165,11 +182,22 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
       source: data as unknown,
     })),
     ...(!type || ["course", "document", "deck", "quiz"].includes(type) ? studyRecords(state, ctx) : []),
-  ]).filter(r => !type || r.type === type).map(({ source, ...r }) => ({ ...r, id: r.data.id, data: { ...r.data },
-    // Document text is read as prose after its metadata, not as one escaped JSON string.
-    text: r.type === "document" ? `${JSON.stringify({ ...r.data, content: undefined }, null, 2)}\n\n${(r.data as { content?: string }).content ?? "[Text not loaded on this device.]"}` : JSON.stringify(r.data, null, 2),
-    get index() { return recordProse(r.type, source); } }));
+  ]).filter(r => !type || r.type === type).map(({ source, ...r }) => {
+    // Plain records derive everything from their state object; study records are rebuilt each call.
+    const key = STUDY_TYPES.has(r.type) ? undefined : source as object;
+    const data = { ...r.data };
+    return { ...r, id: r.data.id, data,
+      // Computed only when read: a search needs the prose, a read needs the JSON, a list needs neither.
+      // Document text is read as prose after its metadata, not as one escaped JSON string.
+      get text() { return r.type === "document"
+        ? `${JSON.stringify({ ...data, content: undefined }, null, 2)}\n\n${(data as { content?: string }).content ?? "[Text not loaded on this device.]"}`
+        : JSON.stringify(data, null, 2); },
+      get index() { return recordProse(r.type, source); },
+      [CHUNK_KEY]: key };
+  });
 }
+/** The state object a record was derived from, when its passages can be cached by it. */
+const CHUNK_KEY = Symbol("chunkKey");
 
 const PASSAGE = 1200, HARD_LIMIT = 1600;
 /** Splits at word boundaries when a single paragraph is longer than a passage. */
@@ -193,7 +221,16 @@ function splitLong(text: string): string[] {
  * the record title and heading path so it is understandable (and embeddable) on its own.
  */
 export function chunks(record: BrainRecord): Source[] {
-  const text = record.index;
+  const key = (record as { [CHUNK_KEY]?: object })[CHUNK_KEY];
+  if (!key) return splitRecord(record);
+  const prose = record.index;
+  const cached = recordChunkCache.get(key);
+  if (cached && cached.prose === prose && cached.chunks[0]?.title === record.title) return cached.chunks;
+  const split = splitRecord(record, prose);
+  recordChunkCache.set(key, { prose, chunks: split });
+  return split;
+}
+function splitRecord(record: BrainRecord, text = record.index): Source[] {
   const header = (path: string[]) => [record.title, ...path].filter(Boolean).join(" > ");
   const base = { id: record.id, type: record.type, title: record.title };
   if (text.length <= HARD_LIMIT) return [{ ...base, offset: 0, snippet: text }];
@@ -228,12 +265,17 @@ export function tokenize(text: string): string[] {
     .map(t => t.length > 4 && t.endsWith("s") && !t.endsWith("ss") ? t.slice(0, -1) : t);
 }
 /** A passage's distinct terms, their counts and its length: all BM25 needs, so unchanged passages are tokenized once. */
-export interface TermCounts { length: number; terms: string[]; counts: number[] }
+export interface TermCounts { length: number; terms: string[]; counts: number[]; /** Term → count, for constant-time lookup. */ lookup?: Map<string, number> }
 export function termCounts(tokens: string[]): TermCounts {
   const tf = new Map<string, number>();
   for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
-  return { length: tokens.length, terms: [...tf.keys()], counts: [...tf.values()] };
+  return { length: tokens.length, terms: [...tf.keys()], counts: [...tf.values()], lookup: tf };
 }
+const termCount = (d: TermCounts, t: string) => {
+  if (d.lookup) return d.lookup.get(t) || 0;
+  const at = d.terms.indexOf(t);
+  return at < 0 ? 0 : d.counts[at];
+};
 /** Okapi BM25: rare terms count more than common ones, and long passages do not win by size. */
 export function bm25(docs: string[][], query: string[], k1 = 1.2, b = 0.75): number[] {
   return bm25Counts(docs.map(termCounts), query, k1, b);
@@ -243,7 +285,7 @@ export function bm25Counts(docs: TermCounts[], query: string[], k1 = 1.2, b = 0.
   if (!terms.length || !docs.length) return docs.map(() => 0);
   const avg = docs.reduce((n, d) => n + d.length, 0) / docs.length || 1;
   // One lookup per passage and query term; the frequencies are reused for IDF and scoring.
-  const freq = docs.map(d => terms.map(t => { const at = d.terms.indexOf(t); return at < 0 ? 0 : d.counts[at]; }));
+  const freq = docs.map(d => terms.map(t => termCount(d, t)));
   const idf = terms.map((_, j) => { const df = freq.reduce((n, f) => n + (f[j] ? 1 : 0), 0); return Math.log(1 + (docs.length - df + 0.5) / (df + 0.5)); });
   return freq.map((f, i) => f.reduce((score, n, j) => score + (n ? idf[j] * (n * (k1 + 1)) / (n + k1 * (1 - b + b * docs[i].length / avg)) : 0), 0));
 }
@@ -341,11 +383,19 @@ export async function embed(inputs: string[], key: string, signal?: AbortSignal,
   if (!sorted || sorted.length !== inputs.length || sorted.some((x: { embedding: number[] }) => !Array.isArray(x.embedding) || !x.embedding.length || x.embedding.some(v => !Number.isFinite(v)))) throw new Error("Invalid embedding response");
   return sorted.map((x: { embedding: number[] }) => x.embedding);
 }
+// A vector's length never changes, so each stored passage vector's norm is computed once, not on every search.
+const vectorNorms = new WeakMap<number[], number>();
+function norm(v: number[]): number {
+  let n = vectorNorms.get(v);
+  if (n === undefined) { n = 0; for (let i = 0; i < v.length; i++) n += v[i] * v[i]; n = Math.sqrt(n); vectorNorms.set(v, n); }
+  return n;
+}
 function cosine(a: number[], b: number[]): number {
   if (a.length !== b.length) return 0;
-  let dot = 0, aa = 0, bb = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; aa += a[i] ** 2; bb += b[i] ** 2; }
-  return aa && bb ? dot / Math.sqrt(aa * bb) : 0;
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  const na = norm(a), nb = norm(b);
+  return na && nb ? dot / (na * nb) : 0;
 }
 // Vectors for unchanged passages stay in memory, so warm searches skip hashing and IndexedDB reads.
 const passageVectors = new Map<string, { snippet: string; key: string; vector?: number[] }>();
