@@ -283,6 +283,56 @@ var init_toolMarkup = __esmMin((() => {
 	};
 	tidy = (text) => text.replace(WRAPPER, "").replace(STRAY_CLOSER, "").replace(/\n{3,}/g, "\n\n");
 }));
+// src/utils/messageOrder.ts
+/**
+* Many chat templates (Qwen, Llama, Mistral served through vLLM or LiteLLM) accept a system message only as
+* the very first message. Leading system messages are merged into one; a later one, such as the instruction to
+* stop using tools and answer, is sent as a user message marked as coming from the app, at the same place.
+*/
+function orderSystemMessages(messages) {
+	let lead = 0;
+	while (lead < messages.length && messages[lead].role === "system") lead++;
+	if (lead === messages.length || lead <= 1 && !messages.slice(lead).some((m) => m.role === "system")) return messages;
+	const out = [];
+	if (lead === 1) out.push(messages[0]);
+	else if (lead) out.push({
+		...messages[0],
+		content: messages.slice(0, lead).map((m) => textOf(m.content)).filter(Boolean).join("\n\n")
+	});
+	for (const message of messages.slice(lead)) {
+		if (message.role !== "system") {
+			out.push(message);
+			continue;
+		}
+		const note = `[Instruction from the app, not from the user]\n${textOf(message.content)}`;
+		const previous = out[out.length - 1];
+		if (previous?.role === "user") out[out.length - 1] = {
+			...previous,
+			content: typeof previous.content === "string" ? `${previous.content}\n\n${note}` : [...previous.content, {
+				type: "text",
+				text: note
+			}]
+		};
+		else out.push({
+			...message,
+			role: "user",
+			content: note
+		});
+	}
+	return out.reduce((list, message) => {
+		const previous = list[list.length - 1];
+		if (previous?.role === "user" && message.role === "user" && typeof previous.content === "string" && typeof message.content === "string" && previous.content.startsWith("[Instruction from the app")) list[list.length - 1] = {
+			...message,
+			content: `${previous.content}\n\n${message.content}`
+		};
+		else list.push(message);
+		return list;
+	}, []);
+}
+var textOf;
+var init_messageOrder = __esmMin((() => {
+	textOf = (content) => typeof content === "string" ? content : Array.isArray(content) ? content.map((part) => part?.type === "text" ? part.text : "").join("\n") : "";
+}));
 // src/services/providerTransport.ts
 function isHaiProvider(base = providerBase()) {
 	try {
@@ -343,6 +393,10 @@ async function providerFetch(endpoint, apiKey, body, signal, base) {
 			};
 		}
 	}
+	if (endpoint === "chat/completions" && body && typeof body === "object" && Array.isArray(body.messages)) body = {
+		...body,
+		messages: orderSystemMessages(body.messages)
+	};
 	if (isServerHeldKey(apiKey)) {
 		if (!accessToken) throw new Error("Sign in again to use the AI provider key stored on the server.");
 		const baseParam = target === "https://openrouter.ai/api/v1" ? "" : `&base=${encodeURIComponent(target)}`;
@@ -370,6 +424,7 @@ async function providerFetch(endpoint, apiKey, body, signal, base) {
 }
 var DEFAULT_PROVIDER_BASE, HAI_DEFAULT_MODEL, SERVER_HELD_KEY, BASE_STORAGE_KEY, accessToken, isServerHeldKey;
 var init_providerTransport = __esmMin((() => {
+	init_messageOrder();
 	DEFAULT_PROVIDER_BASE = "https://openrouter.ai/api/v1";
 	HAI_DEFAULT_MODEL = "qwen3.8-27b";
 	SERVER_HELD_KEY = "server-held-key";
@@ -501,12 +556,6 @@ function withTailBreakpoint(m) {
 	}
 	return m;
 }
-/**
-* Anthropic models need explicit breakpoints (at most four). One caches the long, stable system prompt
-* and tool list. A second sits on the last message before the newest user message: the conversation as
-* it stood, which the next turn starts with unchanged, so earlier turns are re-read at the cached rate.
-* A third, rolling breakpoint on the newest message caches each round of a multi-step tool loop for the next.
-*/
 function withPromptCache(model, messages) {
 	if (!model.startsWith("anthropic/")) return messages;
 	const tail = messages.length - 1;
@@ -599,37 +648,75 @@ async function queryOpenRouterWithTools(messages, tools, apiKey, model = DEFAULT
 	});
 	payloadMessages.push(...messages);
 	const resolvedModel = resolveModel(model);
-	const bodyPayload = {
-		model: resolvedModel,
-		messages: withPromptCache(resolvedModel, payloadMessages),
-		temperature: tuning.temperature ?? .7,
-		max_tokens: tuning.maxTokens ?? 8e3
-	};
-	if (tools && tools.length > 0) {
-		bodyPayload.tools = tools;
-		bodyPayload.tool_choice = toolChoice;
-	}
-	if (tuning.onText) bodyPayload.stream = true;
-	Object.assign(bodyPayload, usageRequest(providerBase, !!tuning.onText));
-	const stall = new AbortController();
-	let stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 9e4);
-	const resetStall = () => {
-		clearTimeout(stallTimer);
-		stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 45e3);
-	};
-	try {
-		const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal, providerBase);
-		if (!res.ok) {
-			const errorBody = await res.json().catch(() => ({}));
-			throw new Error(providerErrorMessage(errorBody, res.status));
+	const toolNames = tools.map((t) => t.function.name);
+	/** One request to the provider, returning the raw completion. */
+	const request = async (requestMessages, maxTokens, withTools, textBefore = "") => {
+		const bodyPayload = {
+			model: resolvedModel,
+			messages: withPromptCache(resolvedModel, orderSystemMessages(requestMessages)),
+			temperature: tuning.temperature ?? .7,
+			max_tokens: maxTokens
+		};
+		if (withTools && tools && tools.length > 0) {
+			bodyPayload.tools = tools;
+			bodyPayload.tool_choice = toolChoice;
 		}
-		const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
-		const toolNames = tools.map((t) => t.function.name);
-		const onText = (text) => tuning.onText(stripToolMarkup(text, toolNames, true));
-		return completionFrom(streamed ? await readCompletionStream(res.body, onText, resetStall, tuning.onReasoning) : await res.json(), toolChoice === "none" ? [] : tools);
-	} finally {
-		clearTimeout(stallTimer);
+		if (tuning.onText) bodyPayload.stream = true;
+		Object.assign(bodyPayload, usageRequest(providerBase, !!tuning.onText));
+		const stall = new AbortController();
+		let stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 9e4);
+		const resetStall = () => {
+			clearTimeout(stallTimer);
+			stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 45e3);
+		};
+		try {
+			const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal, providerBase);
+			if (!res.ok) {
+				const errorBody = await res.json().catch(() => ({}));
+				throw new Error(providerErrorMessage(errorBody, res.status));
+			}
+			const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
+			const onText = (text) => tuning.onText(stripToolMarkup(textBefore + text, toolNames, true));
+			return streamed ? await readCompletionStream(res.body, onText, resetStall, tuning.onReasoning) : await res.json();
+		} finally {
+			clearTimeout(stallTimer);
+		}
+	};
+	const maxTokens = tuning.maxTokens ?? 8e3;
+	let data = await request(payloadMessages, maxTokens, true);
+	const cutOff = (d) => d?.choices?.[0]?.finish_reason === "length";
+	const partial = (d) => d?.choices?.[0]?.message || {};
+	if (cutOff(data) && (partial(data).tool_calls?.length || !partial(data).content?.trim()) && maxTokens < MAX_OUTPUT_TOKENS) {
+		tuning.onText?.("");
+		data = await request(payloadMessages, Math.min(MAX_OUTPUT_TOKENS, maxTokens * 2), true).catch(() => data);
 	}
+	for (let round = 0; round < MAX_CONTINUATIONS && cutOff(data) && !partial(data).tool_calls?.length && partial(data).content?.trim(); round++) {
+		const sofar = partial(data).content;
+		const next = await request([
+			...payloadMessages,
+			{
+				role: "assistant",
+				content: sofar
+			},
+			{
+				role: "user",
+				content: "[Instruction from the app, not from the user]\nYour reply was cut off by the output limit. Continue exactly where it stopped, without repeating anything or adding a preamble."
+			}
+		], maxTokens, false, sofar).catch(() => null);
+		const more = next?.choices?.[0]?.message?.content;
+		if (!next || typeof more !== "string" || !more) break;
+		data = {
+			...next,
+			choices: [{
+				...next.choices[0],
+				message: {
+					...next.choices[0].message,
+					content: sofar + more
+				}
+			}]
+		};
+	}
+	return completionFrom(data, toolChoice === "none" ? [] : tools);
 }
 /**
 * Reassembles an OpenAI-style server-sent event stream into the shape of a buffered completion,
@@ -757,7 +844,7 @@ function completionFrom(data, tools = []) {
 	if (!choice?.message) throw new Error("Provider returned no message.");
 	const msg = choice?.message;
 	if (choice.finish_reason === "length") {
-		if (msg.tool_calls?.length || !msg.content?.trim()) throw new Error("Model output limit reached. Narrow the request or choose a model with a larger output limit.");
+		if (msg.tool_calls?.length || !msg.content?.trim()) throw new Error("The model ran out of output room before it could answer, even with extra room. Try again, or pick a model with a larger output limit in Settings.");
 		return {
 			content: `${msg.content.trimEnd()}\n\n*(Reply was cut off at the length limit — ask me to continue.)*`,
 			...usageOf(data)
@@ -813,11 +900,12 @@ async function describeImages(images, userRequest, apiKey, visionModel, signal, 
 	if (!result.content?.trim()) throw new Error("The vision model returned no description. Try again or choose another vision model in Settings.");
 	return result.content.trim();
 }
-var DEFAULT_MODEL, FAST_MODEL, RETIRED_MODELS, DEFAULT_VISION_MODEL, VISION_MODEL_KEY, catalog, finishReasoningDetails, usageOf;
+var DEFAULT_MODEL, FAST_MODEL, RETIRED_MODELS, DEFAULT_VISION_MODEL, VISION_MODEL_KEY, catalog, MAX_OUTPUT_TOKENS, MAX_CONTINUATIONS, finishReasoningDetails, usageOf;
 var init_openrouter = __esmMin((() => {
 	init_toolMarkup();
 	init_providerTransport();
 	init_usage();
+	init_messageOrder();
 	DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 	FAST_MODEL = "anthropic/claude-haiku-5.5";
 	RETIRED_MODELS = /* @__PURE__ */ new Set([
@@ -827,6 +915,8 @@ var init_openrouter = __esmMin((() => {
 	]);
 	DEFAULT_VISION_MODEL = "nvidia/nemotron-3.5-super-vl";
 	VISION_MODEL_KEY = "synapse_vision_model";
+	MAX_OUTPUT_TOKENS = 32e3;
+	MAX_CONTINUATIONS = 3;
 	finishReasoningDetails = (blocks) => blocks.map(({ __key, ...block }) => block);
 	usageOf = (data) => {
 		const usage = readUsage(data?.usage);

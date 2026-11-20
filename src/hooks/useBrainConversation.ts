@@ -56,7 +56,12 @@ export interface BrainConversation {
   setCardState: (messageId: string, block: number, next: IrisCardState) => void;
   /** Ticks a task off (or back on) or marks a habit done, from a card showing live records. */
   changeFromCard: (changes: CardChange[]) => Promise<void>;
+  /** The open conversation is waiting on an answer. Other conversations may be answering at the same time. */
   busy: boolean;
+  /** Conversations with a reply in progress, open or not. */
+  runningIds?: string[];
+  /** The id of the conversation on screen. */
+  openId?: string;
   progress: string;
   /** The reply as it streams in, under the ID the finished message will keep. */
   draft: { id: string; content: string } | null;
@@ -107,6 +112,24 @@ function archiveCurrent(state: BrainState): ConversationThread[] {
   };
   return boundConversations([thread, ...archived.filter((t) => t.id !== thread.id)]);
 }
+/** Changes one conversation's messages, whether it is the one on screen or waiting in the archive. */
+function withMessages(state: BrainState, id: string, change: (messages: AIMessage[]) => AIMessage[]): BrainState {
+  if (state.conversationId === id) return { ...state, chatHistory: change(state.chatHistory) };
+  const thread = state.conversations?.find(t => t.id === id);
+  if (!thread) return state;
+  const updated = { ...thread, messages: change(thread.messages), updatedAt: new Date().toISOString() };
+  return { ...state, conversations: boundConversations([updated, ...(state.conversations || []).filter(t => t.id !== id)]) };
+}
+/** What one conversation's reply in progress shows. */
+interface RunView {
+  progress: string;
+  draft: { id: string; content: string } | null;
+  activity: AgentStep[];
+  browserConfirm: BrowserConfirmRequest | null;
+  userQuestion: UserQuestionRequest | null;
+  agentToasts: ActivityToast[];
+}
+const EMPTY_RUN: RunView = { progress: "", draft: null, activity: [], browserConfirm: null, userQuestion: null, agentToasts: [] };
 export function useBrainConversation(
   state: BrainState | null,
   setState: Dispatch<SetStateAction<BrainState | null>>,
@@ -114,30 +137,28 @@ export function useBrainConversation(
 ) {
   const latest = useRef(state);
   latest.current = state;
-  const active = useRef<AbortController | null>(null);
+  // Each conversation answering right now, by conversation id. Several can run at once.
+  const controllers = useRef(new Map<string, AbortController>());
+  const [runs, setRuns] = useState<Record<string, RunView>>({});
+  const patchRun = (id: string, patch: Partial<RunView> | ((run: RunView) => Partial<RunView>)) =>
+    setRuns(previous => previous[id] ? { ...previous, [id]: { ...previous[id], ...(typeof patch === "function" ? patch(previous[id]) : patch) } } : previous);
+  const abortAll = () => controllers.current.forEach(controller => controller.abort());
   const learner = useRef<MemoryLearner | null>(null);
   const changeMemoryRef = useRef<(change: MemoryChange, agentOwned?: boolean) => Promise<AgentMemory>>(null!);
   const [memoryStatus, setMemoryStatus] = useState<LearnerStatus>({ state: "idle" });
   const generation = useRef(0);
-  const [busy, setBusy] = useState(false),
-    [progress, setProgress] = useState("");
-  const [draft, setDraft] = useState<{ id: string; content: string } | null>(null);
-  const [activity, setActivity] = useState<AgentStep[]>([]);
-  const [browserConfirm, setBrowserConfirm] = useState<BrowserConfirmRequest | null>(null);
-  const confirmResolver = useRef<((answer: BrowserAnswer) => void) | null>(null);
-  const [agentToasts, setAgentToasts] = useState<ActivityToast[]>([]);
-  const dismissAgentToast = (id: string) => setAgentToasts(list => list.filter(t => t.id !== id));
-  const answerBrowserConfirm = (answer: BrowserAnswer) => {
-    const resolve = confirmResolver.current; confirmResolver.current = null; setBrowserConfirm(null);
+  const confirmResolvers = useRef(new Map<string, (answer: BrowserAnswer) => void>());
+  const nativeConfirms = useRef(new Set<string>());
+  const questionResolvers = useRef(new Map<string, (answers: UserAnswers | null) => void>());
+  const dismissAgentToast = (id: string) => setRuns(previous => Object.fromEntries(Object.entries(previous).map(([key, run]) => [key, { ...run, agentToasts: run.agentToasts.filter(t => t.id !== id) }])));
+  const answerConfirm = (runId: string, answer: BrowserAnswer) => {
+    const resolve = confirmResolvers.current.get(runId); confirmResolvers.current.delete(runId); patchRun(runId, { browserConfirm: null });
     // In the desktop app only the approval window can allow; from here a request can only be withdrawn.
-    if (browserConfirmNative.current) { browserConfirmNative.current = false; void withdrawNative(); return; }
+    if (nativeConfirms.current.has(runId)) { nativeConfirms.current.delete(runId); void withdrawNative(); return; }
     resolve?.(answer);
   };
-  const browserConfirmNative = useRef(false);
-  const [userQuestion, setUserQuestion] = useState<UserQuestionRequest | null>(null);
-  const questionResolver = useRef<((answers: UserAnswers | null) => void) | null>(null);
-  const answerUserQuestion = (answers: UserAnswers | null) => {
-    const resolve = questionResolver.current; questionResolver.current = null; setUserQuestion(null);
+  const answerQuestion = (runId: string, answers: UserAnswers | null) => {
+    const resolve = questionResolvers.current.get(runId); questionResolvers.current.delete(runId); patchRun(runId, { userQuestion: null });
     resolve?.(answers);
   };
   // Quick replies for the newest answer. Held here, not saved: they only matter until the next message.
@@ -149,6 +170,11 @@ export function useBrainConversation(
   const tempLatest = useRef(temporaryMessages);
   tempLatest.current = temporaryMessages;
   const tempId = useRef(crypto.randomUUID());
+  const temporaryRef = useRef(temporary);
+  temporaryRef.current = temporary;
+  /** The conversation on screen right now. */
+  const currentOpenId = () => temporaryRef.current ? tempId.current : latest.current?.conversationId || "";
+  const stopRun = (runId: string) => { answerConfirm(runId, false); answerQuestion(runId, null); controllers.current.get(runId)?.abort(); };
   const publish = (next: BrainState) => {
     latest.current = next;
     setState(next);
@@ -157,22 +183,19 @@ export function useBrainConversation(
   useEffect(() => {
     if (!hasNativeApproval()) return;
     let unlisten: (() => void) | undefined, gone = false;
-    void import("@tauri-apps/api/event").then(({ listen }) => listen("agent-stop", () => { answerBrowserConfirm(false); answerUserQuestion(null); active.current?.abort(); }))
+    void import("@tauri-apps/api/event").then(({ listen }) => listen("agent-stop", () => { [...controllers.current.keys()].forEach(stopRun); }))
       .then(off => { if (gone) off(); else unlisten = off; }).catch(() => {});
     return () => { gone = true; unlisten?.(); };
   }, []);
   useEffect(() => {
     generation.current++;
-    active.current?.abort();
-    active.current = null;
+    abortAll();
+    controllers.current.clear();
     clearMemoryIndex();
     setMemoryAccount(state?.userId || "guest");
     setTemporaryState(false);
     setTemporaryMessages([]);
-    setBusy(false);
-    setProgress("");
-    setDraft(null);
-    setActivity([]);
+    setRuns({});
     clearFollowUps();
     setMemoryStatus({ state: "idle" });
     const background = new MemoryLearner({
@@ -198,7 +221,7 @@ export function useBrainConversation(
     document.addEventListener("visibilitychange", flushHidden);
     return () => {
       generation.current++;
-      active.current?.abort();
+      abortAll();
       document.removeEventListener("visibilitychange", flushHidden);
       background.dispose();
       learner.current = null;
@@ -216,7 +239,7 @@ export function useBrainConversation(
     change: MemoryChange,
     agentOwned = false,
   ): Promise<AgentMemory> => {
-    if (!agentOwned) active.current?.abort();
+    if (!agentOwned) abortAll();
     const account = latest.current?.userId,
       run = generation.current;
     if (!latest.current) throw new Error("Workspace is loading.");
@@ -271,17 +294,19 @@ export function useBrainConversation(
   changeMemoryRef.current = changeMemory;
   /** One turn. `carried` keeps an edited message's images when only their description is left. */
   const runTurn = async (prompt: string, options: Parameters<RunConversation>[1] = {}, carried: Pick<AIMessage, "attachments" | "imageDescription"> = {}): Promise<AgentExecutionResult> => {
-    if (active.current)
-      throw new Error(
-        "A conversation is already running. Stop it before sending another message.",
-      );
     const workspace = latest.current;
     if (!workspace) throw new Error("Your records are still loading.");
+    const conversationId = workspace.conversationId || crypto.randomUUID();
+    // The conversation this turn belongs to, even after the user moves to another one.
+    const runId = temporary ? tempId.current : conversationId;
+    if (controllers.current.has(runId))
+      throw new Error("This chat is still answering. Stop it, or start a new chat to ask something else.");
     const runGeneration = generation.current;
     const controller = new AbortController();
-    active.current = controller;
-    setBusy(true);
+    controllers.current.set(runId, controller);
+    setRuns(previous => ({ ...previous, [runId]: EMPTY_RUN }));
     clearFollowUps();
+    const live = () => controllers.current.get(runId) === controller;
     const signal = options.signal
       ? AbortSignal.any([options.signal, controller.signal])
       : controller.signal;
@@ -305,7 +330,6 @@ export function useBrainConversation(
       ...(files.length ? { files } : {}),
     };
     const saved: AIMessage = files.length ? { ...user, files: files.map(savedFile) } : user;
-    const conversationId = workspace.conversationId || crypto.randomUUID();
     const initial = temporary
       ? {
           ...workspace,
@@ -328,13 +352,12 @@ export function useBrainConversation(
     let streamedText = "", frame = 0, stepFrame = 0;
     // Steps arrive often (reasoning streams in); they are applied at most once per frame too.
     const steps = new Map<string, AgentStep>();
-    setActivity([]);
     const onStep = (step: AgentStep) => {
       if (!isCurrent()) return;
       steps.set(step.id, step);
       if (!stepFrame) stepFrame = requestAnimationFrame(() => {
         stepFrame = 0;
-        if (isCurrent() && active.current === controller) setActivity([...steps.values()]);
+        if (isCurrent() && live()) patchRun(runId, { activity: [...steps.values()] });
       });
     };
     const onText = (text: string) => {
@@ -343,7 +366,7 @@ export function useBrainConversation(
       streamedText = text;
       if (!frame) frame = requestAnimationFrame(() => {
         frame = 0;
-        if (isCurrent() && active.current === controller) setDraft(streamedText ? { id: assistantId, content: streamedText } : null);
+        if (isCurrent() && live()) patchRun(runId, { draft: streamedText ? { id: assistantId, content: streamedText } : null });
       });
     };
     // Hosted accounts whose key is stored on the server run the turn there; otherwise it runs here.
@@ -365,8 +388,8 @@ export function useBrainConversation(
     const confirmStep = async (request: BrowserConfirmRequest, stepSignal: AbortSignal): Promise<boolean> => {
       if (hasNativeApproval()) {
         // The chat shows that the assistant is waiting; the answer comes from the native window.
-        browserConfirmNative.current = true;
-        setBrowserConfirm({ ...request, native: true });
+        nativeConfirms.current.add(runId);
+        patchRun(runId, { browserConfirm: { ...request, native: true } });
         try {
           const decision = await nativeConfirm({ label: request.label, site: request.site, ...(request.reason ? { reason: request.reason } : {}),
             ...(request.screenshot ? { screenshot: request.screenshot } : {}), ...(request.grant ? { grant: request.grant } : {}) }, stepSignal);
@@ -376,8 +399,8 @@ export function useBrainConversation(
           if (stepSignal.aborted) return false;
           console.warn("Native approval window unavailable; asking in the chat instead.", error);
         } finally {
-          browserConfirmNative.current = false;
-          setBrowserConfirm(current => current?.id === request.id ? null : current);
+          nativeConfirms.current.delete(runId);
+          patchRun(runId, run => ({ browserConfirm: run.browserConfirm?.id === request.id ? null : run.browserConfirm }));
         }
       }
       const answer = await askInChat(request, stepSignal);
@@ -386,22 +409,22 @@ export function useBrainConversation(
     };
     /** A question the assistant asks mid-task: the card waits in the chat, and the turn goes on with the answers. */
     const askUser = (request: UserQuestionRequest, stepSignal: AbortSignal) => new Promise<UserAnswers | null>(resolve => {
-      questionResolver.current?.(null);
+      questionResolvers.current.get(runId)?.(null);
       const done = (answers: UserAnswers | null) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(answers); };
-      const onAbort = () => { if (questionResolver.current === done) { questionResolver.current = null; setUserQuestion(null); } done(null); };
-      const timer = setTimeout(() => { if (questionResolver.current === done) answerUserQuestion(null); }, QUESTION_WAIT_MS);
+      const onAbort = () => { if (questionResolvers.current.get(runId) === done) { questionResolvers.current.delete(runId); patchRun(runId, { userQuestion: null }); } done(null); };
+      const timer = setTimeout(() => { if (questionResolvers.current.get(runId) === done) answerQuestion(runId, null); }, QUESTION_WAIT_MS);
       stepSignal.addEventListener("abort", onAbort, { once: true });
-      questionResolver.current = done;
-      if (isCurrent()) setUserQuestion(request); else done(null);
+      questionResolvers.current.set(runId, done);
+      if (isCurrent()) patchRun(runId, { userQuestion: request }); else done(null);
     });
     const askInChat = (request: BrowserConfirmRequest, stepSignal: AbortSignal) => new Promise<BrowserAnswer>(resolve => {
-      confirmResolver.current?.(false);
+      confirmResolvers.current.get(runId)?.(false);
       const done = (answer: BrowserAnswer) => { stepSignal.removeEventListener("abort", onAbort); clearTimeout(timer); resolve(answer); };
-      const onAbort = () => { if (confirmResolver.current === done) { confirmResolver.current = null; setBrowserConfirm(null); } done(false); };
-      const timer = setTimeout(() => { if (confirmResolver.current === done) answerBrowserConfirm(false); }, 5 * 60_000);
+      const onAbort = () => { if (confirmResolvers.current.get(runId) === done) { confirmResolvers.current.delete(runId); patchRun(runId, { browserConfirm: null }); } done(false); };
+      const timer = setTimeout(() => { if (confirmResolvers.current.get(runId) === done) answerConfirm(runId, false); }, 5 * 60_000);
       stepSignal.addEventListener("abort", onAbort, { once: true });
-      confirmResolver.current = done;
-      setBrowserConfirm(request);
+      confirmResolvers.current.set(runId, done);
+      patchRun(runId, { browserConfirm: request });
     });
     // Every browser step passes the router: policy, rate limits, text carried between sites, audit.
     // Native Mac apps, in the desktop app, when the request is about one and the user allowed some.
@@ -410,7 +433,7 @@ export function useBrainConversation(
       policy: loadUserPolicy(), audit: new AgentAuditLog(), turnId: crypto.randomUUID(), confirm: confirmStep,
       notify: toast => {
         if (!isCurrent()) return;
-        setAgentToasts(list => [...list.slice(-2), toast]);
+        patchRun(runId, run => ({ agentToasts: [...run.agentToasts.slice(-2), toast] }));
         setTimeout(() => dismissAgentToast(toast.id), 5000);
       },
     }) : null;
@@ -427,7 +450,7 @@ export function useBrainConversation(
         signal,
         onText,
         onStep,
-        onProgress: message => { if (isCurrent()) setProgress(message); options.onProgress?.(message); },
+        onProgress: message => { if (isCurrent()) patchRun(runId, { progress: message }); options.onProgress?.(message); },
         onSaved: (records, preferences, action, entityType, title) => {
           const before = latest.current;
           if (!before || !isCurrent()) return;
@@ -483,7 +506,7 @@ export function useBrainConversation(
           onText,
           onStep,
           onProgress: (message) => {
-            if (isCurrent()) setProgress(message);
+            if (isCurrent()) patchRun(runId, { progress: message });
             options.onProgress?.(message);
           },
           // In-browser turns keep the prepared change with the reply until the user decides.
@@ -610,18 +633,19 @@ export function useBrainConversation(
           ? messages.map(m => m.id === user.id ? { ...m, imageDescription: result.imageDescription!.slice(0, 12000) } : m)
           : messages;
         if (temporary) {
-          tempLatest.current = [...withDescription(tempLatest.current), assistant];
-          setTemporaryMessages(tempLatest.current);
+          // A temporary chat that was closed is gone, and so is its answer.
+          if (tempId.current === runId) {
+            tempLatest.current = [...withDescription(tempLatest.current), assistant];
+            setTemporaryMessages(tempLatest.current);
+          }
         } else
-          publish({
-            ...latest.current!,
-            chatHistory: [...withDescription(latest.current!.chatHistory), assistant],
-          });
+          // The answer goes to its own conversation, which may no longer be the one on screen.
+          publish(withMessages(latest.current!, runId, messages => [...withDescription(messages), assistant]));
         // Temporary chats are never read. Everything else joins the background queue, which batches it.
         if (!temporary && (result.status === "complete" || result.status === "partial"))
           learner.current?.enqueue([{ message: saved, reply: result.queryAnswer, conversationId: initial.conversationId || "current" }]);
         // Anything waiting on approval already has its next step on screen.
-        if ((result.status === "complete" || result.status === "partial") && !result.approvals?.length && initial.openRouterKey?.trim()) {
+        if (currentOpenId() === runId && (result.status === "complete" || result.status === "partial") && !result.approvals?.length && initial.openRouterKey?.trim()) {
           const request = new AbortController();
           followUpRequest.current = request;
           setFollowUps({ messageId: assistantId, items: [], loading: true });
@@ -636,19 +660,19 @@ export function useBrainConversation(
     } finally {
       if (frame) cancelAnimationFrame(frame);
       if (stepFrame) cancelAnimationFrame(stepFrame);
-      if (active.current === controller) {
-        active.current = null;
-        setBusy(false);
-        setProgress("");
-        setDraft(null);
-        setActivity([]);
+      if (live()) {
+        controllers.current.delete(runId);
+        confirmResolvers.current.delete(runId);
+        questionResolvers.current.delete(runId);
+        nativeConfirms.current.delete(runId);
+        setRuns(previous => { const { [runId]: _, ...rest } = previous; return rest; });
       }
     }
   };
   const run: RunConversation = (prompt, options) => runTurn(prompt, options);
   const resubmit = async (messageId: string, prompt?: string, { branch = false }: { branch?: boolean } = {}) => {
     const current = latest.current;
-    if (active.current || !current) return undefined;
+    if (!current || controllers.current.has(currentOpenId())) return undefined;
     const history = temporary ? tempLatest.current : current.chatHistory;
     let index = history.findIndex(m => m.id === messageId);
     while (index >= 0 && history[index].role !== "user") index--;
@@ -666,8 +690,10 @@ export function useBrainConversation(
     return runTurn(text, { ...(allImages ? { images } : {}), ...(files?.length ? { files } : {}) },
       allImages ? {} : { attachments: original.attachments, imageDescription: original.imageDescription });
   };
+  /** Opens another conversation. Replies in progress carry on and land in their own conversation. */
   const switchConversation = (id?: string) => {
-    if (active.current || !latest.current) return;
+    // A temporary chat is never saved, so it can only be left once it has finished.
+    if (!latest.current || (temporaryRef.current && controllers.current.has(tempId.current))) return;
     clearFollowUps();
     if (temporary && !id) {
       tempId.current = crypto.randomUUID();
@@ -688,9 +714,8 @@ export function useBrainConversation(
     });
   };
   const setTemporary = (value: boolean) => {
-    if (active.current) return;
+    if (controllers.current.has(tempId.current)) return;
     clearFollowUps();
-    generation.current++;
     tempId.current = crypto.randomUUID();
     tempLatest.current = [];
     setTemporaryMessages([]);
@@ -794,6 +819,8 @@ export function useBrainConversation(
     if (!latest.current) throw new Error("Workspace is loading.");
     await commitFromCard(prepareCardChanges(latest.current, changes));
   };
+  const openId = temporary ? tempId.current : state?.conversationId || "";
+  const openRun = openId ? runs[openId] : undefined;
   return {
     run,
     resubmit,
@@ -801,17 +828,19 @@ export function useBrainConversation(
     addCardTasks,
     setCardState,
     changeFromCard,
-    busy,
-    progress,
-    activity,
-    draft,
+    busy: !!openRun,
+    runningIds: Object.keys(runs),
+    openId,
+    progress: openRun?.progress || "",
+    activity: openRun?.activity || [],
+    draft: openRun?.draft || null,
     followUps,
-    stop: () => { answerBrowserConfirm(false); answerUserQuestion(null); active.current?.abort(); },
-    browserConfirm,
-    answerBrowserConfirm,
-    userQuestion,
-    answerUserQuestion,
-    agentToasts,
+    stop: () => stopRun(currentOpenId()),
+    browserConfirm: openRun?.browserConfirm || null,
+    answerBrowserConfirm: (answer: BrowserAnswer) => answerConfirm(currentOpenId(), answer),
+    userQuestion: openRun?.userQuestion || null,
+    answerUserQuestion: (answers: UserAnswers | null) => answerQuestion(currentOpenId(), answers),
+    agentToasts: openRun?.agentToasts || [],
     dismissAgentToast,
     startNew: () => switchConversation(),
     resume: (id: string) => switchConversation(id),

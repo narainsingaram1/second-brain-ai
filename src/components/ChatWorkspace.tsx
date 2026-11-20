@@ -1,6 +1,6 @@
 import "../memory.css";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, Paperclip, Plus, Quote, RefreshCw, SlidersHorizontal, Square, Target, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, PanelLeft, Paperclip, Plus, Quote, RefreshCw, SlidersHorizontal, Square, Target, type LucideIcon } from "lucide-react";
 import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
@@ -13,6 +13,10 @@ import { useConversationStarters } from "../hooks/useConversationStarters";
 import type { StarterKind } from "../services/chatSuggestions";
 import { AttachmentTray, useImageAttachments } from "./ImageAttachments";
 import { withQuote } from "../utils/chatFiles";
+import { ChatHistoryRail, ChatRunningDot } from "./ChatHistoryRail";
+
+const RAIL_KEY = "synapse.chatHistoryRail";
+const readRail = () => { try { const saved = localStorage.getItem(RAIL_KEY); return saved ? saved === "1" : window.innerWidth >= 1100; } catch { return true; } };
 
 interface ChatWorkspaceProps {
   conversation: BrainConversation;
@@ -31,6 +35,9 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const [showJump, setShowJump] = useState(false);
   const [recording, setRecording] = useState(false);
   const [showAllRecent, setShowAllRecent] = useState(false);
+  const [railOpen, setRailOpen] = useState(readRail);
+  const toggleRail = (open: boolean) => { setRailOpen(open); try { localStorage.setItem(RAIL_KEY, open ? "1" : "0"); } catch { /* Only a convenience. */ } };
+  const runningIds = conversation.runningIds || [];
   const attachments = useImageAttachments(setError, { documents: true });
   const [selectionQuote, setSelectionQuote] = useState<{ text: string; top: number; left: number } | null>(null);
   const region = useRef<HTMLDivElement>(null);
@@ -263,14 +270,23 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
       </div>
     </div>
   );
-  return <section className={`chat-workspace ${active ? "is-conversation" : "is-welcome"} ${compact ? "is-compact" : ""}`} aria-label="AI conversation">
+  return <section className={`chat-workspace ${active ? "is-conversation" : "is-welcome"} ${compact ? "is-compact" : ""} ${active && railOpen ? "has-rail" : ""}`} aria-label="AI conversation">
+    {active && railOpen && <ChatHistoryRail openId={conversation.openId || state?.conversationId} openMessages={messages} archives={archives}
+      runningIds={runningIds} temporary={conversation.temporary} onOpen={conversation.resume} onNew={conversation.startNew} onClose={() => toggleRail(false)} />}
+    <div className="chat-main">
     {active && <header className="chat-toolbar">
+      <div className="flex items-center gap-2 min-w-0">
+      {!railOpen && <button type="button" className="chat-icon-button shrink-0" onClick={() => toggleRail(true)} aria-label="Show chat history" title="Show chat history">
+        <PanelLeft size={16} strokeWidth={1.8} />
+        {runningIds.some(id => id !== conversation.openId) && <span className="chat-rail-badge" aria-hidden="true" />}
+      </button>}
       <div className="min-w-0">
         <h1 className="chat-thread-title truncate" title={title}>{title}</h1>
         <p className="chat-thread-sub">{conversation.temporary ? "Temporary · memory off · transcript not saved" : "Iris"}</p>
       </div>
+      </div>
       <div className="flex items-center gap-2 shrink-0">
-        <button type="button" onClick={conversation.startNew} disabled={conversation.busy} className="chat-new-button" aria-label="New chat">
+        <button type="button" onClick={conversation.startNew} disabled={conversation.temporary && conversation.busy} className="chat-new-button" aria-label="New chat">
           <Plus size={14} strokeWidth={2} />
           <span>New chat</span>
         </button>
@@ -325,7 +341,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
                 </button>;
               })}</div>
             </section>
-            <section className="chat-recents" aria-label="Recent conversations"><div className="flex items-center justify-between mb-3"><h2 className="text-[15px] font-medium">Recent conversations</h2>{archives.length > 3 && <button type="button" className="text-xs text-muted" onClick={() => setShowAllRecent(!showAllRecent)}>{showAllRecent ? "Show less" : "View all"}</button>}</div><div className="chat-recent-list">{archives.slice(0, showAllRecent ? archives.length : 3).map(thread => <button type="button" key={thread.id} onClick={() => conversation.resume(thread.id)} className="chat-recent"><span className="chat-recent-icon"><Clock3 size={16} strokeWidth={1.5} /></span><span className="min-w-0 flex-1"><strong>{thread.title}</strong><span>{thread.messages.filter(m => m.role === "user").length} messages · {new Date(thread.updatedAt).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}</span></span><ArrowUpRight size={16} className="text-slate-400 shrink-0" /></button>)}{archives.length === 0 && <div className="chat-empty-recents"><MessageCircle size={16} strokeWidth={1.5} /><div><strong>No past conversations</strong><p>Finished chats are kept here so you can pick them up again</p></div></div>}</div></section>
+            <section className="chat-recents" aria-label="Recent conversations"><div className="flex items-center justify-between mb-3"><h2 className="text-[15px] font-medium">Recent conversations</h2>{archives.length > 3 && <button type="button" className="text-xs text-muted" onClick={() => setShowAllRecent(!showAllRecent)}>{showAllRecent ? "Show less" : "View all"}</button>}</div><div className="chat-recent-list">{archives.slice(0, showAllRecent ? archives.length : 3).map(thread => <button type="button" key={thread.id} onClick={() => conversation.resume(thread.id)} className="chat-recent"><span className="chat-recent-icon">{runningIds.includes(thread.id) ? <ChatRunningDot /> : <Clock3 size={16} strokeWidth={1.5} />}</span><span className="min-w-0 flex-1"><strong>{thread.title}</strong><span>{runningIds.includes(thread.id) ? "Answering… · " : ""}{thread.messages.filter(m => m.role === "user").length} messages · {new Date(thread.updatedAt).toLocaleDateString("en-US", { month: "short", day: "2-digit" })}</span></span><ArrowUpRight size={16} className="text-slate-400 shrink-0" /></button>)}{archives.length === 0 && <div className="chat-empty-recents"><MessageCircle size={16} strokeWidth={1.5} /><div><strong>No past conversations</strong><p>Finished chats are kept here so you can pick them up again</p></div></div>}</div></section>
           </div>}
         </div>
       </div>
@@ -344,5 +360,6 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
       )}
     </div>
     {active && composer}
+    </div>
   </section>;
 }

@@ -212,7 +212,8 @@ export const App: React.FC = () => {
   });
 
   const handleNewChat = () => {
-    if (conversation.busy) return;
+    // Other chats keep answering in the background; only a temporary chat must finish first.
+    if (conversation.temporary && conversation.busy) return;
     setChatLaunchError("");
     conversation.startNew();
     setActiveTab("home");
@@ -1104,7 +1105,7 @@ export const App: React.FC = () => {
         workspaces={state.workspaces}
         counts={{ tasks: state.tasks.filter(task => !task.completed).length, notes: state.knowledgeItems.length, goals: state.goals.filter(goal => goal.status !== "achieved").length }}
         onNewChat={handleNewChat}
-        chatBusy={conversation.busy}
+        chatBusy={!!conversation.temporary && conversation.busy}
         setActiveTab={setActiveTab}
         collapsed={isSidebarCollapsed || isNarrow}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}

@@ -1,3 +1,4 @@
+import { orderSystemMessages } from "../utils/messageOrder";
 /**
  * Every request to the AI provider goes through here. The default provider is OpenRouter; the user can
  * point any call at another OpenAI-compatible address with the "API address" setting (this device's
@@ -72,6 +73,9 @@ export async function providerFetch(endpoint: ProviderEndpoint, apiKey: string, 
       body = { ...payload, model };
     }
   }
+  // Strict chat templates reject a system message anywhere but first; every chat request is put in order here.
+  if (endpoint === "chat/completions" && body && typeof body === "object" && Array.isArray((body as { messages?: unknown }).messages))
+    body = { ...(body as object), messages: orderSystemMessages((body as { messages: Array<{ role: string; content: unknown }> }).messages) };
   if (isServerHeldKey(apiKey)) {
     if (!accessToken) throw new Error("Sign in again to use the AI provider key stored on the server.");
     const baseParam = target === DEFAULT_PROVIDER_BASE ? "" : `&base=${encodeURIComponent(target)}`;
