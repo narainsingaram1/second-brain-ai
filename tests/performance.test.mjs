@@ -138,3 +138,20 @@ test("bm25 over cached term counts scores exactly like bm25 over tokens", () => 
   })();
   retrieval.bm25(docs, query).forEach((score, i) => assert.ok(Math.abs(score - reference[i]) < 1e-12));
 });
+
+test("passages of unchanged records are reused, and any edit (replaced or in place) re-splits the record", () => {
+  const long = Array.from({ length: 8 }, (_, i) => `## Part ${i}\n\n${"word ".repeat(80)}`).join("\n\n");
+  const note = { id: "n1", title: "Long note", subject: "General", content: long, type: "note" };
+  const s = { ...state([task("t1", "Plan launch")]), knowledgeItems: [note] };
+  const first = retrieval.chunks(retrieval.records(s, "knowledge")[0]);
+  assert.ok(first.length > 1);
+  assert.equal(retrieval.chunks(retrieval.records(s, "knowledge")[0]), first, "Unchanged record: same passages, not re-split");
+  const replaced = { ...s, knowledgeItems: [{ ...note, content: long + "\n\nAdded paragraph" }] };
+  assert.match(retrieval.chunks(retrieval.records(replaced, "knowledge")[0]).at(-1).snippet, /Added paragraph/);
+  note.content = long.replace("Part 0", "Intro");
+  assert.ok(retrieval.chunks(retrieval.records(s, "knowledge")[0]).some(c => /Intro/.test(c.snippet)), "In-place edits are picked up too");
+  // A typed lookup builds only that type, and the full JSON text is still there when read.
+  const tasks = retrieval.records(s, "task");
+  assert.deepEqual(tasks.map(r => r.type), ["task"]);
+  assert.equal(JSON.parse(tasks[0].text).title, "Plan launch");
+});

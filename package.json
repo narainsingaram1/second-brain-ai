@@ -17,7 +17,8 @@
     "build:api": "node scripts/build-api.mjs",
     "bench:agent": "node scripts/agent-bench.mjs",
     "bench:views": "node scripts/agent-views.mjs",
-    "bench:model": "node scripts/agent-model-bench.mjs"
+    "bench:model": "node scripts/agent-model-bench.mjs",
+    "bench:retrieval": "node scripts/retrieval-bench.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
