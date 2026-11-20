@@ -79,7 +79,7 @@ test('only Synapse app origins that the user paired can drive the browser', asyn
   let prompted = null;
   const agent = createAgent(chrome, { openPairing: (origin, id) => { prompted = { origin, id }; }, settle: 0 });
   await assert.rejects(agent.fromApp({ type: 'hello' }, 'https://evil.example'), /not a Synapse app/);
-  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.6.0', paired: false });
+  assert.deepEqual(await agent.fromApp({ type: 'hello' }, APP), { version: '1.7.0', paired: false });
   await assert.rejects(agent.fromApp({ type: 'open', url: 'https://shop.example' }, APP), /Connect Synapse/);
   const pairing = agent.fromApp({ type: 'pair' }, APP);
   await new Promise(r => setTimeout(r, 10));
@@ -643,7 +643,7 @@ test('a failed step after others ran reports what ran; an open dropdown is close
   await assert.rejects(agent.fromApp({ type: 'act', tabId, steps: [...many, { action: 'scroll' }] }, APP), /At most 25/);
 });
 
-test('the toolset asks before attaching a file, then stages it in pieces under the 1 MB link limit', async () => {
+test('the toolset attaches a file without asking, staging it in pieces under the 1 MB link limit', async () => {
   const calls = [];
   const bridge = { call: async req => { calls.push(req); return req.type === 'stage_file' ? { staged: true } : { tabId: 5, site: 'jobs.example', url: 'https://jobs.example/apply', title: 'Apply', elements: [], omitted: 0, text: '', done: ['Attached "cv.pdf"'] }; } };
   const big = new Blob([new Uint8Array(900 * 1024).fill(65)], { type: 'application/pdf' });
@@ -652,16 +652,12 @@ test('the toolset asks before attaching a file, then stages it in pieces under t
   const steps = [{ action: 'type', ref: 1, text: 'Ada' }, { action: 'upload', ref: 2, file: 'resume-1' }];
   const tools = browserToolset(bridge, { files, confirm: async req => { asked.push(req); return true; } });
   const { output } = await tools.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
-  assert.match(asked[0].label, /Attach "cv\.pdf"/); assert.match(asked[0].reason, /copy of your résumé/);
+  assert.equal(asked.length, 0, 'attaching does not ask; the final Submit does');
   const pieces = calls.filter(c => c.type === 'stage_file');
   assert.equal(pieces.length, 3); assert.ok(pieces.every(p => JSON.stringify(p).length < 1024 * 1024));
   assert.equal(atob(pieces.map(p => p.data).join('')).length, big.size);
   assert.deepEqual(output.done, ['Attached "cv.pdf"']);
 
-  calls.length = 0;
-  const declined = browserToolset(bridge, { files, confirm: async () => false });
-  await declined.execute('browser_act', { tabId: 5, steps }, new AbortController().signal);
-  assert.deepEqual(calls.map(c => c.type), ['act']); assert.deepEqual(calls[0].steps, [steps[0]], 'only the steps before the declined attach run');
   await assert.rejects(browserToolset(bridge, {}).execute('browser_act', { tabId: 5, steps: [steps[1]] }, new AbortController().signal), /isn't available/);
 });
 
@@ -754,4 +750,51 @@ test('questions from the model are cleaned up before the chat shows them', async
   assert.deepEqual(request, { id: 'r1', context: 'For your form', questions: [{ id: 'q1', question: 'Degree?', choices: ['BS', 'MS'], multiple: true }, { id: 'q2', question: 'Why?' }] });
   assert.throws(() => questionRequest({ questions: [] }), /at least one question/);
   assert.deepEqual(answersOutput(request, { q1: 'BS, MS' }).answers.map(a => a.answer), ['BS, MS', '(skipped: the user chose not to answer)']);
+});
+
+test('browser_open runs steps by name after loading, and falls back to the loaded page when they cannot start', async () => {
+  const requests = [];
+  const page = (extra = {}) => ({ tabId: 7, site: 'shop.example', url: 'https://shop.example/', title: 'Shop', omitted: 0, text: 'Hello', elements: ['[1] button "Accept"', '[2] button "Buy"'], ...extra });
+  let failAct = false;
+  const bridge = { call: async req => {
+    requests.push(req);
+    if (req.type === 'open') return page();
+    if (req.type === 'act') { if (failAct) throw new Error('Nothing named "Reject" is on the page.'); return page({ done: ['Clicked "Accept"'], expect: { met: true }, elements: ['[2] button "Buy"'] }); }
+    if (req.type === 'find') return { tabId: 7, url: 'https://shop.example/', query: req.query, elements: ['[9] link "Item 450 details"'], moreElements: 2, text: ['Item 450: a fine product'], moreText: 0 };
+    throw new Error(req.type);
+  } };
+  const tools = browserToolset(bridge, { confirm: async () => true });
+  const sig = new AbortController().signal;
+
+  const opened = await tools.execute('browser_open', { url: 'https://shop.example/', steps: [{ action: 'click', target: { name: 'Accept' } }], expect: { text: 'Cart' } }, sig);
+  const act = requests.find(r => r.type === 'act');
+  assert.deepEqual(act.steps, [{ action: 'click', target: { name: 'Accept' } }]);
+  assert.deepEqual(act.expect, { text: 'Cart' }, 'expect reaches the extension');
+  assert.equal(opened.output.pageOf, 7, 'after open + steps the model gets a full view, not a diff');
+  assert.deepEqual(opened.output.expect, { met: true });
+  assert.match(opened.summary, /Opened shop\.example; Clicked "Accept"/);
+
+  requests.length = 0;
+  const byRef = await tools.execute('browser_open', { url: 'https://shop.example/', steps: [{ action: 'click', ref: 1 }] }, sig);
+  assert.ok(!requests.some(r => r.type === 'act'), 'refs before a look are refused without running anything');
+  assert.match(byRef.output.stepsNotRun, /target/);
+
+  failAct = true;
+  const missing = await tools.execute('browser_open', { url: 'https://shop.example/', steps: [{ action: 'click', target: { name: 'Reject' } }] }, sig);
+  assert.match(missing.output.stepsNotRun, /Nothing named "Reject"/);
+  assert.match(missing.output.elements, /button "Accept"/, 'the loaded page is still shown');
+
+  const found = (await tools.execute('browser_find', { tabId: 7, query: 'Item 450' }, sig)).output;
+  assert.equal(requests.at(-1).query, 'Item 450');
+  assert.match(found.elements, /\[9\] link "Item 450 details"\n…2 more matches/);
+  assert.match(found.text, /a fine product/);
+  assert.ok(found.untrusted, 'page text found is marked as data');
+});
+
+test('browser call floors: find reads, open with steps counts its steps', async () => {
+  const { browserCallFloor } = await load('/src/services/riskTiers.ts');
+  assert.equal(browserCallFloor('browser_find'), 0);
+  assert.equal(browserCallFloor('browser_open', { url: 'https://x' }), 1);
+  assert.equal(browserCallFloor('browser_open', { url: 'https://x', steps: [{ action: 'upload', target: { name: 'Attach' } }] }), 1);
+  assert.equal(browserCallFloor('browser_act', { steps: [{ action: 'wait', text: 'Done' }] }), 0);
 });

@@ -20,7 +20,9 @@ test('page-agent.js uses exactly the shared tier vocabulary', async () => {
 
 test('committing button labels are hard, ordinary ones are not', () => {
   const hard = ['Place your order', 'Pay now', 'Send', 'Post', 'Delete', 'Merge pull request', 'Approve', 'Submit application', 'Transfer', 'Confirm purchase', 'Publish', 'Unsubscribe', 'Deploy'];
-  const soft = ['Next', 'Search', 'Show more', 'Filters', 'Add filter', 'Sort by price', 'Size: M', 'Back', 'Details', 'Menu'];
+  const soft = ['Next', 'Search', 'Show more', 'Filters', 'Add filter', 'Sort by price', 'Size: M', 'Back', 'Details', 'Menu',
+    // In-between steps of a form: only the final Submit asks.
+    'Apply', 'Apply now', 'Easy Apply', 'Apply filters', 'Upload résumé', 'Upload', 'Remove file', 'Reply', 'Add a comment', 'Share', 'Follow', 'Archive'];
   for (const label of hard) assert.match(label, tiers.CONSEQUENTIAL, label);
   for (const label of soft) assert.doesNotMatch(label, tiers.CONSEQUENTIAL, label);
   for (const label of ['Password', 'Card number', 'CVV', 'Routing number', 'SSN']) assert.match(label, tiers.SECRET_LABEL, label);
@@ -29,6 +31,7 @@ test('committing button labels are hard, ordinary ones are not', () => {
 test('step and call tiers', () => {
   assert.equal(tiers.classifyBrowserStep({ action: 'scroll' }), 0);
   assert.equal(tiers.classifyBrowserStep({ action: 'type', text: 'hi' }), 1);
+  assert.equal(tiers.classifyBrowserStep({ action: 'upload' }), 1, 'attaching a file does not ask; the form\'s Submit does');
   assert.equal(tiers.classifyBrowserStep({ action: 'click' }, { consequential: true }), 2);
   assert.equal(tiers.classifyBrowserStep({ action: 'type', submit: true }, { submitsText: true }), 2);
   assert.equal(tiers.classifyBrowserStep({ action: 'type' }, { userOnly: 'password field', consequential: true }), 3);

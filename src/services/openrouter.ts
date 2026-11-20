@@ -3,6 +3,8 @@ import { getLocalDateString } from "../utils/habitStreaks";
 import { extractTextToolCalls, stripToolMarkup } from "../utils/toolMarkup";
 import { DEFAULT_PROVIDER_BASE, isServerHeldKey, normalizeProviderBase, providerBase as currentProviderBase, providerFetch, providerUrl } from "./providerTransport";
 import { readUsage, type CallUsage } from "../utils/usage";
+import { orderSystemMessages } from "../utils/messageOrder";
+export { orderSystemMessages };
 
 export const DEFAULT_MODEL = "anthropic/claude-sonnet-5.5";
 /** Fast, inexpensive model for small structured jobs (classification, breakdowns). */
@@ -76,6 +78,11 @@ function withTailBreakpoint(m: any): any {
  * it stood, which the next turn starts with unchanged, so earlier turns are re-read at the cached rate.
  * A third, rolling breakpoint on the newest message caches each round of a multi-step tool loop for the next.
  */
+/** The longest reply asked for when a cut-off answer is retried with more room. */
+const MAX_OUTPUT_TOKENS = 32000;
+/** How many times a reply cut off by the output limit is continued before it is shown as it is. */
+const MAX_CONTINUATIONS = 3;
+
 function withPromptCache(model: string, messages: any[]): any[] {
   if (!model.startsWith("anthropic/")) return messages;
   const tail = messages.length - 1;
@@ -202,54 +209,75 @@ export async function queryOpenRouterWithTools(
     throw new Error("No AI provider key provided. Please configure it in Settings.");
   }
 
-  const payloadMessages = [];
+  const payloadMessages: any[] = [];
   if (systemPrompt) {
     payloadMessages.push({ role: "system", content: systemPrompt });
   }
   payloadMessages.push(...messages);
   const resolvedModel = resolveModel(model);
+  const toolNames = tools.map(t => t.function.name);
 
-  const bodyPayload: any = {
-    model: resolvedModel,
-    messages: withPromptCache(resolvedModel, payloadMessages),
-    // Conversational warmth; tool arguments are validated, so this does not loosen safety.
-    temperature: tuning.temperature ?? 0.7,
-    max_tokens: tuning.maxTokens ?? 8000,
-  };
-
-  if (tools && tools.length > 0) {
-    bodyPayload.tools = tools;
-    bodyPayload.tool_choice = toolChoice;
-  }
-  if (tuning.onText) bodyPayload.stream = true;
-  Object.assign(bodyPayload, usageRequest(providerBase, !!tuning.onText));
-
-  // Streams may run longer than a buffered reply, so they are bounded by silence between chunks
-  // rather than by total duration; the caller's signal still bounds the whole turn.
-  const stall = new AbortController();
-  let stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 90000);
-  const resetStall = () => {
-    clearTimeout(stallTimer);
-    stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 45000);
-  };
-  try {
-    const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal, providerBase);
-
-    if (!res.ok) {
-      const errorBody = await res.json().catch(() => ({}));
-      throw new Error(providerErrorMessage(errorBody, res.status));
+  /** One request to the provider, returning the raw completion. */
+  const request = async (requestMessages: any[], maxTokens: number, withTools: boolean, textBefore = "") => {
+    const bodyPayload: any = {
+      model: resolvedModel,
+      messages: withPromptCache(resolvedModel, orderSystemMessages(requestMessages)),
+      // Conversational warmth; tool arguments are validated, so this does not loosen safety.
+      temperature: tuning.temperature ?? 0.7,
+      max_tokens: maxTokens,
+    };
+    if (withTools && tools && tools.length > 0) {
+      bodyPayload.tools = tools;
+      bodyPayload.tool_choice = toolChoice;
     }
+    if (tuning.onText) bodyPayload.stream = true;
+    Object.assign(bodyPayload, usageRequest(providerBase, !!tuning.onText));
 
-    const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
-    // Streamed text hides tool calls the model writes as text, including a half-written one at the end.
-    const toolNames = tools.map(t => t.function.name);
-    const onText = (text: string) => tuning.onText!(stripToolMarkup(text, toolNames, true));
-    const data = streamed ? await readCompletionStream(res.body!, onText, resetStall, tuning.onReasoning) : await res.json();
-    // With tools switched off, written tool calls are not calls: never turn them into some.
-    return completionFrom(data, toolChoice === "none" ? [] : tools);
-  } finally {
-    clearTimeout(stallTimer);
+    // Streams may run longer than a buffered reply, so they are bounded by silence between chunks
+    // rather than by total duration; the caller's signal still bounds the whole turn.
+    const stall = new AbortController();
+    let stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 90000);
+    const resetStall = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => stall.abort(new DOMException("The provider stopped responding.", "TimeoutError")), 45000);
+    };
+    try {
+      const res = await providerFetch("chat/completions", apiKey, bodyPayload, signal ? AbortSignal.any([signal, stall.signal]) : stall.signal, providerBase);
+      if (!res.ok) {
+        const errorBody = await res.json().catch(() => ({}));
+        throw new Error(providerErrorMessage(errorBody, res.status));
+      }
+      const streamed = tuning.onText && res.body && (res.headers.get("content-type") || "").includes("text/event-stream");
+      // Streamed text hides tool calls the model writes as text, including a half-written one at the end.
+      const onText = (text: string) => tuning.onText!(stripToolMarkup(textBefore + text, toolNames, true));
+      return streamed ? await readCompletionStream(res.body!, onText, resetStall, tuning.onReasoning) : await res.json();
+    } finally {
+      clearTimeout(stallTimer);
+    }
+  };
+
+  const maxTokens = tuning.maxTokens ?? 8000;
+  let data = await request(payloadMessages, maxTokens, true);
+  const cutOff = (d: any) => d?.choices?.[0]?.finish_reason === "length";
+  const partial = (d: any) => d?.choices?.[0]?.message || {};
+  // Cut off mid tool call, or before writing anything (reasoning models can spend the whole budget thinking):
+  // ask once more with more room.
+  if (cutOff(data) && (partial(data).tool_calls?.length || !partial(data).content?.trim()) && maxTokens < MAX_OUTPUT_TOKENS) {
+    tuning.onText?.("");
+    data = await request(payloadMessages, Math.min(MAX_OUTPUT_TOKENS, maxTokens * 2), true).catch(() => data);
   }
+  // A prose answer cut off at the limit is continued where it stopped, then shown as one reply.
+  for (let round = 0; round < MAX_CONTINUATIONS && cutOff(data) && !partial(data).tool_calls?.length && partial(data).content?.trim(); round++) {
+    const sofar: string = partial(data).content;
+    const next = await request([...payloadMessages, { role: "assistant", content: sofar },
+      { role: "user", content: "[Instruction from the app, not from the user]\nYour reply was cut off by the output limit. Continue exactly where it stopped, without repeating anything or adding a preamble." }],
+      maxTokens, false, sofar).catch(() => null);
+    const more = next?.choices?.[0]?.message?.content;
+    if (!next || typeof more !== "string" || !more) break;
+    data = { ...next, choices: [{ ...next.choices[0], message: { ...next.choices[0].message, content: sofar + more } }] };
+  }
+  // With tools switched off, written tool calls are not calls: never turn them into some.
+  return completionFrom(data, toolChoice === "none" ? [] : tools);
 }
 
 /**
@@ -344,7 +372,7 @@ function completionFrom(data: any, tools: OpenRouterTool[] = []): OpenRouterComp
   const msg = choice?.message;
   if (choice.finish_reason === "length") {
     // A cut-off tool call cannot be executed safely, but cut-off prose is still worth showing.
-    if (msg.tool_calls?.length || !msg.content?.trim()) throw new Error("Model output limit reached. Narrow the request or choose a model with a larger output limit.");
+    if (msg.tool_calls?.length || !msg.content?.trim()) throw new Error("The model ran out of output room before it could answer, even with extra room. Try again, or pick a model with a larger output limit in Settings.");
     return { content: `${msg.content.trimEnd()}\n\n*(Reply was cut off at the length limit — ask me to continue.)*`, ...usageOf(data) };
   }
 
@@ -458,7 +486,7 @@ export async function queryOpenRouter(
 
   const res = await providerFetch("chat/completions", apiKey, {
     model: resolveModel(model),
-    messages: payloadMessages,
+    messages: orderSystemMessages(payloadMessages),
     temperature: options.temperature ?? 0.7,
     max_tokens: options.maxTokens ?? 2000,
     ...(options.json ? { response_format: { type: "json_object" } } : {}),
