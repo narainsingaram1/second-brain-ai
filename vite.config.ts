@@ -12,7 +12,7 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   // Server-only settings for the dev API routes (never exposed to the browser bundle).
-  for (const key of ["SYNAPSE_SECRETS_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY"]) if (env[key] && !process.env[key]) process.env[key] = env[key];
+  for (const key of ["SYNAPSE_SECRETS_KEY", "SUPABASE_URL", "SUPABASE_ANON_KEY", "TAVILY_API_KEY"]) if (env[key] && !process.env[key]) process.env[key] = env[key];
 
   let supabaseUrl = env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
   let supabaseKey = env.VITE_SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY || "";

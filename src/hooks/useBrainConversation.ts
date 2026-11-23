@@ -17,7 +17,7 @@ import type { IrisCardState, IrisUiSpec } from "../utils/irisUi";
 import { persistBrainState } from "../services/storage";
 import { adoptServerChanges, usesRecordStorage } from "../services/cloudSync";
 import { isServerHeldKey } from "../services/providerTransport";
-import { apiJson, readUrlOnServer, serverFeatures } from "../services/serverApi";
+import { apiJson, readUrlOnServer, searchWebOnServer, serverFeatures } from "../services/serverApi";
 import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
 import { getVisionModel } from "../services/openrouter";
@@ -486,7 +486,7 @@ export function useBrainConversation(
           // Search goes through the AI provider. Links are read by the app's server, since browsers can't
           // read most other sites; without a server (desktop builds) this browser tries them directly.
           externalTools: options.externalTools ?? combineToolsets(
-            webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
+            webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer, search: searchWebOnServer }),
             browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm, files: browserFiles(() => latest.current, () => user) })) : undefined,
             desktop && router ? router.wrap(desktopToolset()) : undefined,
             vault ? vaultToolset() : undefined),

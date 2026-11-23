@@ -118,7 +118,7 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     providerBase: input.providerBase,
     excludeTools: input.excludeTools,
     budget: input.budget,
-    externalTools: combineToolsets(web ? webToolset(web, key, state.selectedModel, input.providerBase) : undefined, externalTools),
+    externalTools: combineToolsets(web ? webToolset(web) : undefined, externalTools),
     retrieval: {
       documentText: id => texts.get(id),
       prepare: loadTexts,

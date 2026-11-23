@@ -22,6 +22,8 @@
 .dark .note-editor { --note-ink: #e2e8f0; --note-muted: #94a3b8; --note-line: #293347; }
 .note-editor-fullscreen { height: 100dvh; font-family: inherit; }
 .note-document-header, .note-reading-controls, .note-content-workspace, .note-editor-footer { width: 100%; max-width: 820px; margin-inline: auto; }
+.note-editor > * { flex-shrink: 0; }
+.note-content-workspace { flex: 1 0 auto; min-height: 450px; }
 .note-document-header { padding-top: 36px; }
 .note-document-eyebrow { color: var(--note-muted); font-size: 13px; }
 .note-document-header input[aria-label="Note title"] { line-height: 1.25; padding-block: 6px; }
@@ -36,6 +38,13 @@
 .note-tool:hover { background: var(--workspace-raised); color: var(--workspace-ink); }
 
 .note-tool[aria-pressed="true"] { background: var(--workspace-raised); color: var(--workspace-ink); }
+.note-highlight-tools { display: inline-flex; align-items: center; }
+.note-highlight-toggle { width: 22px; }
+.note-highlight-colors { display: flex; flex: 0 0 100%; flex-wrap: wrap; gap: 4px; padding-top: 6px; border-top: 1px solid var(--note-line); }
+.note-highlight-swatch { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; }
+.note-highlight-swatch:hover, .note-highlight-swatch[aria-pressed="true"] { background: var(--workspace-hover); }
+.note-highlight-swatch span { width: 20px; height: 20px; border: 1px solid #29252433; border-radius: 50%; }
+.note-highlight-swatch[aria-pressed="true"] span { outline: 1px solid var(--note-ink); outline-offset: 2px; }
 
 .note-tool:disabled { opacity: .3; cursor: default; }
 .note-tool-divider { width: 1px; height: 18px; background: var(--note-line); margin-inline: 4px; }
@@ -78,7 +87,7 @@
 .note-prose ::selection { background: var(--workspace-tint); color: var(--workspace-ink); }
 .note-source { display: block; width: 100%; min-height: 480px; padding: 16px; background: transparent; border: 1px solid var(--note-line); border-radius: 10px; color: var(--note-ink); font: .9em/1.8 var(--font-mono); font-size: var(--note-font-size, 18px); resize: vertical; }
 .note-writing-hint { font-size: 11px; color: var(--note-muted); padding: 16px 0; }
-.note-editor-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--note-line); padding-top: 16px; margin-top: 20px; font-size: 11px; color: var(--note-muted); }
+.note-editor-footer { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-top: 1px solid var(--note-line); padding-top: 10px; margin-top: 12px; font-size: 11px; color: var(--note-muted); }
 .note-link-form { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border: 1px solid var(--note-line); border-radius: 10px; margin: -12px 0 20px; font-size: 13px; }
 .note-link-form input { flex: 1; min-width: 140px; padding: 6px 8px; border: 1px solid var(--note-line); border-radius: 6px; background: transparent; }
 .note-link-form button { padding: 6px 10px; border-radius: 6px; background: var(--workspace-raised); color: var(--workspace-ink); }
@@ -90,7 +99,6 @@
   .note-format-bar { gap: 2px; padding: 6px; }
   .note-prose { line-height: 1.75; }
 }
-.note-format-bar { position: sticky; top: 0; z-index: 10; }
 .dark .note-editor { --note-focus-bg: #172b46; }
 
 /* Note images: resizable, with size presets and a Draw button shown on hover/selection. */

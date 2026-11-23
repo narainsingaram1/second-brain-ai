@@ -1,4 +1,5 @@
 import { getSupabase, managedAuthEnabled } from "./managedAuth";
+import { SearchLimitError, searchTavily, type SearchOptions, type SearchHit } from "./webTools";
 
 /** The signed-in user's current access token (refreshed by Supabase as needed). */
 export async function accessToken(): Promise<string> {
@@ -46,6 +47,31 @@ export async function readUrlOnServer(url: string, offset: number, signal: Abort
   if (response.ok && body) { canRelay = true; return body; }
   if (response.status === 422) throw new Error(body?.error || "The page couldn't be read.");
   return null;
+}
+
+/** Uses the signed-in app server when available and keyless search on standalone clients. */
+export async function searchWebOnServer(query: string, options: SearchOptions, signal: AbortSignal): Promise<SearchHit[]> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (managedAuthEnabled) {
+    const token = await accessToken().catch(() => null);
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  const response = await fetch("/api/read", {
+    method: "POST", headers, signal, body: JSON.stringify({ query, ...options }),
+  }).catch(error => {
+    if (signal.aborted) throw error;
+    return null;
+  });
+  if (response && response.status !== 404 && response.status !== 405 &&
+      response.headers.get("content-type")?.includes("application/json")) {
+    if (response.status === 429) throw new SearchLimitError();
+    const body = await response.json();
+    if (response.ok && Array.isArray(body.results)) return body.results;
+    if (response.status !== 401 && response.status !== 422) {
+      throw new Error(body.error || "The search server did not return results.");
+    }
+  }
+  return searchTavily(query, options, signal);
 }
 
 export interface ServerFeatures { secrets: boolean; agent: boolean; approvals: boolean; google: boolean; telegram: boolean }

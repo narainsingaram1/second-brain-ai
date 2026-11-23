@@ -1,5 +1,7 @@
 import Image from "@tiptap/extension-image";
 import type { Node as PMNode } from "@tiptap/pm/model";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
+import { GapCursor } from "@tiptap/pm/gapcursor";
 import { formatImageAlt, parseImageAlt } from "../utils/noteImages";
 import { cachedImageUrl, isImageRef, resolveImageUrl } from "../services/noteImageStore";
 
@@ -23,6 +25,29 @@ function button(label: string, title: string, className = "note-image-chip") {
  * resize handles (mouse, touch and pen), quick size presets, and a Draw button for annotating.
  */
 export const NoteImage = Image.extend({
+  addKeyboardShortcuts() {
+    return {
+      Enter: () => this.editor.commands.command(({ tr, dispatch }) => {
+        const { selection, doc } = tr;
+        const afterImage = selection instanceof NodeSelection && selection.node.type === this.type
+          || selection instanceof GapCursor && selection.$from.nodeBefore?.type === this.type;
+        if (!afterImage) return false;
+
+        const pos = selection.to;
+        const after = doc.resolve(pos);
+        const { parent, nodeAfter } = after;
+        const index = after.index();
+        const paragraph = doc.type.schema.nodes.paragraph;
+        const reuseBlankLine = nodeAfter?.type === paragraph && !nodeAfter.content.size;
+        if (!reuseBlankLine && !parent.canReplaceWith(index, index, paragraph)) return false;
+        if (dispatch) {
+          if (!reuseBlankLine) tr.insert(pos, paragraph.create());
+          tr.setSelection(TextSelection.create(tr.doc, pos + 1)).scrollIntoView();
+        }
+        return true;
+      }),
+    };
+  },
   addAttributes() {
     return {
       ...this.parent?.(),
@@ -55,6 +80,14 @@ export const NoteImage = Image.extend({
       const dom = document.createElement("figure");
       dom.className = "note-image";
       dom.contentEditable = "false";
+      dom.addEventListener("click", event => {
+        if (event.target !== dom || !editor.isEditable) return;
+        const pos = getPos();
+        if (typeof pos === "number") {
+          editor.commands.setNodeSelection(pos);
+          editor.view.focus();
+        }
+      });
       const img = document.createElement("img");
       img.draggable = false;
       img.decoding = "async";

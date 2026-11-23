@@ -340,9 +340,8 @@
 }
 
 .note-toolbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -354,10 +353,6 @@
   background: var(--workspace-panel);
 }
 .note-toolbar > div { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-
-/* The formatting bar sticks just below the toolbar instead of under it. */
-.note-editor-docked .note-format-bar,
-.note-editor-fullscreen .note-format-bar { top: 64px; }
 
 .note-fullscreen-button {
   display: inline-flex;

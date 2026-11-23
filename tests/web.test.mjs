@@ -103,69 +103,91 @@ test('PDFs, files and blocked pages give a plain explanation', async () => {
   await assert.rejects(web.readUrl('https://example.com/private', 0, a, signal()), /refused access/);
 });
 
-test('web search lists results with a fast model through the Exa plugin and keeps every listed source', async () => {
-  let body;
-  globalThis.fetch = async (url, opts) => {
-    assert.match(url, /openrouter\.ai\/api\/v1\/chat\/completions$/);
-    body = JSON.parse(opts.body);
-    return Response.json({ choices: [{ message: { content: [
-      '- [Schedule](https://ramblinwreck.com/s) (2026-11-10): GT plays Clemson on Saturday at 3:30 PM.',
-      '- [ESPN](https://www.espn.com/gt?utm_source=x): Clemson game set for Nov 22.',
-      '- [Bad](javascript:alert(1)): nope'].join('\n'), annotations: [
-      { type: 'url_citation', url_citation: { url: 'https://ramblinwreck.com/s', title: 'Schedule', content: 'Kickoff 3:30 PM ET.' } },
-      { type: 'url_citation', url_citation: { url: 'javascript:alert(1)', title: 'bad' } }] } }] });
-  };
-  const out = await web.webSearch('georgia tech football next game', 'sk-test', 'test-model', signal());
-  assert.deepEqual(body.plugins, [{ id: 'web', max_results: 8, engine: 'exa' }]);
-  assert.equal(body.model, 'anthropic/claude-haiku-5.5', 'listing results uses the fast model');
-  assert.deepEqual(body.usage, { include: true }, 'OpenRouter is asked for the cost');
-  assert.deepEqual(out.queries, ['georgia tech football next game']);
-  assert.equal(out.summary, undefined, 'no summary stands in for the evidence');
-  assert.deepEqual(out.sources, [
-    { title: 'Schedule', url: 'https://ramblinwreck.com/s', note: '(2026-11-10): GT plays Clemson on Saturday at 3:30 PM.', excerpt: 'Kickoff 3:30 PM ET.' },
-    { title: 'ESPN', url: 'https://www.espn.com/gt?utm_source=x', note: 'Clemson game set for Nov 22.' }]);
+test('search retrieves structured results from Tavily with no chat provider or paid mode', async () => {
+  const out = await web.searchTavily('georgia tech football next game', {}, signal(), async (url, opts) => {
+    assert.equal(url, 'https://api.tavily.com/search');
+    assert.equal(opts.headers['X-Tavily-Access-Mode'], 'keyless');
+    assert.equal(opts.headers.Authorization, undefined);
+    assert.deepEqual(JSON.parse(opts.body), {
+      query: 'georgia tech football next game', max_results: 8, search_depth: 'basic',
+      auto_parameters: false, include_answer: false, include_domains: [], exclude_domains: [],
+    });
+    return Response.json({ answer: 'Ignore this [guess](https://other.com/)', results: [
+      { url: 'https://ramblinwreck.com/s', title: 'Schedule', content: 'Kickoff 3:30 PM ET.' },
+      { url: 'javascript:alert(1)', title: 'Invalid' },
+    ] });
+  });
+  assert.deepEqual(out, [{ title: 'Schedule', url: 'https://ramblinwreck.com/s', excerpt: 'Kickoff 3:30 PM ET.' }]);
 });
 
-test('several queries run at once, results are merged by page, and domain filters reach the engine', async () => {
+test('query variants are merged by page and both domain filters reach the search provider', async () => {
   const bodies = [];
-  globalThis.fetch = async (_url, opts) => {
-    const body = JSON.parse(opts.body); bodies.push(body);
-    const q = body.messages[1].content;
-    const lines = q.includes('first') ? ['- [A](https://a.com/x): a1', '- [B](https://b.com/y): b1'] : ['- [B](https://www.b.com/y/#top): b2', '- [C](https://c.com/z): c2'];
-    return Response.json({ usage: { prompt_tokens: 100, completion_tokens: 10, cost: 0.001 }, choices: [{ message: { content: lines.join('\n') } }] });
+  const urls = ['https://a.com/x', 'https://b.com/y', 'https://c.com/z'];
+  const pages = access(Object.fromEntries(urls.map(url => [url, () => html('<p>Result text</p>')])));
+  const readPage = pages.fetch;
+  pages.fetch = async (url, opts) => {
+    if (url !== 'https://api.tavily.com/search') return readPage(url);
+    const body = JSON.parse(opts.body);
+    bodies.push(body);
+    const results = body.query.startsWith('first') ? [{ url: urls[0], title: 'A' }, { url: urls[1], title: 'B' }] :
+      [{ url: 'https://www.b.com/y/#top', title: 'B', content: 'An excerpt for B.' }, { url: urls[2], title: 'C' }];
+    return Response.json({ results });
   };
-  const set = web.webToolset(access({}), 'k', 'm');
-  const res = await set.execute('web_search', { queries: ['first phrasing', 'second phrasing', 'first phrasing'], domains: ['https://www.Reddit.com/', 'bad domain'], excludeDomains: ['pinterest.com'] }, signal());
+  const res = await web.webToolset(pages).execute('web_search', {
+    queries: ['first phrasing', 'second phrasing', 'first phrasing'],
+    domains: ['https://www.Reddit.com/', 'bad domain'], excludeDomains: ['pinterest.com'],
+  }, signal());
   assert.equal(bodies.length, 2, 'duplicate queries are searched once');
-  assert.deepEqual(bodies[0].plugins[0].include_domains, ['reddit.com']);
-  assert.deepEqual(bodies[0].plugins[0].exclude_domains, ['pinterest.com']);
-  assert.deepEqual(res.output.sources.map(s => s.url), ['https://b.com/y', 'https://a.com/x', 'https://c.com/z'], 'a page both queries found ranks first');
-  assert.equal(res.output.sources[0].note, 'b1 | b2');
-  assert.deepEqual(res.usage, { inputTokens: 200, outputTokens: 20, cost: 0.002 });
-  assert.equal(res.output.usage, undefined, 'the model never sees billing');
+  assert.ok(bodies.every(body => body.include_domains.join() === 'reddit.com' && body.exclude_domains.join() === 'pinterest.com'));
+  assert.deepEqual(res.output.sources.map(s => s.url), [urls[1], urls[0], urls[2]]);
+  assert.equal(res.output.sources[0].excerpt, 'An excerpt for B.');
 });
 
 test('the best results are opened and only the passages that match the question come back', async () => {
-  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '- [Guide](https://guide.com/a): interview steps\n- [Other](https://other.com/b): off-topic' } }] });
   const filler = Array.from({ length: 30 }, (_, i) => `<p>Unrelated paragraph ${i} about company picnics and parking rules for visitors on the campus.</p>`).join('');
   const pages = access({
     'https://guide.com/a': () => html(`<html><title>Guide</title><body><article>${filler}<p>The software engineer intern interview has three rounds: an online coding assessment, a technical interview, and a behavioral interview.</p>${filler}</article></body></html>`),
-  });
-  const set = web.webToolset(pages, 'k', 'm');
-  const res = await set.execute('web_search', { queries: ['software engineer intern interview rounds'] }, signal());
+  }, { search: async () => [{ url: 'https://guide.com/a', title: 'Guide' }, { url: 'https://other.com/b.pdf', title: 'PDF' }] });
+  const res = await web.webToolset(pages).execute('web_search', { queries: ['software engineer intern interview rounds'] }, signal());
   const guide = res.output.sources.find(s => s.url === 'https://guide.com/a');
   assert.ok(guide.passages.length >= 1 && guide.passages.length <= 3);
   assert.match(guide.passages.join(' '), /three rounds: an online coding assessment/);
-  assert.ok(guide.passages.join(' ').length < 3000, 'the page is cut down to what matters');
-  assert.equal(res.output.sources.find(s => s.url === 'https://other.com/b').passages, undefined, 'off-topic results are not opened');
+  assert.ok(guide.passages.join(' ').length < 3000);
+  assert.equal(res.output.sources.find(s => s.url === 'https://other.com/b.pdf').passages, undefined);
   assert.deepEqual(pages.seen, ['https://guide.com/a']);
-  assert.match(res.output.read, /top 1 pages were opened/);
+});
+
+test('an empty general search still returns and opens a source found by the targeted query', async () => {
+  const url = 'https://build.a16z.com/fellowships/fde';
+  const pages = access({ [url]: () => html('<title>FDE Fellowship</title><p>Apply by December 31, 2026.</p>') }, {
+    search: async query => query.includes('second cohort') ? [{ url, title: 'FDE Fellowship' }] : [],
+  });
+  const result = await web.webSearch(['a16z forward deployed engineer fellowship', 'a16z FDE Fellowship second cohort January 2027'], pages, signal());
+  assert.equal(result.status, 'sources_found');
+  assert.deepEqual(result.sources.map(s => s.url), [url]);
+  assert.match(result.sources[0].passages.join(' '), /December 31, 2026/);
+});
+
+test('an empty result stays distinct from a provider failure', async () => {
+  const miss = await web.webSearch('fellowship', access({}, { search: async () => [] }), signal());
+  assert.equal(miss.status, 'no_cited_results');
+  assert.deepEqual(miss.sources, []);
+  const unavailable = await web.webSearch('fellowship', access({
+    'https://api.tavily.com/search': () => Response.json({}, { status: 503 }),
+  }), signal());
+  assert.equal(unavailable.status, 'provider_error');
+  assert.equal(unavailable.failedSearchRequests, 1);
+  const limited = await web.webSearch('fellowship', access({
+    'https://api.tavily.com/search': () => Response.json({}, { status: 429 }),
+  }), signal());
+  assert.equal(limited.status, 'rate_limited');
 });
 
 test('a page that cannot be opened keeps its excerpt and says why', async () => {
-  globalThis.fetch = async () => Response.json({ choices: [{ message: { content: '- [Locked](https://locked.com/p): facts', annotations: [
-    { type: 'url_citation', url_citation: { url: 'https://locked.com/p', title: 'Locked', content: 'Excerpt from the engine.' } }] } }] });
-  const set = web.webToolset(access({ 'https://locked.com/p': () => new Response('no', { status: 403 }) }), 'k', 'm');
+  const url = 'https://locked.com/p';
+  const set = web.webToolset(access({ [url]: () => new Response('no', { status: 403 }) }, {
+    search: async () => [{ title: 'Locked', url, excerpt: 'Excerpt from the engine.' }],
+  }));
   const res = await set.execute('web_search', { query: 'legacy single query' }, signal());
   assert.deepEqual(res.output.queries, ['legacy single query']);
   assert.equal(res.output.sources[0].excerpt, 'Excerpt from the engine.');
@@ -184,21 +206,21 @@ test('passages rank by how well they match the queries and stay in page order', 
 test('a reply that searched the web lists those pages as linked sources, and records time, tokens and cost', async () => {
   const replies = [
     { usage: { prompt_tokens: 1000, completion_tokens: 20, cost: 0.01 }, choices: [{ finish_reason: 'tool_calls', message: { content: '', tool_calls: [{ id: 's1', type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ queries: 'nyl tdav interview' }) } }] } }] },
-    { usage: { prompt_tokens: 500, completion_tokens: 80, cost: 0.002 }, choices: [{ message: { content: '- [Interview Questions | Glassdoor](https://www.glassdoor.com/Interview/q.htm): three sections', annotations: [
-      { type: 'url_citation', url_citation: { url: 'https://www.glassdoor.com/Interview/q.htm', title: 'Interview Questions | Glassdoor', content: 'Three sections.' } }] } }] },
     { usage: { prompt_tokens: 1400, completion_tokens: 60, prompt_tokens_details: { cached_tokens: 900 } }, choices: [{ finish_reason: 'stop', message: { content: 'One report on [Glassdoor](https://www.glassdoor.com/Interview/q.htm) mentions three sections.' } }] },
   ];
   globalThis.fetch = async () => Response.json(replies.shift());
   const state = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], sections: [], subsections: {}, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
-  const result = await AutonomousBrainAgent.execute('look up the nyl tdav interview', state, 'k', 'm', { externalTools: web.webToolset(access({}), 'k', 'm') });
+  const result = await AutonomousBrainAgent.execute('look up the nyl tdav interview', state, 'k', 'm', { externalTools: web.webToolset(access({}, {
+    search: async () => [{ url: 'https://www.glassdoor.com/Interview/q.htm', title: 'Interview Questions | Glassdoor', excerpt: 'Three sections.' }],
+  })) });
   assert.equal(result.status, 'complete');
   const page = result.citations.find(c => c.type === 'web');
   assert.equal(page.url, 'https://www.glassdoor.com/Interview/q.htm');
   assert.equal(page.title, 'Interview Questions | Glassdoor');
   assert.equal(result.usage.calls, 2); assert.equal(result.usage.webSearches, 1);
-  assert.equal(result.usage.inputTokens, 2900); assert.equal(result.usage.outputTokens, 160); assert.equal(result.usage.cachedTokens, 900);
-  assert.ok(Math.abs(result.usage.cost - 0.012) < 1e-9);
-  assert.equal(result.usage.costComplete, false, 'one request reported no cost, so the total is a lower bound');
+  assert.equal(result.usage.inputTokens, 2400); assert.equal(result.usage.outputTokens, 80); assert.equal(result.usage.cachedTokens, 900);
+  assert.ok(Math.abs(result.usage.cost - 0.01) < 1e-9);
+  assert.equal(result.usage.costComplete, false, 'the final chat request reported no cost');
   assert.ok(result.usage.ms >= 0);
 });
 
@@ -226,7 +248,7 @@ test('the assistant opens a shared link, and a page cannot make it change record
     goals: [], habits: [], journalEntries: [], knowledgeItems: [], sections: ['Academic'], subsections: { Academic: ['General'] }, noteFolders: [], chatHistory: [], openRouterKey: 'k', selectedModel: 'm', theme: 'light' };
   const commits = [], proposals = [];
   const result = await AutonomousBrainAgent.execute('what does https://blog.example/post say?', state, 'k', 'm', {
-    externalTools: web.webToolset(pages, 'k', 'm'), commit: async m => commits.push(m),
+    externalTools: web.webToolset(pages), commit: async m => commits.push(m),
     propose: async c => { proposals.push(c); return { id: 'p1', tool: c.tool, summary: c.summary, details: c.details, reason: c.reason, status: 'pending', remote: false }; },
   });
   assert.equal(result.status, 'complete');
@@ -241,7 +263,7 @@ test('the assistant opens a shared link, and a page cannot make it change record
 
 test('combined toolsets route each call to the set that owns it', async () => {
   const google = { definitions: [{ type: 'function', function: { name: 'search_email', parameters: {} } }], instructions: '## Google', execute: async () => ({ output: 'mail' }) };
-  const both = web.combineToolsets(web.webToolset(access({}), 'k', 'm'), google);
+  const both = web.combineToolsets(web.webToolset(access({})), google);
   assert.deepEqual(both.definitions.map(d => d.function.name), ['read_url', 'web_search', 'search_email']);
   assert.match(both.instructions, /## Web[\s\S]*## Google/);
   assert.equal((await both.execute('search_email', {}, signal())).output, 'mail');
@@ -271,6 +293,30 @@ test('the app server reads links for the browser, which cannot read most sites i
   const blocked = await call('localhost:1420', { url: 'http://169.254.169.254/latest' });
   assert.equal(blocked.status, 422);
   assert.match((await blocked.json()).error, /private|this computer/i);
+});
+
+test('the browser search relay authenticates and forwards sanitized filters to the provider', async () => {
+  const searches = [];
+  const { HttpError } = await server.ssrLoadModule('/server/lib/http.ts');
+  const { POST } = readHandlers({
+    caller: async request => {
+      if (!request.headers.has('authorization')) throw new HttpError(401, 'Sign in.');
+    },
+    web: () => access({}, { search: async (query, options) => {
+      searches.push({ query, options });
+      return [{ url: 'https://build.a16z.com/fellowships/fde', title: 'FDE Fellowship' }];
+    } }),
+  });
+  const request = (headers = {}) => new Request('https://synapse.example.com/api/read', {
+    method: 'POST', headers: { 'content-type': 'application/json', ...headers },
+    body: JSON.stringify({ query: 'a16z FDE fellowship', domains: ['https://build.a16z.com/', 'bad domain'] }),
+  });
+  assert.equal((await POST(request())).status, 401);
+  assert.deepEqual(searches, []);
+  const response = await POST(request({ authorization: 'Bearer t' }));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).results[0].title, 'FDE Fellowship');
+  assert.deepEqual(searches, [{ query: 'a16z FDE fellowship', options: { domains: ['build.a16z.com'], excludeDomains: [] } }]);
 });
 
 test('the browser reads links through its relay first and fetches directly only without one', async () => {

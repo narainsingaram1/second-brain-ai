@@ -2,11 +2,12 @@ import { forwardRef, lazy, memo, Suspense, useEffect, useImperativeHandle, useMe
 import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import { noteExtensions } from "./noteExtensions";
+import { noteHighlightColors, toggleNoteHighlight } from "./noteHighlight";
 import { ANNOTATE_EVENT, type AnnotateDetail } from "./noteImage";
 import { imageFilesFrom } from "../utils/imageInput";
 import { prepareNoteImage } from "../utils/noteImages";
 import { storeNoteImage } from "../services/noteImageStore";
-import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
+import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, ChevronDown, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
 
 const PAUSE_MS = 600, MAX_UNSAVED_MS = 5000;
 const whenIdle = (run: () => void): number => typeof requestIdleCallback === "function"
@@ -85,6 +86,8 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
     return markdown;
   };
   const [linkOpen, setLinkOpen] = useState(false);
+  const [highlightColorsOpen, setHighlightColorsOpen] = useState(false);
+  const highlightColorsButton = useRef<HTMLButtonElement>(null);
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState("");
   const [annotating, setAnnotating] = useState<AnnotateDetail | null>(null);
@@ -183,7 +186,18 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         {tool("Bold (⌘/Ctrl+B)", Bold, () => { editor.chain().focus().toggleBold().run(); }, state?.bold)}
         {tool("Italic (⌘/Ctrl+I)", Italic, () => { editor.chain().focus().toggleItalic().run(); }, state?.italic)}
         {tool("Strikethrough", Strikethrough, () => { editor.chain().focus().toggleStrike().run(); }, state?.strike)}
-        {tool("Highlight (⌘/Ctrl+Shift+H)", Highlighter, () => { editor.chain().focus().toggleHighlight().run(); }, state?.highlight)}
+        <div className="note-highlight-tools">
+          <button type="button" className="note-tool" title="Highlight (⌘/Ctrl+Shift+E)" aria-label="Highlight"
+            aria-keyshortcuts="Meta+Shift+E Control+Shift+E" aria-pressed={state?.highlight ?? false}
+            onMouseDown={e => e.preventDefault()} onClick={() => { editor.commands.focus(); toggleNoteHighlight(editor); }}>
+            <Highlighter size={17} strokeWidth={1.8} />
+          </button>
+          <button ref={highlightColorsButton} type="button" className="note-tool note-highlight-toggle"
+            title="Highlight colors" aria-label="Highlight colors" aria-expanded={highlightColorsOpen}
+            onMouseDown={e => e.preventDefault()} onClick={() => setHighlightColorsOpen(open => !open)}>
+            <ChevronDown size={13} />
+          </button>
+        </div>
         {tool("Inline code", Code, () => { editor.chain().focus().toggleCode().run(); }, state?.code)}
         {divider}
         {tool("Bullet list", List, () => { editor.chain().focus().toggleBulletList().run(); }, state?.bullet)}
@@ -200,6 +214,22 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         {divider}
         {tool("Undo", Undo2, () => { editor.chain().focus().undo().run(); }, false, !state?.undo)}
         {tool("Redo", Redo2, () => { editor.chain().focus().redo().run(); }, false, !state?.redo)}
+        {highlightColorsOpen && <div className="note-highlight-colors" role="group" aria-label="Highlight palette" onKeyDown={e => {
+          if (e.key !== "Escape") return;
+          e.stopPropagation();
+          setHighlightColorsOpen(false);
+          highlightColorsButton.current?.focus();
+        }}>
+          {noteHighlightColors.map(({ name, color, swatch }) => <button key={name} type="button" className="note-highlight-swatch"
+            title={name} aria-label={`${name} highlight`} aria-pressed={editor.storage.highlight.preferredColor === color}
+            onMouseDown={e => e.preventDefault()} onClick={() => {
+              editor.storage.highlight.preferredColor = color;
+              editor.chain().focus().setMark("highlight", { color }).run();
+              setHighlightColorsOpen(false);
+            }}>
+            <span style={{ backgroundColor: swatch }} />
+          </button>)}
+        </div>}
       </div>
       <input ref={fileInput} type="file" accept="image/*" multiple hidden onChange={e => {
         const files = Array.from(e.target.files || []);

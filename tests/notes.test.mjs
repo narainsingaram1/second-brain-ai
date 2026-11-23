@@ -27,6 +27,17 @@ test('nested formatting inside highlighting survives reload and Markdown export'
   assert.match(manager.serialize(parsed), /==/);
 });
 
+test('highlight colors survive a Markdown save alongside legacy yellow and nested formatting', () => {
+  const parsed = manager.parse('==yellow== and <mark data-color="#bae6fd">**blue** text</mark><mark data-color="#bbf7d0">mint</mark>');
+  const text = allNodes(parsed).filter(node => node.type === 'text');
+  const colorOf = value => text.find(node => node.text === value)?.marks?.find(mark => mark.type === 'highlight')?.attrs?.color;
+  assert.equal(colorOf('blue'), '#bae6fd');
+  assert.equal(colorOf('mint'), '#bbf7d0');
+  assert.equal(colorOf('yellow'), undefined);
+  assert.ok(text.find(node => node.text === 'blue').marks.some(mark => mark.type === 'bold'));
+  assert.deepEqual(manager.parse(manager.serialize(parsed)), parsed);
+});
+
 test('opening and reading blank or literal text does not require a content mutation', () => {
   assert.equal(manager.serialize(manager.parse('')), '');
   const literal = 'Keep <script>alert(1)</script> as text, and [knowledge:abc] references.';

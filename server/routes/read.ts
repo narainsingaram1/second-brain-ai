@@ -1,4 +1,4 @@
-import { MAX_LIMIT, readUrl } from "../../src/services/webTools";
+import { cleanDomains, MAX_LIMIT, readUrl, SearchLimitError } from "../../src/services/webTools";
 import { productionDeps, type Deps } from "../lib/context";
 import { HttpError, json, readJson, route } from "../lib/http";
 
@@ -28,7 +28,21 @@ export function readHandlers(deps: Deps = productionDeps) {
       await allowed(request, deps);
       const web = deps.web?.();
       if (!web) throw new HttpError(503, "Opening links isn't available on this server.");
-      const body = await readJson<{ url?: unknown; offset?: unknown; limit?: unknown }>(request, 10_000);
+      const body = await readJson<{ url?: unknown; offset?: unknown; limit?: unknown; query?: unknown; domains?: unknown; excludeDomains?: unknown }>(request, 10_000);
+      if (body.query !== undefined) {
+        if (typeof body.query !== "string" || !body.query.trim() || body.query.length > 400) throw new HttpError(400, "Enter a search query of up to 400 characters.");
+        if (!web.search) throw new HttpError(503, "Web search isn't available on this server.");
+        try {
+          const signal = AbortSignal.any([request.signal, AbortSignal.timeout(12_000)]);
+          return json({ results: await web.search(body.query, {
+            domains: cleanDomains(body.domains), excludeDomains: cleanDomains(body.excludeDomains),
+          }, signal) });
+        } catch (error) {
+          if (request.signal.aborted) throw error;
+          if (error instanceof SearchLimitError) throw new HttpError(429, error.message);
+          throw new HttpError(502, "The search provider did not respond.");
+        }
+      }
       const limit = Math.min(Math.max(Number(body.limit) || 0, 0), MAX_LIMIT) || undefined;
       try {
         return json(await readUrl(String(body.url || ""), Number(body.offset) || 0, web, request.signal, limit));

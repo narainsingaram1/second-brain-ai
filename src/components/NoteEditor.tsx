@@ -712,7 +712,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
           </select>
         </label>
       </div>
-      <div className={`note-content-workspace flex-1 min-h-[450px] ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
+      <div className={`note-content-workspace ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
         {mode === "source" ? <textarea
           aria-label="Markdown source"
           value={hideNoteImages(content)}

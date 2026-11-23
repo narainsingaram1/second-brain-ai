@@ -1,4 +1,5 @@
-import { isPrivateAddress, type WebAccess } from "../../src/services/webTools";
+import { isPrivateAddress, searchTavily, type WebAccess } from "../../src/services/webTools";
+import { serverEnv } from "./env";
 
 type Dns = { lookup(host: string, options: { all: true }): Promise<Array<{ address: string }>> };
 const DNS_MODULE = "node:dns/promises";
@@ -17,6 +18,7 @@ export function serverWebAccess(fetchImpl: typeof fetch = (...args) => fetch(...
   return {
     fetch: fetchImpl,
     manualRedirects: true,
+    search: (query, options, signal) => searchTavily(query, options, signal, fetchImpl, serverEnv().tavilyApiKey),
     async checkHost(hostname) {
       let addresses: string[];
       try { addresses = await lookup(hostname.replace(/^\[|\]$/g, "")); } catch { throw new Error("That website's address couldn't be found."); }

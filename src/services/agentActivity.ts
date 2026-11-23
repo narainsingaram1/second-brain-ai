@@ -127,8 +127,17 @@ export function describeResult(name: string, args: Record<string, any>, output: 
     case "read_record": return output.title ? { label: `Read ${quote(output.title)}` } : {};
     case "read_records": return { items: titles(output.records) };
     case "search_conversations": return { detail: `${count(output.results?.length ?? 0, "message", "messages")} found` };
-    case "web_search": return { detail: Array.isArray(output.sources) && output.sources.length ? `${count(output.sources.length, "source", "sources")}${output.sources.some((x: any) => x?.passages) ? `, ${output.sources.filter((x: any) => x?.passages).length} read` : ""}` : undefined,
-      items: (output.sources || []).map((s: any) => `${s.title}|${s.url}`) };
+    case "web_search": {
+      if (output.status === "rate_limited") return { detail: "Web search limit reached" };
+      if (output.status === "provider_error") return { detail: "Search provider failed to return sources" };
+      const sources = Array.isArray(output.sources) ? output.sources : [];
+      if (!sources.length) return { detail: "No cited results" };
+      const opened = sources.filter((source: any) => source?.passages).length;
+      return {
+        detail: `${count(sources.length, "source", "sources")}${opened ? `, ${opened} read` : ""}`,
+        items: sources.map((source: any) => `${source.title}|${source.url}`),
+      };
+    }
     case "read_url": return { label: `Read ${output.title ? quote(output.title) : host(output.url)}`, items: [`${output.title || host(output.url)}|${output.url}`] };
     case "list_calendar_events": return { detail: count(output.events?.length ?? 0, "event", "events"), items: titles(output.events) };
     case "search_email": return { detail: count(output.results?.length ?? 0, "email", "emails"), items: titles(output.results, "subject") };
