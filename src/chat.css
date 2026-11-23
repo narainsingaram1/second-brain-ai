@@ -117,7 +117,6 @@
 .chat-suggestion { --starter: #7c5ce0; display: flex; align-items: center; text-align: left; gap: 12px; width: 100%; min-height: 44px; padding: 8px 12px; background: transparent; border-radius: 10px; transition: background 150ms var(--ease), transform 150ms var(--ease); animation: chat-arrive 320ms var(--ease) both; }
 .chat-suggestion[data-kind="task"] { --starter: #4f85c5; }
 .chat-suggestion[data-kind="class"] { --starter: #7c5ce0; }
-.chat-suggestion[data-kind="goal"] { --starter: #419276; }
 .chat-suggestion[data-kind="career"] { --starter: #bf8b3d; }
 .chat-suggestion[data-kind="habit"] { --starter: #d0704a; }
 .chat-suggestion[data-kind="calendar"] { --starter: #4f85c5; }
@@ -673,7 +672,6 @@
 .record-job-card-simulation,
 .record-leetcode-card-simulation,
 .record-task-card-simulation,
-.record-goal-card-simulation,
 .record-habit-card-simulation,
 .record-event-card-simulation,
 .record-note-card-simulation {

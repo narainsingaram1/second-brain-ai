@@ -12,7 +12,7 @@ import { field } from "../utils/workspaces";
  * starters written from the user's own work. Both come from the fast model after the fact, so they never
  * delay a reply, and quietly disappear if it fails.
  */
-export const STARTER_KINDS = ["task", "class", "goal", "career", "habit", "calendar", "email", "idea"] as const;
+export const STARTER_KINDS = ["task", "class", "career", "habit", "calendar", "email", "idea"] as const;
 export type StarterKind = typeof STARTER_KINDS[number];
 export interface ChatStarter { kind: StarterKind; title: string; detail: string; prompt: string }
 export interface ConnectedServices { calendar: boolean; gmail: boolean }
@@ -59,9 +59,6 @@ export function localStarters(state: BrainState, services: ConnectedServices = {
   const graded = courses.find(c => c.grade !== null);
   if (graded) picks.push({ kind: "class", title: `Where I stand in ${graded.course.code || graded.course.name}`, detail: `Currently ${formatPercent(graded.grade)}`, prompt: `Look at my grades in ${courseLabel(graded.course)}. What do I need on the remaining work, and what should I focus on?` });
 
-  const goal = (state.goals || []).filter(g => g.status !== "achieved" && g.status !== "on_hold").sort((a, b) => a.progress - b.progress)[0];
-  if (goal) picks.push({ kind: "goal", title: `Move ${clip(goal.title, 34)} forward`, detail: `${goal.progress}% of the way there`, prompt: `Look at my goal "${goal.title}" and tell me the single most useful next step this week.` });
-
   const followUp = (state.trackerItems || []).filter(i => i.kind === "job_application" && field(i, "followUpDate") && field(i, "followUpDate") <= today && !["offer", "rejected", "not_started"].includes(i.status))[0];
   if (followUp) picks.push({ kind: "career", title: `Follow up with ${clip(followUp.subject || followUp.title, 30)}`, detail: "Follow-up is due", prompt: `Help me write a short follow-up for my ${followUp.title} application at ${followUp.subject}.` });
   const reviews = (state.trackerItems || []).filter(i => i.kind === "leetcode" && field(i, "nextReview") && field(i, "nextReview") <= today);
@@ -76,7 +73,7 @@ export function localStarters(state: BrainState, services: ConnectedServices = {
 
   if (picks.length < STARTER_COUNT) picks.push(
     { kind: "class", title: "Add my classes", detail: "Materials, flashcards and grades", prompt: "I want to set up my classes. Ask me what I'm taking this term and add them." },
-    { kind: "goal", title: "Set a goal for this term", detail: "Turned into real milestones", prompt: "Help me set one meaningful goal for this term and break it into milestones." },
+    { kind: "habit", title: "Start a habit", detail: "Tracked with a daily streak", prompt: "Help me pick one small habit to build this month and set it up." },
     { kind: "task", title: "Empty my head", detail: "I'll sort it into tasks", prompt: "I want to do a brain dump. Ask me what's on my mind, then turn it into tasks." },
   );
   // Variety first: one per kind, then fill any remaining slots in order.
@@ -102,7 +99,6 @@ export function starterContext(state: BrainState, services: ConnectedServices, n
       flashcardsDue: study.decks.filter(d => d.courseId === c.id).reduce((n, d) => n + dueCards(d, today).length, 0),
       ...(c.grading?.categories.length ? { grade: formatPercent(summarize(c.grading).current) } : {}),
     })),
-    goals: (state.goals || []).filter(g => g.status !== "achieved").slice(0, 8).map(g => ({ title: clip(g.title, 80), progress: g.progress, nextMilestone: g.milestones.find(m => !m.completed)?.title })),
     habits: (state.habits || []).slice(0, 6).map(h => ({ name: h.name, streak: h.streak, doneToday: !!h.history[today] })),
     jobSearch: (state.trackerItems || []).filter(i => i.kind === "job_application" && ["applied", "screening", "onsite"].includes(i.status)).slice(0, 6).map(i => ({ role: clip(i.title, 60), company: i.subject, stage: i.status })),
     recentNotes: [...(state.knowledgeItems || [])].sort((a, b) => (b.updatedAt || "").localeCompare(a.updatedAt || "")).slice(0, 5).map(n => clip(n.title || n.subject, 70)),
@@ -116,14 +112,14 @@ export function starterContext(state: BrainState, services: ConnectedServices, n
 export function starterFingerprint(state: BrainState, today = getLocalDateString()) {
   const horizon = addDays(today, 7);
   const tasks = state.tasks.filter(t => isOpen(t) && t.dueDate && t.dueDate <= horizon).map(t => t.id).sort();
-  return [today, ...tasks, ...(state.goals || []).map(g => g.id).sort(), ...studyOf(state).courses.map(c => c.id).sort()].join("|");
+  return [today, ...tasks, ...studyOf(state).courses.map(c => c.id).sort()].join("|");
 }
 
 const STARTERS_PROMPT = `You write the conversation starters on the home screen of a personal second-brain assistant called Iris. Given a snapshot of one user's life, propose exactly ${STARTER_COUNT} starters they would actually want to tap right now.
 
 Rules:
-- Each one must be about something real and named in the snapshot: a specific assignment, class, goal, company, note or past conversation. Never invent anything.
-- Cover different parts of their life. Combine what is urgent with something longer term, and at least one that is more interesting than a to-do: a connection between two things they're doing, a question their recent chats raise, or something their goals imply.
+- Each one must be about something real and named in the snapshot: a specific assignment, class, company, note or past conversation. Never invent anything.
+- Cover different parts of their life. Combine what is urgent with something longer term, and at least one that is more interesting than a to-do: a connection between two things they're doing, a question their recent chats raise, or something their plans imply.
 - Prefer what makes sense at this time of day and this point in their week.
 - title: 2 to 6 words, specific, like "Prep for the CS 2110 lab". Not generic, like "Plan my day".
 - detail: under 7 words, why this matters now, like "Due tomorrow at 5 PM".
@@ -172,7 +168,7 @@ export async function generateStarters(state: BrainState, services: ConnectedSer
   return starters && starters.length === STARTER_COUNT ? starters : [];
 }
 
-const FOLLOW_UPS_PROMPT = `You write the quick replies shown under an assistant's answer in a personal second-brain app (tasks, goals, notes, courses, calendar, job search). Propose exactly 3 messages this user would most plausibly send next.
+const FOLLOW_UPS_PROMPT = `You write the quick replies shown under an assistant's answer in a personal second-brain app (tasks, notes, courses, calendar, job search). Propose exactly 3 messages this user would most plausibly send next.
 
 Rules:
 - Write as the user, the exact words they would send: "Make it due Friday", never "Would you like to set a date?".

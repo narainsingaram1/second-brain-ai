@@ -11,17 +11,17 @@ const { ChatWorkspace } = await server.ssrLoadModule('/src/components/ChatWorksp
 const { readableMessage, referenceTitle, isNearBottom } = await server.ssrLoadModule('/src/utils/chatPresentation.ts');
 const { AgentActivity, closeMarkdown, thoughtHeadline } = await server.ssrLoadModule('/src/components/AgentActivity.tsx');
 const { describeCall, describeResult, pastTense, ActivityTracker, splitStepItem } = await server.ssrLoadModule('/src/services/agentActivity.ts');
-const state = { tasks: [{ id: 'task-123', title: 'Prepare presentation', dueDate: '2026-11-02', status: 'in_progress', completed: false, priority: 'high', section: 'Career' }], goals: [{ id: 'goal-456', title: 'Research opportunity', progress: 35, milestones: [], status: 'in_progress' }], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [], conversations: [], selectedModel: 'test/model' };
-const message = { id: 'answer', role: 'assistant', content: 'Start with [task:task-123]. Then review [goal:goal-456].', timestamp: '', sources: [{ id: 'task-123', type: 'task', title: 'Prepare presentation' }, { id: 'goal-456', type: 'goal', title: 'Research opportunity' }] };
+const state = { tasks: [{ id: 'task-123', title: 'Prepare presentation', dueDate: '2026-11-02', status: 'in_progress', completed: false, priority: 'high', section: 'Career' }], goals: [], habits: [], journalEntries: [], events: [{ id: 'event-456', title: 'Research opportunity', date: '2026-11-03' }], knowledgeItems: [], chatHistory: [], conversations: [], selectedModel: 'test/model' };
+const message = { id: 'answer', role: 'assistant', content: 'Start with [task:task-123]. Then review [event:event-456].', timestamp: '', sources: [{ id: 'task-123', type: 'task', title: 'Prepare presentation' }, { id: 'event-456', type: 'event', title: 'Research opportunity' }] };
 const conversation = { busy: false, progress: '', run: async () => {}, stop() {}, startNew() {}, resume() {} };
 
-test('existing task and goal citations render as readable inline references', () => {
+test('existing task and event citations render as readable inline references', () => {
   const html = renderToStaticMarkup(React.createElement(ConversationMessage, { message, state }));
   assert.match(html, /chat-inline-reference/);
   assert.match(html, /Prepare presentation/);
   assert.match(html, /Research opportunity/);
-  assert.doesNotMatch(html, /\[task:task-123\]|\[goal:goal-456\]/);
-  assert.doesNotMatch(html, />task-123<|>goal-456</);
+  assert.doesNotMatch(html, /\[task:task-123\]|\[event:event-456\]/);
+  assert.doesNotMatch(html, />task-123<|>event-456</);
 });
 test('web sources render as visible links, and a reply shows its time, tokens and cost', () => {
   const reply = { id: 'web-answer', role: 'assistant', content: 'One report mentions three sections.', timestamp: '',

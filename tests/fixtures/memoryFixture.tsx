@@ -90,7 +90,7 @@ window.fetch = async (_url, opts) => {
 const base = (owner = "memory-fixture"): BrainState => ({
   userId: owner,
   tasks: [],
-  goals: [],
+  
   habits: [],
   journalEntries: [],
   knowledgeItems: [],

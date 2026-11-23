@@ -31,6 +31,7 @@ type Database = {
       save_brain: { Args: { p_state: unknown; p_revision: number; p_owner_id: string }; Returns: number };
       migrate_brain_to_records: { Args: Record<string, never>; Returns: { layout: number; moved: number } };
       save_brain_prefs: { Args: { p_state: unknown; p_revision: number }; Returns: number };
+      save_brain_prefs_patch: { Args: { p_changes: unknown; p_removed: string[]; p_revision: number }; Returns: number };
       save_records: { Args: { p_changes: unknown }; Returns: unknown };
     };
     Enums: Record<string, never>;

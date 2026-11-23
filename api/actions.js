@@ -503,7 +503,6 @@ function followSubsectionRename(state, section, from, to) {
 */
 const MEMORY_RECORD_TYPES = [
 	"task",
-	"goal",
 	"habit",
 	"journal",
 	"knowledge",
@@ -14526,64 +14525,6 @@ const EDIT_TOOLS = [
 	}, ["eventId"]),
 	fn$4("delete_event", "Remove a calendar event. Use ONLY when the user explicitly asks to delete or cancel that specific event. The user can undo it from the app.", { eventId: d_("ID of the existing event.") }, ["eventId"]),
 	fn$4("delete_task", "Permanently remove a task. Use ONLY when the user explicitly asks to delete or remove that specific task (not when it is done: use update_task status completed). The user can undo it from the app.", { taskId: d_("ID of the existing task.") }, ["taskId"]),
-	fn$4("update_goal", "Update an existing goal: progress, status, title, description, sector, timeframe, target date, metric, motivation, or milestones (complete existing ones by ID or exact title, or add new ones). Progress is recalculated from milestones when they change and progress is not given.", {
-		goalId: d_("ID of the existing goal."),
-		newTitle: s_,
-		newDescription: s_,
-		sector: {
-			type: "string",
-			enum: [
-				"career",
-				"academics",
-				"finance",
-				"health",
-				"mindset",
-				"personal"
-			]
-		},
-		timeframe: {
-			type: "string",
-			enum: [
-				"quarterly",
-				"yearly",
-				"long_term",
-				"lifetime"
-			]
-		},
-		status: {
-			type: "string",
-			enum: [
-				"not_started",
-				"in_progress",
-				"achieved",
-				"on_hold"
-			]
-		},
-		progress: {
-			type: "integer",
-			minimum: 0,
-			maximum: 100,
-			description: "Overall percent complete."
-		},
-		newTargetDate: d_("YYYY-MM-DD"),
-		metrics: s_,
-		why: s_,
-		completeMilestones: {
-			type: "array",
-			items: s_,
-			description: "Milestone IDs or exact titles to mark completed."
-		},
-		reopenMilestones: {
-			type: "array",
-			items: s_,
-			description: "Milestone IDs or exact titles to mark not completed."
-		},
-		addMilestones: {
-			type: "array",
-			items: s_,
-			description: "Titles of new milestones to append."
-		}
-	}, ["goalId"]),
 	fn$4("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, set its tags, or correct or delete the transcript of a recording made into it. Prefer appendContent for additions so existing text is preserved.", {
 		noteId: d_("ID of the existing note (knowledge record)."),
 		newTitle: s_,
@@ -15218,7 +15159,6 @@ const MANAGE_TOOLS = [
 		section: s_,
 		subsection: s_
 	}, ["section", "subsection"]),
-	fn$4("delete_goal", "Delete a goal. Only when the user explicitly asks (not when it is achieved: use update_goal).", { goalId: s_ }, ["goalId"]),
 	fn$4("update_habit", "Change a habit (name, frequency, time of day, description) or un-check a day that was marked done by mistake.", {
 		habitId: s_,
 		newName: s_,
@@ -15573,81 +15513,6 @@ const MUTATION_TOOLS = [
 	{
 		type: "function",
 		function: {
-			name: "create_goal",
-			description: "Establish a major long-term life goal, horizon aspiration, wealth target, or fitness milestone.",
-			parameters: {
-				type: "object",
-				properties: {
-					title: {
-						type: "string",
-						description: "Title of the goal."
-					},
-					sector: {
-						type: "string",
-						enum: [
-							"career",
-							"academics",
-							"finance",
-							"health",
-							"mindset",
-							"personal"
-						],
-						description: "Life sector for this goal."
-					},
-					timeframe: {
-						type: "string",
-						enum: [
-							"quarterly",
-							"yearly",
-							"long_term",
-							"lifetime"
-						],
-						description: "Horizon of the goal."
-					},
-					description: {
-						type: "string",
-						description: "Short description of what the goal is."
-					},
-					status: {
-						type: "string",
-						enum: [
-							"not_started",
-							"in_progress",
-							"achieved",
-							"on_hold"
-						],
-						description: "Starting status. Defaults to not_started."
-					},
-					targetDate: {
-						type: "string",
-						description: "Optional target date in YYYY-MM-DD format."
-					},
-					metrics: {
-						type: "string",
-						description: "Quantifiable target metric (e.g., '$100k liquid', '3.95 GPA')."
-					},
-					why: {
-						type: "string",
-						description: "Underlying motivation or core conviction."
-					},
-					milestones: {
-						type: "array",
-						items: { type: "string" },
-						description: "List of 3-5 sequential stepping stone milestones."
-					}
-				},
-				required: [
-					"title",
-					"sector",
-					"timeframe"
-				],
-				additionalProperties: false
-			}
-		}
-	},
-	{
-		type: "function",
-		function: {
 			name: "log_journal",
 			description: "Record a reflective daily journal entry, evening reflection, mindset check-in, or celebration of wins.",
 			parameters: {
@@ -15727,7 +15592,6 @@ const MUTATION_TOOLS = [
 ];
 const recordTypes = [
 	"task",
-	"goal",
 	"habit",
 	"journal",
 	"knowledge",
@@ -15824,7 +15688,7 @@ const READ_TOOLS = [
 		},
 		section: {
 			type: "string",
-			description: "Task section, goal sector, or course code/name for course, document, deck and quiz records."
+			description: "Task section, or course code/name for course, document, deck and quiz records."
 		},
 		text: str,
 		offset: cursorSchema,
@@ -15835,7 +15699,7 @@ const READ_TOOLS = [
 		id: str,
 		offset: cursorSchema
 	}, ["type", "id"]),
-	tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or goal. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
+	tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or note. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
 		type: typeSchema,
 		ids: {
 			type: "array",
@@ -15933,7 +15797,6 @@ function recordTitle(record, fallback) {
 }
 const MUTATION_COLLECTIONS = {
 	task: "tasks",
-	goal: "goals",
 	habit: "habits",
 	journal: "journalEntries",
 	knowledge: "knowledgeItems",
@@ -16372,32 +16235,6 @@ function prepareMutation(name, args, state) {
 				})
 			};
 		}
-		case "create_goal": {
-			if (args.targetDate) validDate(args.targetDate);
-			const status = args.status || "not_started";
-			return {
-				type: "goal",
-				action: name,
-				record: {
-					id,
-					title: args.title.trim(),
-					sector: args.sector,
-					timeframe: args.timeframe,
-					...args.description ? { description: args.description.trim() } : {},
-					...args.targetDate ? { targetDate: args.targetDate } : {},
-					...args.metrics ? { metrics: args.metrics.trim() } : {},
-					...args.why ? { why: args.why.trim() } : {},
-					status,
-					progress: status === "achieved" ? 100 : 0,
-					createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-					milestones: (args.milestones || []).map((title) => ({
-						id: crypto.randomUUID(),
-						title: title.trim(),
-						completed: status === "achieved"
-					}))
-				}
-			};
-		}
 		case "log_journal": return {
 			type: "journal",
 			action: name,
@@ -16533,59 +16370,6 @@ function prepareMutation(name, args, state) {
 				expected: task,
 				record: task,
 				remove: true
-			};
-		}
-		case "update_goal": {
-			const goal = state.goals.find((g) => g.id === args.goalId);
-			if (!goal) throw new Error("Goal ID not found. Query live goals; do not guess IDs.");
-			const changes = [
-				"newTitle",
-				"newDescription",
-				"sector",
-				"timeframe",
-				"status",
-				"progress",
-				"newTargetDate",
-				"metrics",
-				"why",
-				"completeMilestones",
-				"reopenMilestones",
-				"addMilestones"
-			].filter((k) => args[k] !== void 0);
-			if (!changes.length) throw new Error("Supply at least one field to update.");
-			if (args.newTargetDate) validDate(args.newTargetDate);
-			const matches = (m, refs = []) => refs.some((ref) => ref === m.id || ref.trim().toLocaleLowerCase() === m.title.trim().toLocaleLowerCase());
-			for (const ref of [...args.completeMilestones || [], ...args.reopenMilestones || []]) if (!goal.milestones.some((m) => matches(m, [ref]))) throw new Error(`Milestone not found: ${ref}. Read the goal to get exact milestone IDs.`);
-			const milestones = [...goal.milestones.map((m) => matches(m, args.completeMilestones) ? {
-				...m,
-				completed: true
-			} : matches(m, args.reopenMilestones) ? {
-				...m,
-				completed: false
-			} : m), ...(args.addMilestones || []).map((title) => ({
-				id: crypto.randomUUID(),
-				title: title.trim(),
-				completed: false
-			}))];
-			const milestonesChanged = changes.some((k) => k.endsWith("Milestones"));
-			const progress = args.progress ?? (milestonesChanged && milestones.length ? Math.round(milestones.filter((m) => m.completed).length / milestones.length * 100) : goal.progress);
-			return {
-				type: "goal",
-				action: name,
-				expected: goal,
-				record: {
-					...goal,
-					milestones,
-					progress,
-					status: args.status || (progress >= 100 && goal.status !== "achieved" && milestonesChanged ? "achieved" : progress > 0 && goal.status === "not_started" ? "in_progress" : goal.status),
-					...args.newTitle ? { title: args.newTitle.trim() } : {},
-					...args.newTargetDate ? { targetDate: args.newTargetDate } : {},
-					...args.newDescription ? { description: args.newDescription.trim() } : {},
-					...args.sector ? { sector: args.sector } : {},
-					...args.timeframe ? { timeframe: args.timeframe } : {},
-					...args.metrics ? { metrics: args.metrics.trim() } : {},
-					...args.why ? { why: args.why.trim() } : {}
-				}
 			};
 		}
 		case "update_note": {
@@ -17057,16 +16841,6 @@ function prepareMutation(name, args, state) {
 					...current,
 					subsections: current.subsections.filter((x) => x !== sub)
 				}
-			};
-		}
-		case "delete_goal": {
-			const g = findIn(state.goals, args.goalId, "Goal");
-			return {
-				type: "goal",
-				action: name,
-				expected: g,
-				record: g,
-				remove: true
 			};
 		}
 		case "update_habit": {
@@ -17678,8 +17452,6 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"delete_task",
 	"complete_habit",
 	"create_habit",
-	"create_goal",
-	"update_goal",
 	"log_journal",
 	"create_note",
 	"update_note",
@@ -17703,7 +17475,6 @@ const INTERNAL = /* @__PURE__ */ new Set([
 	"delete_section",
 	"rename_subsection",
 	"delete_subsection",
-	"delete_goal",
 	"update_habit",
 	"delete_habit",
 	"update_journal_entry",
@@ -17996,7 +17767,6 @@ async function authenticate(request) {
 */
 const RECORD_COLLECTIONS = [
 	"tasks",
-	"goals",
 	"habits",
 	"journalEntries",
 	"knowledgeItems",
@@ -18019,7 +17789,6 @@ const RECORD_COLLECTIONS = [
 /** Lists the app shows newest first: new records go to the front. Matches newest_first_collections() in SQL. */
 const NEWEST_FIRST = /* @__PURE__ */ new Set([
 	"tasks",
-	"goals",
 	"journalEntries",
 	"knowledgeItems",
 	"conversations"
@@ -18190,6 +17959,8 @@ var RecordSync = class {
 	ownSeqs = /* @__PURE__ */ new Set();
 	prefsJson = /* @__PURE__ */ new Map();
 	remotePrefs = null;
+	/** False once the database turned out not to support preference patches. */
+	patchPrefs = true;
 	prefsRevision = 0;
 	lastSeq = 0;
 	serialize = createSerializer();
@@ -18317,22 +18088,38 @@ var RecordSync = class {
 	}
 	async savePreferences(state) {
 		const prefs = preferencesOf(state);
-		const changed = [...new Map(Object.entries(prefs).map(([key, value]) => [key, JSON.stringify(value)]))].filter(([key, value]) => this.prefsJson.get(key) !== value).map(([key]) => key);
+		const json = new Map(Object.entries(prefs).map(([key, value]) => [key, JSON.stringify(value)]));
+		const changed = [...json].filter(([key, value]) => this.prefsJson.get(key) !== value).map(([key]) => key);
 		if (!changed.length) return;
+		let removed = [...this.prefsJson.keys()].filter((key) => !json.has(key));
 		let base = this.prefsRevision;
 		let payload = prefs;
+		let remoteState = null;
 		for (let attempt = 0;; attempt++) try {
-			this.prefsRevision = await this.transport.savePreferences(payload, base);
-			for (const [key, value] of Object.entries(payload)) this.prefsJson.set(key, JSON.stringify(value));
+			let revision = "unsupported";
+			if (this.patchPrefs && this.transport.savePreferencesPatch) {
+				revision = await this.transport.savePreferencesPatch(Object.fromEntries(changed.map((key) => [key, prefs[key]])), removed, base);
+				if (revision === "unsupported") this.patchPrefs = false;
+			}
+			if (revision === "unsupported") revision = await this.transport.savePreferences(payload, base);
+			this.prefsRevision = revision;
+			if (remoteState) this.remotePrefs = {
+				...remoteState,
+				...Object.fromEntries(changed.map((key) => [key, prefs[key]]))
+			};
+			for (const key of removed) this.prefsJson.delete(key);
+			for (const key of changed) this.prefsJson.set(key, json.get(key));
 			for (const key of changed) this.savedPrefs[key] = prefs[key];
 			return;
 		} catch (error) {
 			if (!(error instanceof PreferencesConflict) || attempt > 0) throw error;
 			const remote = await this.transport.readPreferences();
+			remoteState = remote.state;
 			payload = {
 				...remote.state,
 				...Object.fromEntries(changed.map((key) => [key, prefs[key]]))
 			};
+			removed = [];
 			base = remote.revision;
 			this.remotePrefs = remote.state;
 			this.onRemoteChange();
@@ -18521,6 +18308,17 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 			if (error) throw fail("save your changes");
 			return data;
 		},
+		async savePreferencesPatch(changes, removed, revision) {
+			const { data, error } = await client.rpc("save_brain_prefs_patch", {
+				p_changes: changes,
+				p_removed: removed,
+				p_revision: revision
+			});
+			if (error?.code === "PGRST202" || error?.code === "42883") return "unsupported";
+			if (error?.code === "40001") throw new PreferencesConflict("Preferences changed on another device.");
+			if (error) throw fail("save your preferences");
+			return Number(data);
+		},
 		async savePreferences(state, revision) {
 			const { data, error } = await client.rpc("save_brain_prefs", {
 				p_state: state,
@@ -18533,6 +18331,10 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 	};
 }
 // server/lib/store.ts
+/** Runs `work` over `items`, at most `limit` at a time, and waits for all of them; the first error is rethrown. */
+async function inBatches(items, limit, work) {
+	for (let i = 0; i < items.length; i += limit) await Promise.all(items.slice(i, i + limit).map(work));
+}
 const EMBEDDING_KEYS_PER_QUERY = 150;
 const EMBEDDING_QUERIES_AT_ONCE = 4;
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
@@ -18672,11 +18474,16 @@ function supabaseStore(userId, client) {
 			return found;
 		},
 		async putEmbeddings(entries) {
-			for (let i = 0; i < entries.length; i += 100) await client.from("passage_embeddings").upsert(entries.slice(i, i + 100).map(([key, vector]) => ({
-				user_id: userId,
-				key,
-				vector
-			})));
+			const batches = [];
+			for (let i = 0; i < entries.length; i += 100) batches.push(entries.slice(i, i + 100));
+			await inBatches(batches, EMBEDDING_QUERIES_AT_ONCE, async (batch) => {
+				const { error } = await client.from("passage_embeddings").upsert(batch.map(([key, vector]) => ({
+					user_id: userId,
+					key,
+					vector
+				})));
+				if (error) console.warn("[store] Could not cache passage embeddings:", error.message);
+			});
 		},
 		async getConnection(provider) {
 			const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
@@ -18805,11 +18612,13 @@ function supabaseStore(userId, client) {
 		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
-			for (let i = 0; i < ids.length; i += 50) {
-				const { data, error } = await client.from("study_documents").select("id,content").eq("user_id", userId).in("id", ids.slice(i, i + 50));
+			const batches = [];
+			for (let i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
+			await inBatches(batches, EMBEDDING_QUERIES_AT_ONCE, async (batch) => {
+				const { data, error } = await client.from("study_documents").select("id,content").eq("user_id", userId).in("id", batch);
 				if (error) rpcError(error, "Could not load course documents.");
 				for (const row of data || []) texts.set(row.id, row.content);
-			}
+			});
 			return texts;
 		}
 	};

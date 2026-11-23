@@ -2,12 +2,11 @@ import { AIMessage, BrainState } from "../types";
 import { plainIrisUi, repairLeakedToolCalls } from "./irisUi";
 
 export type ChatSource = NonNullable<AIMessage["sources"]>[number];
-export const REFERENCE_PATTERN = /\[(task|goal|habit|journal|knowledge|event|tracker|course|document|deck|quiz):([^\]\n]+)\]/g;
+export const REFERENCE_PATTERN = /\[(task|habit|journal|knowledge|event|tracker|course|document|deck|quiz):([^\]\n]+)\]/g;
 export function findRecord(state: BrainState | null | undefined, type: string, id: string) {
   if (!state) return undefined;
   switch (type) {
     case "task": return state.tasks.find(r => r.id === id);
-    case "goal": return state.goals.find(r => r.id === id);
     case "habit": return state.habits.find(r => r.id === id);
     case "journal": return state.journalEntries.find(r => r.id === id);
     case "knowledge": return state.knowledgeItems.find(r => r.id === id);

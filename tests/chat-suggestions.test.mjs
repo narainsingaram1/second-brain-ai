@@ -9,13 +9,12 @@ const { localStarters, starterContext, starterFingerprint, parseStarters, parseF
 const today = '2026-11-09';
 const task = (id, dueDate, extra = {}) => ({ id, title: `Task ${id}`, status: 'not_started', completed: false, dueDate, priority: 'medium', section: 'Academic', subsection: 'CS 2110', ...extra });
 const base = (extra = {}) => ({ userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], chatHistory: [], sections: [], subsections: {}, openRouterKey: 'k', selectedModel: '', theme: 'light', ...extra });
-const goal = { id: 'g', title: 'Land a research role', status: 'in_progress', progress: 30, milestones: [] };
 
 test('starters name the user\'s real work and cover different areas', () => {
-  const starters = localStarters(base({ tasks: [task('late', '2026-11-05'), task('soon', '2026-11-10')], goals: [goal] }), undefined, today);
+  const starters = localStarters(base({ tasks: [task('late', '2026-11-05'), task('soon', '2026-11-10')] }), undefined, today);
   assert.equal(starters.length, 4);
   assert.match(starters[0].title, /Finish Task late/);
-  assert.ok(starters.some(s => s.title.includes('Land a research role')));
+  assert.ok(starters.some(s => s.kind === 'class'));
   assert.ok(starters.some(s => s.detail === 'Due tomorrow'));
 });
 

@@ -18,7 +18,6 @@ const { TRACKER_FIELDS, TRACKER_FIELD_KEYS } = await load('/src/utils/trackerFie
 
 const COVERAGE = {
   tasks: { create: 'create_task', update: 'update_task', delete: 'delete_task' },
-  goals: { create: 'create_goal', update: 'update_goal', delete: 'delete_goal' },
   habits: { create: 'create_habit', update: 'update_habit', delete: 'delete_habit' },
   journalEntries: { create: 'log_journal', update: 'update_journal_entry', delete: 'delete_journal_entry' },
   knowledgeItems: { create: 'create_note', update: 'update_note', delete: 'delete_note' },
@@ -166,11 +165,9 @@ test('Sections and subsections: create, rename and delete move their tasks', () 
   assert.throws(() => prepareMutation('delete_section', { section: 'Projects' }, { ...s, sections: ['Projects'] }), /last section/);
 });
 
-test('Goals, habits, journal entries and notes can be edited and deleted', () => {
+test('Habits, journal entries and notes can be edited and deleted', () => {
   let s = emptyState();
-  let r = run(s, 'create_goal', { title: 'Get an internship', sector: 'career', timeframe: 'quarterly' }); s = run(r.state, 'delete_goal', { goalId: r.m.record.id }).state;
-  assert.equal(s.goals.length, 0);
-  r = run(s, 'create_habit', { name: 'Run', frequency: 'daily' }); s = r.state;
+  let r = run(s, 'create_habit', { name: 'Run', frequency: 'daily' }); s = r.state;
   s = run(s, 'complete_habit', { habitId: r.m.record.id }).state;
   const today = Object.keys(s.habits[0].history)[0];
   s = run(s, 'update_habit', { habitId: r.m.record.id, newName: 'Morning run', unmarkDate: today }).state;

@@ -41,7 +41,7 @@ export function CloudControls({ state, onImport }: { state: BrainState; onImport
         const file = event.target.files?.[0]; if (!file) return;
         try {
           const parsed = JSON.parse(await file.text()); const data = parsed.state || parsed;
-          for (const field of ["tasks", "goals", "habits", "journalEntries", "knowledgeItems", "chatHistory", "sections"]) {
+          for (const field of ["tasks", "habits", "journalEntries", "knowledgeItems", "chatHistory", "sections"]) {
             if (!Array.isArray(data[field])) throw new Error(`Invalid backup: missing ${field}`);
           }
           const agentMemory = normalizeAgentMemory(data.agentMemory === undefined ? state.agentMemory : data.agentMemory);

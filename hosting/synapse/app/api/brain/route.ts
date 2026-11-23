@@ -21,7 +21,7 @@ export async function PUT(request: Request) {
   try { data = JSON.parse(body); } catch { return json({ error: "Invalid JSON" }, 400); }
   const { state, revision } = data;
   if (!Number.isSafeInteger(revision) || revision < 0 || !state || typeof state !== "object" || Array.isArray(state)) return json({ error: "Invalid state" }, 400);
-  for (const field of ["tasks", "goals", "habits", "journalEntries", "knowledgeItems", "chatHistory", "sections"]) {
+  for (const field of ["tasks", "habits", "journalEntries", "knowledgeItems", "chatHistory", "sections"]) {
     if (!Array.isArray(state[field])) return json({ error: `Invalid ${field}` }, 400);
   }
   // Never accept client-supplied ownership or credentials.

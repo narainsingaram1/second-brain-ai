@@ -60,7 +60,7 @@ export function PermissionsSettings({ askBeforeChanges, onAskBeforeChanges }: { 
 
     <div className="divide-y divide-[var(--workspace-line,#e9e9eb)] border-y border-line">
       {onAskBeforeChanges && <Toggle checked={askBeforeChanges} onChange={onAskBeforeChanges} title="Ask before every change to my data"
-        detail="Tasks, notes, goals, courses and the rest: each change waits for your approval instead of saving right away." />}
+        detail="Tasks, notes, courses and the rest: each change waits for your approval instead of saving right away." />}
       <Toggle checked={policy.confirmEverything} onChange={value => setPolicy(saveUserPolicy({ ...policy, confirmEverything: value }))}
         title="Ask before every step on websites and in Mac apps"
         detail="Every click and every text it types waits for your go-ahead, not only the risky ones. Slower, but nothing happens without you." />

@@ -90,3 +90,36 @@ test('note image bucket is private and only the owner can add or read images', a
     assert.equal((await db.query('select * from storage.objects')).rows.length, 0);
   } finally { await db.close(); }
 });
+
+test('older notes with inline images are moved to the image store one at a time, and stop when cancelled', async () => {
+  const { migrateInlineNoteImages } = await server.ssrLoadModule('/src/services/noteImageStore.ts');
+  const inline = 'data:image/png;base64,AAAA';
+  const notes = [
+    { id: 'plain', content: 'No images here' },
+    { id: 'old-1', content: `Before ![chart](${inline}) after` },
+    { id: 'empty' },
+    { id: 'old-2', content: `![a](${inline})` },
+  ];
+  const applied = [], seen = [];
+  let idles = 0;
+  const run = {
+    externalize: async content => { seen.push(content); return content.split(inline).join('synapse-img:0123456789abcdef0123456789abcdef.png'); },
+    apply: (id, from, to) => applied.push({ id, from, to }),
+    idle: async () => { idles++; },
+    cancelled: () => false,
+  };
+  assert.equal(await migrateInlineNoteImages(notes, run), 2);
+  assert.equal(idles, 2, 'one idle wait per note that needs work; notes without images cost nothing');
+  assert.deepEqual(applied.map(a => a.id), ['old-1', 'old-2']);
+  assert.equal(applied[0].from, notes[1].content, 'the original text is passed so a note edited meanwhile is left alone');
+  assert.match(applied[0].to, /^Before !\[chart\]\(synapse-img:[a-f0-9]{32}\.png\) after$/);
+
+  // An image that could not be stored stays inline, and the note is not rewritten.
+  applied.length = 0;
+  assert.equal(await migrateInlineNoteImages(notes, { ...run, externalize: async content => content }), 0);
+  assert.deepEqual(applied, []);
+
+  // Closing or switching accounts stops the pass before the next note.
+  let stop = false;
+  assert.equal(await migrateInlineNoteImages(notes, { ...run, apply: (...args) => { run.apply(...args); stop = true; }, cancelled: () => stop }), 1);
+});

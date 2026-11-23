@@ -62,7 +62,7 @@ export async function loadCloud(): Promise<{ state: Partial<BrainState>; session
   saved = data.state ? JSON.stringify(data.state) : "";
   dirty = false;
   report("Synced");
-  return { state: data.state || { tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [] },
+  return { state: data.state || { tasks: [], habits: [], journalEntries: [], knowledgeItems: [], chatHistory: [] },
     session: { isGuest: false, currentUser: { id: data.user.id, email: data.user.email, name: data.user.email.split("@")[0], provider: "google", createdAt: "", lastLoginAt: "" } } };
 }
 export async function cloudSession(): Promise<AuthSession> {

@@ -114,9 +114,9 @@ test('new cards parse strictly and fall back to readable text', () => {
 });
 test('records cards show live record details, never the model\'s, and skip unknown IDs', () => {
   const live = { ...state(), tasks: [{ id: 't1', title: 'Real title', section: 'Academic', dueDate: '2026-11-12', priority: 'high', status: 'not_started', completed: false }],
-    goals: [{ id: 'g1', title: 'Internship', progress: 40, status: 'in_progress', milestones: [] }] };
-  const html = render(fenced({ type: 'records', title: 'Focus', items: [{ ref: 'task:t1', note: 'Worth 15%' }, { ref: 'goal:g1' }, { ref: 'task:gone' }] }), { state: live });
-  assert.match(html, /Real title/); assert.match(html, /Worth 15%/); assert.match(html, /40%/); assert.match(html, /Mark Real title done/);
+    habits: [{ id: 'h1', name: 'Run', frequency: 'daily', streak: 4, bestStreak: 4, history: {} }] };
+  const html = render(fenced({ type: 'records', title: 'Focus', items: [{ ref: 'task:t1', note: 'Worth 15%' }, { ref: 'habit:h1' }, { ref: 'task:gone' }] }), { state: live });
+  assert.match(html, /Real title/); assert.match(html, /Worth 15%/); assert.match(html, /4-day streak/); assert.match(html, /Mark Real title done/);
   assert.equal((html.match(/<li/g) || []).length, 2);
 });
 test('cards can only tick tasks and mark habits, through the normal validation', () => {

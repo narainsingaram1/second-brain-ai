@@ -2,7 +2,7 @@
 // Tests pass the PreferencesConflict class from the module instance they loaded.
 
 /** The same transport contract as supabaseRecordTransport, over PGlite as the signed-in user. */
-export function pgTransport(db, sent, PreferencesConflict = Error) {
+export function pgTransport(db, sent, PreferencesConflict = Error, sentPrefs) {
   const rows = r => r.rows.map(x => ({ ...x, revision: Number(x.revision), seq: Number(x.seq), ord: Number(x.ord) }));
   return {
     async migrate() { await db.query('select public.migrate_brain_to_records()'); return 'records'; },
@@ -14,6 +14,11 @@ export function pgTransport(db, sent, PreferencesConflict = Error) {
         : rows(await db.query('select collection, id, data, revision, seq, ord, deleted from public.brain_records where seq > $1 order by seq', [since]));
     },
     async saveRecords(changes) { sent?.push(changes); return (await db.query('select public.save_records($1::jsonb) as r', [JSON.stringify(changes)])).rows[0].r; },
+    async savePreferencesPatch(changes, removed, revision) {
+      sentPrefs?.push({ changes, removed });
+      try { return Number((await db.query('select public.save_brain_prefs_patch($1::jsonb, $2::text[], $3) as r', [JSON.stringify(changes), removed, revision])).rows[0].r); }
+      catch (error) { if (error.code === '40001') throw new PreferencesConflict(); throw error; }
+    },
     async savePreferences(state, revision) {
       try { return Number((await db.query('select public.save_brain_prefs($1::jsonb, $2) as r', [JSON.stringify(state), revision])).rows[0].r); }
       catch (error) { if (error.code === '40001') throw new PreferencesConflict(); throw error; }

@@ -17,7 +17,6 @@ const titles: Record<string, string> = {
   planner: "Daily planner",
   routines: "Routines",
   knowledge: "Notes",
-  goals: "Goals",
   habits: "Habits",
   journal: "Journal",
   copilot: "Ask Iris",

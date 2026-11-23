@@ -132,15 +132,57 @@ const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
   reader.readAsDataURL(blob);
 });
 
-/** Moves inline `data:image/...` images in Markdown into the store, returning the rewritten text. */
-export async function externalizeInlineImages(markdown: string): Promise<string> {
+/** Stores an image and resolves once the cloud has its copy too, so other devices can show the reference. */
+async function storeNoteImageDurably(blob: Blob): Promise<string> {
+  const ref = await storeNoteImage(blob);
+  if (!managedAuthEnabled) return ref;
+  const key = ref.slice(IMAGE_REF.length);
+  if (!(await upload(key, blob).catch(() => false))) throw new Error("The image is not in the cloud yet.");
+  await idb("pending", "readwrite", s => s.delete(key)).catch(() => {});
+  return ref;
+}
+
+/**
+ * Moves inline `data:image/...` images in Markdown into the store, returning the rewritten text. With `durable`,
+ * an image is only replaced once its cloud copy exists (hosted accounts); otherwise it stays inline for now.
+ */
+export async function externalizeInlineImages(markdown: string, { durable = false } = {}): Promise<string> {
   const found = markdown.match(/data:image\/(?:png|jpe?g|webp|gif);base64,[a-z0-9+/=]+/gi);
   if (!found) return markdown;
   let out = markdown;
   for (const dataUrl of new Set(found)) {
-    try { out = out.split(dataUrl).join(await storeNoteImage(await dataUrlToBlob(dataUrl))); } catch { /* Leave that one inline. */ }
+    const blob = await dataUrlToBlob(dataUrl).catch(() => null);
+    if (!blob) continue;
+    try { out = out.split(dataUrl).join(await (durable ? storeNoteImageDurably(blob) : storeNoteImage(blob))); } catch { /* Leave that one inline. */ }
   }
   return out;
+}
+
+export interface InlineImageMigration {
+  /** Rewrites one note's text with its images moved to the store. */
+  externalize: (content: string) => Promise<string>;
+  /** Saves the rewritten text, unless the note changed meanwhile (then the editor's own pass handles it). */
+  apply: (id: string, from: string, to: string) => void;
+  /** Resolves when the app is idle, so the migration never competes with typing or rendering. */
+  idle: () => Promise<void>;
+  cancelled: () => boolean;
+}
+/**
+ * Notes saved before images moved out of note text still carry them inline as base64, and those bytes go into
+ * every save, sync and assistant read. Opening a note in the editor moves them; this does the same for notes
+ * nobody has opened since, one note per idle moment. Returns how many notes were rewritten.
+ */
+export async function migrateInlineNoteImages(notes: ReadonlyArray<{ id: string; content?: string }>, run: InlineImageMigration): Promise<number> {
+  let rewritten = 0;
+  for (const note of notes) {
+    if (!note.content || !note.content.includes("data:image/")) continue;
+    await run.idle();
+    if (run.cancelled()) break;
+    const next = await run.externalize(note.content);
+    if (run.cancelled()) break;
+    if (next !== note.content) { run.apply(note.id, note.content, next); rewritten++; }
+  }
+  return rewritten;
 }
 
 /** Replaces references with inline data, for Markdown that leaves the app (export, copy). */

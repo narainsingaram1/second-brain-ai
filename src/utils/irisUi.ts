@@ -38,7 +38,7 @@ const validDate = (value: unknown) => {
 };
 const validTime = (value: unknown) => typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : undefined;
 
-const REF_TYPES = ["task", "goal", "habit", "event", "knowledge", "tracker", "course", "document", "deck", "quiz"];
+const REF_TYPES = ["task", "habit", "event", "knowledge", "tracker", "course", "document", "deck", "quiz"];
 /** "task:ID" → a reference the card resolves against live records. */
 function recordRef(value: unknown): RecordRef | undefined {
   const match = typeof value === "string" ? /^([a-z]+):(\S{1,120})$/.exec(value.trim()) : null;

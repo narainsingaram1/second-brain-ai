@@ -135,15 +135,14 @@ test("a batch skips forgotten topics without losing the rest; auto memories make
 test("memories link to records and each other, and forgetting removes the connection", async () => {
   const s = withEntries([entry("old", "lab partner", "Has a lab partner in data structures.")], {
     study: { courses: [{ id: "c1", workspaceId: "w", code: "CS 1332", name: "Data Structures & Algorithms" }], folders: [], documents: [], decks: [], quizzes: [] },
-    goals: [{ id: "g1", title: "Land a summer internship", status: "in_progress", milestones: [] }],
-    tasks: [{ id: "t1", title: "Work", status: "todo", completed: false }],
+    tasks: [{ id: "t1", title: "Work", status: "todo", completed: false }, { id: "t2", title: "Land a summer internship", status: "todo", completed: false }],
   });
   const changes = await learn(s, "Priya is my partner in cs1332 and I need that summer internship",
     candidate("person: priya", "Priya is their CS1332 partner.", "Priya is my partner in cs1332", { category: "person", entities: ["Priya"], links: ["m1"] }),
     candidate("internship goal", "Wants to land a summer internship with Priya's help.", "I need that summer internship", { category: "goal", entities: ["Priya"] }));
   const [priya, goal] = changes;
   assert.deepEqual(priya.entry.records, [{ type: "course", id: "c1" }], "Course codes match however they are spaced");
-  assert.ok(goal.entry.records.some(r => r.type === "goal" && r.id === "g1"));
+  assert.ok(goal.entry.records.some(r => r.type === "task" && r.id === "t2"));
   assert.ok(!goal.entry.records.some(r => r.id === "t1"), "A one-word title is too easily a coincidence");
   assert.ok(priya.entry.related.includes(goal.entry.id), "Facts learned together about the same person connect");
   let m = apply(s.agentMemory, changes);

@@ -10,7 +10,6 @@ import {
   FileText,
   Flame,
   MapPin,
-  Target,
 } from "lucide-react";
 import type { BrainState } from "../types";
 import { findRecord, formatRecordDate, referenceTitle } from "../utils/chatPresentation";
@@ -286,65 +285,6 @@ export function RecordUiPreview({
             </span>
             <button type="button" className="record-open-link-btn" onClick={handleGoTo}>
               <span>View in Tasks Matrix</span>
-              <ArrowUpRight size={12} />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- 3. GOAL ---
-  if (type === "goal") {
-    const goal = record as any;
-    const progress = typeof goal.progress === "number" ? goal.progress : 0;
-    const milestones = goal.milestones || [];
-
-    return (
-      <div className={`record-ui-preview record-ui-goal ${compact ? "is-compact" : ""}`}>
-        <div className="record-ui-header-bar">
-          <div className="record-ui-location-badge">
-            <span className="record-ui-loc-icon">📍</span>
-            <span className="record-ui-loc-text">{location.breadcrumb}</span>
-          </div>
-          <button type="button" className="record-ui-jump-btn" onClick={handleGoTo}>
-            <span>Go to in application</span>
-            <ArrowUpRight size={13} />
-          </button>
-        </div>
-
-        <div className="record-goal-card-simulation">
-          <div className="flex items-center gap-2">
-            <Target size={16} className="text-indigo-500 shrink-0" />
-            <h4 className="font-semibold text-sm text-[var(--workspace-ink)]">{goal.title}</h4>
-            <span className="record-status-pill ml-auto capitalize">{goal.status || "in_progress"}</span>
-          </div>
-
-          {goal.why && <p className="text-xs text-muted mt-1">{goal.why}</p>}
-
-          <div className="record-progress-box mt-3">
-            <div className="flex justify-between text-xs text-muted mb-1">
-              <span>Progress</span>
-              <span>{progress}%</span>
-            </div>
-            <div className="record-progress-track">
-              <div className="record-progress-fill" style={{ width: `${progress}%` }} />
-            </div>
-          </div>
-
-          {milestones.length > 0 && (
-            <div className="record-milestones-preview mt-2">
-              <span className="text-xs text-muted font-medium">{milestones.length} Milestones</span>
-            </div>
-          )}
-
-          <div className="record-ui-footer-action">
-            <span className="record-added-indicator">
-              <Check size={12} />
-              <span>Added to Life Goals</span>
-            </span>
-            <button type="button" className="record-open-link-btn" onClick={handleGoTo}>
-              <span>View in Goals & Vision</span>
               <ArrowUpRight size={12} />
             </button>
           </div>
