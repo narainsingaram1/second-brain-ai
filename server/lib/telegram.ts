@@ -57,7 +57,7 @@ export async function sha256Hex(text: string): Promise<string> {
 /** Markdown the app would render, flattened for a plain text message. */
 export function plainText(markdown: string): string {
   return markdown
-    .replace(/\s*\[(?:task|goal|habit|journal|knowledge|tracker|event|course|document|deck|quiz|workspace|folder):[^\]\s]+\]/g, "")
+    .replace(/\s*\[(?:task|habit|journal|knowledge|tracker|event|course|document|deck|quiz|workspace|folder):[^\]\s]+\]/g, "")
     .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "$1 ($2)")
     .replace(/(\*\*|__)(.+?)\1/g, "$2")
     .replace(/`([^`\n]+)`/g, "$1")

@@ -274,6 +274,17 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 			if (error) throw fail("save your changes");
 			return data;
 		},
+		async savePreferencesPatch(changes, removed, revision) {
+			const { data, error } = await client.rpc("save_brain_prefs_patch", {
+				p_changes: changes,
+				p_removed: removed,
+				p_revision: revision
+			});
+			if (error?.code === "PGRST202" || error?.code === "42883") return "unsupported";
+			if (error?.code === "40001") throw new PreferencesConflict("Preferences changed on another device.");
+			if (error) throw fail("save your preferences");
+			return Number(data);
+		},
 		async savePreferences(state, revision) {
 			const { data, error } = await client.rpc("save_brain_prefs", {
 				p_state: state,
@@ -286,6 +297,10 @@ function supabaseRecordTransport(userId, client = getSupabase()) {
 	};
 }
 // server/lib/store.ts
+/** Runs `work` over `items`, at most `limit` at a time, and waits for all of them; the first error is rethrown. */
+async function inBatches(items, limit, work) {
+	for (let i = 0; i < items.length; i += limit) await Promise.all(items.slice(i, i + limit).map(work));
+}
 const EMBEDDING_KEYS_PER_QUERY = 150;
 const EMBEDDING_QUERIES_AT_ONCE = 4;
 /** Maps a Postgres error from one of our RPCs to a message the user can act on. */
@@ -425,11 +440,16 @@ function supabaseStore(userId, client) {
 			return found;
 		},
 		async putEmbeddings(entries) {
-			for (let i = 0; i < entries.length; i += 100) await client.from("passage_embeddings").upsert(entries.slice(i, i + 100).map(([key, vector]) => ({
-				user_id: userId,
-				key,
-				vector
-			})));
+			const batches = [];
+			for (let i = 0; i < entries.length; i += 100) batches.push(entries.slice(i, i + 100));
+			await inBatches(batches, EMBEDDING_QUERIES_AT_ONCE, async (batch) => {
+				const { error } = await client.from("passage_embeddings").upsert(batch.map(([key, vector]) => ({
+					user_id: userId,
+					key,
+					vector
+				})));
+				if (error) console.warn("[store] Could not cache passage embeddings:", error.message);
+			});
 		},
 		async getConnection(provider) {
 			const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
@@ -558,11 +578,13 @@ function supabaseStore(userId, client) {
 		},
 		async documentTexts(ids) {
 			const texts = /* @__PURE__ */ new Map();
-			for (let i = 0; i < ids.length; i += 50) {
-				const { data, error } = await client.from("study_documents").select("id,content").eq("user_id", userId).in("id", ids.slice(i, i + 50));
+			const batches = [];
+			for (let i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
+			await inBatches(batches, EMBEDDING_QUERIES_AT_ONCE, async (batch) => {
+				const { data, error } = await client.from("study_documents").select("id,content").eq("user_id", userId).in("id", batch);
 				if (error) rpcError(error, "Could not load course documents.");
 				for (const row of data || []) texts.set(row.id, row.content);
-			}
+			});
 			return texts;
 		}
 	};

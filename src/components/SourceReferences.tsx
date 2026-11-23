@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowUpRight, CalendarClock, CheckSquare, FileText, Globe, Target, X } from "lucide-react";
+import { ArrowUpRight, CalendarClock, CheckSquare, FileText, Globe, X } from "lucide-react";
 import { AIMessage, BrainState } from "../types";
 import { ChatSource, findRecord, referenceTitle } from "../utils/chatPresentation";
 import { MarkdownView } from "./MarkdownView";
@@ -8,7 +8,7 @@ import { RecordUiPreview } from "./RecordUiPreview";
 import { navigateToRecord } from "../utils/recordNavigation";
 
 export function RecordIcon({ type, className = "h-3.5 w-3.5 shrink-0" }: { type: string; className?: string }) {
-  const Icon = type === "task" ? CheckSquare : type === "goal" ? Target : type === "event" ? CalendarClock : FileText;
+  const Icon = type === "task" ? CheckSquare : type === "event" ? CalendarClock : FileText;
   return <Icon className={className} aria-hidden="true" />;
 }
 export function RecordPreview({ source, state, onClose }: { source: ChatSource; state?: BrainState | null; onClose: () => void }) {
@@ -82,7 +82,6 @@ export function RecordPreview({ source, state, onClose }: { source: ChatSource; 
               {content.length > 16000 && !expanded && <button type="button" className="text-sm text-muted mt-3" onClick={() => setExpanded(true)}>Read full note</button>}
             </div>
           )}
-          {"milestones" in record && record.milestones.length > 0 && <div className="mt-5"><h3 className="text-sm font-semibold mb-3">Milestones</h3><ul className="space-y-3">{record.milestones.map(m => <li key={m.id} className="text-sm flex gap-2"><span className={m.completed ? "text-[var(--workspace-success)]" : "text-slate-400"}>{m.completed ? "✓" : "○"}</span><span>{m.title}</span></li>)}</ul></div>}
           {"subtasks" in record && !!record.subtasks?.length && <ul className="mt-5 space-y-3">{record.subtasks.map(s => <li key={s.id} className="text-sm flex gap-2"><span>{s.completed ? "✓" : "○"}</span>{s.title}</li>)}</ul>}
         </>}
       </div>

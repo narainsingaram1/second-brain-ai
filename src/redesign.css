@@ -481,7 +481,7 @@ kbd {
 }
 .dashboard-create button svg { color: var(--workspace-muted); }
 .dashboard-create button:hover { border-color: var(--workspace-line-strong); background: var(--workspace-hover); }
-.dashboard-middle, .dashboard-lower { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; }
+.dashboard-middle { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; }
 .dashboard-lower { margin-top: 16px; }
 .workspace-card {
   min-width: 0;
@@ -618,7 +618,7 @@ kbd {
 .focus-start { width: 100%; margin-top: auto; }
 .focus-complete { color: var(--workspace-success); font-size: 13px; margin-top: 8px; text-align: center; }
 
-/* Notes and goals */
+/* Notes */
 .dashboard-note {
   width: 100%;
   display: flex;
@@ -634,14 +634,6 @@ kbd {
 .dashboard-note small { display: block; font-size: 13px; color: var(--workspace-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dashboard-note .date-stamp { text-align: right; }
 .dashboard-note:hover strong { text-decoration: underline; text-decoration-color: var(--workspace-line-strong); text-underline-offset: 4px; }
-.dashboard-goal { display: block; width: 100%; text-align: left; padding: 12px 0; border-top: 1px solid var(--workspace-line); }
-.dashboard-goal > span:first-child { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; }
-.dashboard-goal strong { font-size: 14px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dashboard-goal small { font-size: 13px; color: var(--workspace-muted); }
-.dashboard-goal small.figure { font-size: 12px; }
-.progress-track { display: block; height: 4px; border-radius: 2px; background: var(--workspace-raised); margin: 8px 0; overflow: hidden; }
-.progress-track i { display: block; height: 100%; border-radius: inherit; background: var(--workspace-accent-strong); }
-.dark .progress-track i { background: var(--workspace-accent); }
 .knowledge-overview { margin-top: 16px; }
 .knowledge-shortcuts {
   display: grid;
@@ -828,7 +820,7 @@ kbd {
   .ask-caption > span { display: none; }
   .dashboard-create { flex-wrap: wrap; margin-block: 16px; }
   .dashboard-create button { flex: 1 1 calc(50% - 4px); }
-  .dashboard-middle, .dashboard-lower { grid-template-columns: minmax(0, 1fr); }
+  .dashboard-middle { grid-template-columns: minmax(0, 1fr); }
   .knowledge-shortcuts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .knowledge-shortcuts > button:nth-child(3) { border-left: 0; }
   .knowledge-shortcuts > button:nth-child(n + 3) { border-top: 1px solid var(--workspace-line); }
@@ -889,23 +881,6 @@ kbd {
 .workspace-dialog textarea::placeholder {
   color: var(--workspace-muted);
   opacity: 0.8;
-}
-@media (max-width: 767px) {
-  .goal-filter-controls {
-    flex-wrap: wrap;
-    min-width: 0;
-  }
-  .goal-filter-controls > div {
-    width: 100%;
-    min-width: 0;
-  }
-  .goal-filter-controls input {
-    width: 100%;
-    min-width: 0;
-  }
-  .goal-filter-controls select {
-    max-width: 100%;
-  }
 }
 
 /* System layer: legacy utilities across older screens resolve to the design system. */

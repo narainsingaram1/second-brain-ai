@@ -14,7 +14,7 @@ export function AppSkeleton() {
           setActiveTab={noop}
           onNewChat={noop}
           onToggleCollapse={noop}
-          counts={{ tasks: 0, notes: 0, goals: 0 }}
+          counts={{ tasks: 0, notes: 0 }}
           collapsed={window.matchMedia("(max-width: 767px)").matches}
         />
       </div>

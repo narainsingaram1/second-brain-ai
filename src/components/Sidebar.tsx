@@ -12,7 +12,6 @@ import {
   Layers,
   Plus,
   Settings2,
-  Target,
   Briefcase,
   FolderOpen,
   GraduationCap,
@@ -27,7 +26,7 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   onNewChat: () => void;
   chatBusy?: boolean;
-  counts: { tasks: number; notes: number; goals: number };
+  counts: { tasks: number; notes: number };
   workspaces?: Workspace[];
 }
 const groups = [
@@ -45,7 +44,6 @@ const groups = [
   {
     label: "Grow",
     items: [
-      { id: "goals", label: "Goals", icon: Target },
       { id: "habits", label: "Habits", icon: Flame },
       { id: "journal", label: "Journal", icon: BookOpen },
     ],
@@ -107,9 +105,7 @@ export function Sidebar({
                   ? counts.tasks
                   : item.id === "knowledge"
                     ? counts.notes
-                    : item.id === "goals"
-                      ? counts.goals
-                      : undefined;
+                    : undefined;
               return (
                 <button
                   key={item.id}

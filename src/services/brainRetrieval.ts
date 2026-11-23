@@ -8,7 +8,7 @@ import { cachedDocumentText } from "./studyDocuments";
 import { providerFetch } from "./providerTransport";
 import { hasInlineImages, hideNoteImages } from "../utils/noteImages";
 
-export type RecordType = "task" | "goal" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health" | "workout" | "workout_plan";
+export type RecordType = "task" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health" | "workout" | "workout_plan";
 
 function trackerDate(item: TrackerItem): string | undefined {
   if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
@@ -62,8 +62,6 @@ export function recordProse(type: RecordType, d: any): string {
   switch (type) {
     case "task": return lines(`Task: ${d.title}`, `${d.status === "completed" || d.completed ? "Completed" : d.status === "in_progress" ? "In progress" : "Not started"}, ${d.priority} priority, ${d.section}${d.subsection ? ` / ${d.subsection}` : ""}${d.dueDate ? `, due ${d.dueDate}${d.dueTime ? ` at ${formatTime(d.dueTime)}` : ""}` : ", no due date"}`,
       list(d.tags) && `Tags: ${list(d.tags)}`, d.description && `Details: ${d.description}`, checklist(d.subtasks) && `Subtasks: ${checklist(d.subtasks)}`);
-    case "goal": return lines(`Goal: ${d.title}`, `${d.sector} goal, ${d.timeframe}, ${d.status}, ${d.progress ?? 0}% done${d.targetDate ? `, target ${d.targetDate}` : ""}`,
-      d.metrics && `Metric: ${d.metrics}`, d.why && `Why: ${d.why}`, d.description && `Details: ${d.description}`, checklist(d.milestones) && `Milestones: ${checklist(d.milestones)}`);
     case "habit": return lines(`Habit: ${d.name}`, `${d.frequency}${d.timeOfDay ? `, ${d.timeOfDay}` : ""}, ${d.streak}-day streak (best ${d.bestStreak})`, d.description && `Details: ${d.description}`);
     case "journal": return lines(`Journal: ${d.title} (${d.date}), mood ${d.mood}`, list(d.wins) && `Wins: ${list(d.wins)}`, list(d.challenges) && `Challenges: ${list(d.challenges)}`,
       plain(d.content), list(d.tags) && `Tags: ${list(d.tags)}`, d.aiReflection && `Reflection: ${d.aiReflection}`);
@@ -164,7 +162,6 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
   const want = (t: RecordType) => !type || type === t;
   return ([
     ...(want("task") ? state.tasks : []).map(data => ({ type: "task" as const, title: data.title, date: data.dueDate, data, source: data as unknown })),
-    ...(want("goal") ? state.goals : []).map(data => ({ type: "goal" as const, title: data.title, date: data.targetDate, data, source: data as unknown })),
     ...(want("habit") ? state.habits : []).map(data => ({ type: "habit" as const, title: data.name, date: undefined, data, source: data as unknown })),
     ...(want("journal") ? state.journalEntries : []).map(data => ({ type: "journal" as const, title: data.title, date: data.date, data, source: data as unknown })),
     // Inline image data would drown the model; it sees `note-image:N` tokens that update_note restores.

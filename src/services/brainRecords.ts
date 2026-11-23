@@ -5,14 +5,14 @@ import type { BrainState, StudyState } from "../types";
  * server agent, so both read and write records the same way. Pure: no I/O.
  */
 export const RECORD_COLLECTIONS = [
-  "tasks", "goals", "habits", "journalEntries", "knowledgeItems", "events", "trackerItems", "workspaces", "healthDays",
+  "tasks", "habits", "journalEntries", "knowledgeItems", "events", "trackerItems", "workspaces", "healthDays",
   "workouts", "workoutPlans",
   "noteFolders", "routines", "conversations", "study.courses", "study.folders", "study.documents", "study.decks", "study.quizzes", "memory",
 ] as const;
 export type RecordCollection = typeof RECORD_COLLECTIONS[number];
 
 /** Lists the app shows newest first: new records go to the front. Matches newest_first_collections() in SQL. */
-export const NEWEST_FIRST = new Set<RecordCollection>(["tasks", "goals", "journalEntries", "knowledgeItems", "conversations"]);
+export const NEWEST_FIRST = new Set<RecordCollection>(["tasks", "journalEntries", "knowledgeItems", "conversations"]);
 
 /** Small fields that stay in the `brains` row. Matches preference_keys() in SQL. */
 export const PREFERENCE_KEYS = ["chatHistory", "sections", "subsections", "conversationId", "selectedModel", "theme",

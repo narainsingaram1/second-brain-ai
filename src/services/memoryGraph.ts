@@ -6,7 +6,7 @@ import { studyOf } from "../utils/study";
  * run on every turn. Links store only a type and ID: titles are looked up when needed, so a renamed
  * record never leaves a stale name in memory and a deleted one simply stops appearing.
  */
-export const MEMORY_RECORD_TYPES = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz"] as const;
+export const MEMORY_RECORD_TYPES = ["task", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz"] as const;
 export type MemoryRecordType = (typeof MEMORY_RECORD_TYPES)[number];
 export interface MemoryRecordLink { type: MemoryRecordType; id: string }
 export interface CatalogRecord extends MemoryRecordLink { title: string }
@@ -27,7 +27,6 @@ export function recordCatalog(state: BrainState): CatalogRecord[] {
       ...(c.code ? [{ type: "course" as const, id: c.id, title: c.code }] : []),
       { type: "course" as const, id: c.id, title: c.name },
     ]),
-    ...list(state.goals).map(g => ({ type: "goal" as const, id: g.id, title: g.title })),
     ...open.slice(0, 200).map(t => ({ type: "task" as const, id: t.id, title: t.title })),
     ...list(state.habits).map(h => ({ type: "habit" as const, id: h.id, title: h.name })),
     ...list(state.knowledgeItems).slice(0, 300).map(k => ({ type: "knowledge" as const, id: k.id, title: k.title || k.subject })),

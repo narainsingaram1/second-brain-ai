@@ -45,7 +45,7 @@ function Fixture() {
         collapsed={collapsed}
         onToggleCollapse={() => setCollapsed(!collapsed)}
         onNewChat={() => {}}
-        counts={{ tasks: 0, notes: 0, goals: 0 }}
+        counts={{ tasks: 0, notes: 0 }}
         workspaces={state.workspaces}
       />
       <div className="flex flex-col min-w-0 min-h-0 flex-1">

@@ -16,7 +16,6 @@ import {
   Flame,
   Folder,
   GraduationCap,
-  Target,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -27,7 +26,6 @@ import { navigateToRecord } from "../utils/recordNavigation";
 
 const TYPE_ICONS: Record<string, LucideIcon> = {
   task: CheckSquare,
-  goal: Target,
   habit: Flame,
   journal: BookOpen,
   knowledge: FileText,

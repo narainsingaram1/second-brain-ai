@@ -3,6 +3,11 @@ import type { RecordTransport } from "../../src/services/recordSync";
 import { supabaseRecordTransport } from "../../src/services/supabaseBrain";
 import { HttpError } from "./http";
 
+/** Runs `work` over `items`, at most `limit` at a time, and waits for all of them; the first error is rethrown. */
+async function inBatches<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
+  for (let i = 0; i < items.length; i += limit) await Promise.all(items.slice(i, i + limit).map(work));
+}
+
 export type ActionTier = "internal" | "external_reversible" | "external_irreversible";
 export type ActionStatus = "proposed" | "approved" | "rejected" | "executing" | "executed" | "failed";
 export interface ActionRow {
@@ -154,8 +159,14 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
       return found;
     },
     async putEmbeddings(entries) {
-      for (let i = 0; i < entries.length; i += 100)
-        await client.from("passage_embeddings").upsert(entries.slice(i, i + 100).map(([key, vector]) => ({ user_id: userId, key, vector })));
+      const batches: Array<Array<[string, number[]]>> = [];
+      for (let i = 0; i < entries.length; i += 100) batches.push(entries.slice(i, i + 100));
+      // A few batches at a time instead of one after another. A failed write is only a cache miss (the passage is
+      // embedded again on a later search), so it is logged rather than failing a search that already has vectors.
+      await inBatches(batches, EMBEDDING_QUERIES_AT_ONCE, async batch => {
+        const { error } = await client.from("passage_embeddings").upsert(batch.map(([key, vector]) => ({ user_id: userId, key, vector })));
+        if (error) console.warn("[store] Could not cache passage embeddings:", error.message);
+      });
     },
     async getConnection(provider) {
       const { data, error } = await client.from("connections").select("*").eq("user_id", userId).eq("provider", provider).maybeSingle();
@@ -230,11 +241,13 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
     },
     async documentTexts(ids) {
       const texts = new Map<string, string>();
-      for (let i = 0; i < ids.length; i += 50) {
-        const { data, error } = await client.from("study_documents").select("id,content").eq("user_id", userId).in("id", ids.slice(i, i + 50));
+      const batches: string[][] = [];
+      for (let i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50));
+      await inBatches(batches, EMBEDDING_QUERIES_AT_ONCE, async batch => {
+        const { data, error } = await client.from("study_documents").select("id,content").eq("user_id", userId).in("id", batch);
         if (error) rpcError(error, "Could not load course documents.");
         for (const row of data || []) texts.set(row.id, row.content);
-      }
+      });
       return texts;
     },
   };

@@ -1,6 +1,6 @@
 import "../memory.css";
 import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, PanelLeft, Paperclip, Plus, Quote, RefreshCw, SlidersHorizontal, Square, Target, type LucideIcon } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, PanelLeft, Paperclip, Plus, Quote, RefreshCw, SlidersHorizontal, Square, type LucideIcon } from "lucide-react";
 import { googleStatus, serverFeatures } from "../services/serverApi";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
@@ -27,7 +27,7 @@ interface ChatWorkspaceProps {
   compact?: boolean;
   externalError?: string;
 }
-const STARTER_ICONS: Record<StarterKind, LucideIcon> = { task: CheckSquare, class: GraduationCap, goal: Target, career: Briefcase, habit: Flame, calendar: CalendarDays, email: Mail, idea: Lightbulb };
+const STARTER_ICONS: Record<StarterKind, LucideIcon> = { task: CheckSquare, class: GraduationCap, career: Briefcase, habit: Flame, calendar: CalendarDays, email: Mail, idea: Lightbulb };
 export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpenSettings, compact = false, externalError }: ChatWorkspaceProps) {
   const [input, setInput] = useState("");
   const [error, setError] = useState("");
@@ -325,7 +325,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
           </> : <div className="chat-welcome-inner">
             <span className="chat-welcome-mark" aria-hidden="true" />
             <h1>Ask Iris</h1>
-            <p className="chat-welcome-subtitle">Iris has read your tasks, notes, goals, journal and course materials, and can change them when you ask</p>
+            <p className="chat-welcome-subtitle">Iris has read your tasks, notes, journal and course materials, and can change them when you ask</p>
             {composer}
             <section className="chat-starters" aria-label="Conversation starters">
               <div className="chat-starters-head">

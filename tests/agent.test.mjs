@@ -614,18 +614,11 @@ test('update_task can replace a task description', () => {
   assert.equal(mutation.record.title, original.title); assert.equal(mutation.record.dueDate, original.dueDate);
 });
 
-test('new mutation tools validate targets and apply goal, note, habit, tracker and delete changes', () => {
+test('new mutation tools validate targets and apply note, habit, tracker and delete changes', () => {
   const s = state();
-  s.goals = [{ id: 'g1', title: 'Land internship', sector: 'career', timeframe: 'yearly', progress: 0, status: 'not_started', createdAt: '2026-01-01',
-    milestones: [{ id: 'm1', title: 'Polish resume', completed: false }, { id: 'm2', title: 'Apply to 20 roles', completed: false }] }];
   s.knowledgeItems = [{ id: 'n1', subject: 'Graphs', title: 'Graphs', content: '# Graphs\n\nBFS uses a queue.', summary: '', startDate: '2026-10-01', endDate: '2026-10-01', status: 'Draft' }];
   s.trackerItems = [];
   const parse = (name, args) => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === name).function.parameters);
-
-  const goal = prepareMutation('update_goal', parse('update_goal', { goalId: 'g1', completeMilestones: ['polish resume'], addMilestones: ['Mock interviews'] }), s);
-  assert.deepEqual(goal.record.milestones.map(m => m.completed), [true, false, false]);
-  assert.equal(goal.record.progress, 33); assert.equal(goal.record.status, 'in_progress');
-  assert.throws(() => prepareMutation('update_goal', { goalId: 'g1', completeMilestones: ['Nonexistent'] }, s), /Milestone not found/);
 
   const note = prepareMutation('update_note', parse('update_note', { noteId: 'n1', appendContent: 'DFS uses a stack.' }), s);
   assert.equal(note.record.content, '# Graphs\n\nBFS uses a queue.\n\nDFS uses a stack.');
@@ -1081,15 +1074,8 @@ test('tabs still open from earlier work are in the next message\'s context, so i
   assert.match(JSON.stringify(last.content), /tab 7: Apply/);
 });
 
-test('create_goal accepts the fields the goal form has and explains rejected arguments', () => {
-  const s = state();
-  const parse = args => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === 'create_goal').function.parameters);
-  const goal = prepareMutation('create_goal', parse({ title: 'BS/MS in Computer Science at Georgia Tech', sector: 'academics', timeframe: 'long_term',
-    description: 'Five-year BS/MS track', status: 'in_progress', targetDate: '2027-03-01', milestones: ['Research requirements', 'Request recommendation letters'] }), s).record;
-  assert.equal(goal.description, 'Five-year BS/MS track'); assert.equal(goal.status, 'in_progress'); assert.equal(goal.milestones.length, 2);
-  assert.throws(() => prepareMutation('create_goal', parse({ title: 'X', sector: 'academics', timeframe: 'yearly', targetDate: 'Spring 2027' }), s), /Invalid calendar date/);
-  assert.throws(() => parse({ title: 'X', sector: 'academics', timeframe: 'yearly', priority: 'high' }), /Unknown arguments\.priority\. Allowed fields: .*description/);
-  assert.throws(() => parse({ title: 'X', sector: 'education', timeframe: 'yearly' }), /Use one of: career, academics/);
-  const moved = prepareMutation('update_goal', { goalId: goal.id, sector: 'career', timeframe: 'yearly', newDescription: 'Changed' }, { ...s, goals: [goal] }).record;
-  assert.equal(moved.sector, 'career'); assert.equal(moved.timeframe, 'yearly'); assert.equal(moved.description, 'Changed');
+test('tool arguments explain rejected fields and enum values', () => {
+  const parse = args => parseToolArguments(JSON.stringify(args), BRAIN_TOOLS.find(t => t.function.name === 'create_habit').function.parameters);
+  assert.throws(() => parse({ name: 'X', frequency: 'daily', priority: 'high' }), /Unknown arguments\.priority\. Allowed fields: .*frequency/);
+  assert.throws(() => parse({ name: 'X', frequency: 'hourly' }), /Use one of: daily, weekdays/);
 });

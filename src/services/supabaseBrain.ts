@@ -19,6 +19,8 @@ export async function readManagedBrain(knownRevision?: number) {
   return { user, state: data?.state as Partial<BrainState> | null, revision: Number(data?.revision || 0) };
 }
 export async function writeManagedBrain(state: unknown, revision: number, ownerId: string, client: SupabaseClient<any> = getSupabase()) {
+  // Snapshot databases still require the goals array from when the app had goals.
+  if (state && typeof state === "object" && !Array.isArray(state)) state = { goals: [], ...state };
   let { data, error } = await client.rpc("save_brain", { p_state: state, p_revision: revision, p_owner_id: ownerId });
   // Older snapshot databases reject connected-memory fields. Only use the compatibility shape when
   // the database confirms that the original memory fails validation and the legacy shape passes.
@@ -86,6 +88,14 @@ export function supabaseRecordTransport(userId: string, client: SupabaseClient<a
       if (error?.code === "22023") throw new Error("A record could not be saved because it is invalid or too large.");
       if (error) throw fail("save your changes");
       return data as Awaited<ReturnType<RecordTransport["saveRecords"]>>;
+    },
+    async savePreferencesPatch(changes, removed, revision) {
+      const { data, error } = await client.rpc("save_brain_prefs_patch", { p_changes: changes, p_removed: removed, p_revision: revision });
+      // PostgREST reports a function that is not in the schema as PGRST202: the migration is not applied yet.
+      if (error?.code === "PGRST202" || error?.code === "42883") return "unsupported";
+      if (error?.code === "40001") throw new PreferencesConflict("Preferences changed on another device.");
+      if (error) throw fail("save your preferences");
+      return Number(data);
     },
     async savePreferences(state, revision) {
       const { data, error } = await client.rpc("save_brain_prefs", { p_state: state, p_revision: revision });

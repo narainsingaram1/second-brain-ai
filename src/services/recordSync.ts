@@ -22,6 +22,11 @@ export interface RecordTransport {
   }>;
   /** Throws PreferencesConflict when another device saved preferences first. */
   savePreferences(state: Record<string, unknown>, revision: number): Promise<number>;
+  /**
+   * Saves only `changes` (merged into the stored preferences) and drops `removed`, under the same revision check.
+   * Returns "unsupported" when the database predates it; the engine then sends whole preferences instead.
+   */
+  savePreferencesPatch?(changes: Record<string, unknown>, removed: string[], revision: number): Promise<number | "unsupported">;
 }
 
 /** A record write confirmed by the server, with the data that was written (null for a deletion). */
@@ -42,6 +47,8 @@ export class RecordSync {
   private ownSeqs = new Set<number>();
   private prefsJson = new Map<string, string>();
   private remotePrefs: Record<string, unknown> | null = null;
+  /** False once the database turned out not to support preference patches. */
+  private patchPrefs = true;
   private prefsRevision = 0;
   private lastSeq = 0;
   private serialize = createSerializer();
@@ -149,19 +156,37 @@ export class RecordSync {
     const json = new Map(Object.entries(prefs).map(([key, value]) => [key, JSON.stringify(value)]));
     const changed = [...json].filter(([key, value]) => this.prefsJson.get(key) !== value).map(([key]) => key);
     if (!changed.length) return;
+    // Only the changed fields go over the wire: every edit adds an audit entry, and sending all preferences
+    // re-uploaded the whole active chat with it. Fields this device no longer has are dropped on the server.
+    let removed = [...this.prefsJson.keys()].filter(key => !json.has(key));
     let base = this.prefsRevision;
     let payload: Record<string, unknown> = prefs;
+    let remoteState: Record<string, unknown> | null = null;
     for (let attempt = 0; ; attempt++) {
       try {
-        this.prefsRevision = await this.transport.savePreferences(payload, base);
-        for (const [key, value] of Object.entries(payload)) this.prefsJson.set(key, JSON.stringify(value));
+        let revision: number | "unsupported" = "unsupported";
+        if (this.patchPrefs && this.transport.savePreferencesPatch) {
+          revision = await this.transport.savePreferencesPatch(Object.fromEntries(changed.map(key => [key, prefs[key as keyof typeof prefs]])), removed, base);
+          if (revision === "unsupported") this.patchPrefs = false;
+        }
+        if (revision === "unsupported") revision = await this.transport.savePreferences(payload, base);
+        this.prefsRevision = revision;
+        // After a conflict, fields this device did not change keep their last-saved value here on purpose: the
+        // local state still holds it, so `refresh` sees them as unedited and takes the other device's value.
+        // Recording the other device's value instead made the stale local one look like an edit, and the next
+        // save sent it back. What `refresh` applies is the merged result, so this device's winning values stay.
+        if (remoteState) this.remotePrefs = { ...remoteState, ...Object.fromEntries(changed.map(key => [key, prefs[key as keyof typeof prefs]])) };
+        for (const key of removed) this.prefsJson.delete(key);
+        for (const key of changed) this.prefsJson.set(key, json.get(key)!);
         for (const key of changed) this.savedPrefs[key] = prefs[key as keyof typeof prefs];
         return;
       } catch (error) {
         if (!(error instanceof PreferencesConflict) || attempt > 0) throw error;
         // Keep this device's changed fields, take everything else from the server.
         const remote = await this.transport.readPreferences();
+        remoteState = remote.state;
         payload = { ...remote.state, ...Object.fromEntries(changed.map(key => [key, prefs[key as keyof typeof prefs]])) };
+        removed = [];
         base = remote.revision;
         this.remotePrefs = remote.state;
         this.onRemoteChange();

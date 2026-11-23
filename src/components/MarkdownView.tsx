@@ -27,7 +27,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
 
   const renderInline = (text: string): React.ReactNode[] => {
     // Regex matching bold, italic, strikethrough, inline code, and links
-    const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|\[(task|goal|habit|journal|knowledge|event|tracker):([^\]\n]+)\])/g;
+    const regex = /(\*\*([^*]+)\*\*|\*([^*]+)\*|~~([^~]+)~~|`([^`]+)`|\[([^\]]+)\]\(([^)]+)\)|\[(task|habit|journal|knowledge|event|tracker):([^\]\n]+)\])/g;
     const elements: React.ReactNode[] = [];
     let lastIdx = 0;
     let match: RegExpExecArray | null;
@@ -173,7 +173,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({
 
     const trimmed = line.trim();
 
-    // Tables stay readable for task schedules and goal comparisons.
+    // Tables stay readable for task schedules and comparisons.
     if (line.includes("|") && lines[i + 1]?.includes("|")) {
       const cells = (row: string) => row.trim().replace(/^\||\|$/g, "").split(/(?<!\\)\|/).map(cell => cell.trim().replace(/\\\|/g, "|"));
       const headers = cells(line);

@@ -286,39 +286,10 @@ export interface StudyState {
 
 export type RecordType =
   | 'task'
-  | 'goal'
   | 'habit'
   | 'journal'
   | 'knowledge'
   | 'tracker';
-
-export type GoalSector = 'career' | 'academics' | 'finance' | 'health' | 'mindset' | 'personal';
-export type GoalTimeframe = 'quarterly' | 'yearly' | 'long_term' | 'lifetime';
-export type GoalStatus = 'not_started' | 'in_progress' | 'achieved' | 'on_hold';
-
-export interface GoalMilestone {
-  id: string;
-  title: string;
-  completed: boolean;
-  targetDate?: string;
-}
-
-export interface Goal {
-  id: string;
-  title: string;
-  description?: string;
-  sector: GoalSector;
-  timeframe: GoalTimeframe;
-  targetDate?: string;
-  progress: number; // 0 to 100
-  status: GoalStatus;
-  milestones: GoalMilestone[];
-  why?: string; // Core personal motivation / conviction
-  metrics?: string; // Target metric e.g. "$15,000 saved", "4.0 GPA"
-  color?: string;
-  tags?: string[];
-  createdAt: string;
-}
 
 export interface Task {
   id: string;
@@ -615,7 +586,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'goal' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workout' | 'workout_plan' | 'workspace' | 'folder' | 'routine';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workout' | 'workout_plan' | 'workspace' | 'folder' | 'routine';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -688,7 +659,6 @@ export interface BrainState {
   routines?: Routine[];
   userId?: string;
   tasks: Task[];
-  goals: Goal[];
   sections: string[];
   subsections: Record<string, string[]>; // Section -> array of Subsection names
   habits: Habit[];

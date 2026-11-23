@@ -7,7 +7,7 @@ import { CloudControls } from "./components/CloudControls";
 import { cloudEnabled, cloudStatus, refreshCloud, REMOTE_CHANGE_EVENT } from "./services/cloudSync";
 import { useBrainConversation } from "./hooks/useBrainConversation";
 import React, { useState, useEffect, useRef, useCallback, lazy, Suspense } from "react";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, Goal, GoalStatus, TaskStatus, NoteFolder, CalendarEvent } from "./types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AuthSession, AuditLogEntry, TaskStatus, NoteFolder, CalendarEvent } from "./types";
 import { loadCachedState, loadInitialState, persistLatestBrainState, writeEmergencySnapshot } from "./services/storage";
 import { rebaseEdits } from "./utils/rebaseEdits";
 import { initAuth } from "./services/auth";
@@ -17,7 +17,6 @@ import { synthesizeJournalWithAI, breakdownTaskWithAI } from "./services/openrou
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import { Sidebar } from "./components/Sidebar";
 import { TopHeader } from "./components/TopHeader";
-import { GoalModal } from "./components/GoalModal";
 import "./taskMatrix.css";
 import "./academic.css";
 import "./health.css";
@@ -40,20 +39,19 @@ import { AuditLogModal } from "./components/AuditLogModal";
 import { dropLegacyVault, vectorVault } from "./services/vectorVault";
 import { accessToken, finishGoogleConnect, getStoredKey, serverFeatures } from "./services/serverApi";
 import { isServerHeldKey, SERVER_HELD_KEY, setProviderProxyAuth } from "./services/providerTransport";
-import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, Target, FileText } from "lucide-react";
+import { Plus, CheckSquare, Flame, BookOpen, FolderPlus, X, Zap, FileText } from "lucide-react";
 import { AppSkeleton } from "./components/AppSkeleton";
 import { rememberedTab, rememberTab, rememberTheme } from "./utils/startupMemory";
 import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation";
 import { referenceTitle } from "./utils/chatPresentation";
 import { removeFolder, syncWorkspaceFolders } from "./utils/noteFolders";
-import { retryPendingImageUploads } from "./services/noteImageStore";
+import { externalizeInlineImages, migrateInlineNoteImages, retryPendingImageUploads } from "./services/noteImageStore";
 import { lectureRecorder } from "./services/lectureRecorder";
 import { RecordingPill } from "./components/notes/RecordingPill";
 
 // Pages other than the chat load on first visit (and are prefetched once the app is idle), so startup
 // only parses the code for the chat, the shell and the dialogs.
 const viewLoaders = {
-  goals: () => import("./components/GoalsView").then(m => ({ default: m.GoalsView })),
   tasks: () => import("./components/TaskMatrixView").then(m => ({ default: m.TaskMatrixView })),
   habits: () => import("./components/HabitsView").then(m => ({ default: m.HabitsView })),
   journal: () => import("./components/JournalView").then(m => ({ default: m.JournalView })),
@@ -64,7 +62,6 @@ const viewLoaders = {
   events: () => import("./components/EventsView").then(m => ({ default: m.EventsView })),
   memory: () => import("./components/MemoryModal").then(m => ({ default: m.MemoryModal })),
 };
-const GoalsView = lazy(viewLoaders.goals);
 const TaskMatrixView = lazy(viewLoaders.tasks);
 const HabitsView = lazy(viewLoaders.habits);
 const JournalView = lazy(viewLoaders.journal);
@@ -185,8 +182,6 @@ export const App: React.FC = () => {
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [activeEditEvent, setActiveEditEvent] = useState<CalendarEvent | null>(null);
   const [eventModalDefaultDate, setEventModalDefaultDate] = useState<string>("");
-  const [isGoalModalOpen, setIsGoalModalOpen] = useState(false);
-  const [activeEditGoal, setActiveEditGoal] = useState<Goal | null>(null);
   const [isHabitModalOpen, setIsHabitModalOpen] = useState(false);
   const [activeEditHabit, setActiveEditHabit] = useState<Habit | null>(null);
   const [isKnowledgeModalOpen, setIsKnowledgeModalOpen] = useState(false);
@@ -318,6 +313,21 @@ export const App: React.FC = () => {
         if (typeof requestIdleCallback === "function") requestIdleCallback(prefetchViews, { timeout: 5000 }); else setTimeout(prefetchViews, 2000);
         // Embed new or edited passages in the background, so the first search is fast.
         dropLegacyVault();
+        // Older notes still holding base64 images inline: move them to the image store while idle.
+        const userId = loaded.userId;
+        void migrateInlineNoteImages(loaded.knowledgeItems, {
+          externalize: content => externalizeInlineImages(content, { durable: true }),
+          idle: () => new Promise(resolve => { if (typeof requestIdleCallback === "function") requestIdleCallback(() => resolve(), { timeout: 10000 }); else setTimeout(resolve, 1000); }),
+          cancelled: () => disposed,
+          apply: (id, from, to) => setState(prev => {
+            if (!prev || prev.userId !== userId) return prev;
+            const index = prev.knowledgeItems.findIndex(k => k.id === id);
+            if (index < 0 || prev.knowledgeItems[index].content !== from) return prev;
+            const knowledgeItems = [...prev.knowledgeItems];
+            knowledgeItems[index] = { ...knowledgeItems[index], content: to };
+            return { ...prev, knowledgeItems };
+          }),
+        }).catch(() => {});
         if (loaded.openRouterKey?.trim()) {
           const warm = () => { if (!disposed) vectorVault.reindexBrain(loaded).catch(() => {}); };
           if (typeof requestIdleCallback === "function") requestIdleCallback(warm, { timeout: 10000 }); else setTimeout(warm, 3000);
@@ -438,7 +448,7 @@ export const App: React.FC = () => {
   // instead of deep-copying the whole workspace on every change.
   const recordMutation = (
     action: string,
-    entityType: "task" | "habit" | "journal" | "knowledge" | "section" | "goal" | "event",
+    entityType: "task" | "habit" | "journal" | "knowledge" | "section" | "event",
     entityTitle: string,
     details?: string
   ) => {
@@ -842,82 +852,6 @@ export const App: React.FC = () => {
     setState((prev) => (prev ? { ...prev, habits: prev.habits.filter((h) => h.id !== habitId) } : prev));
   };
 
-  // Goal Handlers (Macro Life Improvement & Horizons)
-  const handleSaveGoal = (goal: Goal) => {
-    const exists = state?.goals?.some((g) => g.id === goal.id);
-    recordMutation(exists ? "Updated Life Goal" : "Created Life Goal", "goal", goal.title);
-
-    setState((prev) => {
-      if (!prev) return null;
-      const currentGoals = prev.goals || [];
-      const isExist = currentGoals.some((g) => g.id === goal.id);
-      return {
-        ...prev,
-        goals: isExist
-          ? currentGoals.map((g) => (g.id === goal.id ? goal : g))
-          : [goal, ...currentGoals],
-      };
-    });
-  };
-
-  const handleDeleteGoal = (goalId: string) => {
-    const goalObj = state?.goals?.find((g) => g.id === goalId);
-    if (goalObj) {
-      recordMutation("Deleted Life Goal", "goal", goalObj.title);
-    }
-    setState((prev) => {
-      if (!prev) return null;
-      return {
-        ...prev,
-        goals: (prev.goals || []).filter((g) => g.id !== goalId),
-      };
-    });
-  };
-
-  const handleToggleMilestone = (goalId: string, milestoneId: string) => {
-    setState((prev) => {
-      if (!prev) return null;
-      const updatedGoals = (prev.goals || []).map((goal) => {
-        if (goal.id !== goalId) return goal;
-        const updatedMilestones = (goal.milestones || []).map((m) =>
-          m.id === milestoneId ? { ...m, completed: !m.completed } : m
-        );
-        const completedCount = updatedMilestones.filter((m) => m.completed).length;
-        const progress = updatedMilestones.length > 0
-          ? Math.round((completedCount / updatedMilestones.length) * 100)
-          : goal.progress;
-        const status = progress === 100 ? ("achieved" as GoalStatus) : (goal.status === "achieved" ? ("in_progress" as GoalStatus) : goal.status);
-        const updatedGoal = {
-          ...goal,
-          milestones: updatedMilestones,
-          progress,
-          status,
-        };
-        return updatedGoal;
-      });
-      return {
-        ...prev,
-        goals: updatedGoals,
-      };
-    });
-  };
-
-  const handleUpdateGoalStatus = (goalId: string, status: GoalStatus) => {
-    setState((prev) => {
-      if (!prev) return null;
-      const updatedGoals = (prev.goals || []).map((g) => {
-        if (g.id !== goalId) return g;
-        const progress = status === "achieved" ? 100 : (g.progress === 100 ? 50 : g.progress);
-        const updated = { ...g, status, progress };
-        return updated;
-      });
-      return {
-        ...prev,
-        goals: updatedGoals,
-      };
-    });
-  };
-
   // Journal Handlers
   const handleSaveJournalEntry = (entry: JournalEntry) => {
     recordMutation("Saved Journal Reflection", "journal", entry.title);
@@ -1103,7 +1037,7 @@ export const App: React.FC = () => {
       <Sidebar
         activeTab={activeTab}
         workspaces={state.workspaces}
-        counts={{ tasks: state.tasks.filter(task => !task.completed).length, notes: state.knowledgeItems.length, goals: state.goals.filter(goal => goal.status !== "achieved").length }}
+        counts={{ tasks: state.tasks.filter(task => !task.completed).length, notes: state.knowledgeItems.length }}
         onNewChat={handleNewChat}
         chatBusy={!!conversation.temporary && conversation.busy}
         setActiveTab={setActiveTab}
@@ -1144,27 +1078,6 @@ export const App: React.FC = () => {
                 taskActions={{ onToggle: handleToggleTask, onEdit: openEditTask, onNew: openNewTask }}
                 noteActions={noteActions}
               />}
-              {/* ========================================================= */}
-              {/* TAB 0.5: LIFE GOALS & LONG-TERM VISION                    */}
-              {/* ========================================================= */}
-              {activeTab === "goals" && (
-                <GoalsView
-                  goals={state.goals || []}
-                  onAddGoal={() => {
-                    setActiveEditGoal(null);
-                    setIsGoalModalOpen(true);
-                  }}
-                  onEditGoal={(goal) => {
-                    setActiveEditGoal(goal);
-                    setIsGoalModalOpen(true);
-                  }}
-                  onDeleteGoal={handleDeleteGoal}
-                  onToggleMilestone={handleToggleMilestone}
-                  onUpdateGoalStatus={handleUpdateGoalStatus}
-                  theme={state.theme}
-                />
-              )}
-
               {/* ========================================================= */}
               {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
               {/* ========================================================= */}
@@ -1291,18 +1204,6 @@ export const App: React.FC = () => {
               >
                 <CheckSquare size={16} strokeWidth={1.5} />
                 <span>Task</span>
-              </button>
-
-              <button
-                onClick={() => {
-                  setIsQuickAddMenuOpen(false);
-                  setActiveEditGoal(null);
-                  setIsGoalModalOpen(true);
-                }}
-                className="quick-add-item"
-              >
-                <Target size={16} strokeWidth={1.5} />
-                <span>Goal</span>
               </button>
 
               <button
@@ -1468,11 +1369,6 @@ export const App: React.FC = () => {
           setActiveEditTask(task);
           setIsTaskModalOpen(true);
         }}
-        onSelectGoal={(goal) => {
-          setActiveTab("goals");
-          setActiveEditGoal(goal);
-          setIsGoalModalOpen(true);
-        }}
         onSelectHabit={(habit) => {
           setActiveTab("habits");
           openEditHabit(habit);
@@ -1486,15 +1382,6 @@ export const App: React.FC = () => {
           setIsKnowledgeModalOpen(true);
         }}
         openRouterKey={state.openRouterKey}
-      />
-
-      <GoalModal
-        isOpen={isGoalModalOpen}
-        onClose={() => setIsGoalModalOpen(false)}
-        onSave={handleSaveGoal}
-        editingGoal={activeEditGoal}
-        openRouterKey={state.openRouterKey}
-        selectedModel={state.selectedModel}
       />
 
       <AuditLogModal

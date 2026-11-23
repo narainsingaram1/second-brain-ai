@@ -41,7 +41,7 @@ window.fetch = async (_url, init) => {
 
 function Fixture() {
   const [state, setState] = useState<BrainState>({
-    userId: "fx-user", tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], chatHistory: [],
+    userId: "fx-user", tasks: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], chatHistory: [],
     sections: ["Academic"], subsections: { Academic: ["General"] }, openRouterKey: "fixture-only", selectedModel: "fixture/model", theme: "light",
     workspaces: [{ id: "fx-ws", name: "School", description: "Fall semester", template: "academic", color: "blue", notes: "", createdAt: now }],
     study: { courses: [course], folders: [{ id: "fx-folder", courseId: course.id, parentId: null, name: "Labs", createdAt: now }], documents: [doc], decks: [], quizzes: [] },

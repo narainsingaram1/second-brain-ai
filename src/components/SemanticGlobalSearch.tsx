@@ -1,6 +1,6 @@
 import { DialogBackdrop } from "./workspace/DialogBackdrop";
 import React, { useState, useEffect, useRef } from "react";
-import { Task, Habit, JournalEntry, KnowledgeItem, BrainState, Goal } from "../types";
+import { Task, Habit, JournalEntry, KnowledgeItem, BrainState } from "../types";
 import { vectorVault, SearchResult } from "../services/vectorVault";
 import {
   Search,
@@ -8,7 +8,6 @@ import {
   Flame,
   BookOpen,
   FileText,
-  Target,
   X,
   PenLine,
   CornerDownLeft,
@@ -22,13 +21,12 @@ interface SemanticGlobalSearchProps {
   onSelectHabit: (habit: Habit) => void;
   onSelectJournal: (entry: JournalEntry) => void;
   onSelectKnowledge: (item: KnowledgeItem) => void;
-  onSelectGoal?: (goal: Goal) => void;
   openRouterKey: string;
 }
 
 interface GroupedItem {
   id: string;
-  type: "task" | "habit" | "journal" | "knowledge" | "goal";
+  type: "task" | "habit" | "journal" | "knowledge";
   title: string;
   snippet: string;
   score?: number; // Cosine similarity 0.0 - 1.0
@@ -46,7 +44,6 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
   onSelectHabit,
   onSelectJournal,
   onSelectKnowledge,
-  onSelectGoal,
   openRouterKey,
 }) => {
   const [query, setQuery] = useState("");
@@ -116,14 +113,13 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
         const itemType = vm.chunk.item_type;
         const itemId = vm.chunk.item_id;
         // The omnibar opens these record types; others (events, courses, documents) are found by the assistant.
-        if (itemType !== "task" && itemType !== "habit" && itemType !== "journal" && itemType !== "knowledge" && itemType !== "goal") continue;
+        if (itemType !== "task" && itemType !== "habit" && itemType !== "journal" && itemType !== "knowledge") continue;
 
         let rawItem: any = null;
         if (itemType === "task") rawItem = brainState.tasks.find((t) => t.id === itemId);
         else if (itemType === "habit") rawItem = brainState.habits.find((h) => h.id === itemId);
         else if (itemType === "journal") rawItem = brainState.journalEntries.find((j) => j.id === itemId);
         else if (itemType === "knowledge") rawItem = brainState.knowledgeItems.find((k) => k.id === itemId);
-        else if (itemType === "goal") rawItem = (brainState.goals || []).find((g) => g.id === itemId);
 
         if (rawItem) {
           scoredMap.set(itemId, {
@@ -218,27 +214,6 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
         }
       });
 
-      (brainState.goals || []).forEach((g) => {
-        if (
-          g.title.toLowerCase().includes(q) ||
-          g.sector.toLowerCase().includes(q) ||
-          (g.why && g.why.toLowerCase().includes(q)) ||
-          (g.metrics && g.metrics.toLowerCase().includes(q))
-        ) {
-          if (!scoredMap.has(g.id)) {
-            scoredMap.set(g.id, {
-              id: g.id,
-              type: "goal",
-              title: g.title,
-              snippet: `${g.sector.toUpperCase()} • Horizon: ${g.timeframe} • Progress: ${g.progress}%`,
-              isKeywordMatch: true,
-              date: g.targetDate,
-              raw: g,
-            });
-          }
-        }
-      });
-
       const merged = Array.from(scoredMap.values());
       // Sort by score descending (vector matches first, then keyword matches)
       merged.sort((a, b) => {
@@ -273,7 +248,6 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
     else if (item.type === "habit") onSelectHabit(item.raw as Habit);
     else if (item.type === "journal") onSelectJournal(item.raw as JournalEntry);
     else if (item.type === "knowledge") onSelectKnowledge(item.raw as KnowledgeItem);
-    else if (item.type === "goal" && onSelectGoal) onSelectGoal(item.raw as Goal);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -296,8 +270,6 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case "goal":
-        return <Target className="w-4 h-4 text-muted" />;
       case "task":
         return <CheckCircle2 className="w-4 h-4 text-muted" />;
       case "habit":
@@ -343,7 +315,6 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
           <div className="flex items-center gap-1">
             {[
               { id: "all", label: "All" },
-              { id: "goal", label: "Goals" },
               { id: "task", label: "Tasks" },
               { id: "habit", label: "Habits" },
               { id: "journal", label: "Journal" },

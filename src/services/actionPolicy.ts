@@ -13,11 +13,11 @@ const READ = new Set(["list_resume_versions", "health_summary", "training_summar
 /** Actions outside Synapse that can be undone there (a draft is not sent; an event without guests notifies no one). */
 const EXTERNAL_REVERSIBLE = new Set(["create_email_draft", "create_calendar_event"]);
 const MEMORY = new Set(["remember_memory", "update_memory", "forget_memory", "organize_memory"]);
-const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete_habit", "create_habit", "create_goal", "update_goal", "log_journal",
+const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete_habit", "create_habit", "log_journal",
   "create_note", "update_note", "create_event", "update_event", "delete_event", "create_tracker_item", "update_tracker_item", "create_course",
   "set_course_grading", "record_grade", "create_flashcard_deck", "create_quiz", "delete_tracker_item", "log_practice",
   "create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section", "rename_subsection", "delete_subsection",
-  "delete_goal", "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
+  "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
   "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz",
   "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "log_workout", "update_workout", "delete_workout",
   "create_workout_plan", "update_workout_plan", "delete_workout_plan", "create_routine", "update_routine", "delete_routine"]);
@@ -84,7 +84,7 @@ const show = (value: unknown) => {
   return text.length > 80 ? `${text.slice(0, 77)}…` : text;
 };
 const recordName = (m: Mutation) => ("name" in m.record ? m.record.name : (m.record as { title?: string }).title) || (m.record as { date?: string }).date || "Untitled";
-const NOUNS: Record<string, string> = { task: "task", goal: "goal", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", health: "health day", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
+const NOUNS: Record<string, string> = { task: "task", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", health: "health day", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
   workspace: "workspace", folder: "note folder", section: "section", routine: "routine" };
 const SECTION_SUMMARIES: Record<string, (before: string, after: string) => string> = {
   create_section: (_, a) => `Add section "${a}"`, rename_section: (b, a) => `Rename section "${b}" to "${a}"`, delete_section: b => `Delete section "${b}"`,

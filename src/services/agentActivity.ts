@@ -52,7 +52,7 @@ export class ActivityTracker {
 }
 
 const NOUN: Record<string, [string, string]> = {
-  task: ["task", "tasks"], goal: ["goal", "goals"], habit: ["habit", "habits"], journal: ["journal entry", "journal entries"], knowledge: ["note", "notes"],
+  task: ["task", "tasks"], habit: ["habit", "habits"], journal: ["journal entry", "journal entries"], knowledge: ["note", "notes"],
   tracker: ["tracker entry", "tracker entries"], event: ["event", "events"], course: ["course", "courses"], document: ["course document", "course documents"],
   deck: ["flashcard deck", "flashcard decks"], quiz: ["quiz", "quizzes"],
 };

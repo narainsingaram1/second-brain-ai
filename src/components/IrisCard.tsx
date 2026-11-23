@@ -1,7 +1,7 @@
 import "../iris-card.css";
 import { useState, type ReactNode } from "react";
 import { ArrowRight, ArrowUpRight, Check, Minus, Plus, RotateCcw, X } from "lucide-react";
-import type { BrainState, CalendarEvent, Goal, Habit, Task } from "../types";
+import type { BrainState, CalendarEvent, Habit, Task } from "../types";
 import type { CardChange } from "../services/irisCards";
 import { findRecord, referenceTitle } from "../utils/chatPresentation";
 import { getLocalDateString } from "../utils/habitStreaks";
@@ -195,9 +195,6 @@ function Records({ spec, state, actions }: { spec: Spec<"records">; state?: Brai
         done = !!habit.history?.[today];
         lead = tick(key, done ? `${title} done today` : `Mark ${title} done today`, done, done ? null : { tool: "complete_habit", args: { habitId: habit.id } });
         meta = `${habit.streak}-day streak`;
-      } else if (ref.type === "goal") {
-        const progress = Math.max(0, Math.min(100, (record as Goal).progress || 0));
-        meta = <><span className="iris-meter" aria-hidden="true"><span style={{ width: `${progress}%` }} /></span>{progress}%</>;
       } else if (ref.type === "event") {
         const event = record as CalendarEvent;
         meta = dueLabel(event.date, event.startTime);

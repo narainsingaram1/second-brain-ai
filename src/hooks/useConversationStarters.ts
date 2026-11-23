@@ -33,7 +33,7 @@ export function useConversationStarters(state: BrainState | null | undefined, vi
   const forced = useRef(false);
   const local = useMemo(
     () => (state ? localStarters(personal ? state : { ...state, conversations: [], agentMemory: undefined }, services) : []),
-    [state?.tasks, state?.goals, state?.study, state?.trackerItems, state?.events, state?.conversations, personal, services.calendar, services.gmail],
+    [state?.tasks, state?.study, state?.trackerItems, state?.events, state?.conversations, personal, services.calendar, services.gmail],
   );
   const fingerprint = state ? starterFingerprint(state) : "";
   const hasKey = !!state?.openRouterKey?.trim();

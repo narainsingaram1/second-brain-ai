@@ -205,7 +205,7 @@ export function ManagedRoot() {
           <span className="iris-mark mb-4" style={{ width: 64, height: 64 }} aria-hidden="true" />
           <h1 className="page-title">Iris</h1>
           <p className="text-xs text-muted mt-1">
-            Tasks, notes, goals and courses, synced across your devices
+            Tasks, notes and courses, synced across your devices
           </p>
         </div>
 

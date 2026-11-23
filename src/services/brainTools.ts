@@ -42,21 +42,6 @@ const EDIT_TOOLS: OpenRouterTool[] = [
   fn("delete_task", "Permanently remove a task. Use ONLY when the user explicitly asks to delete or remove that specific task (not when it is done: use update_task status completed). The user can undo it from the app.", {
     taskId: d_("ID of the existing task."),
   }, ["taskId"]),
-  fn("update_goal", "Update an existing goal: progress, status, title, description, sector, timeframe, target date, metric, motivation, or milestones (complete existing ones by ID or exact title, or add new ones). Progress is recalculated from milestones when they change and progress is not given.", {
-    goalId: d_("ID of the existing goal."),
-    newTitle: s_,
-    newDescription: s_,
-    sector: { type: "string", enum: ["career", "academics", "finance", "health", "mindset", "personal"] },
-    timeframe: { type: "string", enum: ["quarterly", "yearly", "long_term", "lifetime"] },
-    status: { type: "string", enum: ["not_started", "in_progress", "achieved", "on_hold"] },
-    progress: { type: "integer", minimum: 0, maximum: 100, description: "Overall percent complete." },
-    newTargetDate: d_("YYYY-MM-DD"),
-    metrics: s_,
-    why: s_,
-    completeMilestones: { type: "array", items: s_, description: "Milestone IDs or exact titles to mark completed." },
-    reopenMilestones: { type: "array", items: s_, description: "Milestone IDs or exact titles to mark not completed." },
-    addMilestones: { type: "array", items: s_, description: "Titles of new milestones to append." },
-  }, ["goalId"]),
   fn("update_note", "Edit an existing note: rename it, append text to the end, replace its whole body, move it to a folder, set its tags, or correct or delete the transcript of a recording made into it. Prefer appendContent for additions so existing text is preserved.", {
     noteId: d_("ID of the existing note (knowledge record)."),
     newTitle: s_,
@@ -253,7 +238,6 @@ const MANAGE_TOOLS: OpenRouterTool[] = [
   fn("delete_section", "Delete a task section. Its tasks move to the first remaining section. Only when the user explicitly asks.", { section: s_ }, ["section"]),
   fn("rename_subsection", "Rename a subsection within a task section; its tasks move with it.", { section: s_, subsection: d_("Current subsection name."), newName: s_ }, ["section", "subsection", "newName"]),
   fn("delete_subsection", "Delete a subsection. Its tasks move to the section's first remaining subsection. Only when the user explicitly asks.", { section: s_, subsection: s_ }, ["section", "subsection"]),
-  fn("delete_goal", "Delete a goal. Only when the user explicitly asks (not when it is achieved: use update_goal).", { goalId: s_ }, ["goalId"]),
   fn("update_habit", "Change a habit (name, frequency, time of day, description) or un-check a day that was marked done by mistake.", {
     habitId: s_, newName: s_, frequency: { type: "string", enum: ["daily", "weekdays", "weekends"] }, timeOfDay: { type: "string", enum: ["morning", "afternoon", "evening"] },
     description: s_, unmarkDate: d_("YYYY-MM-DD to mark as not done."),
@@ -435,61 +419,6 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
       {
         type: "function",
         function: {
-          name: "create_goal",
-          description:
-            "Establish a major long-term life goal, horizon aspiration, wealth target, or fitness milestone.",
-          parameters: {
-            type: "object",
-            properties: {
-              title: {
-                type: "string",
-                description: "Title of the goal.",
-              },
-              sector: {
-                type: "string",
-                enum: ["career", "academics", "finance", "health", "mindset", "personal"],
-                description: "Life sector for this goal.",
-              },
-              timeframe: {
-                type: "string",
-                enum: ["quarterly", "yearly", "long_term", "lifetime"],
-                description: "Horizon of the goal.",
-              },
-              description: {
-                type: "string",
-                description: "Short description of what the goal is.",
-              },
-              status: {
-                type: "string",
-                enum: ["not_started", "in_progress", "achieved", "on_hold"],
-                description: "Starting status. Defaults to not_started.",
-              },
-              targetDate: {
-                type: "string",
-                description: "Optional target date in YYYY-MM-DD format.",
-              },
-              metrics: {
-                type: "string",
-                description: "Quantifiable target metric (e.g., '$100k liquid', '3.95 GPA').",
-              },
-              why: {
-                type: "string",
-                description: "Underlying motivation or core conviction.",
-              },
-              milestones: {
-                type: "array",
-                items: { type: "string" },
-                description: "List of 3-5 sequential stepping stone milestones.",
-              },
-            },
-            required: ["title", "sector", "timeframe"],
-            additionalProperties: false,
-          },
-        },
-      },
-      {
-        type: "function",
-        function: {
           name: "log_journal",
           description:
             "Record a reflective daily journal entry, evening reflection, mindset check-in, or celebration of wins.",
@@ -566,7 +495,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
 
 
 import { syncWorkspaceFolders, removeFolder, folderMoveBlocked, workspaceFolderId } from "../utils/noteFolders";
-import { BrainState, Task, Goal, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine, WorkoutSession, WorkoutPlan, WorkoutExercise, WorkoutSet, PlanDay, PlanExercise } from "../types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine, WorkoutSession, WorkoutPlan, WorkoutExercise, WorkoutSet, PlanDay, PlanExercise } from "../types";
 import { defaultTimeZone, isTimeZone, MAX_ROUTINES, ROUTINE_CONDITIONS, ROUTINE_FREQUENCIES, ROUTINE_INSTRUCTIONS_MAX } from "../utils/routines";
 import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
 import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
@@ -577,7 +506,7 @@ import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, logSolve, PROBLEM_STAGES, remo
 import { records, RecordType, searchRecords, Source, type RetrievalContext } from "./brainRetrieval";
 import { restoreNoteImages, stripNoteImages } from "../utils/noteImages";
 
-const recordTypes = ["task", "goal", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health", "workout", "workout_plan"];
+const recordTypes = ["task", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health", "workout", "workout_plan"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -599,13 +528,13 @@ export const READ_TOOLS = [
   }),
   tool("query_records", "Exact query across ALL live records. Use for task schedules, exhaustive lists, counts and date-filtered reviews, not semantic search. Results sorted by date then ID. Follow nextOffset for complete enumeration. countOnly counts the entire matching collection without pagination. Course material types: course, document (uploaded files), deck (flashcards; date = next review), quiz (date = last attempt). health: one record per day of Apple Health data (metrics, sleep times, workouts, tags).", {
     type: typeSchema, dateFrom: date, dateTo: date, status: { type: "string", enum: ["pending", "not_started", "in_progress", "completed", "achieved", "on_hold", "applied", "screening", "onsite", "offer", "rejected", "done", "review"] },
-    section: { type: "string", description: "Task section, goal sector, or course code/name for course, document, deck and quiz records." }, text: str,
+    section: { type: "string", description: "Task section, or course code/name for course, document, deck and quiz records." }, text: str,
     offset: cursorSchema, countOnly: { type: "boolean" },
   }, ["type"]),
   tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Returns the full stored record (search excerpts are readable summaries, so do not reuse their positions as offsets).", {
     type: typeSchema, id: str, offset: cursorSchema,
   }, ["type", "id"]),
-  tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or goal. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
+  tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or note. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
     type: typeSchema, ids: { type: "array", items: str, minItems: 1, maxItems: 10 },
   }, ["type", "ids"]),
   tool("search_records", "Hybrid keyword and neural search across current records, including ALL passages of long notes. Returns readable evidence excerpts with source IDs, best match first. Use read_record (offset 0) for the full record. Relevance search cannot establish exhaustive counts or lists.", {
@@ -685,7 +614,7 @@ export function recordTitle(record: object, fallback: string): string {
   return fallback;
 }
 export interface SectionRecord { id: string; name: string; subsections: string[] }
-type MutableRecord = Task | Goal | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | WorkoutSession | WorkoutPlan | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
+type MutableRecord = Task | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | WorkoutSession | WorkoutPlan | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
 /** Everything the assistant can change: searchable records plus workspaces, note folders and task sections. */
 export type MutationType = RecordType | "workspace" | "folder" | "section" | "routine";
 export interface Mutation {
@@ -697,7 +626,7 @@ export interface Mutation {
   /** Removes the record instead of inserting or replacing it. */
   remove?: boolean;
 }
-export const MUTATION_COLLECTIONS = { task: "tasks", goal: "goals", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays", workout: "workouts", workout_plan: "workoutPlans" } as const;
+export const MUTATION_COLLECTIONS = { task: "tasks", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays", workout: "workouts", workout_plan: "workoutPlans" } as const;
 const STUDY_COLLECTIONS = { course: "courses", document: "documents", deck: "decks", quiz: "quizzes" } as const;
 export const ACADEMIC_WORKSPACE_ID = "workspace-academic";
 /** The live records a mutation of this type targets, wherever they are stored. */
@@ -908,8 +837,6 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
       ...(r.type === "document" ? { course: r.data.course, folder: r.data.folder, kind: r.data.kind, pages: r.data.pages, characters: r.data.chars, summary: r.data.summary } : {}),
       ...(r.type === "deck" ? { course: r.data.course, cards: r.data.cardCount, cardsDue: r.data.cardsDue, nextReview: r.data.nextReview } : {}),
       ...(r.type === "quiz" ? { course: r.data.course, questions: r.data.questionCount, attempts: r.data.attemptCount, bestScore: r.data.bestScore, lastScore: r.data.lastScore } : {}),
-      ...(r.type === "goal" ? { progress: r.data.progress, metrics: r.data.metrics, why: typeof r.data.why === "string" ? r.data.why.slice(0, 500) : undefined, sector: r.data.sector, timeframe: r.data.timeframe,
-        milestoneCount: Array.isArray(r.data.milestones) ? r.data.milestones.length : 0 } : {}),
       detailsAvailable: true,
     })),
   }, sources: page.map(r => ({ id: r.id, type: r.type, title: r.title, snippet: `${r.date || "Undated"} ${r.data.status || ""}` })) };
@@ -1056,15 +983,6 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (!habit) throw new Error("Habit ID not found.");
       return { type: "habit", action: name, expected: habit, record: syncHabitStreaks({ ...habit, history: { ...habit.history, [today]: true } }) };
     }
-    case "create_goal": {
-      if (args.targetDate) validDate(args.targetDate);
-      const status = args.status || "not_started";
-      return { type: "goal", action: name, record: { id, title: args.title.trim(), sector: args.sector, timeframe: args.timeframe,
-        ...(args.description ? { description: args.description.trim() } : {}), ...(args.targetDate ? { targetDate: args.targetDate } : {}),
-        ...(args.metrics ? { metrics: args.metrics.trim() } : {}), ...(args.why ? { why: args.why.trim() } : {}),
-        status, progress: status === "achieved" ? 100 : 0, createdAt: new Date().toISOString(),
-        milestones: (args.milestones || []).map((title: string) => ({ id: crypto.randomUUID(), title: title.trim(), completed: status === "achieved" })) } };
-    }
     case "log_journal": return { type: "journal", action: name, record: { id, date: today, title: args.title, content: args.content, mood: args.mood || "neutral", wins: args.wins || [], challenges: args.challenges || [], tags: [] } };
     case "create_note": {
       const folderId = noteFolderArg(state, args.folderId, args.workspaceId);
@@ -1126,28 +1044,6 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       const task = state.tasks.find(t => t.id === args.taskId);
       if (!task) throw new Error("Task ID not found. Query live tasks; do not guess IDs.");
       return { type: "task", action: name, expected: task, record: task, remove: true };
-    }
-    case "update_goal": {
-      const goal = state.goals.find(g => g.id === args.goalId);
-      if (!goal) throw new Error("Goal ID not found. Query live goals; do not guess IDs.");
-      const changes = ["newTitle", "newDescription", "sector", "timeframe", "status", "progress", "newTargetDate", "metrics", "why", "completeMilestones", "reopenMilestones", "addMilestones"].filter(k => args[k] !== undefined);
-      if (!changes.length) throw new Error("Supply at least one field to update.");
-      if (args.newTargetDate) validDate(args.newTargetDate);
-      const matches = (m: { id: string; title: string }, refs: string[] = []) => refs.some(ref => ref === m.id || ref.trim().toLocaleLowerCase() === m.title.trim().toLocaleLowerCase());
-      for (const ref of [...(args.completeMilestones || []), ...(args.reopenMilestones || [])])
-        if (!goal.milestones.some(m => matches(m, [ref]))) throw new Error(`Milestone not found: ${ref}. Read the goal to get exact milestone IDs.`);
-      const milestones = [
-        ...goal.milestones.map(m => matches(m, args.completeMilestones) ? { ...m, completed: true } : matches(m, args.reopenMilestones) ? { ...m, completed: false } : m),
-        ...(args.addMilestones || []).map((title: string) => ({ id: crypto.randomUUID(), title: title.trim(), completed: false })),
-      ];
-      const milestonesChanged = changes.some(k => k.endsWith("Milestones"));
-      const progress = args.progress ?? (milestonesChanged && milestones.length ? Math.round(milestones.filter(m => m.completed).length / milestones.length * 100) : goal.progress);
-      return { type: "goal", action: name, expected: goal, record: { ...goal, milestones, progress,
-        status: args.status || (progress >= 100 && goal.status !== "achieved" && milestonesChanged ? "achieved" : progress > 0 && goal.status === "not_started" ? "in_progress" : goal.status),
-        ...(args.newTitle ? { title: args.newTitle.trim() } : {}), ...(args.newTargetDate ? { targetDate: args.newTargetDate } : {}),
-        ...(args.newDescription ? { description: args.newDescription.trim() } : {}),
-        ...(args.sector ? { sector: args.sector } : {}), ...(args.timeframe ? { timeframe: args.timeframe } : {}),
-        ...(args.metrics ? { metrics: args.metrics.trim() } : {}), ...(args.why ? { why: args.why.trim() } : {}) } };
     }
     case "update_note": {
       const note = state.knowledgeItems.find(n => n.id === args.noteId);
@@ -1375,7 +1271,6 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (current.subsections.length < 2) throw new Error("A section needs at least one subsection; delete or rename the section instead.");
       return { type: "section", action: name, expected: current, record: { ...current, subsections: current.subsections.filter(x => x !== sub) } };
     }
-    case "delete_goal": { const g = findIn(state.goals, args.goalId, "Goal"); return { type: "goal", action: name, expected: g, record: g, remove: true }; }
     case "update_habit": {
       const h = findIn(state.habits, args.habitId, "Habit");
       const { habitId: _h, ...changes } = args;

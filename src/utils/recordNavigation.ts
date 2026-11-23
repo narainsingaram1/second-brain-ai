@@ -68,14 +68,6 @@ export function getRecordLocation(
       };
     }
 
-    case "goal": {
-      return {
-        tab: "goals",
-        breadcrumb: "Goals & Long-Term Vision",
-        label: "Goal",
-      };
-    }
-
     case "habit": {
       return {
         tab: "habits",

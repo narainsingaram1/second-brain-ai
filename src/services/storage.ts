@@ -7,7 +7,7 @@ import { normalizeEvents } from "../utils/events";
 import { normalizeStudy } from "../utils/study";
 import { managedAuthEnabled } from "./managedAuth";
 import { cloudEnabled, loadCloud, saveCloud } from "./cloudSync";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, Goal, StateEnvelope, NoteFolder } from "../types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, AIMessage, StateEnvelope, NoteFolder } from "../types";
 import { syncHabitStreaks, getLocalDateString } from "../utils/habitStreaks";
 import { normalizeTask } from "../utils/taskState";
 import { resolveModel } from "./openrouter";
@@ -260,118 +260,6 @@ export const INITIAL_HABITS: Habit[] = [
   }),
 ];
 
-export const INITIAL_GOALS: Goal[] = [
-  {
-    id: "goal-career-tech",
-    title: "Enhancing Technical Knowledge for Career (AI Engineer, SWE, etc..)",
-    description: "Build deep technical skills, gain real-world experience, and become highly competitive for top AI/SWE roles.",
-    sector: "career",
-    timeframe: "long_term",
-    targetDate: "2029-12-31",
-    progress: 0,
-    status: "in_progress",
-    why: "Build world-class technical foundation to lead AI and software engineering innovations.",
-    metrics: "Deep systems mastery + Staff AI Engineer placement",
-    milestones: [],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "goal-1",
-    title: "Land Staff SWE / Systems Infrastructure Lead",
-    description: "Build high-throughput planetary-scale infrastructure with absolute technical autonomy.",
-    sector: "career",
-    timeframe: "yearly",
-    targetDate: "2027-12-31",
-    progress: 50,
-    status: "in_progress",
-    why: "Build high-throughput planetary-scale infrastructure with absolute technical autonomy and deep mastery.",
-    metrics: "Lead high-impact distributed systems project + L5/L6 compensation tier",
-    milestones: [
-      { id: "gm-1", title: "Ship zero-overhead native storage subsystem in Rust", completed: true },
-      { id: "gm-2", title: "Master distributed consensus invariants (Paxos & Raft)", completed: true },
-      { id: "gm-3", title: "Design & open-source high-throughput stream processing benchmark", completed: false },
-      { id: "gm-4", title: "Target top 15 system infrastructure teams & conduct architectural interviews", completed: false },
-    ],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "goal-2",
-    title: "Achieve 4.0 Cumulative GPA in Computer Science",
-    description: "Master theoretical computing foundations, algorithms, and computational complexity.",
-    sector: "academics",
-    timeframe: "yearly",
-    targetDate: "2027-05-15",
-    progress: 75,
-    status: "in_progress",
-    why: "Build bulletproof analytical rigor and complete mastery over computer systems fundamentals.",
-    metrics: "Straight A/A+ across all 3000/4000-level CS courses",
-    milestones: [
-      { id: "gm-5", title: "Complete CS 1332 DSA with 100% test suite accuracy", completed: true },
-      { id: "gm-6", title: "Finish Operating Systems & Virtual Memory assignments early", completed: true },
-      { id: "gm-7", title: "Master dynamic programming & tree decomposition proofs", completed: true },
-      { id: "gm-8", title: "Submit honors capstone research thesis on local vector indexing", completed: false },
-    ],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "goal-3",
-    title: "Reach $100,000 Liquid Net Worth & Core Investment Foundation",
-    description: "Achieve complete financial runway and asymmetric freedom to build ambitious ventures.",
-    sector: "finance",
-    timeframe: "long_term",
-    targetDate: "2028-12-31",
-    progress: 40,
-    status: "in_progress",
-    why: "Total financial autonomy and security to take big asymmetric bets without stress.",
-    metrics: "$100,000 liquid capital across index funds, risk-calibrated portfolio, and cash reserves",
-    milestones: [
-      { id: "gm-9", title: "Automate 50% monthly savings into low-cost broad index ETFs", completed: true },
-      { id: "gm-10", title: "Build 6-month high-yield liquid cash emergency buffer", completed: true },
-      { id: "gm-11", title: "Maximize Roth IRA & tax-advantaged retirement accounts", completed: false },
-      { id: "gm-12", title: "Reach $50,000 portfolio milestone", completed: false },
-      { id: "gm-13", title: "Scale monthly cash-flow surplus to >$3,500/mo", completed: false },
-    ],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "goal-4",
-    title: "Sub-1:45 Half-Marathon & 1,000-lb Powerlifting Total",
-    description: "Maintain peak biological vigor, cardiovascular endurance, and structural longevity.",
-    sector: "health",
-    timeframe: "yearly",
-    targetDate: "2027-10-15",
-    progress: 50,
-    status: "in_progress",
-    why: "A resilient, energetic, and powerful physical vessel that fuels high cognitive output.",
-    metrics: "1:44:59 21.1k race pace + 1,000 lb (Squat/Bench/Deadlift)",
-    milestones: [
-      { id: "gm-14", title: "Build weekly base mileage to 35 km with Zone 2 discipline", completed: true },
-      { id: "gm-15", title: "Maintain 8 hours sleep average with zero alarm fatigue", completed: true },
-      { id: "gm-16", title: "Complete 15k training time-trial under 1 hour 15 min", completed: false },
-      { id: "gm-17", title: "Hit 405 lb Deadlift & 315 lb Squat personal records", completed: false },
-    ],
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "goal-5",
-    title: "Radical Intellectual Clarity & Daily Deep Work Mastery",
-    description: "Eliminate cognitive fragmentation, resist digital triviality, and cultivate profound focus.",
-    sector: "mindset",
-    timeframe: "lifetime",
-    targetDate: "2030-01-01",
-    progress: 67,
-    status: "in_progress",
-    why: "Peace of mind, sovereign attention, and high signal-to-noise ratio in everyday living.",
-    metrics: "3+ hours deep uninterrupted cognitive work daily, 24 books read/year, daily reflection",
-    milestones: [
-      { id: "gm-18", title: "Maintain 30-day streak of morning journaling & cold exposure", completed: true },
-      { id: "gm-19", title: "Implement strict zero-phone protocol before 9:00 AM", completed: true },
-      { id: "gm-20", title: "Read 24 seminal texts across philosophy, economics, and computing", completed: false },
-    ],
-    createdAt: new Date().toISOString(),
-  },
-];
-
 export const INITIAL_JOURNAL: JournalEntry[] = [
   {
     id: "journal-1",
@@ -544,7 +432,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
       if (nativeData) {
         const parsed = JSON.parse(nativeData);
         const { state } = unwrapStateEnvelope(parsed);
-        if (state && (!state.userId || state.userId === targetUserId) && (!parsed.userId || parsed.userId === targetUserId) && (state.tasks || state.habits || state.goals)) {
+        if (state && (!state.userId || state.userId === targetUserId) && (!parsed.userId || parsed.userId === targetUserId) && (state.tasks || state.habits)) {
           storedState = state;
           loadedFrom = "tauri_native";
         }
@@ -562,7 +450,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
   if (!cloudEnabled && !storedState.tasks) {
     try {
       const dbState = await loadUserStateFromDB(targetUserId);
-      if (dbState && (dbState.tasks || dbState.habits || dbState.goals)) {
+      if (dbState && (dbState.tasks || dbState.habits)) {
         storedState = dbState;
         loadedFrom = "indexed_db";
       }
@@ -578,7 +466,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
       if (localEnv) {
         const parsed = JSON.parse(localEnv);
         const { state } = unwrapStateEnvelope(parsed);
-        if (state && (!state.userId || state.userId === targetUserId) && (!parsed.userId || parsed.userId === targetUserId) && (state.tasks || state.habits || state.goals)) {
+        if (state && (!state.userId || state.userId === targetUserId) && (!parsed.userId || parsed.userId === targetUserId) && (state.tasks || state.habits)) {
           storedState = state;
           loadedFrom = "local_storage";
         }
@@ -599,7 +487,7 @@ export async function loadInitialState(userId?: string): Promise<BrainState> {
 export async function loadCachedState(userId: string): Promise<BrainState | null> {
   if (!managedAuthEnabled || !userId) return null;
   const cached = await readStartupCache(userId);
-  if (!cached || !(cached.tasks || cached.habits || cached.goals)) return null;
+  if (!cached || !(cached.tasks || cached.habits)) return null;
   try {
     const state = buildBrainState(cached, userId);
     // A key kept on the server shows as configured until the cloud load confirms it.
@@ -643,26 +531,6 @@ function buildBrainState(storedState: Partial<BrainState>, targetUserId: string)
   // Ensure all habits have accurate, continuously-calculated streaks from actual history
   const rawHabits = Array.isArray(storedState.habits) ? storedState.habits : INITIAL_HABITS;
   const habits = rawHabits.map((h) => syncHabitStreaks(h));
-
-  // Ensure goals exist and have valid milestone progress
-  const rawGoals = Array.isArray(storedState.goals) ? storedState.goals : INITIAL_GOALS;
-  const goals: Goal[] = rawGoals.map((g) => {
-    const milestones = g.milestones || [];
-    const completedCount = milestones.filter((m) => m.completed).length;
-    const computedProgress = milestones.length > 0
-      ? Math.round((completedCount / milestones.length) * 100)
-      : (typeof g.progress === "number" ? g.progress : 0);
-    const status = computedProgress === 100 ? "achieved" : (g.status || "in_progress");
-    return {
-      ...g,
-      sector: g.sector || "career",
-      timeframe: g.timeframe || "yearly",
-      milestones,
-      progress: computedProgress,
-      status,
-      createdAt: g.createdAt || new Date().toISOString(),
-    };
-  });
 
   // Normalize Note Folders hierarchy
   const rawFolders = Array.isArray(storedState.noteFolders)
@@ -727,7 +595,6 @@ function buildBrainState(storedState: Partial<BrainState>, targetUserId: string)
     userId: targetUserId,
     agentMemory: normalizeAgentMemory(storedState.agentMemory),
     tasks,
-    goals,
     sections,
     subsections,
     habits,
@@ -903,7 +770,7 @@ function readEmergencySnapshot(userId: string): Partial<BrainState> | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     const { state } = unwrapStateEnvelope(parsed);
-    return parsed.userId === userId && (state.tasks || state.habits || state.goals) ? state : null;
+    return parsed.userId === userId && (state.tasks || state.habits) ? state : null;
   } catch { return null; }
 }
 function clearEmergencySnapshot(userId: string): void {

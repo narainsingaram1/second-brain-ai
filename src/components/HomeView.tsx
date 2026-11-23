@@ -7,7 +7,6 @@ import {
   CheckSquare,
   FileText,
   Plus,
-  Target,
   CalendarClock,
 } from "lucide-react";
 import { BrainState, CalendarEvent, KnowledgeItem, Task } from "../types";
@@ -73,9 +72,6 @@ export function HomeView({
       ),
     )
     .slice(0, 4);
-  const goals = state.goals
-    .filter((goal) => goal.status !== "achieved")
-    .slice(0, 3);
   const ask = async (text: string) => {
     const images = attachments.images;
     if ((!text.trim() && !images.length) || conversation.busy || attachments.processing) return;
@@ -100,7 +96,6 @@ export function HomeView({
   const library = [
     { title: "Notes", count: state.knowledgeItems.length, tab: "knowledge" },
     { title: "Open tasks", count: state.tasks.filter((task) => !task.completed).length, tab: "tasks" },
-    { title: "Goals", count: state.goals.length, tab: "goals" },
     { title: "Journal entries", count: state.journalEntries.length, tab: "journal" },
   ];
   const dueToday = state.tasks.filter((task) => !task.completed && task.dueDate === today).length;
@@ -131,7 +126,7 @@ export function HomeView({
             {attachments.picker}
             <input
               aria-label="Ask Iris"
-              placeholder={attachments.images.length ? "Ask about the image, or add it as tasks" : "Ask Iris about your tasks, notes and goals"}
+              placeholder={attachments.images.length ? "Ask about the image, or add it as tasks" : "Ask Iris about your tasks, notes and classes"}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
               onPaste={attachments.onPaste}
@@ -158,7 +153,6 @@ export function HomeView({
           <button onClick={onNewNote}><FileText size={16} strokeWidth={1.5} />Note</button>
           <button onClick={onNewTask}><CheckSquare size={16} strokeWidth={1.5} />Task</button>
           <button onClick={() => onNavigate("journal")}><BookOpen size={16} strokeWidth={1.5} />Journal entry</button>
-          <button onClick={() => onNavigate("goals")}><Target size={16} strokeWidth={1.5} />Goal</button>
         </div>
         <div className="dashboard-middle">
           <section className="workspace-card today-card">
@@ -227,32 +221,6 @@ export function HomeView({
               </div>
             )}
           </section>
-          <section className="workspace-card">
-            <div className="card-heading">
-              <h2>Goals in progress</h2>
-              <button className="text-action is-quiet" onClick={() => onNavigate("goals")}>All goals<ArrowRight size={14} strokeWidth={1.5} /></button>
-            </div>
-            {goals.length ? (
-              goals.map((goal) => (
-                <button className="dashboard-goal" key={goal.id} onClick={() => onNavigate("goals")}>
-                  <span>
-                    <strong>{goal.title}</strong>
-                    <small className="figure">{goal.progress}%</small>
-                  </span>
-                  <span className="progress-track"><i style={{ width: `${Math.min(100, Math.max(0, goal.progress))}%` }} /></span>
-                  <small>
-                    {goal.sector.replace(/^./, (c) => c.toUpperCase())} · {goal.milestones.filter((item) => item.completed).length} of {goal.milestones.length} milestones
-                  </small>
-                </button>
-              ))
-            ) : (
-              <div className="dashboard-empty">
-                <strong>No goals yet</strong>
-                <p>Connect today’s work to something longer term.</p>
-                <button className="text-action" onClick={() => onNavigate("goals")}>Set a goal<ArrowRight size={14} strokeWidth={1.5} /></button>
-              </div>
-            )}
-          </section>
         </div>
         <section className="knowledge-overview" aria-label="Library">
           <div className="knowledge-shortcuts">
@@ -309,12 +277,12 @@ export function HomeView({
         </section>
         <section className="workspace-card copilot-card">
           <h2>Ask Iris</h2>
-          <p>Answers come from your own tasks, notes and goals.</p>
-          <button onClick={() => void ask("Help me plan today using my tasks, goals, and habits.")} disabled={conversation.busy}>
+          <p>Answers come from your own tasks, notes and classes.</p>
+          <button onClick={() => void ask("Help me plan today using my tasks, events, and habits.")} disabled={conversation.busy}>
             Plan my day<ArrowRight size={14} strokeWidth={1.5} />
           </button>
-          <button onClick={() => void ask("Find connections between my recent notes and goals.")} disabled={conversation.busy}>
-            Connect my notes to my goals<ArrowRight size={14} strokeWidth={1.5} />
+          <button onClick={() => void ask("Find connections between my recent notes and tasks.")} disabled={conversation.busy}>
+            Connect my notes to my tasks<ArrowRight size={14} strokeWidth={1.5} />
           </button>
         </section>
       </aside>
