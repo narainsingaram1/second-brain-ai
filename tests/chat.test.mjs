@@ -51,6 +51,24 @@ test('initial assistant greeting does not turn welcome into an active chat', () 
   const html = renderToStaticMarkup(React.createElement(ChatWorkspace, { conversation, state, messages: [{ id: 'greeting', role: 'assistant', content: 'Welcome', timestamp: '' }] }));
   assert.match(html, /<h1>Ask Iris<\/h1>/); assert.match(html, /chat-suggestions/); assert.doesNotMatch(html, /chat-toolbar/);
 });
+test('new chat renders even when a cached starter has a retired category', () => {
+  const previousStorage = globalThis.localStorage;
+  const cache = {
+    date: '2026-11-22',
+    at: Date.now(),
+    fingerprint: 'previous-version',
+    starters: [{ kind: 'goal', title: 'Review project milestones', detail: 'Plan the next step', prompt: 'Review my project milestones' }],
+  };
+  globalThis.localStorage = { getItem: key => key === 'synapse_chat_starters_guest' ? JSON.stringify(cache) : null };
+  try {
+    const html = renderToStaticMarkup(React.createElement(ChatWorkspace, { conversation, state, messages: [] }));
+    assert.match(html, /<h1>Ask Iris<\/h1>/);
+    assert.match(html, /data-kind="idea"/);
+    assert.match(html, /Review project milestones/);
+  } finally {
+    globalThis.localStorage = previousStorage;
+  }
+});
 test('scroll pinning respects reading older answers', () => {
   assert.equal(isNearBottom(2000, 0, 600), false);
   assert.equal(isNearBottom(2000, 1380, 600), true);

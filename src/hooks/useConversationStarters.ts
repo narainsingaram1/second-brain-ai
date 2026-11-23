@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrainState } from "../types";
-import { generateStarters, localStarters, starterFingerprint, type ChatStarter, type ConnectedServices } from "../services/chatSuggestions";
+import { generateStarters, localStarters, parseStarters, starterFingerprint, type ChatStarter, type ConnectedServices } from "../services/chatSuggestions";
 import { getLocalDateString } from "../utils/habitStreaks";
 
 const MAX_AGE_MS = 6 * 3_600_000;
@@ -12,7 +12,12 @@ const REQUEST_TIMEOUT_MS = 20_000;
 interface CachedStarters { date: string; at: number; fingerprint: string; starters: ChatStarter[] }
 const storageKey = (account: string) => `synapse_chat_starters_${account}`;
 function readCache(account: string): CachedStarters | null {
-  try { return JSON.parse(localStorage.getItem(storageKey(account)) || "null"); } catch { return null; }
+  try {
+    const cached = JSON.parse(localStorage.getItem(storageKey(account)) || "null");
+    if (typeof cached?.date !== "string" || !Number.isFinite(cached.at) || typeof cached.fingerprint !== "string") return null;
+    const starters = parseStarters(cached.starters);
+    return starters.length ? { date: cached.date, at: cached.at, fingerprint: cached.fingerprint, starters } : null;
+  } catch { return null; }
 }
 function writeCache(account: string, value: CachedStarters) {
   try { localStorage.setItem(storageKey(account), JSON.stringify(value)); } catch { /* Regenerated next time. */ }
