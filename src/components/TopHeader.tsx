@@ -1,4 +1,4 @@
-import { Search, Moon, Sun, Bell } from "lucide-react";
+import { Search, Moon, Sun, Bell, Menu } from "lucide-react";
 import { AuthSession } from "../types";
 interface TopHeaderProps {
   onOpenGlobalSearch: () => void;
@@ -9,6 +9,7 @@ interface TopHeaderProps {
   onOpenNotifications: () => void;
   activeTab: string;
   pageTitle?: string;
+  onOpenMobileNav?: () => void;
 }
 const titles: Record<string, string> = {
   home: "Home",
@@ -29,6 +30,7 @@ export function TopHeader({
   onOpenNotifications,
   activeTab,
   pageTitle,
+  onOpenMobileNav,
 }: TopHeaderProps) {
   const user = session?.currentUser;
   const name = user?.name || user?.email?.split("@")[0] || "Guest";
@@ -40,6 +42,17 @@ export function TopHeader({
     .slice(0, 2);
   return (
     <header className="synapse-header">
+      {onOpenMobileNav && (
+        <button
+          type="button"
+          className="icon-control header-menu-btn"
+          onClick={onOpenMobileNav}
+          aria-label="Open navigation menu"
+          title="Menu"
+        >
+          <Menu size={18} strokeWidth={1.75} />
+        </button>
+      )}
       <div className="header-location">
         <strong>{pageTitle || titles[activeTab] || "Home"}</strong>
       </div>

@@ -140,9 +140,9 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
   return (
     <div className="w-full max-w-4xl mx-auto space-y-6 animate-fade-in pb-16">
       {/* Top Simple Header & Controls */}
-      <div className="bg-panel backdrop-blur-xl rounded-4xl p-5 border border-line shadow-card flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="bg-panel backdrop-blur-xl rounded-3xl sm:rounded-4xl p-4 sm:p-5 border border-line shadow-card flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-extrabold text-ink tracking-tight flex items-center gap-2">
+          <h2 className="text-lg sm:text-xl font-extrabold text-ink tracking-tight flex flex-wrap items-center gap-2">
             <span>Simple list view</span>
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-raised text-[var(--workspace-success)] dark:bg-raised dark:text-[var(--workspace-success)] border border-line">
               {activeTasks.length} active ({inProgressCount} in progress)
@@ -155,7 +155,7 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
 
         {/* Group By & Completed Toggle */}
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center bg-raised p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+          <div className="flex items-center flex-wrap bg-raised p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
             <span className="text-[11px] font-bold text-slate-400 uppercase px-2">Group:</span>
             {(
               [
@@ -194,37 +194,41 @@ export const TaskSimpleView: React.FC<TaskSimpleViewProps> = ({
       {/* Inline Quick Add Input Box */}
       <form
         onSubmit={handleQuickAdd}
-        className="bg-panel rounded-3xl border border-line shadow-2xs p-3 flex items-center gap-2"
+        className="bg-panel rounded-2xl sm:rounded-3xl border border-line shadow-2xs p-3 flex flex-wrap sm:flex-nowrap items-center gap-2"
       >
-        <div className="w-6 h-6 rounded-full bg-raised text-slate-400 flex items-center justify-center shrink-0 ml-1">
-          <Plus className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+          <div className="w-6 h-6 rounded-full bg-raised text-slate-400 flex items-center justify-center shrink-0 ml-1">
+            <Plus className="w-3.5 h-3.5" />
+          </div>
+          <input
+            type="text"
+            placeholder="Add a new task... (press Enter to create)"
+            value={quickAddTitle}
+            onChange={(e) => setQuickAddTitle(e.target.value)}
+            className="flex-1 min-w-0 bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none px-1"
+          />
         </div>
-        <input
-          type="text"
-          placeholder="Add a new task... (press Enter to create)"
-          value={quickAddTitle}
-          onChange={(e) => setQuickAddTitle(e.target.value)}
-          className="flex-1 bg-transparent text-xs font-bold text-slate-800 dark:text-slate-100 placeholder-slate-400 focus:outline-none px-2"
-        />
 
-        <select
-          value={quickAddSection}
-          onChange={(e) => setQuickAddSection(e.target.value)}
-          className="text-[11px] font-bold bg-raised text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:outline-none cursor-pointer"
-        >
-          {sections.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
+        <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <select
+            value={quickAddSection}
+            onChange={(e) => setQuickAddSection(e.target.value)}
+            className="flex-1 sm:flex-initial text-[11px] font-bold bg-raised text-slate-600 dark:text-slate-300 px-3 py-1.5 rounded-xl border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:outline-none cursor-pointer"
+          >
+            {sections.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
 
-        <button
-          type="submit"
-          className="px-4 py-1.5 rounded-xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold hover:opacity-90 active:scale-[0.98] transition-all shrink-0"
-        >
-          Add
-        </button>
+          <button
+            type="submit"
+            className="px-4 py-1.5 rounded-xl bg-slate-950 dark:bg-white text-white dark:text-slate-950 text-xs font-bold hover:opacity-90 active:scale-[0.98] transition-all shrink-0"
+          >
+            Add
+          </button>
+        </div>
       </form>
 
       {/* Groups List */}

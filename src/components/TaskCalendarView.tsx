@@ -239,10 +239,10 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
   return (
     <div className="w-full space-y-6 animate-fade-in">
       {/* Calendar Top Controls Header */}
-      <div className="bg-panel backdrop-blur-xl rounded-4xl p-5 border border-line shadow-card flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="bg-panel backdrop-blur-xl rounded-3xl sm:rounded-4xl p-3.5 sm:p-5 border border-line shadow-card flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 sm:gap-4">
         {/* Month Title & Navigation */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1 bg-raised p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700/60">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          <div className="flex items-center gap-1 bg-raised p-1 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 shrink-0">
             <button
               onClick={handlePrevMonth}
               title="Previous month"
@@ -265,8 +265,8 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
             </button>
           </div>
 
-          <div>
-            <h2 className="text-xl font-extrabold text-ink tracking-tight flex items-center gap-2">
+          <div className="min-w-0">
+            <h2 className="text-lg sm:text-xl font-extrabold text-ink tracking-tight flex flex-wrap items-center gap-1.5 sm:gap-2">
               <span>
                 {MONTH_NAMES[currentMonth]} {currentYear}
               </span>
@@ -357,18 +357,19 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
       {/* Main Grid & Sidebar Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Calendar Month Grid */}
-        <div className="lg:col-span-8 bg-panel rounded-4xl border border-line shadow-sm p-4 sm:p-6 overflow-hidden">
+        <div className="lg:col-span-8 bg-panel rounded-3xl sm:rounded-4xl border border-line shadow-sm p-2.5 sm:p-6 overflow-hidden">
           {/* Weekday headers */}
-          <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 text-center text-xs font-bold text-slate-400 uppercase tracking-wider">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 mb-2 text-center text-[11px] sm:text-xs font-bold text-slate-400 uppercase tracking-wider">
             {WEEKDAY_NAMES.map((day) => (
               <div key={day} className="py-1">
-                {day}
+                <span className="sm:hidden">{day[0]}</span>
+                <span className="hidden sm:inline">{day}</span>
               </div>
             ))}
           </div>
 
           {/* 35 or 42 Calendar Cells */}
-          <div className="grid grid-cols-7 gap-1.5 sm:gap-2">
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
             {displayedCells.map((cell) => {
               const dayTasks = tasksOn(cell.dateStr);
               const dayEvents = eventsOn(cell.dateStr);
@@ -379,12 +380,13 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
               const hiddenCount = dayEvents.length + dayGoogle.length + dayTasks.length - visibleEvents.length - visibleGoogle.length - visibleTasks.length;
               const pendingDayTasks = dayTasks.filter((t) => t.status !== "completed");
               const isCellSelected = cell.dateStr === selectedDate;
+              const totalMobileItems = dayEvents.length + dayGoogle.length + dayTasks.length;
 
               return (
                 <div
                   key={cell.dateStr}
                   onClick={() => setSelectedDate(cell.dateStr)}
-                  className={`min-h-[92px] sm:min-h-[105px] p-1.5 sm:p-2 rounded-2xl border transition-all flex flex-col justify-between cursor-pointer group relative ${
+                  className={`min-h-[54px] sm:min-h-[105px] p-1 sm:p-2 rounded-xl sm:rounded-2xl border transition-all flex flex-col justify-between cursor-pointer group relative ${
                     isCellSelected
                       ? "ring-2 task-theme-ring task-theme-bg task-theme-dark-bg task-theme-border task-theme-dark-border shadow-xs"
                       : cell.isCurrentMonth
@@ -393,7 +395,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                   }`}
                 >
                   {/* Cell Top Header */}
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-center sm:justify-between">
                     <span
                       className={`text-xs font-extrabold w-6 h-6 flex items-center justify-center rounded-full transition-all ${
                         cell.isToday
@@ -413,14 +415,37 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                         onAddTask(sections[0], subsections[sections[0]]?.[0], cell.dateStr);
                       }}
                       title={`Add task on ${cell.dateStr}`}
-                      className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 task-theme-hover-text task-theme-hover-bg task-theme-dark-hover-bg transition-all"
+                      className="hidden sm:inline-flex opacity-0 group-hover:opacity-100 p-1 rounded-lg text-slate-400 task-theme-hover-text task-theme-hover-bg task-theme-dark-hover-bg transition-all"
                     >
                       <Plus className="w-3 h-3" />
                     </button>
                   </div>
 
-                  {/* Day events then tasks (up to 3 chips visible) */}
-                  <div className="space-y-1 my-1 overflow-hidden">
+                  {/* Mobile compact event/task dots */}
+                  {totalMobileItems > 0 && (
+                    <div className="flex sm:hidden items-center justify-center gap-1 mt-1 pb-0.5">
+                      {dayEvents.slice(0, 2).map((ev) => (
+                        <span key={`m-ev-${ev.id}`} className="w-1.5 h-1.5 rounded-full bg-slate-500 dark:bg-slate-300" />
+                      ))}
+                      {dayGoogle.slice(0, 1).map((ev) => (
+                        <span key={`m-g-${ev.id}`} className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+                      ))}
+                      {pendingDayTasks.slice(0, 2).map((t) => (
+                        <span
+                          key={`m-t-${t.id}`}
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            t.priority === "urgent" ? "bg-rose-500" : "task-theme-bg-solid"
+                          }`}
+                        />
+                      ))}
+                      {totalMobileItems > 3 && (
+                        <span className="text-[9px] font-bold text-slate-400 leading-none">+</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Day events then tasks (up to 3 chips visible on tablet/desktop) */}
+                  <div className="hidden sm:block space-y-1 my-1 overflow-hidden">
                     {visibleEvents.map((event) => (
                       <button
                         type="button"
@@ -500,7 +525,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                   </div>
 
                   {/* Cell Bottom Badge */}
-                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <div className="hidden sm:flex items-center justify-between text-[11px] text-slate-400">
                     {pendingDayTasks.length > 0 ? (
                       <span className="font-semibold text-muted">
                         {pendingDayTasks.length} pending
@@ -671,7 +696,7 @@ export const TaskCalendarView: React.FC<TaskCalendarViewProps> = ({
                             e.stopPropagation();
                             onDeleteTask(task.id);
                           }}
-                          className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500"
+                          className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 text-slate-400 hover:text-rose-500"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>

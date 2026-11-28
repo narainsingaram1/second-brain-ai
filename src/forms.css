@@ -310,9 +310,10 @@
 
 @media (max-width: 767px) {
   .task-dialog-head, .task-form-body { padding-inline: 16px; }
-  .task-dialog-foot { padding-inline: 16px; }
+  .task-dialog-foot { padding-inline: 16px; flex-wrap: wrap; }
   .task-pair { grid-template-columns: minmax(0, 1fr); }
   .task-shortcut { display: none; }
+  .task-choice { grid-auto-flow: row; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); }
   .task-choice button { font-size: 13px; gap: 6px; }
 }
 
@@ -377,5 +378,16 @@
 @media (max-width: 767px) {
   .note-editor-docked,
   .note-editor-fullscreen { --note-gutter: 16px; }
-  .note-toolbar { flex-wrap: wrap; }
+  .note-editor-fullscreen {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
+  .note-toolbar {
+    position: static;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px var(--note-gutter);
+  }
+  .note-editor-docked .note-format-bar,
+  .note-editor-fullscreen .note-format-bar { top: 0; }
 }

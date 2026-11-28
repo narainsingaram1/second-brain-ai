@@ -570,7 +570,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-4 sm:py-6 space-y-6 animate-fade-in">
+    <div className="w-full max-w-7xl mx-auto py-1 sm:py-4 space-y-6 animate-fade-in">
       {/* ========================================================= */}
       {/* TOP HEADER MATCHING USER REFERENCE SCREENSHOT            */}
       {/* ========================================================= */}
@@ -579,7 +579,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
           <h1 className="page-title">Journal</h1>
           <p>A page a day for what happened and what you learned</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button onClick={() => handleTriggerSynthesis("full")} disabled={isSynthesizing} className="task-secondary disabled:opacity-50">
             <PenLine size={16} strokeWidth={1.5} />
             <span>{isSynthesizing ? "Reflecting…" : "Reflect with Iris"}</span>
@@ -902,7 +902,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                       </div>
                       <button
                         onClick={() => handleRemoveWin(idx)}
-                        className="text-slate-400 hover:text-rose-500 p-0.5 opacity-60 group-hover:opacity-100 transition-opacity"
+                        className="text-slate-400 hover:text-rose-500 p-1.5 sm:p-0.5 opacity-100 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -952,7 +952,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                       </div>
                       <button
                         onClick={() => handleRemoveChallenge(idx)}
-                        className="text-slate-400 hover:text-rose-500 p-0.5 opacity-60 group-hover:opacity-100 transition-opacity"
+                        className="text-slate-400 hover:text-rose-500 p-1.5 sm:p-0.5 opacity-100 sm:opacity-60 sm:group-hover:opacity-100 transition-opacity"
                       >
                         <Trash2 className="w-3 h-3" />
                       </button>
@@ -1205,20 +1205,20 @@ export const JournalView: React.FC<JournalViewProps> = ({
       {/* "All entries" MODAL                                  */}
       {/* ========================================================= */}
       {isAllEntriesModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/40 backdrop-blur-sm animate-fade-in">
-          <div className="bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="workspace-overlay fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/40 backdrop-blur-sm animate-fade-in">
+          <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-xl max-h-[calc(100dvh-24px)] sm:max-h-[80vh] flex flex-col overflow-hidden">
+            <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
               <h3 className="text-sm font-bold text-ink">
                 All Journal Entries ({allMergedEntries.length})
               </h3>
               <button
                 onClick={() => setIsAllEntriesModalOpen(false)}
-                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-4 overflow-y-auto space-y-2">
+            <div className="p-4 flex-1 min-h-0 overflow-y-auto space-y-2">
               {allMergedEntries.map((e) => (
                 <div
                   key={e.id}
@@ -1226,7 +1226,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                     handleSelectDate(e.date);
                     setIsAllEntriesModalOpen(false);
                   }}
-                  className="flex items-center justify-between p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
+                  className="flex items-center justify-between gap-2 p-3 rounded-2xl bg-slate-50 dark:bg-slate-900/60 hover:bg-slate-100 dark:hover:bg-slate-800/80 cursor-pointer transition-colors"
                 >
                   <div className="min-w-0 flex-1">
                     <div className="text-[11px] text-slate-400 font-bold uppercase">{e.date}</div>
@@ -1234,7 +1234,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
                       {e.title || "Untitled entry"}
                     </div>
                   </div>
-                  <span className="text-[11px] font-bold capitalize px-2 py-0.5 rounded-full bg-raised text-muted dark:text-slate-400">
+                  <span className="text-[11px] font-bold capitalize px-2 py-0.5 rounded-full bg-raised text-muted dark:text-slate-400 shrink-0">
                     {e.mood}
                   </span>
                 </div>

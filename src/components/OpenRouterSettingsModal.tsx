@@ -148,10 +148,10 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
   };
 
   return (
-    <DialogBackdrop onClose={onClose} label="Settings and preferences" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
-      <div className="workspace-dialog bg-panel rounded-4xl border border-line shadow-2xl w-full max-w-xl overflow-hidden flex flex-col">
+    <DialogBackdrop onClose={onClose} label="Settings and preferences" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-4xl border border-line shadow-2xl w-full max-w-xl max-h-[calc(100dvh-24px)] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-raised border border-line text-muted flex items-center justify-center">
               <Key className="w-5 h-5" />
@@ -171,7 +171,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[500px]">
+        <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 overflow-y-auto flex-1 min-h-0">
           <PermissionsSettings askBeforeChanges={askBeforeChanges} onAskBeforeChanges={onAskBeforeChanges} />
 
           {/* API address */}
@@ -472,7 +472,7 @@ export const OpenRouterSettingsModal: React.FC<OpenRouterSettingsModalProps> = (
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-3.5 sm:py-4 border-t border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <span className="text-xs text-[var(--workspace-success)] font-bold">
             {saveSuccess ? "Settings saved" : ""}
           </span>

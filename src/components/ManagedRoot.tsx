@@ -194,7 +194,7 @@ export function ManagedRoot() {
   }
 
   return (
-    <main className="managed-auth-surface min-h-screen text-ink flex items-center justify-center p-4 sm:p-6 relative overflow-hidden select-none">
+    <main className="managed-auth-surface min-h-[100dvh] text-ink flex items-center justify-center p-4 sm:p-6 pt-[max(16px,env(safe-area-inset-top))] pb-[max(16px,env(safe-area-inset-bottom))] relative overflow-hidden select-none">
 
       <section
         aria-label="Account access"

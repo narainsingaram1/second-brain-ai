@@ -87,6 +87,9 @@ export const App: React.FC = () => {
     if (!theme) return;
     rememberTheme(theme);
     document.documentElement.classList.toggle("dark", theme === "dark");
+    document.querySelectorAll('meta[name="theme-color"]').forEach(el => {
+      el.setAttribute("content", theme === "dark" ? "#141415" : "#fafafa");
+    });
   }, [theme]);
   /**
    * The cached copy on screen while the cloud copy loads (hosted accounts). Saves and cloud refreshes wait until
@@ -95,6 +98,7 @@ export const App: React.FC = () => {
   const cachedBase = useRef<BrainState | null>(null);
   const [hydrating, setHydrating] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia("(max-width: 767px)").matches);
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -102,6 +106,17 @@ export const App: React.FC = () => {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+  useEffect(() => {
+    if (!isNarrow) setMobileNavOpen(false);
+  }, [isNarrow]);
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setMobileNavOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileNavOpen]);
 
   const isChatTab = activeTab === "home" || activeTab === "copilot";
   const [chatLaunchError, setChatLaunchError] = useState("");
@@ -1107,9 +1122,11 @@ export const App: React.FC = () => {
         onNewChat={handleNewChat}
         chatBusy={!!conversation.temporary && conversation.busy}
         setActiveTab={setActiveTab}
-        collapsed={isSidebarCollapsed || isNarrow}
+        collapsed={isNarrow ? false : isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        mobileOpen={mobileNavOpen}
+        onCloseMobile={() => setMobileNavOpen(false)}
       />
 
       {/* Main View Area */}
@@ -1124,6 +1141,7 @@ export const App: React.FC = () => {
           session={session}
           onOpenAuth={() => managedAuthEnabled ? setIsAuthModalOpen(true) : cloudEnabled ? window.location.assign("/signout-with-chatgpt?return_to=/") : setIsAuthModalOpen(true)}
           onOpenNotifications={() => setIsAuditLogOpen(true)}
+          onOpenMobileNav={() => setMobileNavOpen(true)}
         />
 
         {/* Main Content Viewport */}

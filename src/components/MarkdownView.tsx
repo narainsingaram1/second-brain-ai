@@ -253,7 +253,7 @@ const MarkdownViewInner: React.FC<MarkdownViewProps> = ({
         case "italic": return <em key={tok.index} className="italic text-slate-800 dark:text-slate-200">{tok.value}</em>;
         case "strike": return <del key={tok.index} className="line-through text-slate-400 dark:text-slate-500">{tok.value}</del>;
         case "code": return (
-          <code key={tok.index} className="px-1.5 py-0.5 rounded-md bg-raised text-rose-600 dark:text-rose-400 font-mono text-[11px] font-semibold">
+          <code key={tok.index} className="px-1.5 py-0.5 rounded-md bg-raised text-rose-600 dark:text-rose-400 font-mono text-[11px] font-semibold [overflow-wrap:anywhere] break-words">
             {tok.value}
           </code>
         );
@@ -405,7 +405,7 @@ const MarkdownViewInner: React.FC<MarkdownViewProps> = ({
     }
   }
 
-  return <div className={`prose-container space-y-1 ${className}`}>{renderedElements}</div>;
+  return <div className={`prose-container min-w-0 max-w-full space-y-1 ${className}`}>{renderedElements}</div>;
 };
 
 export const MarkdownView = React.memo(MarkdownViewInner);

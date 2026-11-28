@@ -17,7 +17,15 @@ import { withQuote } from "../utils/chatFiles";
 import { ChatHistoryRail, ChatRunningDot } from "./ChatHistoryRail";
 
 const RAIL_KEY = "synapse.chatHistoryRail";
-const readRail = () => { try { const saved = localStorage.getItem(RAIL_KEY); return saved ? saved === "1" : window.innerWidth >= 1100; } catch { return true; } };
+const readRail = () => {
+  try {
+    if (typeof window !== "undefined" && window.innerWidth <= 900) return false;
+    const saved = localStorage.getItem(RAIL_KEY);
+    return saved ? saved === "1" : window.innerWidth >= 1100;
+  } catch {
+    return false;
+  }
+};
 
 interface ChatWorkspaceProps {
   conversation: BrainConversation;
@@ -227,7 +235,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
           <AttachmentTray images={attachments.images} files={attachments.files} processing={attachments.processing} onRemove={attachments.remove} />
           <textarea ref={textarea} rows={1} value={input} onChange={event => setInput(event.target.value)} onKeyDown={keyDown} onPaste={attachments.onPaste} aria-label="Message Iris" placeholder={attachments.files.length ? "Ask about the file, or send to get a summary…" : attachments.images.length ? "Ask about the image, or send to analyze / add as tasks…" : active ? "Ask a follow-up…" : "Ask about your tasks, notes or courses"} />
           <div className="chat-composer-toolbar">
-            <div className="flex items-center gap-1.5 min-w-0">
+            <div className="chat-composer-left flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
               <button
                 type="button"
                 className="chat-icon-button"
@@ -253,7 +261,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
               {onOpenSettings && (
                 <button
                   type="button"
-                  className="chat-icon-button"
+                  className="chat-icon-button chat-composer-settings"
                   onClick={onOpenSettings}
                   aria-label="Configure AI parameters"
                   title="Configure AI parameters"
@@ -262,7 +270,7 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
                 </button>
               )}
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <button
                 type="button"
                 className="chat-icon-button"
@@ -299,13 +307,14 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
             </div>
           </div>
         </form>
-        <p className="chat-composer-hint">{conversation.busy ? "Working with your records. You can stop at any time." : "Enter to send · Shift + Enter for a new line · Paste or drop images and files"}</p>
+        <p className={`chat-composer-hint ${conversation.busy ? "is-busy" : ""}`}>{conversation.busy ? "Working with your records. You can stop at any time." : "Enter to send · Shift + Enter for a new line · Paste or drop images and files"}</p>
       </div>
     </div>
   );
   return <section className={`chat-workspace ${active ? "is-conversation" : "is-welcome"} ${compact ? "is-compact" : ""} ${active && railOpen ? "has-rail" : ""}`} aria-label="AI conversation">
+    {active && railOpen && <div className="chat-rail-backdrop" onClick={() => toggleRail(false)} aria-hidden="true" />}
     {active && railOpen && <ChatHistoryRail openId={conversation.openId || state?.conversationId} openMessages={messages} archives={archives}
-      runningIds={runningIds} temporary={conversation.temporary} onOpen={conversation.resume} onNew={conversation.startNew} onClose={() => toggleRail(false)} />}
+      runningIds={runningIds} temporary={conversation.temporary} onOpen={id => { conversation.resume(id); if (typeof window !== "undefined" && window.innerWidth <= 900) toggleRail(false); }} onNew={() => { conversation.startNew(); if (typeof window !== "undefined" && window.innerWidth <= 900) toggleRail(false); }} onClose={() => toggleRail(false)} />}
     <div className="chat-main">
     {active && <header className="chat-toolbar">
       <div className="flex items-center gap-2 min-w-0">

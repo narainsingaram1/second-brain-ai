@@ -457,3 +457,18 @@ button.ac-folder-name.ac-folder { padding-left: 10px; }
 .ac-tok-preprocessor { color: var(--tok-preprocessor); }
 .ac-tok-register { color: var(--tok-register); }
 .ac-flashcard .ac-codeblock { font-size: 13px; }
+
+.ac-toasts {
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(16px, env(safe-area-inset-bottom));
+}
+
+@media (max-width: 560px) {
+  .ac-session { padding: 14px 16px; }
+  .ac-flashcard { min-height: 200px; padding: 20px 16px; }
+  .ac-reread-note { margin: 0 0 12px; flex-wrap: wrap; }
+  .ac-add-score { grid-template-columns: minmax(0, 1fr); }
+  .ac-weight-row { grid-template-columns: minmax(0, 1fr) 52px 52px 56px 28px; gap: 4px; }
+  .ac-codeblock code { font-size: 12px; }
+  .ac-code-line { padding: 0 10px; }
+}

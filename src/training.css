@@ -188,3 +188,12 @@
 .hl-toolbar .hl-views button, .tr-subnav .hl-views button { flex-shrink: 0; white-space: nowrap; }
 @media (max-width: 700px) { .tr-sets input { min-width: 0; padding: 0 4px; } .tr-sets td { padding: 3px 2px; } .tr-ex { padding: 12px; } }
 @media (max-width: 700px) { .tr-logger-head input[type="text"] { flex-basis: 100%; } }
+.tr-rest {
+  bottom: max(12px, env(safe-area-inset-bottom));
+  max-width: calc(100vw - 24px);
+}
+@media (max-width: 480px) {
+  .tr-schedule { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tr-days, .tr-library-grid { grid-template-columns: minmax(0, 1fr); }
+  .tr-sets th, .tr-sets td { font-size: 12px; padding: 3px 2px; }
+}

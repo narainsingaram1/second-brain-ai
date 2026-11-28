@@ -88,7 +88,7 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
   return (
     <DialogBackdrop onClose={onClose} label="Event details" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-fade-in">
       <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-lg overflow-visible flex flex-col max-h-[92vh]">
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 shrink-0">
           <div>
             <h3 className="font-extrabold text-base tracking-tight text-ink">{event ? "Edit event" : "New event"}</h3>
             <p className="text-[11px] text-slate-400 mt-0.5">Meetings, classes and appointments with a time and place</p>
@@ -98,7 +98,7 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-6 space-y-4 overflow-y-auto">
+        <form onSubmit={handleSave} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
           <div>
             <label htmlFor="event-title" className={label}>Title *</label>
             <input id="event-title" type="text" required autoFocus maxLength={300} placeholder="e.g. Office hours with Prof. Smith" value={title} onChange={(e) => setTitle(e.target.value)} className={`${field} font-bold`} />
@@ -168,7 +168,7 @@ export const EventModal: React.FC<EventModalProps> = ({ isOpen, onClose, event, 
 
           {error && <p role="alert" className="text-xs font-semibold text-rose-500">{error}</p>}
 
-          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
             {event && onDelete ? (
               <button type="button" onClick={() => { onDelete(event.id); onClose(); }} className="text-xs font-bold text-rose-500 hover:text-rose-600 flex items-center gap-1 transition-colors">
                 <Trash2 className="w-3.5 h-3.5" /> Delete Event

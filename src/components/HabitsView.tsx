@@ -104,20 +104,25 @@ export const HabitsView: React.FC<HabitsViewProps> = ({
               <span className="figure">{habit.streak}</span>
               <small>best {habit.bestStreak}</small>
             </span>
-            {last7Days.map((day) => {
-              const isDone = !!habit.history[day.dateStr];
-              return (
-                <button
-                  key={day.dateStr}
-                  className={`tally-cell ${isDone ? "is-done" : ""} ${day.isToday ? "is-today" : ""}`}
-                  onClick={(e) => handleToggle(e, habit.id, day.dateStr)}
-                  aria-pressed={isDone}
-                  aria-label={`${habit.name}, ${day.dateStr}: ${isDone ? "done" : "not done"}`}
-                >
-                  {isDone && <Check size={14} strokeWidth={2} />}
-                </button>
-              );
-            })}
+            <div className="tally-days">
+              {last7Days.map((day) => {
+                const isDone = !!habit.history[day.dateStr];
+                const shortDay = day.isToday ? "Today" : day.dayLabel.split(" ")[0];
+                return (
+                  <div key={day.dateStr} className="tally-day-wrap">
+                    <span className={`tally-day-label ${day.isToday ? "is-today" : ""}`} aria-hidden="true">{shortDay}</span>
+                    <button
+                      className={`tally-cell ${isDone ? "is-done" : ""} ${day.isToday ? "is-today" : ""}`}
+                      onClick={(e) => handleToggle(e, habit.id, day.dateStr)}
+                      aria-pressed={isDone}
+                      aria-label={`${habit.name}, ${day.dateStr}: ${isDone ? "done" : "not done"}`}
+                    >
+                      {isDone && <Check size={14} strokeWidth={2} />}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ))}
         <div className="tally-row tally-foot">

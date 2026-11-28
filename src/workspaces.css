@@ -1275,6 +1275,20 @@
 .synapse-sidebar .sidebar-bottom {
   padding-top: 18px;
 }
+/* Iris system pass: the workspace colour marks its icon only; surfaces stay graphite. */
+.ws-root { --ws-purple: #6a5bb8; --ws-blue: #2f55d4; --ws-green: #2f8a57; --ws-amber: #a8701c; --ws-rose: #b54a6c; }
+.dark .ws-root { --ws-purple: #a99cf0; --ws-blue: #8fa8ef; --ws-green: #4cc38a; --ws-amber: #e0a85a; --ws-rose: #e58aa6; }
+.ws-page-heading { align-items: flex-end; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--workspace-line); }
+.ws-page-heading h1 { margin: 0 0 8px; letter-spacing: -0.01em; }
+.ws-page-heading > div > p:last-child { font-size: 14px; color: var(--workspace-secondary); line-height: 20px; }
+.ws-hero { padding: 0 0 24px; border: 0; border-bottom: 1px solid var(--workspace-line); border-radius: 0; background: none; align-items: flex-end; }
+.ws-hero-main { gap: 16px; align-items: center; min-width: 0; }
+.ws-hero .ws-icon, .ws-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--workspace-raised); color: var(--ws-color, var(--workspace-muted)); border: 1px solid var(--workspace-line); }
+.ws-hero-eyebrow { font-size: 13px; letter-spacing: 0; color: var(--workspace-muted); margin-bottom: 2px; }
+.ws-hero h1 { font-family: var(--font-serif); font-size: 36px; font-weight: 400; letter-spacing: -0.01em; line-height: 1.15; }
+.ws-hero p { font-size: 14px; color: var(--workspace-secondary); margin-top: 8px; line-height: 20px; }
+.ws-tabs { margin-top: 24px; overflow-x: auto; scrollbar-width: none; max-width: 100%; flex-wrap: nowrap; }
+.ws-tabs button { flex-shrink: 0; white-space: nowrap; }
 @media (min-width: 768px) and (max-width: 1180px) {
   .ws-directory {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1286,7 +1300,7 @@
     padding: 16px 12px;
   }
   .ws-hero {
-    padding: 24px;
+    padding: 0 0 20px;
   }
   .ws-hero-actions .ws-button span {
     display: none;
@@ -1323,13 +1337,15 @@
   .ws-page-heading {
     align-items: flex-start;
     flex-direction: column;
-    gap: 18px;
+    gap: 14px;
+    padding-bottom: 18px;
+    margin-bottom: 18px;
   }
   .ws-page-heading h1 {
     font-size: 26px;
   }
   .ws-hero {
-    padding: 20px 16px;
+    padding: 0 0 18px;
     align-items: flex-start;
     gap: 10px;
   }
@@ -1346,26 +1362,28 @@
     width: 18px;
   }
   .ws-hero h1 {
-    font-size: 24px;
+    font-size: 26px;
   }
   .ws-hero p {
     font-size: 13px;
   }
   .ws-hero-eyebrow {
-    font-size: 7px;
+    font-size: 12px;
     letter-spacing: 0;
   }
   .ws-hero-actions {
-    flex-direction: column;
-    gap: 2px;
+    flex-direction: row;
+    gap: 6px;
+    flex-shrink: 0;
   }
   .ws-hero-actions .ws-button {
-    padding: 8px;
-    min-height: 30px;
+    padding: 0 10px;
+    min-height: 32px;
   }
   .ws-tabs {
-    gap: 18px;
-    margin-bottom: 20px;
+    gap: 16px;
+    margin-top: 18px;
+    margin-bottom: 18px;
   }
   .ws-tabs button {
     font-size: 13px;
@@ -1434,7 +1452,8 @@
   }
   .ws-table-footer {
     white-space: normal;
-    min-width: 320px;
+    min-width: 0;
+    width: 100%;
   }
   .ws-table-footer > span {
     display: none;
@@ -1502,20 +1521,6 @@
     grid-template-columns: 1fr;
   }
 }
-
-/* Iris system pass: the workspace colour marks its icon only; surfaces stay graphite. */
-.ws-root { --ws-purple: #6a5bb8; --ws-blue: #2f55d4; --ws-green: #2f8a57; --ws-amber: #a8701c; --ws-rose: #b54a6c; }
-.dark .ws-root { --ws-purple: #a99cf0; --ws-blue: #8fa8ef; --ws-green: #4cc38a; --ws-amber: #e0a85a; --ws-rose: #e58aa6; }
-.ws-page-heading { align-items: flex-end; padding-bottom: 24px; margin-bottom: 24px; border-bottom: 1px solid var(--workspace-line); }
-.ws-page-heading h1 { margin: 0 0 8px; letter-spacing: -0.01em; }
-.ws-page-heading > div > p:last-child { font-size: 14px; color: var(--workspace-secondary); line-height: 20px; }
-.ws-hero { padding: 0 0 24px; border: 0; border-bottom: 1px solid var(--workspace-line); border-radius: 0; background: none; align-items: flex-end; }
-.ws-hero-main { gap: 16px; align-items: center; }
-.ws-hero .ws-icon, .ws-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--workspace-raised); color: var(--ws-color, var(--workspace-muted)); border: 1px solid var(--workspace-line); }
-.ws-hero-eyebrow { font-size: 13px; letter-spacing: 0; color: var(--workspace-muted); margin-bottom: 2px; }
-.ws-hero h1 { font-family: var(--font-serif); font-size: 36px; font-weight: 400; letter-spacing: -0.01em; line-height: 1.15; }
-.ws-hero p { font-size: 14px; color: var(--workspace-secondary); margin-top: 8px; line-height: 20px; }
-.ws-tabs { margin-top: 24px; }
 .ws-stat > div svg, .ws-text-purple, .ws-text-blue, .ws-text-green, .ws-text-amber { color: var(--workspace-muted); }
 .ws-stat > strong { font-weight: 400; font-size: 28px; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .ws-stat > div { font-size: 13px; }

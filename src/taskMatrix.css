@@ -693,6 +693,7 @@ button.task-icon-tile:hover { background: var(--workspace-line); }
 }
 .task-style-editor {
   width: 580px;
+  max-width: 100%;
 }
 .task-style-editor .task-accent-options {
   grid-template-columns: repeat(8, 1fr);
@@ -843,8 +844,8 @@ button.task-icon-tile:hover { background: var(--workspace-line); }
     grid-template-columns: repeat(4, 1fr);
   }
   .task-visual-options {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
   .task-style-label > span {
     display: none;

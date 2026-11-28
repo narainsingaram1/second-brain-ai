@@ -15,7 +15,7 @@ export function AppSkeleton() {
           onNewChat={noop}
           onToggleCollapse={noop}
           counts={{ tasks: 0, notes: 0 }}
-          collapsed={window.matchMedia("(max-width: 767px)").matches}
+          collapsed={false}
         />
       </div>
       <div className="flex-1 flex flex-col min-w-0 min-h-0 h-full" aria-hidden="true">

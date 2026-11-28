@@ -558,11 +558,15 @@
 }
 @media (max-width: 560px) {
   .nx-head { align-items: stretch; }
-  .nx-head-actions { width: 100%; }
+  .nx-head-actions { width: 100%; flex-wrap: wrap; }
   .nx-head-actions .nx-btn { flex: 1; }
   .nx-head h1 { font-size: 24px; }
   .nx-hint { display: none; }
-  .nx-toolbar { justify-content: flex-end; }
+  .nx-toolbar { justify-content: flex-start; flex-wrap: wrap; }
+  .nx-graph-search { flex: 1 1 100%; max-width: none; }
+  .nx-graph-stats { margin-left: 0; }
+  .nx-dialog { padding: 16px; max-height: calc(100dvh - 24px); overflow-y: auto; }
+  .nx-dialog-foot { flex-wrap: wrap; }
   .nx-cards { grid-template-columns: minmax(0, 1fr); }
   .nx-folders { grid-template-columns: minmax(0, 1fr); }
   .nx-row-words { display: none; }
@@ -1258,6 +1262,8 @@
 }
 @media (max-width: 840px) {
   .nx-graph-stage.has-inspector { grid-template-columns: minmax(0, 1fr); grid-template-rows: 1fr auto; height: auto; }
-  .nx-graph-canvas-wrap { min-height: 440px; }
+  .nx-graph-canvas-wrap { min-height: 360px; }
+  .nx-graph-focus-banner { max-width: calc(100% - 24px); flex-wrap: wrap; gap: 6px; }
+  .nx-graph-controls { max-width: calc(100% - 24px); overflow-x: auto; }
   .nx-graph-inspector { border-left: 0; border-top: 1px solid var(--workspace-line); max-height: 320px; }
 }

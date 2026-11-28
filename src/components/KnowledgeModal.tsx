@@ -93,10 +93,10 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
   };
 
   return (
-    <DialogBackdrop onClose={onClose} label="Note details" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
-      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-xl overflow-hidden flex flex-col">
+    <DialogBackdrop onClose={onClose} label="Note details" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-xl max-h-[calc(100dvh-24px)] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/50 dark:bg-slate-900/50">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-raised flex items-center justify-center text-muted dark:text-slate-400">
               <FileText className="w-4 h-4" />
@@ -118,7 +118,7 @@ export const KnowledgeModal: React.FC<KnowledgeModalProps> = ({
         </div>
 
         {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1 min-h-0">
           <div>
             <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
               Note Title *

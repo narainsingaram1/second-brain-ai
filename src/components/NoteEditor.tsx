@@ -495,7 +495,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               aria-label="Note folder"
               value={folderId || ""}
               onChange={(e) => handleFolderChange(e.target.value ? e.target.value : null)}
-              className="bg-transparent focus:outline-none cursor-pointer max-w-[140px] truncate"
+              className="bg-transparent focus:outline-none cursor-pointer max-w-[110px] sm:max-w-[140px] truncate"
             >
               <option value="">No folder</option>
               {folders
@@ -536,8 +536,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         </div>
 
         {/* Right Action Tools: Modes, Autosave Status, AI, Fullscreen */}
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-400 dark:text-slate-500" title="Notes save automatically. Sync issues appear in Workspace & Sync.">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-medium text-slate-400 dark:text-slate-500" title="Notes save automatically. Sync issues appear in Workspace & Sync.">
             <div className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
             <span>Autosave on</span>
           </div>
@@ -621,7 +621,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
             </button>
 
             {aiMenuOpen && (
-              <div className="absolute right-0 mt-2 w-56 bg-panel rounded-2xl border border-line shadow-xl p-1.5 z-40 flex flex-col gap-1 text-xs font-semibold animate-fade-in">
+              <div className="absolute right-0 mt-2 w-56 max-w-[calc(100vw-32px)] bg-panel rounded-2xl border border-line shadow-xl p-1.5 z-40 flex flex-col gap-1 text-xs font-semibold animate-fade-in">
                 <button
                   onClick={() => runAIAssistant("summarize")}
                   className="flex items-center gap-2 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-200 text-left transition-colors"
@@ -743,7 +743,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 placeholder="Untitled Note..."
                 value={title}
                 onChange={(e) => handleTitleChange(e.target.value)}
-                className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-ink bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
+                className="w-full text-2xl sm:text-4xl font-bold tracking-tight text-ink bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
               />
             </div>
 
@@ -759,7 +759,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                   <button
                     aria-label={`Remove tag ${t}`}
                     onClick={() => handleRemoveTag(t)}
-                    className="opacity-50 hover:opacity-100 text-slate-400 hover:text-rose-500 ml-0.5"
+                    className="opacity-80 sm:opacity-50 hover:opacity-100 text-slate-400 hover:text-rose-500 p-1 -my-0.5 -mr-1 ml-0.5"
                   >
                     ×
                   </button>
@@ -800,7 +800,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               </select>
             </label>
           </div>
-          <div className={`note-content-workspace flex-1 min-h-[450px] ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
+          <div className={`note-content-workspace flex-1 min-h-[260px] sm:min-h-[450px] ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
             {mode === "source" ? <textarea
               aria-label="Markdown source"
               value={hideNoteImages(content)}
@@ -808,7 +808,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               placeholder="Write Markdown here…"
               readOnly={generating}
               className="note-source"
-            /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}>
+            /> : <Suspense fallback={<div className="min-h-[260px] sm:min-h-[420px] text-slate-400">Loading editor…</div>}>
               <NoteRichText
                 ref={richEditorRef}
                 key={`${note.id}:${editorRevision}`}

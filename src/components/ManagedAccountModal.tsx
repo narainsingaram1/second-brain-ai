@@ -51,15 +51,15 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
   };
 
   return (
-    <div className="workspace-overlay fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-md animate-fade-in">
+    <div className="workspace-overlay fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/60 backdrop-blur-md animate-fade-in">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="account-title"
-        className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+        className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-md max-h-[calc(100dvh-24px)] overflow-hidden flex flex-col"
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+        <div className="px-4 sm:px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-raised border border-line flex items-center justify-center text-muted">
               <PenLine className="w-4 h-4 " />
@@ -122,7 +122,7 @@ export function ManagedAccountModal({ isOpen, onClose, session }: ManagedAccount
           </div>
 
           {/* Cloud Sync & Security Badges */}
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <div className="p-3 rounded-2xl bg-slate-50/70 dark:bg-slate-900/40 border border-line flex items-center gap-2.5">
               <div className="w-7 h-7 rounded-xl bg-raised0/10 text-[var(--workspace-success)] flex items-center justify-center shrink-0">
                 <CheckCircle2 className="w-4 h-4" />

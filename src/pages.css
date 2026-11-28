@@ -234,6 +234,9 @@ button.events-title:hover { color: var(--workspace-accent); }
 .tally-streak { display: flex; flex-direction: column; }
 .tally-streak .figure { font-size: 15px; color: var(--workspace-ink); }
 .tally-streak small { font-family: var(--font-mono); font-size: 12px; color: var(--workspace-muted); }
+.tally-days,
+.tally-day-wrap { display: contents; }
+.tally-day-label { display: none; }
 .tally-cell {
   justify-self: center;
   width: 28px;
@@ -250,7 +253,70 @@ button.events-title:hover { color: var(--workspace-accent); }
 .tally-cell.is-today { border-style: solid; }
 .tally-cell.is-done { border: 0; background: var(--workspace-accent-strong); }
 .dark .tally-cell.is-done { color: #fff; background: var(--workspace-accent-strong); }
-@media (max-width: 767px) { .stat-strip.is-three { grid-template-columns: minmax(0, 1fr); } .stat-strip.is-three > * { border-left: 0; border-top: 1px solid var(--workspace-line); } .stat-strip.is-three > :first-child { border-top: 0; } }
+@media (max-width: 767px) {
+  .stat-strip.is-three { grid-template-columns: minmax(0, 1fr); }
+  .stat-strip.is-three > * { border-left: 0; border-top: 1px solid var(--workspace-line); }
+  .stat-strip.is-three > :first-child { border-top: 0; }
+  .tally-sheet { overflow-x: visible; }
+  .tally-head { display: none; }
+  .tally-row {
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px 12px;
+    padding: 14px;
+    min-height: 0;
+  }
+  .tally-name {
+    grid-column: 1;
+    padding-right: 0;
+    gap: 4px;
+  }
+  .tally-name strong { white-space: normal; overflow-wrap: anywhere; }
+  .tally-actions {
+    position: static;
+    transform: none;
+    opacity: 1;
+    margin-top: 4px;
+  }
+  .tally-streak {
+    grid-column: 2;
+    align-items: flex-end;
+    text-align: right;
+  }
+  .tally-days {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+    padding-top: 10px;
+    border-top: 1px solid var(--workspace-line);
+  }
+  .tally-day-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 5px;
+  }
+  .tally-day-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--workspace-muted);
+  }
+  .tally-day-label.is-today {
+    color: var(--workspace-ink);
+    font-weight: 600;
+  }
+  .tally-cell {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+  }
+  .tally-foot {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 12px 14px;
+  }
+}
 /* Large figures use Geist with tabular digits; mono stays for dates, counts and meta. */
 .stat-strip .figure, .knowledge-shortcuts .figure, .tally-streak .figure { font-family: var(--font-sans); font-variant-numeric: tabular-nums; }
 

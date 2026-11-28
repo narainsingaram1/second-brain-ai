@@ -530,7 +530,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
             </div>
 
             {/* Right Controls: Sort & Show Completed */}
-            <div className="flex items-center gap-5">
+            <div className="flex items-center flex-wrap gap-3 sm:gap-5">
               {/* Sort Dropdown */}
               <div className="relative inline-flex items-center gap-1 text-xs font-medium text-zinc-600 dark:text-zinc-300">
                 <span>Sort:</span>
@@ -569,15 +569,15 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
 
           {/* New Section Inline Form */}
           {isAddingSection && (
-            <form className="flex items-center gap-3 p-3 mb-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs" onSubmit={handleCreateSection}>
-              <FolderPlus size={18} className="text-zinc-500" />
+            <form className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:gap-3 p-3 mb-6 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs" onSubmit={handleCreateSection}>
+              <FolderPlus size={18} className="text-zinc-500 shrink-0" />
               <input
                 autoFocus
                 aria-label="New section name"
                 placeholder="New section name…"
                 value={newSectionName}
                 onChange={(event) => setNewSectionName(event.target.value)}
-                className="flex-1 bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none"
+                className="flex-1 min-w-[160px] bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none"
               />
               <button
                 type="submit"
@@ -673,7 +673,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                     </div>
 
                     {/* Section Level Actions (Add Subsection, Delete Section) */}
-                    <div className="flex items-center gap-2 opacity-0 group-hover/section:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover/section:opacity-100 transition-opacity shrink-0">
                       <button
                         type="button"
                         onClick={() => {
@@ -708,7 +708,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                   {/* Inline Form to Add New Subsection */}
                   {activeAddingSubFor === section && (
                     <form
-                      className="flex items-center gap-3 p-3 mb-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs"
+                      className="flex flex-wrap sm:flex-nowrap items-center gap-2.5 sm:gap-3 p-3 mb-4 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xs"
                       onSubmit={(event) => handleCreateSubsection(section, event)}
                     >
                       <input
@@ -717,7 +717,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                         placeholder="Subsection or course name…"
                         value={newSubName}
                         onChange={(event) => setNewSubName(event.target.value)}
-                        className="flex-1 bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none"
+                        className="flex-1 min-w-[160px] bg-transparent text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none"
                       />
                       <button
                         type="submit"
@@ -762,7 +762,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                             aria-label={`${section} / ${sub}`}
                           >
                             {/* Course / Subsection Card Header */}
-                            <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 bg-white dark:bg-[#19191b]">
+                            <div className="flex items-center justify-between flex-wrap gap-2 px-3.5 sm:px-4 py-3 border-b border-zinc-100 dark:border-zinc-800/80 bg-white dark:bg-[#19191b]">
                               <div className="flex items-center gap-2.5 min-w-0">
                                 <button
                                   type="button"
@@ -925,7 +925,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                               <div>
                                 {displayedTasks.length > 0 && (
                                   /* Column Headers */
-                                  <div className="grid grid-cols-[1fr_130px_110px_100px_60px] items-center px-4 py-2 bg-zinc-50/50 dark:bg-zinc-900/40 border-b border-zinc-100 dark:border-zinc-800/60 text-xs font-medium text-zinc-400 dark:text-zinc-500">
+                                  <div className="hidden md:grid grid-cols-[1fr_130px_110px_100px_60px] items-center px-4 py-2 bg-zinc-50/50 dark:bg-zinc-900/40 border-b border-zinc-100 dark:border-zinc-800/60 text-xs font-medium text-zinc-400 dark:text-zinc-500">
                                     <div className="pl-8">Task</div>
                                     <div>Status</div>
                                     <div>Due</div>
@@ -969,15 +969,15 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                       return (
                                         <div
                                           key={task.id}
-                                          className="grid grid-cols-[1fr_130px_110px_100px_60px] items-center px-4 py-2.5 min-h-[52px] hover:bg-zinc-50/60 dark:hover:bg-zinc-800/25 transition-colors group"
+                                          className="flex flex-col gap-2.5 md:grid md:grid-cols-[1fr_130px_110px_100px_60px] md:items-center md:gap-0 px-3.5 sm:px-4 py-3 md:py-2.5 min-h-[52px] hover:bg-zinc-50/60 dark:hover:bg-zinc-800/25 transition-colors group"
                                         >
                                           {/* Column 1: Checkbox & Task Title / Subtitle */}
-                                          <div className="flex items-center gap-3 min-w-0 pr-3">
+                                          <div className="flex items-start md:items-center gap-3 min-w-0 md:pr-3">
                                             {/* Completion Checkbox */}
                                             <button
                                               type="button"
                                               onClick={(e) => handleCheckboxClick(e, task)}
-                                              className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${
+                                              className={`mt-0.5 md:mt-0 w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 transition-colors cursor-pointer ${
                                                 isCompleted
                                                   ? "bg-blue-600 dark:bg-blue-500 text-white shadow-2xs"
                                                   : "border-2 border-zinc-300 dark:border-zinc-600 hover:border-zinc-400 dark:hover:border-zinc-500"
@@ -993,10 +993,10 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                             <button
                                               type="button"
                                               onClick={() => onEditTask(task)}
-                                              className="text-left min-w-0 flex-1 truncate group-hover/title"
+                                              className="text-left min-w-0 flex-1 group-hover/title"
                                             >
                                               <span
-                                                className={`text-sm truncate block transition-colors ${
+                                                className={`text-sm line-clamp-2 md:line-clamp-none md:truncate block transition-colors ${
                                                   isCompleted
                                                     ? "line-through text-zinc-400 dark:text-zinc-500 font-normal"
                                                     : "text-zinc-900 dark:text-zinc-100 font-medium hover:text-blue-600 dark:hover:text-blue-400"
@@ -1012,6 +1012,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                             </button>
                                           </div>
 
+                                          <div className="flex items-center flex-wrap gap-2 pl-8 md:contents">
                                           {/* Column 2: Status Pill Dropdown */}
                                           <div>
                                             <div className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800/90 text-xs font-medium text-zinc-700 dark:text-zinc-300 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors">
@@ -1109,7 +1110,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                           </div>
 
                                           {/* Task Actions (Edit & Delete) */}
-                                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <div className="flex items-center justify-end gap-1 ml-auto md:ml-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                                             <button
                                               type="button"
                                               onClick={() => onEditTask(task)}
@@ -1128,6 +1129,7 @@ export const TaskMatrixView: React.FC<TaskMatrixViewProps> = ({
                                             >
                                               <Trash2 size={14} />
                                             </button>
+                                          </div>
                                           </div>
                                         </div>
                                       );

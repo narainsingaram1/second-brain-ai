@@ -130,10 +130,10 @@ export const SemanticMemoryVaultModal: React.FC<SemanticMemoryVaultModalProps> =
   };
 
   return (
-    <DialogBackdrop onClose={onClose} label="Knowledge index" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md animate-fade-in">
-      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-3xl max-h-[88vh] flex flex-col overflow-hidden">
+    <DialogBackdrop onClose={onClose} label="Knowledge index" className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-md animate-fade-in">
+      <div className="workspace-dialog bg-panel rounded-3xl border border-line shadow-2xl w-full max-w-3xl max-h-[calc(100dvh-24px)] sm:max-h-[88vh] flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between bg-slate-50/70 dark:bg-slate-900/50">
+        <div className="px-4 sm:px-6 py-4 sm:py-5 border-b border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3 bg-slate-50/70 dark:bg-slate-900/50 shrink-0">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-raised border border-line text-muted flex items-center justify-center">
               <Database className="w-5 h-5" />

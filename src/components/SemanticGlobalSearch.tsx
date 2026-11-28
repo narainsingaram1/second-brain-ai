@@ -286,9 +286,9 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
   return (
     <DialogBackdrop onClose={onClose} label="Search workspace"
       onKeyDown={handleKeyDown}
-      className="fixed inset-0 z-50 flex items-start justify-center pt-20 p-4 bg-slate-950/70 backdrop-blur-md animate-fade-in"
+      className="fixed inset-0 z-50 flex items-start justify-center pt-3 sm:pt-20 p-3 sm:p-4 bg-slate-950/70 backdrop-blur-md animate-fade-in"
     >
-      <div className="workspace-dialog bg-panel backdrop-blur-2xl rounded-3xl border border-line shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col ring-1 ring-slate-900/5 dark:ring-white/10">
+      <div className="workspace-dialog bg-panel backdrop-blur-2xl rounded-3xl border border-line shadow-2xl w-full max-w-2xl max-h-[calc(100dvh-24px)] overflow-hidden flex flex-col ring-1 ring-slate-900/5 dark:ring-white/10">
         {/* Search Omnibar Input */}
         <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800/80 flex items-center gap-3">
           <Search className="w-5 h-5 text-muted shrink-0" />
@@ -311,8 +311,8 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="px-5 py-2 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-1">
+        <div className="px-4 sm:px-5 py-2 bg-slate-50/60 dark:bg-slate-900/40 border-b border-slate-100 dark:border-slate-800/60 flex items-center justify-between gap-2 overflow-x-auto text-xs shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             {[
               { id: "all", label: "All" },
               { id: "task", label: "Tasks" },
@@ -340,7 +340,7 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
         </div>
 
         {/* Search Results List */}
-        <div className="max-h-[380px] overflow-y-auto p-3 space-y-1">
+        <div className="flex-1 min-h-0 sm:max-h-[380px] overflow-y-auto p-3 space-y-1">
           {filteredResults.length === 0 ? (
             <div className="py-12 text-center text-slate-400 space-y-1">
               <PenLine className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-600" />
@@ -376,7 +376,7 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
                           {item.type}
                         </span>
                       </div>
-                      <p className="text-[11px] text-muted truncate max-w-[420px]">
+                      <p className="text-[11px] text-muted truncate max-w-full">
                         {item.snippet}
                       </p>
                     </div>
@@ -409,7 +409,7 @@ export const SemanticGlobalSearch: React.FC<SemanticGlobalSearchProps> = ({
         </div>
 
         {/* Footer shortcuts */}
-        <div className="px-5 py-2.5 bg-slate-50/70 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-slate-400 font-mono">
+        <div className="hidden sm:flex px-5 py-2.5 bg-slate-50/70 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 items-center justify-between text-[11px] text-slate-400 font-mono">
           <div className="flex items-center gap-3">
             <span>
               <kbd className="px-1 py-0.5 bg-slate-200 dark:bg-slate-800 rounded font-bold">↑↓</kbd> navigate

@@ -481,12 +481,18 @@ tr:hover .hl-day-edit-btn { opacity: 1; }
 @media (max-width: 900px) {
   .hl-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hl-grid-2 { grid-template-columns: 1fr; }
-  .hl-inspector-dialog { grid-template-columns: 1fr; height: 92vh; }
-  .hl-inspector-stage { min-height: 220px; max-height: 44vh; }
+  .hl-inspector-dialog { grid-template-columns: 1fr; height: min(92dvh, 100%); max-height: calc(100dvh - 24px); }
+  .hl-inspector-stage { min-height: 200px; max-height: 40dvh; }
   .hl-inspector-side { border-left: 0; border-top: 1px solid var(--workspace-line); }
 }
 @media (max-width: 680px) {
   .hl-stats, .hl-cmp-side-grid, .hl-compare-pickers, .hl-cmp-notes { grid-template-columns: 1fr; }
   .hl-swap-btn { justify-self: center; transform: rotate(90deg); }
   .hl-form-grid-2 { grid-template-columns: 1fr; }
+  .hl-checkin-bf { max-width: none; flex: 1; }
+  .hl-drop-btns { margin-left: 0; width: 100%; }
+  .hl-copy { flex-wrap: wrap; }
+  .hl-align-col { min-width: 0; }
+  .hl-cmp-img-clip { max-height: 360px; }
+  .hl-cmp-slider-stage { max-height: 420px; }
 }
