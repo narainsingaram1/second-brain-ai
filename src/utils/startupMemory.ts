@@ -3,7 +3,7 @@
 
 const TAB_KEY = "synapse_active_tab";
 const THEME_KEY = "synapse_theme";
-const PAGES = ["home", "planner", "routines", "tasks", "events", "knowledge", "habits", "journal", "copilot", "workspaces"];
+const PAGES = ["home", "routines", "tasks", "events", "knowledge", "habits", "journal", "copilot", "workspaces"];
 
 /** The page this browser tab was on, so a reload stays there. A new tab starts on Home. */
 export function rememberedTab(): string {

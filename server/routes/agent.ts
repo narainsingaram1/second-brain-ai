@@ -11,14 +11,25 @@ const MAX_BODY = 4_400_000;
 
 function validMessage(value: unknown): value is AIMessage {
   const m = value as AIMessage;
-  return !!m && typeof m === "object" && typeof m.id === "string" && m.id.length <= 200 && (m.role === "user" || m.role === "assistant" || m.role === "system")
-    && typeof m.content === "string" && m.content.length <= 200_000;
+  if (!m || typeof m !== "object" || typeof m.id !== "string" || m.id.length > 200 || (m.role !== "user" && m.role !== "assistant" && m.role !== "system")
+    || typeof m.content !== "string" || m.content.length > 200_000) return false;
+  if (m.files !== undefined) {
+    if (!Array.isArray(m.files) || m.files.length > 10) return false;
+    for (const item of m.files as unknown[]) {
+      const f = item as Record<string, unknown>;
+      if (!f || typeof f !== "object" || typeof f.name !== "string" || f.name.length > 300) return false;
+      if (f.mimeType !== undefined && (typeof f.mimeType !== "string" || f.mimeType.length > 150)) return false;
+      if (f.kind !== undefined && (typeof f.kind !== "string" || f.kind.length > 40)) return false;
+      if (f.text !== undefined && (typeof f.text !== "string" || f.text.length > 200_000)) return false;
+    }
+  }
+  return true;
 }
 
 /** Parses and bounds the turn the browser sends. Everything else is loaded from the database as the user. */
 export function parseAgentRequest(body: Record<string, unknown>): AgentRequest {
   const message = body.message;
-  if (!validMessage(message) || message.role !== "user" || (!message.content.trim() && !Array.isArray(body.images))) throw new HttpError(400, "Message cannot be empty.");
+  if (!validMessage(message) || message.role !== "user" || (!message.content.trim() && !Array.isArray(body.images) && !message.files?.length)) throw new HttpError(400, "Message cannot be empty.");
   const history = Array.isArray(body.chatHistory) ? body.chatHistory : [];
   if (history.length > 400 || !history.every(validMessage)) throw new HttpError(400, "Conversation history is invalid or too long.");
   const images = Array.isArray(body.images) ? body.images : [];

@@ -1,7 +1,8 @@
 import "../memory.css";
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpRight, Box, Briefcase, CalendarDays, CheckSquare, ChevronDown, Clock3, Flame, GraduationCap, Image as ImageIcon, Lightbulb, Mail, MessageCircle, Mic, MicOff, PanelLeft, Paperclip, Plus, Quote, RefreshCw, SlidersHorizontal, Square, type LucideIcon } from "lucide-react";
 import { googleStatus, serverFeatures } from "../services/serverApi";
+import { OPENROUTER_MODELS, resolveModel } from "../services/openrouter";
 import { AIMessage, BrainState, KnowledgeItem } from "../types";
 import { BrainConversation } from "../hooks/useBrainConversation";
 import { BrowserConfirmCard } from "./BrowserConfirmCard";
@@ -49,9 +50,12 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
   const previousMessage = useRef<string | undefined>(undefined);
   const speech = useRef<{ stop: () => void; abort: () => void } | null>(null);
   const active = messages.some(m => m.role === "user");
-  const visible = active ? messages.filter(m => m.role !== "system") : [];
+  const visible = useMemo(() => (active ? messages.filter(m => m.role !== "system") : []), [active, messages]);
+  const firstUserIndex = useMemo(() => visible.findIndex(m => m.role === "user"), [visible]);
   const last = visible[visible.length - 1];
   const draft = conversation.draft && !visible.some(m => m.id === conversation.draft!.id) ? conversation.draft : null;
+  const activeModelId = resolveModel(state?.selectedModel);
+  const activeModelLabel = OPENROUTER_MODELS.find(m => m.id === activeModelId)?.name || activeModelId.split("/").pop() || activeModelId;
   // A reply the reader watched stream in should not jump back to its beginning when it completes.
   const streamedId = useRef<string | undefined>(undefined);
   if (draft) streamedId.current = draft.id;
@@ -131,14 +135,43 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
     window.getSelection()?.removeAllRanges();
     requestAnimationFrame(() => { const element = textarea.current; if (element) { element.focus(); element.setSelectionRange(element.value.length, element.value.length); } });
   }, []);
+  const conversationRef = useRef(conversation);
+  conversationRef.current = conversation;
   /** Edit & resend, or regenerate: both trim the conversation back to that turn and answer again. */
-  const resubmit = async (messageId: string, text?: string, branch = false) => {
-    if (conversation.busy || !conversation.resubmit) return;
+  const resubmit = useCallback(async (messageId: string, text?: string, branch = false) => {
+    const current = conversationRef.current;
+    if (current.busy || !current.resubmit) return;
     setError("");
     pinned.current = true;
-    try { await conversation.resubmit(messageId, text, { branch }); }
+    try { await current.resubmit(messageId, text, { branch }); }
     catch (err) { setError(err instanceof Error ? err.message : "The request failed. Try again."); }
-  };
+  }, []);
+  const handleSendFollowUp = useCallback((text: string) => {
+    const current = conversationRef.current;
+    if (current.busy) return;
+    setError("");
+    pinned.current = true;
+    void current.run(text).catch(err => {
+      setError(err instanceof Error ? err.message : "The request failed. Try again.");
+      setInput(text);
+    });
+  }, []);
+  const handleCardAddTasks = useCallback((messageId: string, block: number, spec: any, indexes: number[]) =>
+    conversationRef.current.addCardTasks(messageId, block, spec, indexes), []);
+  const handleCardSetState = useCallback((messageId: string, block: number, next: any) =>
+    conversationRef.current.setCardState(messageId, block, next), []);
+  const handleCardChange = useCallback((changes: any) =>
+    conversationRef.current.changeFromCard(changes), []);
+  const cardsHandlers = useMemo(() => ({
+    busy: conversation.busy,
+    addTasks: handleCardAddTasks,
+    setState: handleCardSetState,
+    change: handleCardChange,
+  }), [conversation.busy, handleCardAddTasks, handleCardSetState, handleCardChange]);
+  const handleDecideApproval = useCallback((messageId: string, approvalId: string, decision: "approve" | "reject") =>
+    conversationRef.current.decideApproval(messageId, approvalId, decision), []);
+  const handleFeedback = useCallback((messageId: string, feedback: "like" | "dislike" | null) =>
+    conversationRef.current.setMessageFeedback?.(messageId, feedback ?? undefined), []);
   // A small "Quote" button over text selected in a message.
   useEffect(() => {
     if (!active) return;
@@ -209,11 +242,11 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
                 type="button"
                 className="chat-model-pill"
                 onClick={onOpenSettings}
-                title={state?.selectedModel || "nemotron-3-nano-omni-30b-a3b-instruct"}
+                title={activeModelId}
               >
                 <Box size={13} className="text-zinc-500 shrink-0" strokeWidth={1.8} />
                 <span className="chat-model-name truncate">
-                  {state?.selectedModel?.split("/").pop() || "nemotron-3-nano-omni-30b-a3b-rea..."}
+                  {activeModelLabel}
                 </span>
                 <ChevronDown size={12} className="text-zinc-400 shrink-0" />
               </button>
@@ -311,8 +344,11 @@ export function ChatWorkspace({ conversation, state, messages, onSaveNote, onOpe
                 onQuote: quoteIntoComposer,
                 ...(conversation.resubmit ? message.role === "user"
                   ? { onEdit: (text: string, branch: boolean) => resubmit(message.id, text, branch) }
-                  : visible.slice(0, index).some(m => m.role === "user") ? { onRegenerate: () => void resubmit(message.id) } : {} : {}),
-              }} onDecide={message.approvals?.length ? (approvalId, decision) => conversation.decideApproval(message.id, approvalId, decision) : undefined} followUps={message.id === last?.id && !conversation.busy && conversation.followUps?.messageId === message.id ? conversation.followUps : undefined} onFollowUp={text => void send(text)} cards={{ busy: conversation.busy, addTasks: conversation.addCardTasks, setState: conversation.setCardState, change: conversation.changeFromCard }} />)}
+                  : firstUserIndex >= 0 && index > firstUserIndex ? { onRegenerate: () => void resubmit(message.id) } : {} : {}),
+              }} onDecide={message.approvals?.length ? (approvalId, decision) => handleDecideApproval(message.id, approvalId, decision) : undefined}
+              onFeedback={conversation.setMessageFeedback ? handleFeedback : undefined}
+              followUps={message.id === last?.id && !conversation.busy && conversation.followUps?.messageId === message.id ? conversation.followUps : undefined}
+              onFollowUp={handleSendFollowUp} cards={cardsHandlers} />)}
             {/* The reply in progress: live steps first, then its text as it streams in. One stable element for the whole turn. */}
             {conversation.busy && last?.role === "user" && <ConversationMessage key="live-turn" state={state} streaming
               message={{ id: draft?.id || "live-turn", role: "assistant", content: draft?.content || "", timestamp: "", activity: conversation.activity }} />}

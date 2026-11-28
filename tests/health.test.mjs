@@ -11,6 +11,7 @@ const { parseHealthPayload, applyHealthPatches, mergeHealthDay, normalizeHealthD
 const { computeHealth, workoutLoad, healthSummaryForAssistant } = await load('/src/utils/healthMetrics.ts');
 const { sampleHealthDays } = await load('/src/utils/healthSample.ts');
 const { computeDeepHealth, scoreNight, spearman, sleepNeedFor } = await load('/src/utils/healthInsights.ts');
+const B = await load('/src/utils/bodyProgress.ts');
 const { prepareMutation, applyMutation, executeRead } = await load('/src/services/brainTools.ts');
 const { approvalReason } = await load('/src/services/actionPolicy.ts');
 const { healthSyncHandlers } = await load('/server/routes/healthsync.ts');
@@ -359,4 +360,134 @@ test('reads the export straight from the zip, and importing it twice changes not
   const again = applyHealthPatches(first.days, patches, 'Apple Health export');
   assert.equal(again.changed.length, 0);
   await assert.rejects(readAppleHealthExport(new File([await new JSZip().file('x.txt', 'hi').generateAsync({ type: 'uint8array' })], 'other.zip')), /No export\.xml/);
+});
+
+test('bodyProgress: computes moving averages, weekly changes, lean mass, measurements, and photo comparisons', () => {
+  const ref1 = 'synapse-img:11111111111111111111111111111111.webp';
+  const ref2 = 'synapse-img:22222222222222222222222222222222.jpg';
+  const photos = B.normalizeProgressPhotos([
+    { id: 'p-bad', date: '2026-10-01', pose: 'front', imageRef: 'https://evil.example/x.png', createdAt: '2026-10-01T08:00:00Z', updatedAt: '2026-10-01T08:00:00Z' },
+    { id: 'p2', date: '2026-11-12', time: '07:30', pose: 'front', imageRef: ref2, bodyFatPct: 14.5, measurements: { waistCm: 81.0, chestCm: 103.5 }, phase: 'Cut', milestone: true, createdAt: '2026-11-12T07:35:00Z', updatedAt: '2026-11-12T07:35:00Z' },
+    { id: 'p1', date: '2026-10-15', time: '07:15', pose: 'front', imageRef: ref1, weightKg: 82.0, bodyFatPct: 17.5, measurements: { waistCm: 85.0, chestCm: 103.0 }, phase: 'Cut', createdAt: '2026-10-15T07:20:00Z', updatedAt: '2026-10-15T07:20:00Z' },
+    { id: 'p1', date: '2026-10-15', time: '09:00', pose: 'side', imageRef: ref1, createdAt: '2026-10-15T09:00:00Z', updatedAt: '2026-10-15T09:00:00Z' }, // Duplicate id filtered
+  ]);
+  assert.deepEqual(photos.map(p => p.id), ['p1', 'p2']);
+
+  // Build 4 weeks of gradual cut weigh-ins (note 2026-10-15 weight comes from p1 via gap-filling!)
+  const days = [
+    ['2026-10-19', 81.4],
+    ['2026-10-22', 81.1],
+    ['2026-10-26', 80.6],
+    ['2026-10-29', 80.2],
+    ['2026-11-02', 79.7],
+    ['2026-11-05', 79.3],
+    ['2026-11-09', 78.9],
+    ['2026-11-11', 78.6],
+    ['2026-11-12', 78.4],
+  ].map(([date, kg]) => normalizeHealthDay({ id: `health-${date}`, date, metrics: { weightKg: kg }, updatedAt: `${date}T12:00:00Z` }));
+
+  const profile = { weightUnit: 'lb', lengthUnit: 'in', startWeightKg: 84.0, goalWeightKg: 76.0, heightCm: 180 };
+  const analytics = B.computeBodyAnalytics(days, photos, profile, '2026-11-12');
+  assert.equal(analytics.totalWeighIns, 10, 'includes photo weight on 2026-10-15');
+  assert.equal(analytics.points[0].photoCount, 1);
+  assert.ok(analytics.weeklyChanges.length >= 4);
+  assert.ok(analytics.weeklyChanges.some(w => typeof w.changeKg === 'number' && w.changeKg < 0));
+  assert.ok(analytics.perWeekKg < -0.4 && analytics.perWeekKg > -1.2, `realistic cut slope: ${analytics.perWeekKg}`);
+  assert.ok(analytics.goalProgressPct > 50 && analytics.goalProgressPct < 90);
+  assert.ok(analytics.goalDate > '2026-11-12');
+  assert.ok(analytics.latestLeanMassKg > 65 && analytics.latestFatMassKg > 10);
+  assert.ok(analytics.bmi > 23 && analytics.bmi < 25);
+
+  const cmp = B.compareProgressPhotos(photos[0], photos[1], days);
+  assert.equal(cmp.daysElapsed, 28);
+  assert.ok(Math.abs(cmp.weightDeltaKg - (-3.6)) < 0.05);
+  assert.equal(cmp.bodyFatDeltaPct, -3);
+  assert.equal(cmp.measurementDeltas.find(m => m.key === 'waistCm').deltaCm, -4);
+
+  const summary = B.bodySummaryForAssistant(days, photos, profile, '2026-11-12');
+  assert.equal(summary.unit, 'lb');
+  assert.equal(summary.lengthUnit, 'in');
+  assert.equal(summary.progressPhotos.total, 2);
+  assert.ok(summary.measurements.waistCm);
+});
+
+test('health assistant tools: log weight in lb, update body profile targets, read body_summary', async () => {
+  const healthWs = { id: 'ws-h', name: 'Health', description: '', template: 'health', color: 'rose', notes: '', createdAt: '2026-01-01', health: { weightUnit: 'lb', lengthUnit: 'in' } };
+  let state = { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], workspaces: [healthWs], noteFolders: [], healthDays: [], progressPhotos: [], study: { courses: [], folders: [], documents: [], decks: [], quizzes: [] } };
+
+  let m = prepareMutation('log_health_day', { date: '2026-11-10', weight: 180, weightUnit: 'lb', bodyFatPct: 15.2 }, state);
+  state = applyMutation(state, m);
+  m = prepareMutation('log_health_day', { date: '2026-11-12', weight: 178, weightUnit: 'lb' }, state);
+  state = applyMutation(state, m);
+  assert.ok(Math.abs(state.healthDays[0].metrics.weightKg - 81.65) < 0.05);
+
+  m = prepareMutation('update_health_profile', { startWeight: 190, goalWeight: 170, goalWeightUnit: 'lb', heightCm: 180 }, state);
+  state = applyMutation(state, m);
+  assert.ok(Math.abs(state.workspaces[0].health.goalWeightKg - 77.11) < 0.05);
+  assert.equal(state.workspaces[0].health.heightCm, 180);
+
+  m = prepareMutation('log_progress_photo', {
+    date: '2026-11-12',
+    pose: 'flexed',
+    imageRef: 'synapse-img:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.webp',
+    weight: 178,
+    waist: 32.5,
+    phase: 'Cut',
+    tags: ['pump'],
+  }, state);
+  state = applyMutation(state, m);
+
+  const summary = (await executeRead('body_summary', {}, state, '')).output;
+  assert.equal(summary.unit, 'lb');
+  assert.equal(summary.latestWeight, 178);
+  assert.equal(summary.progressPhotos.total, 1);
+  assert.equal(summary.progressPhotos.byPose.flexed, 1);
+});
+
+test('database migration 202611270001: persists progressPhotos and rejects malformed entries', async () => {
+  const { db, asUser } = await supabaseLikeDatabase();
+  try {
+    const rpc = (sql, params = []) => db.query(sql, params).then(r => r.rows[0]);
+    await asUser(owner);
+    const validPhoto = {
+      id: 'photo-1',
+      date: '2026-11-27',
+      time: '08:15',
+      pose: 'front',
+      imageRef: 'synapse-img:0123456789abcdef0123456789abcdef.webp',
+      width: 1200,
+      height: 1600,
+      weightKg: 79.4,
+      bodyFatPct: 14.2,
+      measurements: { waistCm: 80.5, armCm: 39.2 },
+      phase: 'Cut',
+      tags: ['fasted', 'morning'],
+      note: 'Good lighting',
+      milestone: true,
+      createdAt: '2026-11-27T08:16:00Z',
+      updatedAt: '2026-11-27T08:16:00Z',
+    };
+    const migrated = (await rpc('select public.migrate_brain_to_records() as r')).r;
+    assert.equal(migrated.layout, 2);
+
+    const save = changes => rpc('select public.save_records($1::jsonb) as r', [JSON.stringify(changes)]).then(r => r.r);
+    const saved = await save([{ collection: 'progressPhotos', id: validPhoto.id, baseRevision: 0, data: validPhoto }]);
+    assert.equal(saved.saved.length, 1);
+
+    const rows = (await db.query("select id, data from public.brain_records where collection = 'progressPhotos'")).rows;
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].data.pose, 'front');
+    assert.equal(rows[0].data.measurements.waistCm, 80.5);
+
+    for (const bad of [
+      [{ collection: 'progressPhotos', id: 'bad-pose', baseRevision: 0, data: { ...validPhoto, id: 'bad-pose', pose: 'sideways' } }],
+      [{ collection: 'progressPhotos', id: 'bad-ref', baseRevision: 0, data: { ...validPhoto, id: 'bad-ref', imageRef: 'data:image/png;base64,xxx' } }],
+      [{ collection: 'progressPhotos', id: 'bad-date', baseRevision: 0, data: { ...validPhoto, id: 'bad-date', date: 'Nov 27' } }],
+      [{ collection: 'progressPhotos', id: 'bad-meas', baseRevision: 0, data: { ...validPhoto, id: 'bad-meas', measurements: { waistCm: '32in' } } }],
+    ]) {
+      await assert.rejects(save(bad), e => e.code === '22023', JSON.stringify(bad));
+    }
+  } finally {
+    await db.close();
+  }
 });

@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowUpRight, ChevronRight, Clock, Copy, FileText, Folder, FolderInput, FolderPlus, Home, LayoutGrid,
-  List as ListIcon, Mic, Palette, PanelLeft, Pencil, Pin, PinOff, Plus, Search, Trash2, X,
+  Link2, List as ListIcon, Mic, Network, Palette, PanelLeft, Pencil, Pin, PinOff, Plus, Search, Trash2, X,
 } from "lucide-react";
-import type { KnowledgeItem, NoteFolder, Workspace } from "../types";
+import type { BrainState, KnowledgeItem, NoteFolder, Workspace } from "../types";
 import { NoteEditor } from "./NoteEditor";
+import { KnowledgeGraphView } from "./KnowledgeGraphView";
 import { useLectureRecorder } from "../hooks/useLectureRecorder";
 import { FolderModal } from "./FolderModal";
 import { FolderTree, RenameInput, WorkspaceGlyph, type DropBinding } from "./notes/FolderTree";
@@ -12,11 +13,13 @@ import { Menu, MenuDivider, MenuItem, MoveToList, byName } from "./notes/Menu";
 import { folderMoveBlocked, folderPath, subtreeIds } from "../utils/noteFolders";
 import "../notes.css";
 import { stripNoteImages } from "../utils/noteImages";
+import { extractLinksFromText, type UnlinkedMentionHit } from "../utils/noteLinks";
 
 interface NotesWorkspaceProps {
   items: KnowledgeItem[];
   folders: NoteFolder[];
   workspaces?: Workspace[];
+  brainState?: BrainState | null;
   /** Show only this folder and what's inside it (a workspace's Notes tab). */
   rootFolderId?: string;
   /** Folder to open first. */
@@ -27,6 +30,7 @@ interface NotesWorkspaceProps {
   onDeleteNote: (id: string) => void;
   onSaveFolder: (folder: NoteFolder) => void;
   onDeleteFolder: (id: string) => void;
+  onLinkUnlinkedMention?: (hit: UnlinkedMentionHit, target: { id: string; title: string }) => void;
   openRouterKey?: string;
   selectedModel?: string;
   onGenerateTasks?: (tasks: { title: string; priority?: string }[]) => void;
@@ -34,7 +38,7 @@ interface NotesWorkspaceProps {
   onClearInitialSelectedNote?: () => void;
 }
 
-type View = { kind: "folder"; id: string | null } | { kind: "all" } | { kind: "pinned" };
+type View = { kind: "folder"; id: string | null } | { kind: "all" } | { kind: "pinned" } | { kind: "graph" };
 type Sort = "updated" | "created" | "title";
 type DragItem = { kind: "note" | "folder"; id: string };
 interface Toast { message: string; undo?: () => void }
@@ -50,6 +54,8 @@ const store = {
 const titleOf = (n: KnowledgeItem) => n.title || n.subject || "Untitled";
 const plainText = (n: KnowledgeItem) =>
   stripNoteImages(n.content || (n.summary && n.summary !== titleOf(n) ? n.summary : ""))
+    .replace(/@\[([^\]\n]+)\]\(synapse:\/\/[a-z]+\/[^\s)]+\)/g, "$1")
+    .replace(/\[\[(?:[a-z]+:[^|\]]+\|)?([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => (b || a))
     .replace(/<\/(p|h\d|li|div|blockquote)>/gi, "\n").replace(/<br\s*\/?>/gi, "\n").replace(/<[^>]+>/g, " ")
     .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
     .replace(/^\s*(#{1,6}|>|[-*+]\s\[[ x]\]|[-*+]|\d+\.)\s+/gm, "").replace(/(\*\*|__|`{1,3}|~~)/g, "")
@@ -70,8 +76,8 @@ function when(iso?: string) {
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
-  items, folders, workspaces = [], rootFolderId, initialFolderId, onOpenWorkspace, onOpenInNotes,
-  onSaveNote, onDeleteNote, onSaveFolder, onDeleteFolder, openRouterKey, selectedModel, onGenerateTasks,
+  items, folders, workspaces = [], brainState, rootFolderId, initialFolderId, onOpenWorkspace, onOpenInNotes,
+  onSaveNote, onDeleteNote, onSaveFolder, onDeleteFolder, onLinkUnlinkedMention, openRouterKey, selectedModel, onGenerateTasks,
   initialSelectedNote, onClearInitialSelectedNote,
 }) => {
   const scopeRoot = rootFolderId ?? null;
@@ -80,6 +86,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
   const prefix = scoped ? "ws." : "";
 
   const [view, setView] = useState<View>({ kind: "folder", id: initialFolderId ?? scopeRoot });
+  const [graphFocusId, setGraphFocusId] = useState<string | null>(null);
   const [selectedNote, setSelectedNote] = useState<KnowledgeItem | null>(initialSelectedNote || null);
   const [query, setQuery] = useState("");
   const [layout, setLayout] = useState<"grid" | "list">(() => store.get(`${prefix}layout`, "grid"));
@@ -338,6 +345,48 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
       onPick={target => { close(); move(item, target); }} />
   );
 
+  // Outgoing + incoming link count per note, so connected notes show a quiet link counter
+  const linkCounts = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const n of items) {
+      const links = extractLinksFromText(n.content, brainState);
+      if (links.length) map.set(n.id, (map.get(n.id) || 0) + links.length);
+      for (const link of links) {
+        if (link.type === "knowledge" && link.id && link.id !== n.id) {
+          map.set(link.id, (map.get(link.id) || 0) + 1);
+        }
+      }
+    }
+    return map;
+  }, [items, brainState]);
+
+  const openNoteById = (id: string) => {
+    const found = itemsRef.current.find(n => n.id === id);
+    if (found) {
+      setSelectedNote(found);
+      setGraphFocusId(null);
+    }
+  };
+
+  const createLinkedNote = (title: string) => {
+    const clean = title.trim() || "Untitled";
+    const existing = itemsRef.current.find(n => titleOf(n).toLowerCase() === clean.toLowerCase());
+    if (existing) {
+      setSelectedNote(existing);
+      return;
+    }
+    const now = new Date().toISOString();
+    const folderId = selectedNote?.folderId ?? (view.kind === "folder" ? currentId : scopeRoot);
+    const note: KnowledgeItem = {
+      id: `note-${Date.now()}`, title: clean, subject: clean, content: "", summary: "", folderId,
+      status: "Synthesized", startDate: now.slice(0, 10), endDate: now.slice(0, 10), domain: nameOf(folderId),
+      createdAt: now, updatedAt: now, tags: [], pinned: false, favorite: false,
+    };
+    onSaveNote(note);
+    setSelectedNote(note);
+    showToast(`Created linked note “${clean}”`);
+  };
+
   // ---- Open note -----------------------------------------------------------------------------------
   if (selectedNote) {
     return (
@@ -347,9 +396,19 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
           note={items.find(n => n.id === selectedNote.id) ?? selectedNote}
           recordOnOpen={recordOnOpen === selectedNote.id}
           folders={scopeFolders}
+          brainState={brainState}
           onSave={updated => { onSaveNote(updated); setSelectedNote(updated); }}
           onDelete={id => { onDeleteNote(id); setSelectedNote(null); onClearInitialSelectedNote?.(); }}
           onBack={() => { setSelectedNote(null); onClearInitialSelectedNote?.(); }}
+          onOpenNoteById={openNoteById}
+          onCreateLinkedNote={createLinkedNote}
+          onOpenFullGraph={nodeId => {
+            setSelectedNote(null);
+            onClearInitialSelectedNote?.();
+            setGraphFocusId(nodeId || `knowledge:${selectedNote.id}`);
+            setView({ kind: "graph" });
+          }}
+          onLinkUnlinkedMention={onLinkUnlinkedMention}
           openRouterKey={openRouterKey}
           selectedModel={selectedModel}
           onGenerateTasks={onGenerateTasks}
@@ -434,6 +493,12 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
         <footer>
           {showLocation && folderChip(n)}
           {(n.tags || []).slice(0, 2).map(t => <span key={t} className="nx-tag">#{t}</span>)}
+          {(linkCounts.get(n.id) || 0) > 0 && (
+            <span className="nx-card-links" title={`${linkCounts.get(n.id)} connections`}>
+              <Link2 size={11} />
+              {linkCounts.get(n.id)}
+            </span>
+          )}
           {(n.transcript || recordingNotes.has(n.id)) && <Mic size={12} className="nx-pin" aria-label={recordingNotes.has(n.id) ? "Recording" : "Has a transcript"} />}
           <time>{when(n.updatedAt || n.createdAt)}</time>
         </footer>
@@ -471,10 +536,12 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
   // ---- Heading text ------------------------------------------------------------------------------
   const currentWs = workspaceOf(currentFolder);
   const atScopeRoot = view.kind === "folder" && currentId === scopeRoot;
-  const title = query ? "Search" : view.kind === "all" ? "All notes" : view.kind === "pinned" ? "Pinned" : scoped && atScopeRoot ? "Notes" : currentFolder?.name || "Notes";
+  const title = query ? "Search" : view.kind === "graph" ? "Knowledge graph" : view.kind === "all" ? "All notes" : view.kind === "pinned" ? "Pinned" : scoped && atScopeRoot ? "Notes" : currentFolder?.name || "Notes";
   const subtitle = query
     ? `${plural(notes.length, "note")}${matchingFolders.length ? ` and ${plural(matchingFolders.length, "folder")}` : ""} match “${query.trim()}”`
-    : view.kind === "folder"
+    : view.kind === "graph"
+      ? "Explore how your notes, journal entries, tags, tasks, courses, events, and memories connect"
+      : view.kind === "folder"
       ? [subfolders.length ? plural(subfolders.length, "folder") : "", plural(notes.length, "note")].filter(Boolean).join(" · ")
       : plural(notes.length, "note");
 
@@ -499,6 +566,11 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
           <button type="button" className={`nx-nav-row ${view.kind === "pinned" && !query ? "is-active" : ""}`} onClick={() => go({ kind: "pinned" })}>
             <Pin size={15} /><span>Pinned</span><em>{pinnedCount || ""}</em>
           </button>
+          {brainState && (
+            <button type="button" className={`nx-nav-row ${view.kind === "graph" && !query ? "is-active" : ""}`} onClick={() => { setGraphFocusId(null); go({ kind: "graph" }); }}>
+              <Network size={15} /><span>Knowledge graph</span>
+            </button>
+          )}
         </nav>
 
         {workspaceFolders.length > 0 && (
@@ -554,6 +626,24 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             <button type="button" className="nx-btn nx-side-toggle" aria-expanded={sideOpen} onClick={() => setSideOpen(v => !v)}>
               <PanelLeft size={15} /> Folders
             </button>
+            {brainState && !scoped && (
+              <div className="nx-view-switch" role="group" aria-label="Notes or graph">
+                <button
+                  type="button"
+                  aria-pressed={view.kind !== "graph"}
+                  onClick={() => { if (view.kind === "graph") setView({ kind: "folder", id: scopeRoot }); }}
+                >
+                  Notes
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={view.kind === "graph"}
+                  onClick={() => setView({ kind: "graph" })}
+                >
+                  <Network size={13} /> Graph
+                </button>
+              </div>
+            )}
             {view.kind === "folder" && !query && (
               <button type="button" className="nx-btn" onClick={() => createFolder(currentId)}><FolderPlus size={15} /> New folder</button>
             )}
@@ -562,6 +652,13 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
           </div>
         </header>
 
+        {view.kind === "graph" && !query && brainState ? (
+          <KnowledgeGraphView
+            state={brainState}
+            initialFocusNodeId={graphFocusId}
+            onOpenNoteById={openNoteById}
+          />
+        ) : <>
         <div className="nx-toolbar">
           <span className="nx-hint">{drag ? "Drop on a folder to move it there" : "Drag notes and folders onto a folder to move them"}</span>
           <label className="nx-sort">
@@ -614,6 +711,7 @@ export const NotesWorkspace: React.FC<NotesWorkspaceProps> = ({
             )}
           </div>
         )}
+        </>}
       </main>
 
       {toast && (

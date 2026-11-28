@@ -203,3 +203,32 @@ test('tracker actions render direct navigation to workspace and job application 
   assert.match(html, /AI Programmer Intern \(Research Engineering Intern\)/);
 });
 
+test('study records (course, document, deck, quiz) render as inline references and persisted feedback renders pressed', () => {
+  const studyState = {
+    ...state,
+    study: {
+      courses: [{ id: 'course-1', code: 'CS 2110', name: 'Computer Organization', term: 'Fall 2026', color: 'blue', createdAt: '' }],
+      folders: [],
+      documents: [{ id: 'doc-1', courseId: 'course-1', folderId: null, name: 'LC3 Slides.pdf', mimeType: 'application/pdf', size: 100, chars: 50, createdAt: '' }],
+      decks: [{ id: 'deck-1', courseId: 'course-1', title: 'ISA Flashcards', cards: [], createdAt: '' }],
+      quizzes: [{ id: 'quiz-1', courseId: 'course-1', title: 'Midterm Review', questions: [], attempts: [], createdAt: '' }],
+    },
+  };
+  const studyMsg = {
+    id: 'study-msg',
+    role: 'assistant',
+    content: 'In [course:course-1], review [document:doc-1], practice [deck:deck-1], and take [quiz:quiz-1].',
+    timestamp: '',
+    feedback: 'like',
+    sources: [],
+  };
+  const html = renderToStaticMarkup(React.createElement(ConversationMessage, { message: studyMsg, state: studyState }));
+  assert.match(html, /Computer Organization/);
+  assert.match(html, /LC3 Slides\.pdf/);
+  assert.match(html, /ISA Flashcards/);
+  assert.match(html, /Midterm Review/);
+  assert.doesNotMatch(html, /\[course:course-1\]|\[document:doc-1\]|\[deck:deck-1\]|\[quiz:quiz-1\]/);
+  assert.match(html, /aria-label="Good response"[^>]*aria-pressed="true"/);
+});
+
+

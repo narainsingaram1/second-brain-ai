@@ -16,7 +16,7 @@ import {
   type RememberChange,
 } from "./agentMemory";
 import { matchRecords, nearbyRecords, recordCatalog, significantTerms, similarity, type MemoryRecordLink } from "./memoryGraph";
-import { isHaiProvider } from "./providerTransport";
+import { isHaiProvider, providerBase } from "./providerTransport";
 import { FAST_MODEL, queryOpenRouterWithTools, type OpenRouterTool } from "./openrouter";
 
 /**
@@ -406,7 +406,7 @@ export class MemoryLearner {
       this.controller = new AbortController();
       this.report({ ...this.status, state: "learning" });
       try {
-        const changes = await learnFromTurns(state, batch, this.controller.signal);
+        const changes = await learnFromTurns(state, batch, this.controller.signal, providerBase());
         let learned = 0;
         if (changes.length) {
           const saved = await this.options.commit(changes);

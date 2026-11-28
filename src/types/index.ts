@@ -69,8 +69,54 @@ export interface HealthProfile {
   sex?: 'female' | 'male';
   /** Unit weights are shown and entered in. Stored values are always kg. */
   weightUnit?: 'kg' | 'lb';
+  /** Unit body circumferences and height are shown and entered in. Stored values are always cm. */
+  lengthUnit?: 'cm' | 'in';
   /** Body-weight goal in kg. */
   goalWeightKg?: number;
+  /** Optional starting weight baseline in kg for tracking overall progress. */
+  startWeightKg?: number;
+  /** Optional height in cm. */
+  heightCm?: number;
+}
+
+export type ProgressPhotoPose = 'front' | 'side' | 'back' | 'flexed' | 'other';
+
+export interface BodyMeasurements {
+  waistCm?: number;
+  chestCm?: number;
+  armCm?: number;
+  thighCm?: number;
+  hipCm?: number;
+}
+
+/** One progress photo check-in (collection progressPhotos). Image bytes live in noteImageStore ("synapse-img:..."). */
+export interface ProgressPhoto {
+  id: string;
+  /** Local date, YYYY-MM-DD. */
+  date: string;
+  /** Optional local 24-hour time "HH:mm". */
+  time?: string;
+  pose: ProgressPhotoPose;
+  /** Reference in noteImageStore ("synapse-img:<hash>.<ext>"). */
+  imageRef: string;
+  width?: number;
+  height?: number;
+  /** Optional body weight in kg at this check-in. */
+  weightKg?: number;
+  /** Optional body fat percentage at this check-in. */
+  bodyFatPct?: number;
+  /** Optional circumference measurements in cm at this check-in. */
+  measurements?: BodyMeasurements;
+  /** Training or nutrition phase (e.g. "Cut", "Bulk", "Recomp", "Maintenance"). */
+  phase?: string;
+  /** Context tags such as "fasted", "morning", "post-workout", "relaxed". */
+  tags?: string[];
+  /** Reflection or lighting/pose details. */
+  note?: string;
+  /** Starred milestone check-in. */
+  milestone?: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** One set of an exercise. Weights are kg; a set has whatever the exercise measures (reps, load, time, distance). */
@@ -523,6 +569,8 @@ export interface AIMessage {
   activity?: AgentStep[];
   /** What the user has done with each interactive card in this reply, by the card's order in the text. */
   cardState?: Record<number, IrisCardState>;
+  /** User quality rating on this reply, persisted across reloads. */
+  feedback?: 'like' | 'dislike';
 }
 
 /** Progress on one interactive card, kept with the message so it survives a reload. */
@@ -559,7 +607,6 @@ export interface ApprovalRequest {
 }
 
 export interface BrainPreferences {
-  planner?: import("../utils/dailyPlanner").PlannerData;
   /** Every change the assistant makes waits for approval. */
   askBeforeChanges?: boolean;
 }
@@ -586,7 +633,7 @@ export interface AuditLogEntry {
   timestamp: string;
   timeString: string;
   action: string;
-  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workout' | 'workout_plan' | 'workspace' | 'folder' | 'routine';
+  entityType: 'task' | 'habit' | 'journal' | 'knowledge' | 'section' | 'tracker' | 'event' | 'course' | 'document' | 'deck' | 'quiz' | 'health' | 'workout' | 'workout_plan' | 'progress_photo' | 'workspace' | 'folder' | 'routine';
   entityTitle: string;
   details?: string;
   canUndo: boolean;
@@ -669,6 +716,7 @@ export interface BrainState {
   healthDays?: HealthDay[];
   workouts?: WorkoutSession[];
   workoutPlans?: WorkoutPlan[];
+  progressPhotos?: ProgressPhoto[];
   workspaces?: Workspace[];
   study?: StudyState;
   noteFolders?: NoteFolder[];

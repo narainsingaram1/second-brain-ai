@@ -27,7 +27,6 @@ import type { PreparedImage } from "./utils/imageInput";
 import { OpenRouterSettingsModal } from "./components/OpenRouterSettingsModal";
 import { TaskModal } from "./components/TaskModal";
 import { EventModal } from "./components/EventModal";
-import "./planner.css";
 import { HabitModal } from "./components/HabitModal";
 import { KnowledgeModal } from "./components/KnowledgeModal";
 import { ManagedAccountModal } from "./components/ManagedAccountModal";
@@ -46,6 +45,7 @@ import { getRecordLocation, type RecordLocation } from "./utils/recordNavigation
 import { referenceTitle } from "./utils/chatPresentation";
 import { removeFolder, syncWorkspaceFolders } from "./utils/noteFolders";
 import { externalizeInlineImages, migrateInlineNoteImages, retryPendingImageUploads } from "./services/noteImageStore";
+import { linkMentionRange, type UnlinkedMentionHit } from "./utils/noteLinks";
 import { lectureRecorder } from "./services/lectureRecorder";
 import { RecordingPill } from "./components/notes/RecordingPill";
 
@@ -57,7 +57,6 @@ const viewLoaders = {
   journal: () => import("./components/JournalView").then(m => ({ default: m.JournalView })),
   knowledge: () => import("./components/NotesWorkspace").then(m => ({ default: m.NotesWorkspace })),
   workspace: () => import("./components/WorkspacesView").then(m => ({ default: m.WorkspacesView })),
-  planner: () => import("./components/DailyPlannerView").then(m => ({ default: m.DailyPlannerView })),
   routines: () => import("./components/RoutinesView").then(m => ({ default: m.RoutinesView })),
   events: () => import("./components/EventsView").then(m => ({ default: m.EventsView })),
   memory: () => import("./components/MemoryModal").then(m => ({ default: m.MemoryModal })),
@@ -67,7 +66,6 @@ const HabitsView = lazy(viewLoaders.habits);
 const JournalView = lazy(viewLoaders.journal);
 const NotesWorkspace = lazy(viewLoaders.knowledge);
 const WorkspacesView = lazy(viewLoaders.workspace);
-const DailyPlannerView = lazy(viewLoaders.planner);
 const RoutinesView = lazy(viewLoaders.routines);
 const EventsView = lazy(viewLoaders.events);
 const MemoryModal = lazy(viewLoaders.memory);
@@ -345,8 +343,9 @@ export const App: React.FC = () => {
   // Pull other devices' changes every 15 s, on focus, and right after a save finds a conflict. The latest
   // state is read when the download finishes, so the timer is not recreated on every edit.
   const hasState = !!state;
+  const agentActive = conversation.busy || (conversation.runningIds?.length || 0) > 0;
   useEffect(() => {
-    if (!cloudEnabled || !hasState || hydrating || conversation.busy) return;
+    if (!cloudEnabled || !hasState || hydrating || agentActive) return;
     let disposed = false;
     const refresh = async () => {
       const base = latestSaveState.current;
@@ -358,7 +357,7 @@ export const App: React.FC = () => {
     window.addEventListener("focus", refresh);
     window.addEventListener(REMOTE_CHANGE_EVENT, refresh);
     return () => { disposed = true; clearInterval(timer); window.removeEventListener("focus", refresh); window.removeEventListener(REMOTE_CHANGE_EVENT, refresh); };
-  }, [hasState, hydrating, conversation.busy]);
+  }, [hasState, hydrating, agentActive]);
 
   // Listen for Tauri native global hotkey event: ⌘⌥N or ⌥⇧N (open-quick-capture)
   useEffect(() => {
@@ -969,8 +968,75 @@ export const App: React.FC = () => {
     });
   };
 
-  const noteActions = { onSaveNote: handleSaveKnowledge, onDeleteNote: handleDeleteKnowledge, onSaveFolder: handleSaveFolder, onDeleteFolder: handleDeleteFolder, onGenerateTasks: handleGenerateTasks,
-    onOpenFolder: (folderId: string) => { setNotesFolder(folderId); setActiveTab("knowledge"); } };
+  const handleLinkUnlinkedMention = (hit: UnlinkedMentionHit, target: { id: string; title: string }) => {
+    const linkTarget = { type: "knowledge" as const, id: target.id, label: target.title || "Untitled" };
+    recordMutation("Linked Mention", "knowledge", hit.sourceTitle);
+    setState((prev) => {
+      if (!prev) return null;
+      const now = new Date().toISOString();
+      if (hit.sourceType === "knowledge") {
+        return {
+          ...prev,
+          knowledgeItems: prev.knowledgeItems.map((n) =>
+            n.id === hit.sourceId && n.content
+              ? { ...n, content: linkMentionRange(n.content, hit.start, hit.end, linkTarget), updatedAt: now }
+              : n,
+          ),
+        };
+      }
+      if (hit.sourceType === "journal") {
+        return {
+          ...prev,
+          journalEntries: prev.journalEntries.map((j) =>
+            j.id === hit.sourceId && j.content
+              ? { ...j, content: linkMentionRange(j.content, hit.start, hit.end, linkTarget) }
+              : j,
+          ),
+        };
+      }
+      if (hit.sourceType === "task") {
+        return {
+          ...prev,
+          tasks: prev.tasks.map((t) =>
+            t.id === hit.sourceId && t.description
+              ? { ...t, description: linkMentionRange(t.description, hit.start, hit.end, linkTarget) }
+              : t,
+          ),
+        };
+      }
+      if (hit.sourceType === "event") {
+        return {
+          ...prev,
+          events: (prev.events || []).map((e) =>
+            e.id === hit.sourceId && e.notes
+              ? { ...e, notes: linkMentionRange(e.notes, hit.start, hit.end, linkTarget), updatedAt: now }
+              : e,
+          ),
+        };
+      }
+      if (hit.sourceType === "tracker") {
+        return {
+          ...prev,
+          trackerItems: (prev.trackerItems || []).map((tr) =>
+            tr.id === hit.sourceId && tr.notes
+              ? { ...tr, notes: linkMentionRange(tr.notes, hit.start, hit.end, linkTarget), updatedAt: now }
+              : tr,
+          ),
+        };
+      }
+      return prev;
+    });
+  };
+
+  const noteActions = {
+    onSaveNote: handleSaveKnowledge,
+    onDeleteNote: handleDeleteKnowledge,
+    onSaveFolder: handleSaveFolder,
+    onDeleteFolder: handleDeleteFolder,
+    onLinkUnlinkedMention: handleLinkUnlinkedMention,
+    onGenerateTasks: handleGenerateTasks,
+    onOpenFolder: (folderId: string) => { setNotesFolder(folderId); setActiveTab("knowledge"); },
+  };
 
   // OpenRouter Key & Model
   const handleSaveOpenRouterKey = (key: string) => {
@@ -1073,7 +1139,7 @@ export const App: React.FC = () => {
                 workspaceId={activeTab.startsWith("workspace:") ? activeTab.slice(10) : undefined}
                 createInitially={activeTab === "workspace-new"}
                 onNavigate={setActiveTab}
-                onAsk={prompt => { void askAssistant(prompt); }}
+                onAsk={(prompt, images) => { void askAssistant(prompt, images); }}
                 onChange={update => setState(prev => prev ? update(prev) : prev)}
                 taskActions={{ onToggle: handleToggleTask, onEdit: openEditTask, onNew: openNewTask }}
                 noteActions={noteActions}
@@ -1081,7 +1147,6 @@ export const App: React.FC = () => {
               {/* ========================================================= */}
               {/* TAB 1: TASKS MATRIX (Sections & Subsections)              */}
               {/* ========================================================= */}
-              {activeTab === "planner" && <DailyPlannerView state={state} onChange={update => setState(prev => prev ? update(prev) : prev)} onSettings={() => setIsSettingsOpen(true)} />}
               {activeTab === "routines" && <RoutinesView state={state} onChange={update => setState(prev => prev ? update(prev) : prev)} />}
               {activeTab === "events" && (
                 <EventsView events={state.events || []} onAddEvent={openNewEvent} onEditEvent={openEditEvent} />
@@ -1133,6 +1198,7 @@ export const App: React.FC = () => {
                   entries={state.journalEntries}
                   tasks={state.tasks}
                   habits={state.habits}
+                  brainState={state}
                   onSaveEntry={handleSaveJournalEntry}
                   onSynthesizeAI={handleSynthesizeAI}
                   openRouterKey={state.openRouterKey}
@@ -1152,11 +1218,13 @@ export const App: React.FC = () => {
                   items={state.knowledgeItems}
                   folders={state.noteFolders || []}
                   workspaces={state.workspaces || []}
+                  brainState={state}
                   onOpenWorkspace={(id) => setActiveTab(`workspace:${id}`)}
                   onSaveNote={handleSaveKnowledge}
                   onDeleteNote={handleDeleteKnowledge}
                   onSaveFolder={handleSaveFolder}
                   onDeleteFolder={handleDeleteFolder}
+                  onLinkUnlinkedMention={handleLinkUnlinkedMention}
                   openRouterKey={state.openRouterKey}
                   selectedModel={state.selectedModel}
                   onGenerateTasks={handleGenerateTasks}

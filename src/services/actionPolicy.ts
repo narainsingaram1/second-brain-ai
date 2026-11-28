@@ -6,7 +6,7 @@ import type { Mutation } from "./brainTools";
  */
 export type ToolTier = "read" | "internal" | "external_reversible" | "external_irreversible" | "browser";
 
-const READ = new Set(["list_resume_versions", "health_summary", "training_summary", "search_exercises", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
+const READ = new Set(["list_resume_versions", "health_summary", "body_summary", "training_summary", "search_exercises", "query_records", "read_record", "read_records", "search_records", "search_conversations", "recall_conversation", "search_memories",
   "list_calendar_events", "search_email", "read_email", "read_url", "web_search",
   // Saved logins: sites and partly hidden usernames only.
   "vault_list"]);
@@ -20,7 +20,7 @@ const INTERNAL = new Set(["create_task", "update_task", "delete_task", "complete
   "update_habit", "delete_habit", "update_journal_entry", "delete_journal_entry", "delete_note", "create_note_folder", "update_note_folder",
   "delete_note_folder", "update_course", "delete_course", "update_flashcard_deck", "delete_flashcard_deck", "update_quiz", "delete_quiz",
   "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "log_workout", "update_workout", "delete_workout",
-  "create_workout_plan", "update_workout_plan", "delete_workout_plan", "create_routine", "update_routine", "delete_routine"]);
+  "create_workout_plan", "update_workout_plan", "delete_workout_plan", "log_progress_photo", "update_progress_photo", "delete_progress_photo", "create_routine", "update_routine", "delete_routine"]);
 /** Every tool that changes the user's own data, for the coverage check. */
 export const INTERNAL_TOOLS: ReadonlySet<string> = INTERNAL;
 
@@ -84,7 +84,7 @@ const show = (value: unknown) => {
   return text.length > 80 ? `${text.slice(0, 77)}…` : text;
 };
 const recordName = (m: Mutation) => ("name" in m.record ? m.record.name : (m.record as { title?: string }).title) || (m.record as { date?: string }).date || "Untitled";
-const NOUNS: Record<string, string> = { task: "task", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", health: "health day", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
+const NOUNS: Record<string, string> = { task: "task", habit: "habit", journal: "journal entry", knowledge: "note", tracker: "tracker entry", event: "event", health: "health day", workout: "workout", workout_plan: "training plan", progress_photo: "progress photo", course: "course", deck: "flashcard deck", quiz: "quiz", document: "document",
   workspace: "workspace", folder: "note folder", section: "section", routine: "routine" };
 const SECTION_SUMMARIES: Record<string, (before: string, after: string) => string> = {
   create_section: (_, a) => `Add section "${a}"`, rename_section: (b, a) => `Rename section "${b}" to "${a}"`, delete_section: b => `Delete section "${b}"`,

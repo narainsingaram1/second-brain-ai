@@ -17,6 +17,7 @@ export interface TrainingApi {
   deletePlan: (id: string) => void;
   logWeight: (date: string, kg: number | null) => void;
   setGoalWeight: (kg: number | undefined) => void;
+  onOpenBody?: () => void;
   onAsk: (prompt: string) => void;
 }
 

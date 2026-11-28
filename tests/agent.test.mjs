@@ -381,7 +381,7 @@ test('read caches are invalidated after a successful mutation', async () => {
   const result = await AutonomousBrainAgent.execute('Complete and verify the task', state(), undefined, undefined, { commit: async () => {} });
   assert.equal(result.status, 'complete'); assert.equal(result.actions.length, 1);
   const resultAfterWrite = JSON.parse(requests[3].messages.filter(m => m.role === 'tool').at(-1).content);
-  assert.match(resultAfterWrite.content, /"status": "completed"/);
+  assert.equal(JSON.parse(resultAfterWrite.content).status, 'completed');
 });
 
 test('a changing long-running review reserves its last round to answer', async () => {
@@ -1079,3 +1079,124 @@ test('tool arguments explain rejected fields and enum values', () => {
   assert.throws(() => parse({ name: 'X', frequency: 'daily', priority: 'high' }), /Unknown arguments\.priority\. Allowed fields: .*frequency/);
   assert.throws(() => parse({ name: 'X', frequency: 'hourly' }), /Use one of: daily, weekdays/);
 });
+
+test('read_record find jumps to a matching passage and recall_conversation strips UI telemetry', async () => {
+  const s = state();
+  const body = 'intro '.repeat(2200) + 'TARGET_MARKER: chapter seven' + ' outro '.repeat(1200);
+  s.knowledgeItems = [{ id: 'doc-find', subject: 'Notes', title: 'Notes', content: body, summary: '', startDate: '2026-10-01', endDate: '2026-10-01', status: 'Draft' }];
+  const found = await executeRead('read_record', { type: 'knowledge', id: 'doc-find', find: 'TARGET_MARKER' }, s, '');
+  assert.ok(found.output.offset > 5000);
+  assert.match(found.output.content, /TARGET_MARKER: chapter seven/);
+
+  s.chatHistory = [{
+    id: 'm-heavy',
+    role: 'assistant',
+    content: 'Earlier answer with details.',
+    timestamp: '2026-11-01T10:00:00Z',
+    usage: { ms: 500, model: 'm', calls: 1, inputTokens: 100, outputTokens: 20 },
+    activity: [{ id: 'a1', kind: 'think', label: 'Thought', status: 'done', startedAt: 1 }],
+    cardState: { 0: { picked: 'opt1' } },
+  }];
+  const recalled = await executeRead('recall_conversation', { offset: 0 }, s, '');
+  const parsed = JSON.parse(recalled.output.content);
+  assert.equal(parsed.content, 'Earlier answer with details.');
+  assert.equal(parsed.usage, undefined);
+  assert.equal(parsed.activity, undefined);
+  assert.equal(parsed.cardState, undefined);
+});
+
+test('stepped history compaction keeps earlier turn prefixes stable, coerces object cards, preserves external cache across mutations, retries transient 429, meters vision, and reads live getState', async () => {
+  // 1. Prefix-stable stepped history compaction + earlier summary + object card coercion
+  const history = Array.from({ length: 24 }, (_, i) => ({
+    id: `h-${i}`,
+    role: i % 2 === 0 ? 'user' : 'assistant',
+    content: `History message ${i} ` + 'x'.repeat(2800),
+    timestamp: '2026-11-01T10:00:00Z',
+  }));
+  const s1 = { ...state(), chatHistory: history };
+  const req1 = [];
+  mockProvider([
+    { choices: [{ finish_reason: 'tool_calls', message: { content: 'Here is a snapshot.', tool_calls: [{ id: 'c-card', type: 'function', function: { name: 'show_card', arguments: JSON.stringify({ card: { type: 'stats', items: [{ label: 'Open', value: '104' }, { label: 'Completed', value: '1' }] } }) } }] } }] },
+  ], req1);
+  const r1 = await AutonomousBrainAgent.execute('Show stats', s1, 'k', 'anthropic/claude-sonnet-5.5', { commit: async () => {} });
+  assert.match(r1.queryAnswer, /```iris-ui[\s\S]*"type":"stats"/);
+  assert.match(turnContext(req1[0]), /Earlier in this conversation \(12 older messages trimmed/);
+
+  // Adding 1 new message keeps the dropped boundary stable (prefix before the new message stays byte-identical).
+  const s2 = {
+    ...state(),
+    chatHistory: [...history, { id: 'h-new', role: 'user', content: 'New follow-up turn', timestamp: '2026-11-01T10:05:00Z' }],
+  };
+  const req2 = [];
+  mockProvider([response('Done.')], req2);
+  await AutonomousBrainAgent.execute('Next question', s2, 'k', 'anthropic/claude-sonnet-5.5', { commit: async () => {} });
+  const plainMsgs = msgs => msgs.map(m => ({
+    role: m.role,
+    text: typeof m.content === 'string' ? m.content : m.content.map(p => p.text).join(''),
+  }));
+  assert.deepEqual(plainMsgs(req2[0].messages.slice(1, -2)), plainMsgs(req1[0].messages.slice(1, -1)));
+
+  // 2. External read cache survives internal writes, while workspace reads invalidate; live getState refreshes mid-turn; 429 retries once.
+  let webCalls = 0;
+  let chatCalls = 0;
+  let liveState = state();
+  const external = {
+    definitions: [{ type: 'function', function: { name: 'read_url', description: '', parameters: { type: 'object', properties: { url: { type: 'string' } }, required: ['url'], additionalProperties: false } } }],
+    instructions: '',
+    execute: async (_n, args) => { webCalls++; return { output: { url: args.url, content: 'External body' } }; },
+  };
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/models')) return new Response(null, { status: 404 });
+    chatCalls++;
+    if (chatCalls === 1) return Response.json({ error: { message: 'Rate limited' } }, { status: 429 });
+    if (chatCalls === 2) {
+      // Simulate user editing task-002 in the UI before the agent reads/completes it:
+      liveState = { ...liveState, tasks: liveState.tasks.map(t => t.id === 'task-002' ? { ...t, title: 'Live Edited Title' } : t) };
+      return Response.json(response(null, [
+        call('read_url', { url: 'https://example.com' }),
+        call('update_task', { taskId: 'task-001', status: 'completed' }),
+      ]));
+    }
+    if (chatCalls === 3) {
+      return Response.json(response(null, [
+        call('read_url', { url: 'https://example.com' }),
+        call('read_record', { type: 'task', id: 'task-002' }),
+      ]));
+    }
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'All set.' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } });
+  };
+  const requestsLog = [];
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    if (String(url).endsWith('/chat/completions') && init?.body) requestsLog.push(JSON.parse(init.body));
+    return origFetch(url, init);
+  };
+  const r2 = await AutonomousBrainAgent.execute('Update task', liveState, 'k', 'test/model', {
+    externalTools: external,
+    getState: () => liveState,
+    commit: async () => {},
+  });
+  assert.equal(r2.status, 'complete');
+  assert.equal(webCalls, 1, 'external URL read cache survives internal task mutation');
+  const task2Tool = requestsLog.at(-1).messages.filter(m => m.role === 'tool').at(-1);
+  assert.match(task2Tool.content, /Live Edited Title/, 'mid-turn getState updates workspace reads');
+
+  // 3. Vision fallback usage is metered onto result.usage
+  globalThis.fetch = async (url) => {
+    if (String(url).endsWith('/models')) return new Response(null, { status: 404 });
+    const isVision = url.endsWith('/chat/completions');
+    if (isVision && !requestsLog.includes('vision-done')) {
+      requestsLog.push('vision-done');
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'A calendar screenshot' } }], usage: { prompt_tokens: 200, completion_tokens: 40 } });
+    }
+    return Response.json({ choices: [{ finish_reason: 'stop', message: { content: 'Noted.' } }], usage: { prompt_tokens: 50, completion_tokens: 10 } });
+  };
+  const rVision = await AutonomousBrainAgent.execute('What is this?', state(), 'k', 'deepseek/deepseek-v4.1-flash', {
+    images: [{ id: 'img1', name: 'pic.png', mimeType: 'image/png', width: 100, height: 100, dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }],
+    visionModel: 'nvidia/nemotron-3.5-super-vl',
+  });
+  assert.equal(rVision.usage.calls, 2);
+  assert.equal(rVision.usage.inputTokens, 250);
+  assert.equal(rVision.usage.outputTokens, 50);
+});
+

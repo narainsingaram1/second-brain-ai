@@ -5,6 +5,10 @@ import { readTrackerFields, trackerFieldProperties, TRACKER_FIELD_KEYS } from ".
 import { cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, isHealthDate, normalizeHealthDay, normalizeHealthProfile } from "../utils/health";
 import { healthSummaryForAssistant } from "../utils/healthMetrics";
 import { deepHealthForAssistant } from "../utils/healthInsights";
+import {
+  bodySummaryForAssistant, cleanMeasurements, fromLengthUnit, MEASUREMENT_DEFS, normalizeProgressPhoto,
+  PHOTO_PHASES, poseLabel, PROGRESS_POSE_IDS, type LengthUnit,
+} from "../utils/bodyProgress";
 import { EQUIPMENT, MUSCLES, CATEGORIES, resolveExercise, searchExercises, measureOf } from "../utils/exercises";
 import { fromUnit, normalizeWorkout, normalizeWorkoutPlan, trainingSummaryForAssistant, type WeightUnit } from "../utils/training";
 const s_ = { type: "string" };
@@ -143,27 +147,80 @@ const STUDY_TOOLS: OpenRouterTool[] = [
 const COLORS = ["purple", "blue", "green", "amber", "rose"];
 const healthMetricProps = () => Object.fromEntries(HEALTH_METRICS.map(m => [m.key, { type: "number", minimum: m.min, maximum: m.max, description: `${m.description} (${m.unit})` }]));
 const localStamp = d_("Local time 'YYYY-MM-DD HH:mm'.");
+const measurementProps = () => ({
+  waist: { type: "number", minimum: 10, maximum: 250, description: "Waist circumference in lengthUnit." },
+  chest: { type: "number", minimum: 15, maximum: 250, description: "Chest circumference in lengthUnit." },
+  arm: { type: "number", minimum: 5, maximum: 100, description: "Arm circumference in lengthUnit." },
+  hip: { type: "number", minimum: 15, maximum: 250, description: "Hip circumference in lengthUnit." },
+  thigh: { type: "number", minimum: 10, maximum: 150, description: "Thigh circumference in lengthUnit." },
+  lengthUnit: { type: "string", enum: ["cm", "in"], description: "Unit for body measurements; defaults to the user's length unit." },
+});
 const HEALTH_TOOLS: OpenRouterTool[] = [
-  fn("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (sleep, steps, weight, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Apple Watch data comes from Apple Health exports the user imports in the Health workspace; use this for what the user reports.", {
-    date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."), ...healthMetricProps(), sleepStart: localStamp, sleepEnd: localStamp,
+  fn("log_health_day", "Record health data or context for one day in the Health workspace: numbers the user tells you (weight, body fat %, waist/chest/arm/hip/thigh measurements, sleep, steps, resting heart rate…), tags for things that may affect recovery (e.g. 'alcohol', 'late caffeine', 'sick', 'travel'), or a note. Merges into the day if it already exists. Use weight + weightUnit (e.g. lb) or weightKg.", {
+    date: d_("YYYY-MM-DD. Sleep belongs to the morning you woke up."), ...healthMetricProps(),
+    weight: { type: "number", minimum: 20, maximum: 900, description: "Body weight in weightUnit (defaults to the user's weight unit)." },
+    weightUnit: { type: "string", enum: ["kg", "lb"], description: "Unit for `weight`." },
+    sleepStart: localStamp, sleepEnd: localStamp,
     tags: { type: "array", items: s_, maxItems: 10, description: "Short lowercase tags to add." }, note: d_("Text added to the day's note."),
   }, ["date"]),
   fn("update_health_day", "Correct a health day: change or clear metrics, add or remove tags, rewrite its note.", {
-    date: d_("YYYY-MM-DD of an existing health day."), ...healthMetricProps(), sleepStart: localStamp, sleepEnd: localStamp,
+    date: d_("YYYY-MM-DD of an existing health day."), ...healthMetricProps(),
+    weight: { type: "number", minimum: 20, maximum: 900, description: "Body weight in weightUnit." },
+    weightUnit: { type: "string", enum: ["kg", "lb"] },
+    sleepStart: localStamp, sleepEnd: localStamp,
     clearMetrics: { type: "array", items: { type: "string", enum: HEALTH_METRICS.map(m => m.key) }, description: "Metrics to remove (bad readings)." },
     addTags: { type: "array", items: s_, maxItems: 10 }, removeTags: { type: "array", items: s_, maxItems: 20 },
     replaceNote: d_("New full note; empty string clears it."),
   }, ["date"]),
   fn("delete_health_day", "Delete everything stored for one health day. Only when the user explicitly asks.", { date: d_("YYYY-MM-DD.") }, ["date"]),
-  fn("update_health_profile", "Change the personal targets health metrics are measured against: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting).", {
+  fn("update_health_profile", "Change personal health targets and units: sleep goal, daily step goal, max heart rate, birth year, sex (only used for training-load weighting), weight/length units, starting weight, goal weight, and height.", {
     workspaceId: d_("Health workspace ID; defaults to the first health workspace."),
     sleepGoalHours: { type: "number", minimum: 4, maximum: 12 }, stepGoal: { type: "integer", minimum: 1000, maximum: 50000 },
     maxHr: { type: "integer", minimum: 120, maximum: 230 }, birthYear: { type: "integer", minimum: 1900, maximum: 2030 }, sex: { type: "string", enum: ["female", "male"] },
     weightUnit: { type: "string", enum: ["kg", "lb"], description: "Unit for body weight and lifting weights in the app." },
+    lengthUnit: { type: "string", enum: ["cm", "in"], description: "Unit for body measurements and height." },
     goalWeight: { type: "number", minimum: 20, maximum: 900, description: "Body-weight goal, in goalWeightUnit (default the user's unit)." },
+    startWeight: { type: "number", minimum: 20, maximum: 900, description: "Starting body-weight baseline, in goalWeightUnit (default the user's unit)." },
     goalWeightUnit: { type: "string", enum: ["kg", "lb"] },
-    clear: { type: "array", items: { type: "string", enum: ["sleepGoalHours", "stepGoal", "maxHr", "birthYear", "sex", "weightUnit", "goalWeight"] }, description: "Targets to reset to the default." },
+    heightCm: { type: "number", minimum: 90, maximum: 260, description: "Height in centimeters." },
+    clear: { type: "array", items: { type: "string", enum: ["sleepGoalHours", "stepGoal", "maxHr", "birthYear", "sex", "weightUnit", "lengthUnit", "goalWeight", "startWeight", "heightCm"] }, description: "Targets to reset to the default." },
   }, []),
+  fn("log_progress_photo", "Save a progress photo check-in in the Health workspace's Body & Photos tracker, with pose, date, time, optional weight, body fat %, body measurements, phase, condition tags, milestone flag and note. When the user attached an image in this chat, pass attachmentNumber (1-based) so the attached image is stored; otherwise pass imageRef.", {
+    date: d_("YYYY-MM-DD, defaults to today."),
+    time: d_("Optional 24-hour HH:MM local time."),
+    pose: { type: "string", enum: PROGRESS_POSE_IDS, description: "Camera angle/pose: front, side, back, flexed, or other." },
+    imageRef: d_("Existing stored image reference (synapse-img:...). Omit when passing attachmentNumber."),
+    attachmentNumber: { type: "integer", minimum: 1, maximum: 6, description: "1-based index of an image attached in this conversation to save as the progress photo." },
+    weight: { type: "number", minimum: 20, maximum: 900, description: "Body weight at check-in, in `unit`." },
+    weightKg: { type: "number", minimum: 20, maximum: 400 },
+    unit: { type: "string", enum: ["kg", "lb"] },
+    bodyFatPct: { type: "number", minimum: 2, maximum: 70 },
+    ...measurementProps(),
+    phase: d_(`Training/nutrition phase, e.g. ${PHOTO_PHASES.join(", ")}.`),
+    tags: { type: "array", items: s_, maxItems: 20, description: "Context tags like 'fasted', 'morning', 'post-workout', 'relaxed'." },
+    note: d_("Check-in notes (lighting, pump, energy, physique observations)."),
+    milestone: { type: "boolean", description: "Star as a milestone check-in for easy comparisons." },
+  }, []),
+  fn("update_progress_photo", "Edit an existing progress photo check-in's metadata (date, time, pose, weight, body fat %, measurements, phase, tags, milestone status, or note).", {
+    photoId: d_("ID of the progress photo record."),
+    newDate: d_("YYYY-MM-DD"),
+    time: d_("24-hour HH:MM"),
+    pose: { type: "string", enum: PROGRESS_POSE_IDS },
+    weight: { type: "number", minimum: 20, maximum: 900 },
+    weightKg: { type: "number", minimum: 20, maximum: 400 },
+    unit: { type: "string", enum: ["kg", "lb"] },
+    bodyFatPct: { type: "number", minimum: 2, maximum: 70 },
+    ...measurementProps(),
+    phase: s_,
+    addTags: { type: "array", items: s_, maxItems: 20 },
+    removeTags: { type: "array", items: s_, maxItems: 20 },
+    replaceNote: d_("New full note; empty string clears it."),
+    milestone: { type: "boolean" },
+    clearFields: { type: "array", items: { type: "string", enum: ["time", "weightKg", "bodyFatPct", "measurements", "phase", "note", "milestone"] } },
+  }, ["photoId"]),
+  fn("delete_progress_photo", "Delete a progress photo check-in from the Health workspace. Only when the user explicitly asks.", {
+    photoId: d_("ID of the progress photo record."),
+  }, ["photoId"]),
 ];
 const unitArg = { type: "string", enum: ["kg", "lb"], description: "Unit of every weight given. Defaults to the user's unit in the training summary." };
 const setSchema = { type: "object", properties: {
@@ -495,7 +552,7 @@ export const MUTATION_TOOLS: OpenRouterTool[] = [
 
 
 import { syncWorkspaceFolders, removeFolder, folderMoveBlocked, workspaceFolderId } from "../utils/noteFolders";
-import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine, WorkoutSession, WorkoutPlan, WorkoutExercise, WorkoutSet, PlanDay, PlanExercise } from "../types";
+import { BrainState, Task, Habit, JournalEntry, KnowledgeItem, TrackerItem, CalendarEvent, HealthDay, HealthProfile, Course, FlashcardDeck, Quiz, QuizQuestion, Workspace, NoteFolder, Routine, WorkoutSession, WorkoutPlan, WorkoutExercise, WorkoutSet, PlanDay, PlanExercise, ProgressPhoto, BodyMeasurements } from "../types";
 import { defaultTimeZone, isTimeZone, MAX_ROUTINES, ROUTINE_CONDITIONS, ROUTINE_FREQUENCIES, ROUTINE_INSTRUCTIONS_MAX } from "../utils/routines";
 import { followSubsectionRename, linkCourseToTasks, newCard, normalizeQuestion, removeCourse, studyOf } from "../utils/study";
 import { applyCategories, findCategory, normalizeGrading } from "../utils/grades";
@@ -505,8 +562,10 @@ import { getLocalDateString, syncHabitStreaks } from "../utils/habitStreaks";
 import { APPLICATION_STAGES, CAREER_WORKSPACE_ID, logSolve, PROBLEM_STAGES, removeWorkspace, safeTrackerUrl, WORKSPACE_COLORS } from "../utils/workspaces";
 import { records, RecordType, searchRecords, Source, type RetrievalContext } from "./brainRetrieval";
 import { restoreNoteImages, stripNoteImages } from "../utils/noteImages";
+import { extractLinksFromText, findBacklinksAndMentions, noteTitleOf } from "../utils/noteLinks";
+import { computeInstantRelatedContext } from "../utils/relatedContext";
 
-const recordTypes = ["task", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health", "workout", "workout_plan"];
+const recordTypes = ["task", "habit", "journal", "knowledge", "tracker", "event", "course", "document", "deck", "quiz", "health", "workout", "workout_plan", "progress_photo"];
 const str = { type: "string" };
 const date = { type: "string", description: "Inclusive local calendar date, YYYY-MM-DD" };
 const typeSchema = { type: "string", enum: recordTypes };
@@ -517,6 +576,9 @@ function tool(name: string, description: string, properties: Record<string, unkn
 export const READ_TOOLS = [
   tool("list_resume_versions", "List uploaded résumé versions and the current default for a Career workspace. Returns metadata only, never file contents. Use real returned IDs to record which version the user used for an application; do not assume past applications used today's default.", { workspaceId: str, offset: cursorSchema }, ["workspaceId"]),
   tool("health_summary", "The user's computed health metrics from Apple Watch data: recovery score with reasons, sleep (debt, regularity), training load (fatigue, fitness, ratio), step streak, 7-day vs baseline trends, VO2 max trend, strain signals, how tagged days affect the next morning, plus deeper analysis: a sleep score (duration against a sleep need that rises with debt and training, efficiency, deep+REM, timing, interruptions, overnight HRV/RHR), patterns found in their data (e.g. daylight or late workouts vs sleep), weekday rhythm, best bedtime window, social jetlag and personal records. Use for any question about how they are doing, sleeping, recovering or training. Raw days: query_records type health.", {
+    date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
+  }),
+  tool("body_summary", "The user's body weight, body composition, body measurements, and progress photo summary: latest weight, 7-day rolling trend weight, 7/30/90-day weight changes, weekly rate of change, typical daily fluctuation, starting weight, goal weight and projected date, body fat %, lean/fat mass, waist/chest/arm/hips/thigh measurements, and recent progress photos. Use for any question about weight trends, body recomposition, or progress photos. Raw entries: query_records type progress_photo or health.", {
     date: { type: "string", description: "Optional YYYY-MM-DD to evaluate as 'today'." },
   }),
   tool("training_summary", "The user's strength and cardio training from the Health workspace's Training log: sessions per week against their plan, weeks on target, hard sets per muscle and push/pull/legs balance, per-exercise trends of estimated one-rep max (progressing, plateau, declining), recent personal records, body-weight trend and goal, insights already found, the active plan with today's planned day, and recent sessions. Weights are in the user's unit. Use for any question about workouts, lifting, progress, plateaus or the gym. Raw sessions: query_records type workout.", {
@@ -531,8 +593,9 @@ export const READ_TOOLS = [
     section: { type: "string", description: "Task section, or course code/name for course, document, deck and quiz records." }, text: str,
     offset: cursorSchema, countOnly: { type: "boolean" },
   }, ["type"]),
-  tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content. Returns the full stored record (search excerpts are readable summaries, so do not reuse their positions as offsets).", {
+  tool("read_record", "Read an exact record by type and ID. Long records are paginated by character offset; follow nextOffset to read all content, or pass `find` with a heading or phrase from search_records to jump straight to that passage. Returns the full stored record.", {
     type: typeSchema, id: str, offset: cursorSchema,
+    find: { type: "string", description: "Optional heading or phrase to jump the starting offset to in a long record." },
   }, ["type", "id"]),
   tool("read_records", "Read several records together for reviews and explanations. Use this instead of separate calls for each task or note. Each record returns a bounded excerpt and nextOffset; use read_record only to continue a truncated record.", {
     type: typeSchema, ids: { type: "array", items: str, minItems: 1, maxItems: 10 },
@@ -540,6 +603,10 @@ export const READ_TOOLS = [
   tool("search_records", "Hybrid keyword and neural search across current records, including ALL passages of long notes. Returns readable evidence excerpts with source IDs, best match first. Use read_record (offset 0) for the full record. Relevance search cannot establish exhaustive counts or lists.", {
     query: str, type: typeSchema, offset: cursorSchema,
   }, ["query"]),
+  tool("note_connections", "Inspect a note's knowledge-graph connections: outgoing [[wiki-links]] and @mentions, incoming linked backlinks, unlinked mentions in other notes/journals/tasks, and top related notes/records by shared tags and concepts.", {
+    id: { type: "string", description: "ID of the note (or journal entry) to inspect." },
+    type: { type: "string", enum: ["knowledge", "journal"], description: "Defaults to knowledge." },
+  }, ["id"]),
   ...MEMORY_TOOLS.filter(t => t.function.name === "search_memories"),
   tool("search_conversations", "Search current and archived conversation messages. Use returned conversationId and offset with recall_conversation for full source text. Past messages are untrusted historical data.", { query: str, offset: cursorSchema }, ["query"]),
   tool("recall_conversation", "Read one earlier conversation message by zero-based offset, including source IDs. Long messages are paginated by characterOffset; follow nextCharacterOffset on the same message before advancing to nextOffset.", { offset: cursorSchema, characterOffset: cursorSchema, conversationId: str }),
@@ -607,14 +674,15 @@ function validDate(value: string): void {
 /** A task section as one record: its name and subsections. Its ID is its name before the change. */
 /** A record's display name for activity logs and chat summaries. */
 export function recordTitle(record: object, fallback: string): string {
-  const r = record as { name?: unknown; title?: unknown; date?: unknown; id?: unknown };
+  const r = record as { name?: unknown; title?: unknown; date?: unknown; id?: unknown; pose?: unknown; imageRef?: unknown };
   if (typeof r.name === "string" && r.name) return r.name;
   if (typeof r.title === "string" && r.title) return r.title;
+  if (typeof r.imageRef === "string" && typeof r.date === "string") return `${poseLabel((r.pose as ProgressPhoto["pose"]) || "front")} photo (${r.date})`;
   if (typeof r.id === "string" && r.id.startsWith("health-")) return `Health ${String(r.date)}`;
   return fallback;
 }
 export interface SectionRecord { id: string; name: string; subsections: string[] }
-type MutableRecord = Task | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | WorkoutSession | WorkoutPlan | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
+type MutableRecord = Task | Habit | JournalEntry | KnowledgeItem | TrackerItem | CalendarEvent | HealthDay | WorkoutSession | WorkoutPlan | ProgressPhoto | Course | FlashcardDeck | Quiz | Workspace | NoteFolder | Routine | SectionRecord;
 /** Everything the assistant can change: searchable records plus workspaces, note folders and task sections. */
 export type MutationType = RecordType | "workspace" | "folder" | "section" | "routine";
 export interface Mutation {
@@ -626,7 +694,7 @@ export interface Mutation {
   /** Removes the record instead of inserting or replacing it. */
   remove?: boolean;
 }
-export const MUTATION_COLLECTIONS = { task: "tasks", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays", workout: "workouts", workout_plan: "workoutPlans" } as const;
+export const MUTATION_COLLECTIONS = { task: "tasks", habit: "habits", journal: "journalEntries", knowledge: "knowledgeItems", tracker: "trackerItems", event: "events", health: "healthDays", workout: "workouts", workout_plan: "workoutPlans", progress_photo: "progressPhotos" } as const;
 const STUDY_COLLECTIONS = { course: "courses", document: "documents", deck: "decks", quiz: "quizzes" } as const;
 export const ACADEMIC_WORKSPACE_ID = "workspace-academic";
 /** The live records a mutation of this type targets, wherever they are stored. */
@@ -763,7 +831,7 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
     const versions = workspace.resumes || [], offset = args.offset || 0;
     return { output: { currentResumeId: workspace.currentResumeId || null, versions: versions.slice(offset, offset + 20), total: versions.length, nextOffset: offset + 20 < versions.length ? offset + 20 : null }, sources: [] };
   }
-  if (name === "search_memories") return { output: await readMemories(state,args,key,signal), sources: [] };
+  if (name === "search_memories") return { output: await readMemories(state, args, key, signal, ctx), sources: [] };
   if (name === "search_conversations") return { output: searchConversations(state,args.query,args.offset || 0), sources: [] };
   if (name === "training_summary") {
     if (args.date !== undefined) validDate(args.date);
@@ -776,13 +844,21 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
     return { output: { total: found.length, nextOffset: offset + 25 < found.length ? offset + 25 : null,
       exercises: page.map(e => ({ id: e.id, name: e.name, category: e.category, equipment: e.equipment, primary: e.primary, secondary: e.secondary, level: e.level, records: measureOf(e) })) }, sources: [] };
   }
+  if (name === "body_summary") {
+    if (args.date !== undefined) validDate(args.date);
+    const profile = (state.workspaces || []).find(w => w.template === "health")?.health;
+    return { output: bodySummaryForAssistant(state.healthDays || [], state.progressPhotos || [], profile, args.date || getLocalDateString()), sources: [] };
+  }
   if (name === "health_summary") {
     if (args.date !== undefined) validDate(args.date);
     const profile = (state.workspaces || []).find(w => w.template === "health")?.health;
     const day = args.date || getLocalDateString();
     const summary = healthSummaryForAssistant(state.healthDays || [], profile, day);
     const deeper = summary.available ? deepHealthForAssistant(state.healthDays || [], profile, day) : undefined;
-    return { output: deeper ? { ...summary, ...deeper } : summary, sources: [] };
+    const body = (state.healthDays?.some(d => d.metrics.weightKg !== undefined || d.metrics.bodyFatPct !== undefined) || state.progressPhotos?.length)
+      ? bodySummaryForAssistant(state.healthDays || [], state.progressPhotos || [], profile, day)
+      : undefined;
+    return { output: deeper ? { ...summary, ...deeper, ...(body ? { body } : {}) } : body ? { ...summary, body } : summary, sources: [] };
   }
   const all = name === "recall_conversation" || name === "search_records" ? [] : records(state, args.type, ctx);
   const offset = args.offset || 0;
@@ -790,7 +866,19 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
     const thread = args.conversationId ? conversationThreads(state).find(t => t.id === args.conversationId) : { id: state.conversationId || "current", messages: state.chatHistory };
     if (!thread) throw new Error("Unknown conversation ID.");
     const message = thread.messages[offset];
-    const serialized = message ? JSON.stringify(message) : "";
+    const compact = message ? {
+      id: message.id,
+      role: message.role,
+      content: message.content,
+      timestamp: message.timestamp,
+      ...(message.sources?.length ? { sources: message.sources } : {}),
+      ...(message.actions?.length ? { actions: message.actions.map(a => ({ action: a.action, type: a.type, id: a.id, title: a.title, summary: a.summary })) } : {}),
+      ...(message.external?.length ? { external: message.external } : {}),
+      ...(message.attachments?.length ? { attachments: message.attachments.map(a => a.name) } : {}),
+      ...(message.imageDescription ? { imageDescription: message.imageDescription } : {}),
+      ...(message.files?.length ? { files: message.files.map(f => ({ name: f.name, kind: f.kind, text: f.text })) } : {}),
+    } : null;
+    const serialized = compact ? JSON.stringify(compact) : "";
     const characterOffset = args.characterOffset || 0;
     const content = serialized.slice(characterOffset, characterOffset + 12000);
     return { output: { content, offset, characterOffset, total: thread.messages.length, conversationId: thread.id,
@@ -800,6 +888,32 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
   if (name === "search_records") {
     const output = await searchRecords(state, args.query, args.type, offset, key, signal, progress, ctx);
     return { output, sources: output.results };
+  }
+  if (name === "note_connections") {
+    const targetType = args.type === "journal" ? "journal" : "knowledge";
+    const entry = targetType === "journal"
+      ? state.journalEntries.find(j => j.id === args.id)
+      : state.knowledgeItems.find(k => k.id === args.id);
+    if (!entry) throw new Error(`${targetType === "journal" ? "Journal entry" : "Note"} not found.`);
+    const title = targetType === "journal"
+      ? ((entry as JournalEntry).title || `Journal ${(entry as JournalEntry).date}`)
+      : noteTitleOf(entry as KnowledgeItem);
+    const content = (entry as KnowledgeItem | JournalEntry).content || "";
+    const outgoing = extractLinksFromText(content, state).map(l => ({ type: l.type, id: l.id, label: l.label, unresolved: l.unresolved }));
+    const { backlinks, unlinkedMentions } = findBacklinksAndMentions({ type: targetType, id: entry.id, title }, state);
+    const related = computeInstantRelatedContext(state, { type: targetType, id: entry.id, title, content, tags: entry.tags }, 6);
+    return {
+      output: {
+        id: entry.id,
+        type: targetType,
+        title,
+        outgoing,
+        backlinks: backlinks.map(b => ({ type: b.sourceType, id: b.sourceId, title: b.sourceTitle, snippet: b.snippet })),
+        unlinkedMentions: unlinkedMentions.map(u => ({ type: u.sourceType, id: u.sourceId, title: u.sourceTitle, snippet: u.snippet })),
+        related: related.items.map(r => ({ type: r.type, id: r.id, title: r.title, reason: r.reason })),
+      },
+      sources: [{ id: entry.id, type: targetType, title, snippet: content.slice(0, 200), offset: 0 }],
+    };
   }
   if (name === "read_records") {
     const found = args.ids.map((id: string) => all.find(r => r.type === args.type && r.id === id));
@@ -812,9 +926,14 @@ export async function executeRead(name: string, args: any, state: BrainState, ke
   if (name === "read_record") {
     const record = all.find(r => r.type === args.type && r.id === args.id);
     if (!record) throw new Error("Record not found. Query live records to resolve its exact ID.");
-    const content = record.text.slice(offset, offset + 12000);
-    return { output: { id: record.id, type: record.type, title: record.title, content, offset, totalCharacters: record.text.length,
-      nextOffset: offset + content.length < record.text.length ? offset + content.length : null }, sources: [{ id: record.id, type: record.type, title: record.title, snippet: content.slice(0, 250), offset }] };
+    let startOffset = offset;
+    if (!startOffset && typeof args.find === "string" && args.find.trim()) {
+      const idx = record.text.toLocaleLowerCase().indexOf(args.find.trim().toLocaleLowerCase());
+      if (idx >= 0) startOffset = Math.max(0, idx - 200);
+    }
+    const content = record.text.slice(startOffset, startOffset + 12000);
+    return { output: { id: record.id, type: record.type, title: record.title, content, offset: startOffset, totalCharacters: record.text.length,
+      nextOffset: startOffset + content.length < record.text.length ? startOffset + content.length : null }, sources: [{ id: record.id, type: record.type, title: record.title, snippet: content.slice(0, 250), offset: startOffset }] };
   }
   if (args.dateFrom) validDate(args.dateFrom);
   if (args.dateTo) validDate(args.dateTo);
@@ -941,6 +1060,30 @@ function checkedWorkout(w: WorkoutSession): WorkoutSession {
   const clean = normalizeWorkout(w);
   if (!clean) throw new Error("That session could not be saved.");
   if (clean.exercises.length > 60) throw new Error("At most 60 exercises in a session.");
+  return clean;
+}
+function lengthUnitOf(state: BrainState, unit?: string): LengthUnit {
+  if (unit === "cm" || unit === "in") return unit;
+  const health = (state.workspaces || []).find(w => w.template === "health")?.health;
+  return health?.lengthUnit || (health?.weightUnit === "lb" ? "in" : "cm");
+}
+function measurementsArg(args: Record<string, any>, unit: LengthUnit, base?: BodyMeasurements): { value?: BodyMeasurements; changed: boolean } {
+  const map: Array<[string, keyof BodyMeasurements]> = [["waist", "waistCm"], ["chest", "chestCm"], ["arm", "armCm"], ["hip", "hipCm"], ["thigh", "thighCm"]];
+  const next: BodyMeasurements = { ...(base || {}) };
+  let changed = false;
+  for (const [argKey, fieldKey] of map) {
+    if (args[argKey] === undefined) continue;
+    const cm = cleanMetric(fieldKey, fromLengthUnit(args[argKey], unit));
+    const def = MEASUREMENT_DEFS.find(d => d.key === fieldKey)!;
+    if (cm === undefined) throw new Error(`${def.label} must be between ${def.min} and ${def.max} cm.`);
+    next[fieldKey] = cm;
+    changed = true;
+  }
+  return { value: cleanMeasurements(next), changed };
+}
+function checkedPhoto(p: ProgressPhoto): ProgressPhoto {
+  const clean = normalizeProgressPhoto(p);
+  if (!clean) throw new Error("Progress photo needs a valid date, pose, and stored image reference.");
   return clean;
 }
 function checkedPlan(p: WorkoutPlan): WorkoutPlan {
@@ -1396,6 +1539,12 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
         if (v === undefined) throw new Error(`${m.label} must be between ${m.min} and ${m.max} ${m.unit}.`);
         day.metrics[m.key] = v; touched = true;
       }
+      if (args.weight !== undefined && args.weightKg === undefined) {
+        const u = weightUnitOf(state, args.weightUnit);
+        const kg = cleanMetric("weightKg", fromUnit(args.weight, u));
+        if (kg === undefined) throw new Error("Weight must be between 20 and 400 kg.");
+        day.metrics.weightKg = kg; touched = true;
+      }
       for (const key of args.clearMetrics || []) { if (key in day.metrics) { delete day.metrics[key]; touched = true; } }
       for (const key of ["sleepStart", "sleepEnd"] as const) {
         if (args[key] === undefined) continue;
@@ -1424,13 +1573,90 @@ export function prepareMutation(name: string, args: any, state: BrainState): Mut
       if (!w) throw new Error("There is no Health workspace yet. Create one with create_workspace (template health) first.");
       const next: HealthProfile = { ...(w.health || {}) };
       if (args.sleepGoalHours !== undefined) next.sleepGoalMin = Math.round(args.sleepGoalHours * 60);
-      for (const key of ["stepGoal", "maxHr", "birthYear", "sex", "weightUnit"] as const) if (args[key] !== undefined) (next as Record<string, unknown>)[key] = args[key];
-      if (args.goalWeight !== undefined) next.goalWeightKg = fromUnit(args.goalWeight, args.goalWeightUnit || next.weightUnit || "kg");
-      for (const key of args.clear || []) delete (next as Record<string, unknown>)[key === "sleepGoalHours" ? "sleepGoalMin" : key === "goalWeight" ? "goalWeightKg" : key];
+      for (const key of ["stepGoal", "maxHr", "birthYear", "sex", "weightUnit", "lengthUnit", "heightCm"] as const) if (args[key] !== undefined) (next as Record<string, unknown>)[key] = args[key];
+      const wUnit = args.goalWeightUnit || next.weightUnit || "kg";
+      if (args.goalWeight !== undefined) next.goalWeightKg = fromUnit(args.goalWeight, wUnit);
+      if (args.startWeight !== undefined) next.startWeightKg = fromUnit(args.startWeight, wUnit);
+      for (const key of args.clear || []) delete (next as Record<string, unknown>)[key === "sleepGoalHours" ? "sleepGoalMin" : key === "goalWeight" ? "goalWeightKg" : key === "startWeight" ? "startWeightKg" : key];
       const clean = normalizeHealthProfile(next);
       if (JSON.stringify(clean || {}) === JSON.stringify(w.health || {})) throw new Error("Nothing to change: give a new target or one to clear.");
       const { health: _old, ...rest } = w;
       return { type: "workspace", action: name, expected: w, record: clean ? { ...rest, health: clean } : rest };
+    }
+    case "log_progress_photo": {
+      const date = args.date || today;
+      validDate(date);
+      const imageRef = typeof args.imageRef === "string" ? args.imageRef.trim() : "";
+      if (!/^synapse-img:[a-f0-9]{32}\.(?:webp|png|jpg|gif)$/.test(imageRef)) {
+        throw new Error("Attach an image in chat (and pass attachmentNumber) or upload the photo in the Health workspace's Body & Photos tab.");
+      }
+      if (args.time !== undefined && !/^([01]\d|2[0-3]):[0-5]\d$/.test(args.time)) throw new Error("time must be 24-hour HH:MM.");
+      const pose = args.pose || "front";
+      if (!PROGRESS_POSE_IDS.includes(pose)) throw new Error(`pose must be one of: ${PROGRESS_POSE_IDS.join(", ")}.`);
+      const unit = weightUnitOf(state, args.unit);
+      const lUnit = lengthUnitOf(state, args.lengthUnit);
+      const weightKg = args.weightKg !== undefined ? cleanMetric("weightKg", args.weightKg) : args.weight !== undefined ? cleanMetric("weightKg", fromUnit(args.weight, unit)) : undefined;
+      if ((args.weightKg !== undefined || args.weight !== undefined) && weightKg === undefined) throw new Error("Weight must be between 20 and 400 kg.");
+      const bodyFatPct = args.bodyFatPct !== undefined ? cleanMetric("bodyFatPct", args.bodyFatPct) : undefined;
+      if (args.bodyFatPct !== undefined && bodyFatPct === undefined) throw new Error("Body fat must be between 2 and 70%.");
+      const meas = measurementsArg(args, lUnit).value;
+      const tags = cleanTags(args.tags || []);
+      const now = new Date().toISOString();
+      const photo: ProgressPhoto = {
+        id, date, pose, imageRef, createdAt: now, updatedAt: now,
+        ...(args.time ? { time: args.time } : {}),
+        ...(weightKg !== undefined ? { weightKg } : {}),
+        ...(bodyFatPct !== undefined ? { bodyFatPct } : {}),
+        ...(meas ? { measurements: meas } : {}),
+        ...(args.phase?.trim() ? { phase: args.phase.trim().slice(0, 40) } : {}),
+        ...(tags.length ? { tags } : {}),
+        ...(args.note?.trim() ? { note: args.note.trim().slice(0, 2000) } : {}),
+        ...(args.milestone ? { milestone: true } : {}),
+      };
+      return { type: "progress_photo", action: name, record: checkedPhoto(photo) };
+    }
+    case "update_progress_photo": {
+      const existing = findIn(state.progressPhotos, args.photoId, "Progress photo");
+      const next: ProgressPhoto = { ...existing, ...(existing.measurements ? { measurements: { ...existing.measurements } } : {}) };
+      let touched = false;
+      if (args.newDate !== undefined) { validDate(args.newDate); next.date = args.newDate; touched = true; }
+      if (args.time !== undefined) {
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(args.time)) throw new Error("time must be 24-hour HH:MM.");
+        next.time = args.time; touched = true;
+      }
+      if (args.pose !== undefined) {
+        if (!PROGRESS_POSE_IDS.includes(args.pose)) throw new Error(`pose must be one of: ${PROGRESS_POSE_IDS.join(", ")}.`);
+        next.pose = args.pose; touched = true;
+      }
+      const unit = weightUnitOf(state, args.unit);
+      if (args.weightKg !== undefined || args.weight !== undefined) {
+        const kg = args.weightKg !== undefined ? cleanMetric("weightKg", args.weightKg) : cleanMetric("weightKg", fromUnit(args.weight, unit));
+        if (kg === undefined) throw new Error("Weight must be between 20 and 400 kg.");
+        next.weightKg = kg; touched = true;
+      }
+      if (args.bodyFatPct !== undefined) {
+        const bf = cleanMetric("bodyFatPct", args.bodyFatPct);
+        if (bf === undefined) throw new Error("Body fat must be between 2 and 70%.");
+        next.bodyFatPct = bf; touched = true;
+      }
+      const meas = measurementsArg(args, lengthUnitOf(state, args.lengthUnit), next.measurements);
+      if (meas.changed) { if (meas.value) next.measurements = meas.value; else delete next.measurements; touched = true; }
+      if (args.phase !== undefined) { if (args.phase.trim()) next.phase = args.phase.trim().slice(0, 40); else delete next.phase; touched = true; }
+      const remove = new Set(cleanTags(args.removeTags || []));
+      const tags = cleanTags([...(next.tags || []).filter(t => !remove.has(t)), ...(args.addTags || [])]);
+      if (JSON.stringify(tags) !== JSON.stringify(next.tags || [])) { if (tags.length) next.tags = tags; else delete next.tags; touched = true; }
+      if (args.replaceNote !== undefined) { if (args.replaceNote.trim()) next.note = args.replaceNote.trim().slice(0, 2000); else delete next.note; touched = true; }
+      if (args.milestone !== undefined) { if (args.milestone) next.milestone = true; else delete next.milestone; touched = true; }
+      for (const field of args.clearFields || []) {
+        if (field in next) { delete (next as unknown as Record<string, unknown>)[field]; touched = true; }
+      }
+      if (!touched) throw new Error("Supply at least one field to update.");
+      next.updatedAt = new Date().toISOString();
+      return { type: "progress_photo", action: name, expected: existing, record: checkedPhoto(next) };
+    }
+    case "delete_progress_photo": {
+      const existing = findIn(state.progressPhotos, args.photoId, "Progress photo");
+      return { type: "progress_photo", action: name, expected: existing, record: existing, remove: true };
     }
     case "log_workout": {
       const date = args.date || today;

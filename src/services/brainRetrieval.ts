@@ -1,5 +1,6 @@
 import { BrainState, TrackerItem } from "../types";
 import { healthMetric } from "../utils/health";
+import { MEASUREMENT_DEFS, poseLabel } from "../utils/bodyProgress";
 import { eventTimeLabel, formatTime } from "../utils/events";
 import { getLocalDateString } from "../utils/habitStreaks";
 import { bestScore, courseLabel, courseTasks, dueCards, studyOf } from "../utils/study";
@@ -8,7 +9,7 @@ import { cachedDocumentText } from "./studyDocuments";
 import { providerFetch } from "./providerTransport";
 import { hasInlineImages, hideNoteImages } from "../utils/noteImages";
 
-export type RecordType = "task" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health" | "workout" | "workout_plan";
+export type RecordType = "task" | "habit" | "journal" | "knowledge" | "tracker" | "event" | "course" | "document" | "deck" | "quiz" | "health" | "workout" | "workout_plan" | "progress_photo";
 
 function trackerDate(item: TrackerItem): string | undefined {
   if (item.kind === "job_application" && typeof item.fields.appliedDate === "string") return item.fields.appliedDate;
@@ -45,11 +46,14 @@ export interface Source { id: string; type: string; title: string; snippet: stri
 const list = (items: unknown) => Array.isArray(items) ? items.filter(x => typeof x === "string" && x.trim()).join(", ") : "";
 const checklist = (items: unknown) => Array.isArray(items)
   ? items.map((x: any) => x && typeof x.title === "string" ? `[${x.completed ? "x" : " "}] ${x.title}` : "").filter(Boolean).join("; ") : "";
-/** Notes may be stored as HTML from the editor; index the readable text only. */
+/** Notes may be stored as HTML or carry [[Wiki-Links]] / @[Label](synapse://type/id); index readable prose only. */
 function plain(text: unknown): string {
   if (typeof text !== "string") return "";
-  if (!/<[a-z][\s\S]*>/i.test(text)) return text;
-  return text.replace(/<(?:br|\/p|\/h[1-6]|\/li|\/div)\s*\/?>/gi, "\n").replace(/<h([1-6])[^>]*>/gi, (_, n) => "\n" + "#".repeat(Number(n)) + " ")
+  const cleanedLinks = text
+    .replace(/@\[([^\]\n]+)\]\(synapse:\/\/[a-z]+\/[^\s)]+\)/g, "$1")
+    .replace(/\[\[(?:[a-z]+:[^|\]]+\|)?([^\]|]+)(?:\|([^\]]+))?\]\]/g, (_, a, b) => (b || a));
+  if (!/<[a-z][\s\S]*>/i.test(cleanedLinks)) return cleanedLinks;
+  return cleanedLinks.replace(/<(?:br|\/p|\/h[1-6]|\/li|\/div)\s*\/?>/gi, "\n").replace(/<h([1-6])[^>]*>/gi, (_, n) => "\n" + "#".repeat(Number(n)) + " ")
     .replace(/<li[^>]*>/gi, "- ").replace(/<[^>]+>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 }
 const lines = (...parts: Array<string | false | undefined>) => parts.filter(Boolean).join("\n");
@@ -97,6 +101,20 @@ export function recordProse(type: RecordType, d: any): string {
     case "workout_plan":
       return lines(`Training plan: ${d.name}${d.active ? " (active)" : ""}`, d.description,
         ...(Array.isArray(d.days) ? d.days.map((day: any) => `${day.name} [day:${day.id}]${day.weekdays?.length ? ` on ${day.weekdays.map((n: number) => ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][n]).join("/")}` : ""}: ${(day.exercises || []).map((e: any) => `${e.name} ${e.sets}×${e.reps}`).join(", ")}`) : []));
+    case "progress_photo": {
+      const meas = d.measurements && typeof d.measurements === "object"
+        ? MEASUREMENT_DEFS.filter(m => typeof d.measurements[m.key] === "number").map(m => `${m.label}: ${d.measurements[m.key]} cm`).join(", ")
+        : "";
+      return lines(
+        `Progress photo: ${poseLabel(d.pose)} on ${d.date}${d.time ? ` at ${d.time}` : ""}${d.milestone ? " (milestone)" : ""}`,
+        d.weightKg !== undefined && `Weight: ${d.weightKg} kg`,
+        d.bodyFatPct !== undefined && `Body fat: ${d.bodyFatPct}%`,
+        meas && `Measurements: ${meas}`,
+        d.phase && `Phase: ${d.phase}`,
+        list(d.tags) && `Tags: ${list(d.tags)}`,
+        d.note && `Note: ${d.note}`
+      );
+    }
     case "tracker": {
       const fields = Object.entries(d.fields || {}).filter(([, v]) => (typeof v === "string" && v.trim() && !/^https?:/i.test(v)) || typeof v === "number")
         .map(([k, v]) => `${k.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/_/g, " ")}: ${v}`);
@@ -106,22 +124,45 @@ export function recordProse(type: RecordType, d: any): string {
   }
 }
 /** Course material flattened into readable records. Document text comes from the loaded text cache. */
+function groupByKey<T>(items: T[], getKey: (item: T) => string | null | undefined): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const item of items) {
+    const key = getKey(item);
+    if (!key) continue;
+    const list = map.get(key);
+    if (list) list.push(item);
+    else map.set(key, [item]);
+  }
+  return map;
+}
 function studyRecords(state: BrainState, ctx?: RetrievalContext) {
   const documentText = ctx?.documentText ?? cachedDocumentText;
   const study = studyOf(state);
   const today = getLocalDateString();
   const courses = new Map(study.courses.map(c => [c.id, c]));
-  const folderName = (id: string | null) => (id ? study.folders.find(f => f.id === id)?.name : undefined);
+  const foldersById = new Map(study.folders.map(f => [f.id, f.name]));
+  const foldersByCourse = groupByKey(study.folders, f => f.courseId);
+  const docsByCourse = groupByKey(study.documents, d => d.courseId);
+  const decksByCourse = groupByKey(study.decks, d => d.courseId);
+  const quizzesByCourse = groupByKey(study.quizzes, q => q.courseId);
+  // Pre-filter incomplete academic tasks once so computing openTasks across many courses stays linear in open items.
+  const openTasksState: BrainState = {
+    ...state,
+    tasks: state.tasks.filter(t => t.status !== "completed" && !!t.subsection),
+  };
+  const folderName = (id: string | null) => (id ? foldersById.get(id) : undefined);
   const label = (courseId: string) => { const c = courses.get(courseId); return c ? courseLabel(c) : "Unknown course"; };
   const section = (courseId: string) => { const c = courses.get(courseId); return c ? c.code || c.name : undefined; };
   return [
     ...study.courses.map(c => {
-      const decks = study.decks.filter(d => d.courseId === c.id);
-      const docs = study.documents.filter(d => d.courseId === c.id);
+      const decks = decksByCourse.get(c.id) || [];
+      const docs = docsByCourse.get(c.id) || [];
+      const folders = foldersByCourse.get(c.id) || [];
+      const quizzes = quizzesByCourse.get(c.id) || [];
       const data = { ...c, label: courseLabel(c), section: c.code || c.name, documentCount: docs.length, documentNames: docs.map(d => d.name),
-        folderNames: study.folders.filter(f => f.courseId === c.id).map(f => f.name), deckCount: decks.length,
-        cardsDue: decks.reduce((n, d) => n + dueCards(d, today).length, 0), quizCount: study.quizzes.filter(q => q.courseId === c.id).length,
-        openTasks: courseTasks(state, c).filter(t => t.status !== "completed").length, grading: gradingForAssistant(c.grading) };
+        folderNames: folders.map(f => f.name), deckCount: decks.length,
+        cardsDue: decks.reduce((n, d) => n + dueCards(d, today).length, 0), quizCount: quizzes.length,
+        openTasks: courseTasks(openTasksState, c).length, grading: gradingForAssistant(c.grading) };
       return { type: "course" as const, title: courseLabel(c), date: undefined, data, source: data as unknown };
     }),
     ...study.documents.map(d => {
@@ -145,6 +186,9 @@ function studyRecords(state: BrainState, ctx?: RetrievalContext) {
 // Derived text is cached per source object and checked against the content it came from, so a search reuses the
 // passages of unchanged records and an edit (even one made in place) is always picked up.
 const recordChunkCache = new WeakMap<object, { prose: string; chunks: Source[] }>();
+// Study records rebuild lightweight wrapper objects per call, so cache their chunks by id+title+prose in a bounded LRU.
+const MAX_STUDY_CHUNK_CACHE = 500;
+const studyChunkCache = new Map<string, { title: string; prose: string; chunks: Source[] }>();
 const hiddenImageNotes = new WeakMap<object, { content: string; hidden: unknown }>();
 /** The note as the assistant sees it: inline image data replaced by `note-image:N` tokens. Same object when it has none. */
 function noteWithoutImages<T extends { content?: string }>(item: T): T {
@@ -171,6 +215,7 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
     ...(want("health") ? state.healthDays || [] : []).map(data => ({ type: "health" as const, title: `Health ${data.date}`, date: data.date, data, source: data as unknown })),
     ...(want("workout") ? state.workouts || [] : []).map(data => ({ type: "workout" as const, title: `${data.name} ${data.date}`, date: data.date, data, source: data as unknown })),
     ...(want("workout_plan") ? state.workoutPlans || [] : []).map(data => ({ type: "workout_plan" as const, title: data.name, date: undefined, data: { ...data, status: data.active ? "in_progress" : "on_hold" }, source: data as unknown })),
+    ...(want("progress_photo") ? state.progressPhotos || [] : []).map(data => ({ type: "progress_photo" as const, title: `${poseLabel(data.pose)} photo (${data.date})`, date: data.date, data, source: data as unknown })),
     ...(want("tracker") ? state.trackerItems || [] : []).map(data => ({
       type: "tracker" as const,
       title: data.title,
@@ -187,8 +232,8 @@ export function records(state: BrainState, type?: RecordType, ctx?: RetrievalCon
       // Computed only when read: a search needs the prose, a read needs the JSON, a list needs neither.
       // Document text is read as prose after its metadata, not as one escaped JSON string.
       get text() { return r.type === "document"
-        ? `${JSON.stringify({ ...data, content: undefined }, null, 2)}\n\n${(data as { content?: string }).content ?? "[Text not loaded on this device.]"}`
-        : JSON.stringify(data, null, 2); },
+        ? `${JSON.stringify({ ...data, content: undefined })}\n\n${(data as { content?: string }).content ?? "[Text not loaded on this device.]"}`
+        : JSON.stringify(data); },
       get index() { return recordProse(r.type, source); },
       [CHUNK_KEY]: key };
   });
@@ -218,14 +263,72 @@ function splitLong(text: string): string[] {
  * the record title and heading path so it is understandable (and embeddable) on its own.
  */
 export function chunks(record: BrainRecord): Source[] {
-  const key = (record as { [CHUNK_KEY]?: object })[CHUNK_KEY];
-  if (!key) return splitRecord(record);
   const prose = record.index;
+  const key = (record as { [CHUNK_KEY]?: object })[CHUNK_KEY];
+  if (!key) {
+    if (!STUDY_TYPES.has(record.type)) return splitRecord(record, prose);
+    const studyKey = `${record.type}:${record.id}`;
+    const cached = studyChunkCache.get(studyKey);
+    if (cached && cached.prose === prose && cached.title === record.title) {
+      studyChunkCache.delete(studyKey);
+      studyChunkCache.set(studyKey, cached);
+      return cached.chunks;
+    }
+    const split = splitRecord(record, prose);
+    studyChunkCache.set(studyKey, { title: record.title, prose, chunks: split });
+    while (studyChunkCache.size > MAX_STUDY_CHUNK_CACHE) {
+      studyChunkCache.delete(studyChunkCache.keys().next().value!);
+    }
+    return split;
+  }
   const cached = recordChunkCache.get(key);
   if (cached && cached.prose === prose && cached.chunks[0]?.title === record.title) return cached.chunks;
   const split = splitRecord(record, prose);
   recordChunkCache.set(key, { prose, chunks: split });
   return split;
+}
+/** Splits Markdown into blocks without splitting inside fenced code blocks or treating code comments as headings. */
+function markdownBlocks(text: string): Array<{ text: string; position: number; heading?: RegExpMatchArray }> {
+  const blocks: Array<{ text: string; position: number; heading?: RegExpMatchArray }> = [];
+  const rawLines = text.split("\n");
+  let fence = "";
+  let blockStart = 0;
+  let current: string[] = [];
+  let pos = 0;
+  const push = () => {
+    if (!current.length) return;
+    const joined = current.join("\n");
+    const heading = !fence ? joined.match(/^(#{1,6})\s+(.+)/) ?? undefined : undefined;
+    blocks.push({ text: joined, position: blockStart, heading });
+    current = [];
+  };
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    const lineLen = line.length + (i < rawLines.length - 1 ? 1 : 0);
+    const fenceMatch = line.match(/^\s{0,3}(`{3,}|~{3,})/);
+    if (!fence) {
+      if (fenceMatch) {
+        fence = fenceMatch[1][0];
+        if (!current.length) blockStart = pos;
+        current.push(line);
+      } else if (!line.trim()) {
+        push();
+      } else if (/^#{1,6}\s+/.test(line) && current.length) {
+        push();
+        blockStart = pos;
+        current.push(line);
+      } else {
+        if (!current.length) blockStart = pos;
+        current.push(line);
+      }
+    } else {
+      current.push(line);
+      if (new RegExp(`^\\s{0,3}${fence}{3,}\\s*$`).test(line)) fence = "";
+    }
+    pos += lineLen;
+  }
+  push();
+  return blocks;
 }
 function splitRecord(record: BrainRecord, text = record.index): Source[] {
   const header = (path: string[]) => [record.title, ...path].filter(Boolean).join(" > ");
@@ -233,22 +336,27 @@ function splitRecord(record: BrainRecord, text = record.index): Source[] {
   if (text.length <= HARD_LIMIT) return [{ ...base, offset: 0, snippet: text }];
   const result: Source[] = [];
   const path: string[] = [];
-  let buffer = "", offset = 0, position = 0;
+  let buffer = "", offset = 0;
   const flush = () => {
     if (buffer.trim()) for (const piece of splitLong(buffer.trim())) result.push({ ...base, offset, snippet: result.length || offset ? `${header(path)}\n${piece}` : piece });
     buffer = "";
   };
-  for (const block of text.split(/\n{2,}|\n(?=#{1,6} )/)) {
-    const heading = block.match(/^(#{1,6})\s+(.+)/);
-    if (heading) {
+  for (const block of markdownBlocks(text)) {
+    if (block.heading && !block.text.includes("\n")) {
       flush();
-      path.splice(heading[1].length - 1);
-      path[heading[1].length - 1] = heading[2].trim();
-      offset = position;
+      path.splice(block.heading[1].length - 1);
+      path[block.heading[1].length - 1] = block.heading[2].trim();
+      offset = block.position;
+    } else if (block.heading) {
+      flush();
+      path.splice(block.heading[1].length - 1);
+      const firstLine = block.heading[2].split("\n")[0].trim();
+      path[block.heading[1].length - 1] = firstLine;
+      offset = block.position;
     }
-    if (buffer && buffer.length + block.length > PASSAGE) { flush(); offset = position; }
-    buffer += (buffer ? "\n\n" : "") + block;
-    position += block.length + 2;
+    if (!buffer) offset = block.position;
+    if (buffer && buffer.length + block.text.length > PASSAGE) { flush(); offset = block.position; }
+    buffer += (buffer ? "\n\n" : "") + block.text;
   }
   flush();
   return result;
@@ -416,6 +524,7 @@ export function clearRetrievalMemory(): void {
   passageVectors.clear();
   queryVectors.clear();
   passageTerms.clear();
+  studyChunkCache.clear();
 }
 
 type Passage = { source: Source; slot: string; date?: string };
@@ -450,19 +559,32 @@ async function passageVectorsFor(state: BrainState, items: Passage[], key: strin
   while (passageVectors.size > MAX_PASSAGE_VECTORS) passageVectors.delete(passageVectors.keys().next().value!);
   const missing = entries.flatMap((e, i) => e.vector ? [] : [i]);
   if (missing.length && !key?.trim()) throw new Error("No AI provider key is configured");
-  for (let start = 0; start < missing.length; start += 32) {
+  const batches: number[][] = [];
+  for (let start = 0; start < missing.length; start += 32) batches.push(missing.slice(start, start + 32));
+  let completed = 0;
+  for (let i = 0; i < batches.length; i += 2) {
     signal?.throwIfAborted();
-    progress?.(start, missing.length);
-    const indices = missing.slice(start, start + 32);
-    const batch = await embed(indices.map(i => embeddingText(items[i].source)), key!, signal, ctx?.providerBase);
-    indices.forEach((i, j) => { entries[i].vector = batch[j]; });
-    await writeVectors(cache, indices.map((i, j) => [entries[i].key, batch[j]]));
+    const pair = batches.slice(i, i + 2);
+    progress?.(completed, missing.length);
+    const embedded = await Promise.all(pair.map(async indices => ({
+      indices,
+      batch: await embed(indices.map(idx => embeddingText(items[idx].source)), key!, signal, ctx?.providerBase),
+    })));
+    const writes: Array<[string, number[]]> = [];
+    for (const { indices, batch } of embedded) {
+      indices.forEach((idx, j) => {
+        entries[idx].vector = batch[j];
+        writes.push([entries[idx].key, batch[j]]);
+      });
+      completed += indices.length;
+    }
+    await writeVectors(cache, writes);
   }
   if (missing.length) progress?.(missing.length, missing.length);
   return entries;
 }
-async function queryVector(query: string, key: string, signal?: AbortSignal, base?: string): Promise<number[]> {
-  const cacheKey = `${base ?? ""}|${query.trim().toLocaleLowerCase()}`;
+async function queryVector(query: string, key: string, signal?: AbortSignal, base?: string, userId?: string): Promise<number[]> {
+  const cacheKey = `${userId || "guest"}|${base ?? ""}|${query.trim().toLocaleLowerCase()}`;
   const known = queryVectors.get(cacheKey);
   if (known) return known;
   const [vector] = await embed([query], key, signal, base);
@@ -483,7 +605,7 @@ export async function rankPassages(state: BrainState, query: string, type: Recor
   let warning: string | undefined;
   try {
     const entries = await passageVectorsFor(state, items, key, signal, (done, total) => progress?.(`Indexing notes: ${Math.min(done + 32, total)} of ${total} passages`), ctx);
-    const q = await queryVector(query, key!, signal, ctx?.providerBase);
+    const q = await queryVector(query, key!, signal, ctx?.providerBase, state.userId);
     neural = entries.map(e => e.vector ? cosine(q, e.vector) : 0);
   } catch (err) {
     signal?.throwIfAborted();

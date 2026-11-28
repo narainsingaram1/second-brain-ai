@@ -222,7 +222,9 @@ export function useSmoothText(id: string, text: string, streaming: boolean): str
           next = Math.min(goal, next);
           budget = Math.max(0, budget - (next - shown));
           shown = next;
+          revealed.delete(id);
           revealed.set(id, shown);
+          while (revealed.size > 64) revealed.delete(revealed.keys().next().value!);
         }
         // Repaint at most ~30 times a second: each paint re-renders the markdown.
         if (shown !== paintedLength && (now - paintedAt > 32 || shown === goal)) { paintedAt = now; paintedLength = shown; setLength(shown); }
@@ -232,7 +234,7 @@ export function useSmoothText(id: string, text: string, streaming: boolean): str
       else revealed.delete(id);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelAnimationFrame(frame); if (!streaming && shown >= target.current.length) revealed.delete(id); };
   }, [id, streaming, animating]);
   if (!animating || reducedMotion()) return text;
   return streaming || length < text.length ? closeMarkdown(text.slice(0, length)) : text;

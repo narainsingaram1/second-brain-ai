@@ -112,6 +112,20 @@ export async function runServerAgent(store: ServerStore, key: string, input: Age
     temporary: input.temporary,
     currentMessage: input.message,
     images: input.images,
+    persistImage: store.putNoteImage && input.images?.length ? async (attachmentNumber: number) => {
+      const img = input.images?.[attachmentNumber - 1];
+      const match = img?.dataUrl.match(/^data:(image\/(?:png|jpeg|webp|gif));base64,([a-z0-9+/=]+)$/i);
+      if (!match) throw new Error(`Attached image #${attachmentNumber} is not available.`);
+      const mime = match[1].toLowerCase();
+      const ext = mime === "image/webp" ? "webp" : mime === "image/png" ? "png" : mime === "image/gif" ? "gif" : "jpg";
+      const binary = atob(match[2]);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+      const keyName = `${Array.from(digest.subarray(0, 16), b => b.toString(16).padStart(2, "0")).join("")}.${ext}`;
+      await store.putNoteImage!(keyName, bytes, mime);
+      return `synapse-img:${keyName}`;
+    } : undefined,
     visionModel: input.visionModel,
     timeZone: input.timeZone,
     channelNote: input.channelNote,

@@ -825,3 +825,60 @@ test("background learning saves only gated facts from the current message and sk
   const off = { ...s, agentMemory: { ...memory.emptyMemory(), automaticLearning: false } };
   assert.deepEqual(await learnFromTurn(off, msg, "…"), [], "Disabled automatic learning never calls the provider");
 });
+
+test("multi-tenant semantic memory search isolates concurrent accounts and reuses embeddingCache", async () => {
+  const a = state();
+  a.userId = "tenant-a";
+  a.agentMemory.entries = [{ ...entry("ma", "Tenant A prefers Rust examples."), topic: "language" }];
+  const b = state();
+  b.userId = "tenant-b";
+  b.agentMemory.entries = [{ ...entry("mb", "Tenant B prefers Python notebooks."), topic: "notebooks" }];
+  let embedCalls = 0;
+  let releaseFirst;
+  const firstPending = new Promise((resolve) => { releaseFirst = resolve; });
+  globalThis.fetch = async (_url, options) => {
+    embedCalls++;
+    const body = JSON.parse(options.body);
+    if (body.input.some((t) => t.includes("Tenant A"))) await firstPending;
+    return Response.json({ data: body.input.map((_, index) => ({ index, embedding: [1, 0] })) });
+  };
+  const sharedVectors = new Map();
+  let batchGets = 0;
+  let batchPuts = 0;
+  const sharedCache = {
+    async get(k) { return sharedVectors.get(k); },
+    async put(k, v) { sharedVectors.set(k, v); },
+    async getMany(keys) {
+      batchGets++;
+      const found = new Map();
+      for (const k of keys) if (sharedVectors.has(k)) found.set(k, sharedVectors.get(k));
+      return found;
+    },
+    async putMany(entries) {
+      batchPuts++;
+      for (const [k, v] of entries) sharedVectors.set(k, v);
+    },
+  };
+  const runA = semanticMemorySearch(a, "language", 0, "k", undefined, { embeddingCache: sharedCache });
+  await new Promise((r) => setTimeout(r, 5));
+  const resB = await semanticMemorySearch(b, "notebooks", 0, "k", undefined, { embeddingCache: sharedCache });
+  assert.equal(resB.mode, "hybrid");
+  assert.equal(resB.results[0].id, "mb");
+  releaseFirst();
+  const resA = await runA;
+  assert.equal(resA.mode, "hybrid");
+  assert.equal(resA.results[0].id, "ma");
+  assert.ok(batchGets >= 2 && batchPuts >= 2);
+  const callsAfterCold = embedCalls;
+  await invalidateMemoryEmbedding("tenant-a", "ma");
+  // Repeat query reuses sharedCache vectors without calling embed for entry ma again.
+  const resA2 = await semanticMemorySearch(a, "language", 0, "k", undefined, { embeddingCache: sharedCache });
+  assert.equal(resA2.results[0].id, "ma");
+  assert.equal(embedCalls, callsAfterCold, "Repeated search reuses entry vectors from shared embeddingCache");
+
+  // Keyword and conversation archive caches stay isolated per account too.
+  assert.equal(memory.searchMemories(a, "Rust").results[0].id, "ma");
+  assert.equal(memory.searchMemories(b, "Python").results[0].id, "mb");
+  assert.equal(memory.searchMemories(a, "Python").total, 0);
+});
+

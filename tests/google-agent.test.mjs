@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { turnContext } from './helpers/promptLayout.mjs';
 import { createServer } from 'vite';
 import { owner } from './helpers/supabaseDb.mjs';
-import { CALENDAR_SCOPE, connectedSetup, secretsKey } from './helpers/googleMock.mjs';
+import { CALENDAR_SCOPE, SEND_SCOPE, connectedSetup, secretsKey } from './helpers/googleMock.mjs';
 
 const server = await createServer({ cacheDir: '/tmp/synapse-google-agent-test-cache', configFile: false, server: { middlewareMode: true, hmr: false, ws: false }, appType: 'custom' });
 after(() => server.close());
@@ -134,3 +134,54 @@ test('only granted Google tools are offered, and none without a connection', asy
     assert.ok(!JSON.stringify(none.requests[0].messages[0]).includes('## Google'));
   } finally { await calendarOnly.db.close(); }
 });
+
+test('browser-hosted Google proxy exposes tools, refuses direct send_email, and routes send approvals through /api/actions', async () => {
+  const { googleHandlers } = await load('/server/routes/google.ts');
+  const { deps, db, mock } = await setup(SEND_SCOPE);
+  try {
+    const { store } = await deps.caller(new Request('https://synapse.test/api/google'));
+    const startSend = await google.startGoogleConnection(deps, new Request('https://synapse.test/api/google'), owner, 'send');
+    await google.completeGoogleConnection(deps, new Request('https://synapse.test/api/google'), store, { code: 'c2', state: new URL(startSend.url).searchParams.get('state'), verifier: startSend.verifier });
+
+    const gRoutes = googleHandlers(deps);
+    const meta = await (await gRoutes.GET(new Request('https://synapse.test/api/google?action=tools&timeZone=America/New_York'))).json();
+    assert.equal(meta.connected, true);
+    assert.ok(meta.definitions.some(t => t.function.name === 'send_email'));
+    assert.match(meta.instructions, /## Google/);
+
+    const listed = await gRoutes.POST(new Request('https://synapse.test/api/google?action=tool', {
+      method: 'POST',
+      body: JSON.stringify({ tool: 'list_calendar_events', args: { from: '2026-11-10', to: '2026-11-11' }, timeZone: 'America/New_York' }),
+    }));
+    assert.equal(listed.status, 200);
+
+    const directSend = await gRoutes.POST(new Request('https://synapse.test/api/google?action=tool', {
+      method: 'POST',
+      body: JSON.stringify({ tool: 'send_email', args: { to: ['prof@gatech.edu'], subject: 'Hi', body: 'Hello' }, timeZone: 'America/New_York' }),
+    }));
+    assert.equal(directSend.status, 403);
+
+    const proposed = await (await gRoutes.POST(new Request('https://synapse.test/api/google?action=propose', {
+      method: 'POST',
+      body: JSON.stringify({ tool: 'send_email', args: { to: ['smith@gatech.edu'], subject: 'Question', body: 'Quick question.' }, timeZone: 'America/New_York', reason: 'Sending email always needs your approval.' }),
+    }))).json();
+    assert.equal(proposed.remote, true);
+    assert.equal(proposed.status, 'pending');
+    assert.ok(proposed.payloadHash);
+
+    const approved = await (await actionsHandlers(deps).POST(new Request('https://synapse.test/api/actions', {
+      method: 'POST',
+      body: JSON.stringify({ id: proposed.id, decision: 'approve', payloadHash: proposed.payloadHash }),
+    }))).json();
+    assert.equal(approved.status, 'executed');
+    assert.ok(mock.calls.some(c => /\/messages\/send/.test(c.url)));
+
+    // File-attachment validation on /api/agent accepts valid files and rejects invalid shapes.
+    const badFiles = await agentHandlers(deps).POST(new Request('https://synapse.test/api/agent', {
+      method: 'POST',
+      body: JSON.stringify({ message: { id: 'm-file', role: 'user', content: '', files: [{ name: 123 }] }, chatHistory: [] }),
+    }));
+    assert.equal(badFiles.status, 400);
+  } finally { await db.close(); }
+});
+

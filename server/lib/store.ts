@@ -64,6 +64,8 @@ export interface ServerStore {
   listRoutineRuns(limit: number): Promise<RoutineRunRow[]>;
   /** Runs that used the assistant (not skipped) since the given time, for the daily limit. */
   countRoutineRuns(sinceIso: string): Promise<number>;
+  /** Stores an image into the private note-images bucket (optional in test stores). */
+  putNoteImage?(key: string, bytes: Uint8Array, contentType: string): Promise<void>;
 }
 
 const EMBEDDING_KEYS_PER_QUERY = 150;
@@ -249,6 +251,10 @@ export function supabaseStore(userId: string, client: SupabaseClient): ServerSto
         for (const row of data || []) texts.set(row.id, row.content);
       });
       return texts;
+    },
+    async putNoteImage(key, bytes, contentType) {
+      const { error } = await client.storage.from("note-images").upload(`${userId}/${key}`, bytes, { contentType, upsert: false });
+      if (error && !/exists|duplicate/i.test(error.message)) rpcError(error, "Could not store the uploaded image.");
     },
   };
 }

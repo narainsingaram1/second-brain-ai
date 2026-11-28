@@ -1,4 +1,4 @@
-import type { AIMessage } from "../types";
+import type { AIMessage, FileAttachment } from "../types";
 import type { OpenRouterTool } from "./openrouter";
 
 /**
@@ -13,8 +13,9 @@ export const TOOL_AREAS = {
   career: ["create_tracker_item", "update_tracker_item", "delete_tracker_item", "log_practice", "list_resume_versions"],
   study: ["create_course", "update_course", "delete_course", "set_course_grading", "record_grade", "create_flashcard_deck",
     "update_flashcard_deck", "delete_flashcard_deck", "create_quiz", "update_quiz", "delete_quiz"],
-  health: ["health_summary", "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "training_summary", "search_exercises",
-    "log_workout", "update_workout", "delete_workout", "create_workout_plan", "update_workout_plan", "delete_workout_plan"],
+  health: ["health_summary", "body_summary", "log_health_day", "update_health_day", "delete_health_day", "update_health_profile", "training_summary", "search_exercises",
+    "log_workout", "update_workout", "delete_workout", "create_workout_plan", "update_workout_plan", "delete_workout_plan",
+    "log_progress_photo", "update_progress_photo", "delete_progress_photo"],
   organize: ["create_workspace", "update_workspace", "delete_workspace", "create_section", "rename_section", "delete_section",
     "rename_subsection", "delete_subsection", "create_note_folder", "update_note_folder", "delete_note_folder"],
   routines: ["create_routine", "update_routine", "delete_routine"],
@@ -29,20 +30,22 @@ export const toolArea = (name: string): ToolArea | undefined => AREA_OF.get(name
 const AREA_WORDS: Record<ToolArea, RegExp> = {
   career: /\b(appl(y|ied|ying|ication|ications)|jobs?|intern(s|ship|ships)?|recruit\w*|interview\w*|offers?|r[eé]sum[eé]s?|cv|cover letter|leetcode|neetcode|hackerrank|practice problems?|coding problems?|solved|career|tracker|onsite|online assessment|oa|referral|rejected|rejection|hiring|company|companies)\b/i,
   study: /\b(courses?|class(es)?|lectures?|syllabus|exams?|midterms?|finals?|quiz(zes)?|flash ?cards?|decks?|study|studying|grades?|grading|gpa|homework|hw|professor|prof|semester|scored?|got \d+)\b/i,
-  health: /\b(sleep|slept|asleep|naps?|steps|workouts?|exercis\w*|running|ran|gym|lift\w*|heart rate|hrv|bench\w*|squat\w*|deadlift\w*|\d+ ?reps|\d+ ?x ?\d+|sets? of \d+|(push|pull|leg|arm|chest|back) day|ppl|(training|workout) (split|plan|log)|cardio|muscles?|bulk\w*|plateau\w*|personal records?|1rm|one rep max|dumbbells?|barbells?|pull-?ups?|push-?ups?|resting hr|recovery|recovered|weigh\w*|health|tired|exhausted|vo2|calories|apple (watch|health)|training|strain)\b/i,
+  health: /\b(sleep|slept|asleep|naps?|steps|workouts?|exercis\w*|running|ran|gym|lift\w*|heart rate|hrv|bench\w*|squat\w*|deadlift\w*|\d+ ?reps|\d+ ?x ?\d+|sets? of \d+|(push|pull|leg|arm|chest|back) day|ppl|(training|workout) (split|plan|log)|cardio|muscles?|bulk\w*|cut(ting)?|recomp\w*|plateau\w*|personal records?|1rm|one rep max|dumbbells?|barbells?|pull-?ups?|push-?ups?|resting hr|recovery|recovered|weigh\w*|health|tired|exhausted|vo2|calories|apple (watch|health)|training|strain|progress photos?|physique|body ?fat|measurements?|waist|chest|bicep|thigh|hip|lean mass|scale|weigh-?ins?|before and after)\b/i,
   organize: /\b(workspaces?|sections?|subsections?|folders?|rename|reorgani[sz]e|organi[sz]e|categor(y|ies))\b/i,
   routines: /\b(routines?|automat\w*|recurring|daily|weekly|monthly|every (day|morning|evening|night|week|month|weekday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)|each (day|morning|week)|on a schedule|schedule[ds]? (it|this)|remind me every)\b/i,
 };
 /** A course code such as "CS 2110" or "MATH1552". Case matters, so "in 2026" is not one. */
 const COURSE_CODE = /\b[A-Z]{2,4} ?\d{3,4}\b/;
 /** Record types whose earlier mention in the conversation means its area is in play ("mark it rejected"). */
-const AREA_OF_RECORD: Record<string, ToolArea> = { tracker: "career", course: "study", document: "study", deck: "study", quiz: "study", health: "health", workout: "health", workout_plan: "health", workspace: "organize", folder: "organize", section: "organize", routine: "routines" };
+const AREA_OF_RECORD: Record<string, ToolArea> = { tracker: "career", course: "study", document: "study", deck: "study", quiz: "study", health: "health", workout: "health", workout_plan: "health", progress_photo: "health", workspace: "organize", folder: "organize", section: "organize", routine: "routines" };
 
-/** Areas the conversation so far, plus the newest message, is about. Images may hold anything, so they open every area. */
-export function conversationAreas(prompt: string, history: AIMessage[], hasImages = false): Set<ToolArea> {
+/** Areas the conversation so far, plus the newest message and any attached files, is about. Images may hold anything, so they open every area. */
+export function conversationAreas(prompt: string, history: AIMessage[], hasImages = false, files: FileAttachment[] = []): Set<ToolArea> {
   if (hasImages || history.some(m => m.role === "user" && m.attachments?.length)) return new Set(AREA_NAMES);
   const areas = new Set<ToolArea>();
-  const texts = [prompt, ...history.filter(m => m.role === "user").map(m => m.content)];
+  const fileTexts = (files || []).concat(history.flatMap(m => m.role === "user" && m.files?.length ? m.files : []))
+    .map(f => `${f.name} ${f.text.slice(0, 4000)}`);
+  const texts = [prompt, ...history.filter(m => m.role === "user").map(m => m.content), ...fileTexts];
   for (const area of AREA_NAMES) if (texts.some(text => AREA_WORDS[area].test(text))) areas.add(area);
   if (texts.some(text => COURSE_CODE.test(text))) areas.add("study");
   for (const message of history) for (const source of message.sources || []) {
@@ -60,7 +63,7 @@ export function routeTools(catalog: OpenRouterTool[], areas: Set<ToolArea>): Ope
 const AREA_LABELS: Record<ToolArea, string> = {
   career: "career: job applications and coding practice in Career trackers, résumé versions",
   study: "study: courses, grading and grades, flashcard decks, quizzes",
-  health: "health: the health summary, logging and correcting health days, health targets, workouts and training plans, the exercise library",
+  health: "health: the health summary, body weight and progress photos, logging and correcting health days, health targets, workouts and training plans, the exercise library",
   organize: "organize: workspaces, task sections and subsections, note folders",
   routines: "routines: work you do on your own on a schedule (create, change, pause, delete)",
 };

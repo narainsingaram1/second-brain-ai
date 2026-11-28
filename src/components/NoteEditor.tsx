@@ -1,6 +1,6 @@
 import { queryOpenRouter } from "../services/openrouter";
 import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback, useMemo, startTransition } from "react";
-import { KnowledgeItem, NoteFolder } from "../types";
+import { BrainState, KnowledgeItem, NoteFolder } from "../types";
 import { folderPath } from "../utils/noteFolders";
 import { createPortal, flushSync } from "react-dom";
 import type { NoteRichTextHandle } from "./NoteRichText";
@@ -10,6 +10,16 @@ import { lectureRecorder } from "../services/lectureRecorder";
 import { useLectureRecorder } from "../hooks/useLectureRecorder";
 import { RecorderPanel } from "./notes/RecorderPanel";
 import { TranscriptView } from "./notes/TranscriptView";
+import { NoteConnectionsFooter, RelatedContextPanel } from "./NoteContextPanel";
+import {
+  findBacklinksAndMentions,
+  formatLinkMarkdown,
+  resolveWikiTarget,
+  type LinkCandidate,
+  type LinkTargetType,
+  type UnlinkedMentionHit,
+} from "../utils/noteLinks";
+import { navigateToRecord } from "../utils/recordNavigation";
 const NoteRichText = lazy(() => import("./NoteRichText").then(module => ({ default: module.NoteRichText })));
 import {
   ArrowLeft,
@@ -31,14 +41,20 @@ import {
   Edit3,
   Loader2,
   Mic,
+  Network,
 } from "lucide-react";
 
 interface NoteEditorProps {
   note: KnowledgeItem;
   folders: NoteFolder[];
+  brainState?: BrainState | null;
   onSave: (note: KnowledgeItem) => void;
   onDelete: (id: string) => void;
   onBack: () => void;
+  onOpenNoteById?: (id: string) => void;
+  onCreateLinkedNote?: (title: string) => void;
+  onOpenFullGraph?: (nodeId?: string) => void;
+  onLinkUnlinkedMention?: (hit: UnlinkedMentionHit, target: { id: string; title: string }) => void;
   openRouterKey?: string;
   selectedModel?: string;
   onGenerateTasks?: (tasks: { title: string; priority?: string }[]) => void;
@@ -51,9 +67,14 @@ type EditorMode = "write" | "source" | "preview";
 export const NoteEditor: React.FC<NoteEditorProps> = ({
   note,
   folders,
+  brainState,
   onSave,
   onDelete,
   onBack,
+  onOpenNoteById,
+  onCreateLinkedNote,
+  onOpenFullGraph,
+  onLinkUnlinkedMention,
   openRouterKey,
   selectedModel,
   onGenerateTasks,
@@ -78,6 +99,16 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [isAILoading, setIsAILoading] = useState(false);
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [aiNotice, setAiNotice] = useState<string | null>(null);
+  const [contextOpen, setContextOpen] = useState(() => {
+    try { const saved = localStorage.getItem("synapse.noteContextOpen"); return saved ? saved === "1" : typeof window !== "undefined" ? window.innerWidth >= 1180 : false; } catch { return false; }
+  });
+  const toggleContextRail = () => {
+    setContextOpen(prev => {
+      const next = !prev;
+      try { localStorage.setItem("synapse.noteContextOpen", next ? "1" : "0"); } catch { /* ignore */ }
+      return next;
+    });
+  };
 
   const [textSize, setTextSize] = useState(18);
   const editorRootRef = useRef<HTMLDivElement>(null);
@@ -392,6 +423,49 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const words = prose.trim().split(/\s+/).filter(Boolean).length;
   const readTime = Math.ceil(words / 200);
 
+  const connectionCount = useMemo(() => {
+    if (!brainState) return 0;
+    const { backlinks, unlinkedMentions } = findBacklinksAndMentions({ type: "knowledge", id: note.id, title }, brainState);
+    return backlinks.length + unlinkedMentions.length;
+  }, [brainState, note.id, title]);
+
+  const handleOpenRecordLink = useCallback(
+    (link: { type: LinkTargetType; id: string | null; label: string; syntax: "wiki" | "mention" }) => {
+      flushSave();
+      if (link.id) {
+        if (link.type === "knowledge" && onOpenNoteById) {
+          onOpenNoteById(link.id);
+        } else {
+          navigateToRecord(link.type, link.id, link.label, brainState);
+        }
+        return;
+      }
+      const resolved = resolveWikiTarget(link.label, brainState);
+      if (resolved.id) {
+        if (resolved.type === "knowledge" && onOpenNoteById) onOpenNoteById(resolved.id);
+        else navigateToRecord(resolved.type, resolved.id, resolved.label, brainState);
+      } else if (resolved.type === "knowledge" && onCreateLinkedNote) {
+        onCreateLinkedNote(resolved.label);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [brainState, onOpenNoteById, onCreateLinkedNote],
+  );
+
+  const handleInsertLinkFromSidebar = useCallback(
+    (candidate: Pick<LinkCandidate, "type" | "id" | "label" | "syntax">) => {
+      if (mode === "write" && richEditorRef.current) {
+        richEditorRef.current.insertRecordLink(candidate);
+        return;
+      }
+      const formatted = formatLinkMarkdown(candidate);
+      const current = currentContent();
+      const next = current ? `${current.trimEnd()} ${formatted} ` : `${formatted} `;
+      handleContentChange(next);
+    },
+    [mode, handleContentChange],
+  );
+
   const editorView = (
     <div
       ref={editorRootRef}
@@ -507,6 +581,18 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
               <span className="hidden md:inline">Preview</span>
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={toggleContextRail}
+            aria-pressed={contextOpen}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${contextOpen ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900" : "bg-raised text-muted hover:bg-slate-100 dark:hover:bg-slate-800"}`}
+            title="Show connected graph, backlinks, and related context"
+          >
+            <Network className="w-3.5 h-3.5" />
+            <span>Context</span>
+            {connectionCount > 0 && <span className="text-[10px] font-mono opacity-80">({connectionCount})</span>}
+          </button>
 
           <button
             type="button"
@@ -645,85 +731,124 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         />
       )}
 
-      <div className="note-document-header">
-      <div className="note-document-eyebrow">Note</div>
-      {/* Note Title Input */}
-      <div className="pt-4 pb-2">
-        <input
-          type="text"
-          aria-label="Note title"
-          placeholder="Untitled Note..."
-          value={title}
-          onChange={(e) => handleTitleChange(e.target.value)}
-          className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-ink bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
-        />
-      </div>
+      <div className={`note-workspace-layout ${contextOpen && brainState ? "has-context-rail" : ""}`}>
+        <div className="note-workspace-primary">
+          <div className="note-document-header">
+            <div className="note-document-eyebrow">Note</div>
+            {/* Note Title Input */}
+            <div className="pt-4 pb-2">
+              <input
+                type="text"
+                aria-label="Note title"
+                placeholder="Untitled Note..."
+                value={title}
+                onChange={(e) => handleTitleChange(e.target.value)}
+                className="w-full text-3xl sm:text-4xl font-bold tracking-tight text-ink bg-transparent focus:outline-none placeholder:text-slate-300 dark:placeholder:text-slate-600"
+              />
+            </div>
 
-      {/* Tags Chips & Add Tag */}
-      <div className="flex items-center gap-1.5 flex-wrap py-2 border-b border-slate-100 dark:border-slate-800/80 mb-3">
-        <Tag className="w-3 h-3 text-slate-400 mr-1" />
-        {tags.map((t) => (
-          <span
-            key={t}
-            className="group flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-raised text-[11px] font-semibold text-slate-600 dark:text-slate-300"
-          >
-            <span>#{t}</span>
-            <button
-              aria-label={`Remove tag ${t}`}
-              onClick={() => handleRemoveTag(t)}
-              className="opacity-50 hover:opacity-100 text-slate-400 hover:text-rose-500 ml-0.5"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-        <div className="flex items-center">
-          <input
-            type="text"
-            placeholder="+ Add tag..."
-            value={newTagInput}
-            onChange={(e) => setNewTagInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAddTag();
-              }
-            }}
-            className="text-[11px] font-medium bg-transparent text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none w-20 px-1"
+            {/* Tags Chips & Add Tag */}
+            <div className="flex items-center gap-1.5 flex-wrap py-2 border-b border-slate-100 dark:border-slate-800/80 mb-3">
+              <Tag className="w-3 h-3 text-slate-400 mr-1" />
+              {tags.map((t) => (
+                <span
+                  key={t}
+                  className="group flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-raised text-[11px] font-semibold text-slate-600 dark:text-slate-300"
+                >
+                  <span>#{t}</span>
+                  <button
+                    aria-label={`Remove tag ${t}`}
+                    onClick={() => handleRemoveTag(t)}
+                    className="opacity-50 hover:opacity-100 text-slate-400 hover:text-rose-500 ml-0.5"
+                  >
+                    ×
+                  </button>
+                </span>
+              ))}
+              <div className="flex items-center">
+                <input
+                  type="text"
+                  placeholder="+ Add tag..."
+                  value={newTagInput}
+                  onChange={(e) => setNewTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleAddTag();
+                    }
+                  }}
+                  className="text-[11px] font-medium bg-transparent text-slate-700 dark:text-slate-300 placeholder:text-slate-400 focus:outline-none w-20 px-1"
+                />
+              </div>
+            </div>
+          </div>
+
+          {hasTranscript && (
+            <div className="rec-tabs" role="tablist" aria-label="Note or transcript">
+              <button type="button" role="tab" aria-selected={pane === "notes"} onClick={() => setPane("notes")}>Notes</button>
+              <button type="button" role="tab" aria-selected={pane === "transcript"} onClick={() => { currentContent(); setPane("transcript"); }}>Transcript</button>
+            </div>
+          )}
+          {pane === "transcript" && hasTranscript ? (
+            <TranscriptView transcript={note.transcript!} durationSec={note.recording?.durationSec} generating={generating} onRegenerate={regenerate} onDelete={deleteTranscript} />
+          ) : <>
+          <div className="note-reading-controls">
+            <span>{mode === "write" ? "Live editing" : mode === "source" ? "Markdown source" : "Reading view"}</span>
+            <label>Text size
+              <select aria-label="Note text size" value={textSize} onChange={e => setTextSize(Number(e.target.value))}>
+                <option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="22">22</option>
+              </select>
+            </label>
+          </div>
+          <div className={`note-content-workspace flex-1 min-h-[450px] ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
+            {mode === "source" ? <textarea
+              aria-label="Markdown source"
+              value={hideNoteImages(content)}
+              onChange={e => handleContentChange(restoreNoteImages(e.target.value, content))}
+              placeholder="Write Markdown here…"
+              readOnly={generating}
+              className="note-source"
+            /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}>
+              <NoteRichText
+                ref={richEditorRef}
+                key={`${note.id}:${editorRevision}`}
+                content={content}
+                onChange={handleRichChange}
+                readOnly={mode === "preview" || generating}
+                brainState={brainState}
+                noteId={note.id}
+                onOpenRecordLink={handleOpenRecordLink}
+              />
+            </Suspense>}
+          </div>
+          </>}
+
+          {brainState && (
+            <NoteConnectionsFooter
+              noteId={note.id}
+              noteTitle={title}
+              content={content}
+              state={brainState}
+              onOpenNoteById={id => { flushSave(); onOpenNoteById?.(id); }}
+              onCreateLinkedNote={newTitle => { flushSave(); onCreateLinkedNote?.(newTitle); }}
+              onLinkUnlinkedMention={onLinkUnlinkedMention ? hit => onLinkUnlinkedMention(hit, { id: note.id, title }) : undefined}
+            />
+          )}
+
+          <div className="note-editor-footer"><span>{words} words · {prose.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
+        </div>
+
+        {contextOpen && brainState && (
+          <RelatedContextPanel
+            state={brainState}
+            current={{ type: "knowledge", id: note.id, title, content, tags }}
+            showMiniGraph={!isFullscreen}
+            onOpenNoteById={id => { flushSave(); onOpenNoteById?.(id); }}
+            onOpenFullGraph={nodeId => { flushSave(); onOpenFullGraph?.(nodeId); }}
+            onInsertLink={handleInsertLinkFromSidebar}
           />
-        </div>
+        )}
       </div>
-
-      </div>
-      {hasTranscript && (
-        <div className="rec-tabs" role="tablist" aria-label="Note or transcript">
-          <button type="button" role="tab" aria-selected={pane === "notes"} onClick={() => setPane("notes")}>Notes</button>
-          <button type="button" role="tab" aria-selected={pane === "transcript"} onClick={() => { currentContent(); setPane("transcript"); }}>Transcript</button>
-        </div>
-      )}
-      {pane === "transcript" && hasTranscript ? (
-        <TranscriptView transcript={note.transcript!} durationSec={note.recording?.durationSec} generating={generating} onRegenerate={regenerate} onDelete={deleteTranscript} />
-      ) : <>
-      <div className="note-reading-controls">
-        <span>{mode === "write" ? "Live editing" : mode === "source" ? "Markdown source" : "Reading view"}</span>
-        <label>Text size
-          <select aria-label="Note text size" value={textSize} onChange={e => setTextSize(Number(e.target.value))}>
-            <option value="16">16</option><option value="18">18</option><option value="20">20</option><option value="22">22</option>
-          </select>
-        </label>
-      </div>
-      <div className={`note-content-workspace flex-1 min-h-[450px] ${generating ? "note-generating" : ""}`} aria-busy={generating || undefined}>
-        {mode === "source" ? <textarea
-          aria-label="Markdown source"
-          value={hideNoteImages(content)}
-          onChange={e => handleContentChange(restoreNoteImages(e.target.value, content))}
-          placeholder="Write Markdown here…"
-          readOnly={generating}
-          className="note-source"
-        /> : <Suspense fallback={<div className="min-h-[420px] text-slate-400">Loading editor…</div>}><NoteRichText ref={richEditorRef} key={`${note.id}:${editorRevision}`} content={content} onChange={handleRichChange} readOnly={mode === "preview" || generating} /></Suspense>}
-      </div>
-      </>}
-      <div className="note-editor-footer"><span>{words} words · {prose.length.toLocaleString()} characters · {readTime || 1} min read</span><span>{isFullscreen ? "Esc to exit full screen" : "Autosave on"}</span></div>
     </div>
   );
   return <><div ref={inlineHostRef} />{portalHost ? createPortal(editorView, portalHost) : editorView}</>;

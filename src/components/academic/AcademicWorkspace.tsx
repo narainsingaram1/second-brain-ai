@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ArrowRight, BookOpen, Check, FileText, GraduationCap, Layers, ListChecks, Plus, X } from "lucide-react";
 import type { BrainState, Course, Workspace } from "../../types";
 import { getLocalDateString } from "../../utils/habitStreaks";
@@ -26,6 +26,32 @@ export function AcademicWorkspace({ state, workspace, onChange, onAsk, taskActio
   const [editor, setEditor] = useState<Course | "new" | null>(null);
   const [openItem, setOpenItem] = useState<{ kind: "deck" | "quiz"; id?: string } | null>(null);
   const clearOpenItem = useCallback(() => setOpenItem(null), []);
+
+  useEffect(() => {
+    const handleNav = (detail?: { type: string; id: string }) => {
+      if (!detail) return;
+      if (detail.type === "course" && courses.some(c => c.id === detail.id)) {
+        setCourseId(detail.id);
+      } else if (detail.type === "deck") {
+        const deck = study.decks.find(d => d.id === detail.id);
+        if (deck && courses.some(c => c.id === deck.courseId)) {
+          setCourseId(deck.courseId);
+          setOpenItem({ kind: "deck", id: deck.id });
+        }
+      } else if (detail.type === "quiz") {
+        const quiz = study.quizzes.find(q => q.id === detail.id);
+        if (quiz && courses.some(c => c.id === quiz.courseId)) {
+          setCourseId(quiz.courseId);
+          setOpenItem({ kind: "quiz", id: quiz.id });
+        }
+      }
+    };
+    const lastNav = (window as any).__synapse_last_record_navigation;
+    if (lastNav && Date.now() - lastNav.time < 3000) handleNav(lastNav);
+    const listener = (event: Event) => handleNav((event as CustomEvent<{ type: string; id: string }>).detail);
+    window.addEventListener("synapse-navigate-to-record", listener);
+    return () => window.removeEventListener("synapse-navigate-to-record", listener);
+  }, [courses, study.decks, study.quizzes]);
   const jobs = useStudyJobs(state.userId || "guest").filter((j) => study.courses.some((c) => c.id === j.courseId && c.workspaceId === workspace.id));
   const toasts = <StudyJobToasts jobs={jobs} courseName={(id) => courseLabel(study.courses.find((c) => c.id === id) ?? { name: "this course" } as Course)}
     onOpen={(job) => {

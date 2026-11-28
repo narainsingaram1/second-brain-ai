@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Activity, AlertTriangle, BedDouble, Calendar, Check, ChevronLeft, ChevronRight, Copy, Dumbbell, Footprints, HeartPulse, RefreshCw, Settings2, Sparkles, Tag, Upload, X, Zap,
+  Activity, AlertTriangle, BedDouble, Calendar, Camera, Check, ChevronLeft, ChevronRight, Copy, Dumbbell, Footprints, HeartPulse, RefreshCw, Scale, Settings2, Sparkles, Tag, Upload, X, Zap,
 } from "lucide-react";
-import type { BrainState, HealthDay, HealthProfile, WorkoutPlan, WorkoutSession, Workspace } from "../../types";
+import type { BodyMeasurements, BrainState, HealthDay, HealthProfile, ProgressPhoto, WorkoutPlan, WorkoutSession, Workspace } from "../../types";
 import { applyHealthPatches, cleanMetric, cleanTags, HEALTH_METRICS, healthDayId, normalizeHealthDays, normalizeHealthProfile, parseHealthPayload, type HealthDayPatch } from "../../utils/health";
 import { importAppleHealthExport } from "../../utils/healthExport";
 import { computeHealth, hm, localToday, type HealthInsights } from "../../utils/healthMetrics";
@@ -11,16 +11,20 @@ import { computeDeepHealth, type DeepHealth } from "../../utils/healthInsights";
 import { InsightList, InsightsView, SleepScoreCard, SleepView } from "./HealthInsightViews";
 import { createHealthSyncToken, healthSyncStatus, revokeHealthSync, type HealthSyncStatus } from "../../services/serverApi";
 import { managedAuthEnabled } from "../../services/managedAuth";
+import { cachedImageUrl, resolveImageUrl } from "../../services/noteImageStore";
 import { DialogBackdrop } from "../workspace/DialogBackdrop";
 import { ScoreRing, TimeChart, type ChartPoint } from "./HealthCharts";
 import { TrainingView } from "./training/TrainingView";
 import type { TrainingApi } from "./training/shared";
-import type { WeightUnit } from "../../utils/training";
+import { fmtWeight, fromUnit, toUnit, type WeightUnit } from "../../utils/training";
+import { fromLengthUnit, normalizeProgressPhotos, poseLabel, toLengthUnit, type LengthUnit } from "../../utils/bodyProgress";
+import type { PreparedImage } from "../../utils/imageInput";
+import { BodyProgressView } from "./BodyProgressView";
 import "../../health.css";
 
 type Update = (update: (state: BrainState) => BrainState) => void;
-interface Props { state: BrainState; workspace: Workspace; onChange: Update; onAsk: (prompt: string) => void }
-type View = "today" | "training" | "sleep" | "insights" | "trends" | "days";
+interface Props { state: BrainState; workspace: Workspace; onChange: Update; onAsk: (prompt: string, images?: PreparedImage[]) => void }
+type View = "today" | "body" | "training" | "sleep" | "insights" | "trends" | "days";
 /** Pounds where they are the everyday unit, kilograms elsewhere. */
 const localUnit = (): WeightUnit => /^en-(US|LR|MM)$/i.test(typeof navigator === "undefined" ? "" : navigator.language) ? "lb" : "kg";
 
@@ -43,7 +47,9 @@ const shiftDate = (dateStr: string, delta: number): string => {
 
 export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   const stored = state.healthDays || [];
+  const photos = state.progressPhotos || [];
   const [view, setView] = useState<View>("today");
+  const [focusPhotoId, setFocusPhotoId] = useState<string | null>(null);
   const [range, setRange] = useState<30 | 90>(30);
   const [preview, setPreview] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -110,6 +116,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
   };
 
   const unit: WeightUnit = workspace.health?.weightUnit || localUnit();
+  const lengthUnit: LengthUnit = workspace.health?.lengthUnit || (unit === "lb" ? "in" : "cm");
   const patchProfile = (patch: Partial<HealthProfile>) => onChange(prev => ({
     ...prev, workspaces: (prev.workspaces || []).map(w => {
       if (w.id !== workspace.id) return w;
@@ -118,9 +125,109 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       return next ? { ...rest, health: next } : rest;
     }),
   }));
+
+  useEffect(() => {
+    const applyNav = (type: string, id: string) => {
+      if (type === "progress_photo") {
+        setView("body");
+        setFocusPhotoId(id);
+      } else if (type === "workout" || type === "workout_plan") {
+        setView("training");
+      } else if (type === "health" && id.startsWith("health-")) {
+        const d = id.slice(7);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(d)) setSelectedDate(d);
+        setView("today");
+      }
+    };
+    const lastNav = (window as unknown as { __synapse_last_record_navigation?: { type: string; id: string; time: number } }).__synapse_last_record_navigation;
+    if (lastNav && Date.now() - lastNav.time < 3000) applyNav(lastNav.type, lastNav.id);
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string; id?: string }>).detail;
+      if (detail?.type && detail?.id) applyNav(detail.type, detail.id);
+    };
+    window.addEventListener("synapse-navigate-to-record", listener);
+    return () => window.removeEventListener("synapse-navigate-to-record", listener);
+  }, []);
+
+  const logBodyDay = (
+    date: string,
+    patch: { weightKg?: number | null; bodyFatPct?: number | null; measurements?: Partial<Record<keyof BodyMeasurements, number | null>>; note?: string }
+  ) => onChange(prev => {
+    const list = prev.healthDays || [];
+    const existing = list.find(d => d.date === date) || { id: healthDayId(date), date, metrics: {}, source: "manual", updatedAt: "" };
+    const metrics = { ...existing.metrics };
+    if (patch.weightKg === null) delete metrics.weightKg;
+    else if (patch.weightKg !== undefined) {
+      const v = cleanMetric("weightKg", patch.weightKg);
+      if (v !== undefined) metrics.weightKg = v;
+    }
+    if (patch.bodyFatPct === null) delete metrics.bodyFatPct;
+    else if (patch.bodyFatPct !== undefined) {
+      const v = cleanMetric("bodyFatPct", patch.bodyFatPct);
+      if (v !== undefined) metrics.bodyFatPct = v;
+    }
+    if (patch.measurements) {
+      for (const [k, raw] of Object.entries(patch.measurements)) {
+        if (raw === null) delete metrics[k];
+        else if (raw !== undefined) {
+          const v = cleanMetric(k, raw);
+          if (v !== undefined) metrics[k] = v;
+        }
+      }
+    }
+    const nextDay: HealthDay = {
+      ...existing,
+      metrics,
+      ...(patch.note !== undefined ? { note: patch.note.trim() || undefined } : {}),
+      source: existing.source || "manual",
+      updatedAt: new Date().toISOString(),
+    };
+    if (!nextDay.note) delete nextDay.note;
+    return { ...prev, healthDays: normalizeHealthDays([...list.filter(d => d.date !== date), nextDay]) };
+  });
+
+  const saveProgressPhotos = (
+    newPhotos: ProgressPhoto[],
+    alsoDay?: { date: string; weightKg?: number; bodyFatPct?: number; measurements?: BodyMeasurements }
+  ) => onChange(prev => {
+    const nextPhotos = normalizeProgressPhotos([...(prev.progressPhotos || []), ...newPhotos]);
+    let nextDays = prev.healthDays || [];
+    if (alsoDay) {
+      const existing = nextDays.find(d => d.date === alsoDay.date) || { id: healthDayId(alsoDay.date), date: alsoDay.date, metrics: {}, source: "manual", updatedAt: "" };
+      const metrics = { ...existing.metrics };
+      if (alsoDay.weightKg !== undefined) {
+        const w = cleanMetric("weightKg", alsoDay.weightKg);
+        if (w !== undefined) metrics.weightKg = w;
+      }
+      if (alsoDay.bodyFatPct !== undefined) {
+        const bf = cleanMetric("bodyFatPct", alsoDay.bodyFatPct);
+        if (bf !== undefined) metrics.bodyFatPct = bf;
+      }
+      if (alsoDay.measurements) {
+        for (const [k, raw] of Object.entries(alsoDay.measurements)) {
+          const v = cleanMetric(k, raw);
+          if (v !== undefined) metrics[k] = v;
+        }
+      }
+      nextDays = normalizeHealthDays([...nextDays.filter(d => d.date !== alsoDay.date), { ...existing, metrics, source: existing.source || "manual", updatedAt: new Date().toISOString() }]);
+    }
+    return { ...prev, progressPhotos: nextPhotos, ...(alsoDay ? { healthDays: nextDays } : {}) };
+  });
+
+  const updateProgressPhoto = (updated: ProgressPhoto) => onChange(prev => ({
+    ...prev,
+    progressPhotos: normalizeProgressPhotos((prev.progressPhotos || []).map(p => p.id === updated.id ? updated : p)),
+  }));
+
+  const deleteProgressPhoto = (id: string) => onChange(prev => ({
+    ...prev,
+    progressPhotos: (prev.progressPhotos || []).filter(p => p.id !== id),
+  }));
+
   const upsert = <T extends { id: string }>(list: T[] | undefined, item: T) => (list || []).some(x => x.id === item.id) ? (list || []).map(x => x.id === item.id ? item : x) : [...(list || []), item];
   const training: TrainingApi = {
     unit, today, workouts: state.workouts || [], plans: state.workoutPlans || [], days: stored, goalWeightKg: workspace.health?.goalWeightKg, onAsk,
+    onOpenBody: () => setView("body"),
     setUnit: u => patchProfile({ weightUnit: u }),
     saveWorkout: (w: WorkoutSession) => {
       const clean: WorkoutSession = { ...w, name: w.name.trim() || "Workout" };
@@ -152,7 +259,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       <div className="hl-toolbar">
         <div className="hl-toolbar-left">
           <div className="hl-views" role="tablist" aria-label="Health views">
-            {(["today", "training", "sleep", "insights", "trends", "days"] as const).map(v => (
+            {(["today", "body", "training", "sleep", "insights", "trends", "days"] as const).map(v => (
               <button
                 key={v}
                 role="tab"
@@ -162,7 +269,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
                   if (v === "today" && view === "today" && !isToday) setSelectedDate(today);
                 }}
               >
-                {v === "today" ? (isToday ? "Today" : "Day") : v === "training" ? "Training" : v === "sleep" ? "Sleep" : v === "insights" ? "Insights" : v === "trends" ? "Trends" : "Days"}
+                {v === "today" ? (isToday ? "Today" : "Day") : v === "body" ? "Body & Photos" : v === "training" ? "Training" : v === "sleep" ? "Sleep" : v === "insights" ? "Insights" : v === "trends" ? "Trends" : "Days"}
               </button>
             ))}
           </div>
@@ -242,16 +349,39 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
 
       {view === "training" ? (
         <TrainingView api={training} />
+      ) : view === "body" ? (
+        <BodyProgressView
+          state={state}
+          workspace={workspace}
+          days={stored}
+          photos={photos}
+          unit={unit}
+          lengthUnit={lengthUnit}
+          today={today}
+          focusPhotoId={focusPhotoId}
+          onClearFocusPhoto={() => setFocusPhotoId(null)}
+          onSetUnits={patch => patchProfile(patch)}
+          onUpdateProfile={patchProfile}
+          onLogBodyDay={logBodyDay}
+          onSavePhotos={saveProgressPhotos}
+          onUpdatePhoto={updateProgressPhoto}
+          onDeletePhoto={deleteProgressPhoto}
+          onAsk={onAsk}
+        />
       ) : !days.length ? (
-        <EmptyState onImport={() => setImportOpen(true)} onPreview={() => setPreview(true)} onTraining={() => setView("training")} />
+        <EmptyState onImport={() => setImportOpen(true)} onPreview={() => setPreview(true)} onTraining={() => setView("training")} onBody={() => setView("body")} />
       ) : view === "today" ? (
         <DayView
           h={insights}
           deep={deep}
           onOpenSleep={() => setView("sleep")}
           onOpenInsights={() => setView("insights")}
+          onOpenBody={() => setView("body")}
+          onInspectPhoto={id => { setFocusPhotoId(id); setView("body"); }}
           date={selectedDate}
           day={currentDay}
+          photos={photos}
+          unit={unit}
           isToday={isToday}
           lastDate={lastDate}
           onAsk={onAsk}
@@ -263,10 +393,12 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       ) : view === "insights" ? (
         <InsightsView deep={deep} days={days} />
       ) : view === "trends" ? (
-        <TrendsView h={insights} deep={deep} days={days} range={range} setRange={setRange} />
+        <TrendsView h={insights} deep={deep} days={days} range={range} setRange={setRange} unit={unit} goalWeightKg={workspace.health?.goalWeightKg} />
       ) : (
         <DaysView
           days={days}
+          photos={photos}
+          unit={unit}
           selectedDate={selectedDate}
           onSelectDate={d => { setSelectedDate(d); setView("today"); }}
           onEdit={setEditing}
@@ -278,8 +410,8 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
       {importOpen && <ImportDialog lastDate={lastDate} onClose={() => setImportOpen(false)} onImport={applyImport}
         onDone={message => { setImportOpen(false); setNotice(message); }} onAutoSync={() => { setImportOpen(false); setSyncOpen(true); }} />}
       {syncOpen && <SyncDialog onClose={() => setSyncOpen(false)} onImport={() => { setSyncOpen(false); setImportOpen(true); }} />}
-      {profileOpen && <ProfileDialog profile={workspace.health} insights={insights} onClose={() => setProfileOpen(false)} onSave={p => { saveProfile(p); setProfileOpen(false); }} />}
-      {editingDay && !showingSample && <DayDialog day={editingDay} knownTags={[...new Set(stored.flatMap(d => d.tags || []))]} onClose={() => setEditing(null)}
+      {profileOpen && <ProfileDialog profile={workspace.health} insights={insights} unit={unit} lengthUnit={lengthUnit} onClose={() => setProfileOpen(false)} onSave={p => { saveProfile(p); setProfileOpen(false); }} />}
+      {editingDay && !showingSample && <DayDialog day={editingDay} unit={unit} knownTags={[...new Set(stored.flatMap(d => d.tags || []))]} onClose={() => setEditing(null)}
         onSave={d => { saveDay(d, editingDay.date); setEditing(null); }} />}
     </div>
   );
@@ -287,7 +419,7 @@ export function HealthWorkspace({ state, workspace, onChange, onAsk }: Props) {
 
 const shortDate = (date: string) => new Date(`${date}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
-function EmptyState({ onImport, onPreview, onTraining }: { onImport: () => void; onPreview: () => void; onTraining: () => void }) {
+function EmptyState({ onImport, onPreview, onTraining, onBody }: { onImport: () => void; onPreview: () => void; onTraining: () => void; onBody: () => void }) {
   return (
     <div className="hl-empty">
       <span className="ws-icon ws-color-rose"><HeartPulse size={22} /></span>
@@ -295,8 +427,9 @@ function EmptyState({ onImport, onPreview, onTraining }: { onImport: () => void;
       <p>Export everything from the Health app on your iPhone and drop it here. Every metric your Watch has ever recorded comes in, and recovery, sleep debt, training load and the rest are worked out against your own baselines.</p>
       <div className="hl-empty-actions">
         <button className="ws-button ws-primary" onClick={onImport}><Upload size={15} />Import Apple Health export</button>
-        <button className="ws-button ws-secondary" onClick={onPreview}><Sparkles size={15} />Preview with sample data</button>
+        <button className="ws-button ws-secondary" onClick={onBody}><Scale size={15} />Log weight &amp; progress photos</button>
         <button className="ws-button ws-secondary" onClick={onTraining}><Dumbbell size={15} />Log workouts instead</button>
+        <button className="ws-button ws-secondary" onClick={onPreview}><Sparkles size={15} />Preview with sample data</button>
       </div>
     </div>
   );
@@ -372,13 +505,35 @@ function ImportDialog({ lastDate, onClose, onImport, onDone, onAutoSync }: {
   );
 }
 
+function DayPhotoThumb({ photo, onOpen }: { photo: ProgressPhoto; onOpen: () => void }) {
+  const [url, setUrl] = useState<string | undefined>(() => cachedImageUrl(photo.imageRef));
+  useEffect(() => {
+    const hot = cachedImageUrl(photo.imageRef);
+    setUrl(hot);
+    if (hot) return;
+    let alive = true;
+    resolveImageUrl(photo.imageRef).then(u => { if (alive) setUrl(u); }).catch(() => {});
+    return () => { alive = false; };
+  }, [photo.imageRef]);
+  return (
+    <button type="button" className="hl-day-thumb" onClick={onOpen} title={`Inspect ${poseLabel(photo.pose)} photo`}>
+      {url ? <img src={url} alt={`${poseLabel(photo.pose)} progress`} /> : <Camera size={16} />}
+      <span>{poseLabel(photo.pose)}</span>
+    </button>
+  );
+}
+
 function DayView({
   h,
   deep,
   onOpenSleep,
   onOpenInsights,
+  onOpenBody,
+  onInspectPhoto,
   date,
   day,
+  photos,
+  unit,
   isToday,
   lastDate,
   onAsk,
@@ -389,8 +544,12 @@ function DayView({
   deep: DeepHealth;
   onOpenSleep: () => void;
   onOpenInsights: () => void;
+  onOpenBody: () => void;
+  onInspectPhoto: (id: string) => void;
   date: string;
   day?: HealthDay;
+  photos: ProgressPhoto[];
+  unit: WeightUnit;
   isToday: boolean;
   lastDate?: string;
   onAsk: (p: string) => void;
@@ -402,6 +561,8 @@ function DayView({
   const restingHrVal = day?.metrics.restingHr ?? (isToday ? h.latest?.metrics.restingHr : undefined);
   const hrvVal = day?.metrics.hrv ?? (isToday ? h.latest?.metrics.hrv : undefined);
   const stepsVal = day?.metrics.steps ?? (isToday ? h.steps.today : undefined);
+  const dayPhotos = photos.filter(p => p.date === date);
+  const dayWeightKg = day?.metrics.weightKg ?? dayPhotos.find(p => p.weightKg !== undefined)?.weightKg;
 
   return (
     <div className="hl-today">
@@ -537,6 +698,19 @@ function DayView({
           ) : null}
         </section>
       ) : null}
+      {(dayWeightKg !== undefined || dayPhotos.length > 0) && (
+        <section className="hl-card hl-day-body-strip">
+          <header>
+            <span>Body check-in {dayWeightKg !== undefined ? `· ${fmtWeight(dayWeightKg, unit)}` : ""}</span>
+            <button type="button" className="hl-link" style={{ marginTop: 0 }} onClick={onOpenBody}>Open Body &amp; Photos →</button>
+          </header>
+          {dayPhotos.length > 0 && (
+            <div className="hl-day-thumbs">
+              {dayPhotos.map(p => <DayPhotoThumb key={p.id} photo={p} onOpen={() => onInspectPhoto(p.id)} />)}
+            </div>
+          )}
+        </section>
+      )}
       {h.tagEffects.length > 0 && (
         <section className="hl-card">
           <header><span>What changes your next morning</span><Tag size={16} /></header>
@@ -555,12 +729,16 @@ function DayView({
   );
 }
 
-function TrendsView({ h, deep, days, range, setRange }: { h: HealthInsights; deep: DeepHealth; days: HealthDay[]; range: 30 | 90; setRange: (r: 30 | 90) => void }) {
+function TrendsView({ h, deep, days, range, setRange, unit, goalWeightKg }: { h: HealthInsights; deep: DeepHealth; days: HealthDay[]; range: 30 | 90; setRange: (r: 30 | 90) => void; unit: WeightUnit; goalWeightKg?: number }) {
   const scoreBy = new Map(deep.nights.map(n => [n.date, n.score]));
   const series = h.series.slice(-range);
   const pick = (key: "recovery" | "hrv" | "restingHr" | "sleepMin" | "steps" | "fatigue" | "fitness"): ChartPoint[] => series.map(p => ({ date: p.date, value: p[key] }));
   const byDate = new Map(days.map(d => [d.date, d]));
   const metric = (key: string): ChartPoint[] => series.map(p => ({ date: p.date, value: byDate.get(p.date)?.metrics[key] }));
+  const weightSeries: ChartPoint[] = series.map(p => {
+    const kg = byDate.get(p.date)?.metrics.weightKg;
+    return { date: p.date, value: kg !== undefined ? toUnit(kg, unit) : undefined };
+  });
   const hrvB = h.baselines.hrv, rhrB = h.baselines.restingHr;
   const hrvSd = hrvB ? [Math.round(hrvB.mean * Math.exp(-hrvB.sd)), Math.round(hrvB.mean * Math.exp(hrvB.sd))] : undefined;
   return (
@@ -603,8 +781,17 @@ function TrendsView({ h, deep, days, range, setRange }: { h: HealthInsights; dee
         <section className="hl-card"><header><span>Steps</span></header>
           <TimeChart kind="bar" points={pick("steps")} label="Steps" format={v => v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`} goal={{ value: h.steps.goal, label: "goal" }} /></section>
         {series.some(p => byDate.get(p.date)?.metrics.weightKg !== undefined) && (
-          <section className="hl-card"><header><span>Weight</span></header>
-            <TimeChart points={metric("weightKg")} label="Weight" format={v => `${v.toFixed(1)} kg`} /></section>
+          <section className="hl-card"><header><span>Weight ({unit})</span></header>
+            <TimeChart
+              points={weightSeries}
+              label="Weight"
+              format={v => `${v.toFixed(1)} ${unit}`}
+              goal={goalWeightKg !== undefined ? { value: toUnit(goalWeightKg, unit), label: "goal" } : undefined}
+            /></section>
+        )}
+        {series.some(p => byDate.get(p.date)?.metrics.bodyFatPct !== undefined) && (
+          <section className="hl-card"><header><span>Body fat</span></header>
+            <TimeChart points={metric("bodyFatPct")} label="Body fat" format={v => `${v.toFixed(1)}%`} /></section>
         )}
       </div>
     </div>
@@ -613,6 +800,8 @@ function TrendsView({ h, deep, days, range, setRange }: { h: HealthInsights; dee
 
 function DaysView({
   days,
+  photos,
+  unit,
   selectedDate,
   onSelectDate,
   onEdit,
@@ -620,6 +809,8 @@ function DaysView({
   readOnly,
 }: {
   days: HealthDay[];
+  photos: ProgressPhoto[];
+  unit: WeightUnit;
   selectedDate: string;
   onSelectDate: (date: string) => void;
   onEdit: (date: string) => void;
@@ -628,15 +819,18 @@ function DaysView({
 }) {
   const recent = [...days].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 90);
   const today = localToday();
+  const photosByDate = new Map<string, number>();
+  for (const p of photos) photosByDate.set(p.date, (photosByDate.get(p.date) || 0) + 1);
   return (
     <section className="hl-card">
       <header><span>Daily log</span>{!readOnly && <button className="ws-button ws-secondary" onClick={onImport}><Upload size={14} />Import file</button>}</header>
       <div className="hl-table-wrap">
         <table className="hl-table hl-days">
-          <thead><tr><th>Day</th><th>Sleep</th><th>HRV</th><th>Resting HR</th><th>Steps</th><th>Workouts</th><th>Tags</th></tr></thead>
+          <thead><tr><th>Day</th><th>Sleep</th><th>HRV</th><th>Resting HR</th><th>Steps</th><th>Weight</th><th>Workouts</th><th>Tags</th></tr></thead>
           <tbody>
             {recent.map(d => {
               const isSelected = d.date === selectedDate;
+              const photoCnt = photosByDate.get(d.date) || 0;
               return (
                 <tr
                   key={d.date}
@@ -656,9 +850,11 @@ function DaysView({
                   <td>{d.metrics.hrv ?? "—"}</td>
                   <td>{d.metrics.restingHr ?? "—"}</td>
                   <td>{d.metrics.steps?.toLocaleString() ?? "—"}</td>
+                  <td>{d.metrics.weightKg !== undefined ? fmtWeight(d.metrics.weightKg, unit) : "—"}</td>
                   <td>{d.workouts?.map(w => `${w.type} ${w.minutes}m`).join(", ") || "—"}</td>
                   <td>
                     <div className="hl-tag-cell">
+                      {photoCnt > 0 && <span className="hl-chip"><Camera size={11} style={{ marginRight: 3, verticalAlign: "-1px" }} />{photoCnt}</span>}
                       {(d.tags || []).map(t => <span key={t} className="hl-chip">{t}</span>)}
                       {d.note && <span className="hl-muted" title={d.note}> ✎</span>}
                       {!readOnly && (
@@ -688,13 +884,19 @@ function DaysView({
 }
 
 const QUICK_TAGS = ["alcohol", "late caffeine", "late meal", "late screen", "sick", "stressed", "travel", "hard workout", "rest day", "meditated"];
-const EDITABLE = ["sleepMin", "restingHr", "hrv", "steps", "weightKg"];
+const EDITABLE = ["sleepMin", "restingHr", "hrv", "steps", "weightKg", "bodyFatPct"];
 
-function DayDialog({ day, knownTags, onClose, onSave }: { day: HealthDay; knownTags: string[]; onClose: () => void; onSave: (day: HealthDay | null) => void }) {
+function DayDialog({ day, unit, knownTags, onClose, onSave }: { day: HealthDay; unit: WeightUnit; knownTags: string[]; onClose: () => void; onSave: (day: HealthDay | null) => void }) {
   const [tags, setTags] = useState<string[]>(day.tags || []);
   const [note, setNote] = useState(day.note || "");
   const [custom, setCustom] = useState("");
-  const [values, setValues] = useState<Record<string, string>>(Object.fromEntries(EDITABLE.map(k => [k, day.metrics[k] !== undefined ? String(k === "sleepMin" ? +(day.metrics[k] / 60).toFixed(2) : day.metrics[k]) : ""])));
+  const formatEditable = (k: string, val: number | undefined) => {
+    if (val === undefined) return "";
+    if (k === "sleepMin") return String(+(val / 60).toFixed(2));
+    if (k === "weightKg") return String(Math.round(toUnit(val, unit) * 10) / 10);
+    return String(val);
+  };
+  const [values, setValues] = useState<Record<string, string>>(Object.fromEntries(EDITABLE.map(k => [k, formatEditable(k, day.metrics[k])])));
   const toggle = (t: string) => setTags(list => list.includes(t) ? list.filter(x => x !== t) : cleanTags([...list, t]));
   const options = [...new Set([...QUICK_TAGS, ...knownTags, ...tags])];
   const save = () => {
@@ -702,7 +904,8 @@ function DayDialog({ day, knownTags, onClose, onSave }: { day: HealthDay; knownT
     for (const k of EDITABLE) {
       const raw = values[k].trim();
       if (!raw) { delete metrics[k]; continue; }
-      const v = cleanMetric(k, k === "sleepMin" ? Number(raw) * 60 : Number(raw));
+      const converted = k === "sleepMin" ? Number(raw) * 60 : k === "weightKg" ? fromUnit(Number(raw), unit) : Number(raw);
+      const v = cleanMetric(k, converted);
       if (v !== undefined) metrics[k] = v;
     }
     const next: HealthDay = { ...day, metrics, tags: cleanTags(tags), note: note.trim(), updatedAt: new Date().toISOString(), source: day.source || "manual" };
@@ -734,7 +937,7 @@ function DayDialog({ day, knownTags, onClose, onSave }: { day: HealthDay; knownT
             <legend>Correct a reading <small>optional</small></legend>
             <div className="hl-metric-grid">
               {EDITABLE.map(k => { const m = HEALTH_METRICS.find(x => x.key === k)!; return (
-                <label key={k}>{k === "sleepMin" ? "Sleep (hours)" : `${m.label} (${m.unit})`}
+                <label key={k}>{k === "sleepMin" ? "Sleep (hours)" : k === "weightKg" ? `Weight (${unit})` : `${m.label} (${m.unit})`}
                   <input inputMode="decimal" value={values[k]} onChange={e => setValues(v => ({ ...v, [k]: e.target.value }))} /></label>
               ); })}
             </div>
@@ -750,16 +953,40 @@ function DayDialog({ day, knownTags, onClose, onSave }: { day: HealthDay; knownT
   );
 }
 
-function ProfileDialog({ profile, insights, onClose, onSave }: { profile?: HealthProfile; insights: HealthInsights; onClose: () => void; onSave: (p: HealthProfile | undefined) => void }) {
+function ProfileDialog({ profile, insights, unit, lengthUnit, onClose, onSave }: { profile?: HealthProfile; insights: HealthInsights; unit: WeightUnit; lengthUnit: LengthUnit; onClose: () => void; onSave: (p: HealthProfile | undefined) => void }) {
   const [sleep, setSleep] = useState(profile?.sleepGoalMin ? String(profile.sleepGoalMin / 60) : "");
   const [steps, setSteps] = useState(profile?.stepGoal ? String(profile.stepGoal) : "");
   const [maxHr, setMaxHr] = useState(profile?.maxHr ? String(profile.maxHr) : "");
   const [born, setBorn] = useState(profile?.birthYear ? String(profile.birthYear) : "");
   const [sex, setSex] = useState<"" | "female" | "male">(profile?.sex || "");
+  const [wUnit, setWUnit] = useState<WeightUnit>(profile?.weightUnit || unit);
+  const [lUnit, setLUnit] = useState<LengthUnit>(profile?.lengthUnit || lengthUnit);
+  const [startWeight, setStartWeight] = useState(profile?.startWeightKg !== undefined ? String(Math.round(toUnit(profile.startWeightKg, profile?.weightUnit || unit) * 10) / 10) : "");
+  const [goalWeight, setGoalWeight] = useState(profile?.goalWeightKg !== undefined ? String(Math.round(toUnit(profile.goalWeightKg, profile?.weightUnit || unit) * 10) / 10) : "");
+  const [height, setHeight] = useState(profile?.heightCm !== undefined ? String(Math.round(toLengthUnit(profile.heightCm, profile?.lengthUnit || lengthUnit) * 10) / 10) : "");
   const int = (s: string) => s.trim() ? Math.round(Number(s)) : undefined;
+  const float = (s: string) => s.trim() && Number.isFinite(Number(s)) ? Number(s) : undefined;
   return (
     <DialogBackdrop label="Health targets" onClose={onClose} className="ws-overlay">
-      <form className="ws-dialog" onSubmit={e => { e.preventDefault(); onSave(normalizeHealthProfile({ sleepGoalMin: sleep.trim() ? Math.round(Number(sleep) * 60) : undefined, stepGoal: int(steps), maxHr: int(maxHr), birthYear: int(born), sex: sex || undefined })); }}>
+      <form className="ws-dialog" onSubmit={e => {
+        e.preventDefault();
+        const sw = float(startWeight);
+        const gw = float(goalWeight);
+        const ht = float(height);
+        onSave(normalizeHealthProfile({
+          ...(profile || {}),
+          sleepGoalMin: sleep.trim() ? Math.round(Number(sleep) * 60) : undefined,
+          stepGoal: int(steps),
+          maxHr: int(maxHr),
+          birthYear: int(born),
+          sex: sex || undefined,
+          weightUnit: wUnit,
+          lengthUnit: lUnit,
+          startWeightKg: sw !== undefined ? Math.round(fromUnit(sw, wUnit) * 100) / 100 : undefined,
+          goalWeightKg: gw !== undefined ? Math.round(fromUnit(gw, wUnit) * 100) / 100 : undefined,
+          heightCm: ht !== undefined ? Math.round(fromLengthUnit(ht, lUnit) * 10) / 10 : undefined,
+        }));
+      }}>
         <div className="ws-dialog-heading">
           <div><h2>Your targets</h2><p>Metrics are measured against these. Leave a field empty to use the default.</p></div>
           <button type="button" className="ws-icon-button" aria-label="Close" onClick={onClose}><X size={19} /></button>
@@ -771,6 +998,11 @@ function ProfileDialog({ profile, insights, onClose, onSave }: { profile?: Healt
             <label>Max heart rate<input inputMode="numeric" placeholder={`${insights.training.maxHr}`} value={maxHr} onChange={e => setMaxHr(e.target.value)} /></label>
             <label>Birth year<input inputMode="numeric" placeholder="2004" value={born} onChange={e => setBorn(e.target.value)} /></label>
             <label>Training-load weighting<select value={sex} onChange={e => setSex(e.target.value as typeof sex)}><option value="">Default</option><option value="female">Female</option><option value="male">Male</option></select></label>
+            <label>Weight unit<select value={wUnit} onChange={e => setWUnit(e.target.value as WeightUnit)}><option value="lb">Pounds (lb)</option><option value="kg">Kilograms (kg)</option></select></label>
+            <label>Measurement unit<select value={lUnit} onChange={e => setLUnit(e.target.value as LengthUnit)}><option value="in">Inches (in)</option><option value="cm">Centimeters (cm)</option></select></label>
+            <label>Start weight ({wUnit})<input inputMode="decimal" placeholder="Optional" value={startWeight} onChange={e => setStartWeight(e.target.value)} /></label>
+            <label>Goal weight ({wUnit})<input inputMode="decimal" placeholder="Optional" value={goalWeight} onChange={e => setGoalWeight(e.target.value)} /></label>
+            <label>Height ({lUnit})<input inputMode="decimal" placeholder={lUnit === "in" ? "70" : "178"} value={height} onChange={e => setHeight(e.target.value)} /></label>
           </div>
           <p className="hl-muted hl-small">Max HR now: {insights.training.maxHr} bpm, {insights.training.maxHrSource}.</p>
         </div>

@@ -40,6 +40,11 @@ export const HEALTH_METRICS: HealthMetricDef[] = [
   { key: "vo2max", label: "Cardio fitness (VO₂ max)", unit: "ml/kg/min", agg: "last", min: 10, max: 95, decimals: 1, hae: ["vo2_max"], description: "Estimated VO2 max." },
   { key: "weightKg", label: "Weight", unit: "kg", agg: "last", min: 20, max: 400, decimals: 2, hae: ["weight_body_mass"], description: "Body weight in kg." },
   { key: "bodyFatPct", label: "Body fat", unit: "%", agg: "last", min: 2, max: 70, decimals: 1, hae: ["body_fat_percentage"], description: "Body fat percentage." },
+  { key: "waistCm", label: "Waist", unit: "cm", agg: "last", min: 30, max: 250, decimals: 1, hae: [], description: "Waist circumference in cm." },
+  { key: "chestCm", label: "Chest", unit: "cm", agg: "last", min: 40, max: 250, decimals: 1, hae: [], description: "Chest circumference in cm." },
+  { key: "armCm", label: "Arm", unit: "cm", agg: "last", min: 15, max: 100, decimals: 1, hae: [], description: "Arm circumference in cm." },
+  { key: "hipCm", label: "Hips", unit: "cm", agg: "last", min: 40, max: 250, decimals: 1, hae: [], description: "Hip circumference in cm." },
+  { key: "thighCm", label: "Thigh", unit: "cm", agg: "last", min: 25, max: 150, decimals: 1, hae: [], description: "Thigh circumference in cm." },
   { key: "sleepMin", label: "Sleep", unit: "min", agg: "sum", min: 0, max: 1200, decimals: 0, hae: [], description: "Minutes asleep in the night that ended this morning." },
   { key: "inBedMin", label: "Time in bed", unit: "min", agg: "sum", min: 0, max: 1440, decimals: 0, hae: [], description: "Minutes in bed." },
   { key: "deepMin", label: "Deep sleep", unit: "min", agg: "sum", min: 0, max: 600, decimals: 0, hae: [], description: "Minutes of deep sleep." },
@@ -421,6 +426,9 @@ export function normalizeHealthProfile(value: unknown): HealthProfile | undefine
   if (born !== undefined) profile.birthYear = born;
   if (p.sex === "female" || p.sex === "male") profile.sex = p.sex;
   if (p.weightUnit === "kg" || p.weightUnit === "lb") profile.weightUnit = p.weightUnit;
-  if (typeof p.goalWeightKg === "number" && p.goalWeightKg >= 20 && p.goalWeightKg <= 400) profile.goalWeightKg = Math.round(p.goalWeightKg * 100) / 100;
+  if (p.lengthUnit === "cm" || p.lengthUnit === "in") profile.lengthUnit = p.lengthUnit;
+  if (typeof p.goalWeightKg === "number" && Number.isFinite(p.goalWeightKg) && p.goalWeightKg >= 20 && p.goalWeightKg <= 400) profile.goalWeightKg = Math.round(p.goalWeightKg * 100) / 100;
+  if (typeof p.startWeightKg === "number" && Number.isFinite(p.startWeightKg) && p.startWeightKg >= 20 && p.startWeightKg <= 400) profile.startWeightKg = Math.round(p.startWeightKg * 100) / 100;
+  if (typeof p.heightCm === "number" && Number.isFinite(p.heightCm) && p.heightCm >= 90 && p.heightCm <= 260) profile.heightCm = Math.round(p.heightCm * 10) / 10;
   return Object.keys(profile).length ? profile : undefined;
 }

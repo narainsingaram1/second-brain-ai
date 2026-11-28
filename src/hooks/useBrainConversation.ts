@@ -1,4 +1,4 @@
-import { Dispatch, SetStateAction, useEffect, useRef, useState } from "react";
+import { Dispatch, SetStateAction, useCallback, useEffect, useRef, useState } from "react";
 import { conversationTitle } from "../utils/chatPresentation";
 import { boundConversations } from "../utils/conversationBudget";
 import { attachmentOf, rememberImage, sessionImage, type PreparedImage } from "../utils/imageInput";
@@ -6,6 +6,7 @@ import { rememberFileText, savedFile, sessionFileText } from "../utils/chatFiles
 import { AgentStep, AIMessage, ApprovalRequest, AuditLogEntry, BrainState, ConversationThread } from "../types";
 import {
   AutonomousBrainAgent,
+  ExternalToolset,
   RunConversation,
   type AgentExecutionResult,
 } from "../services/agentDispatcher";
@@ -15,12 +16,13 @@ import { applyBatch } from "../services/batchChanges";
 import { prepareCardChanges, prepareChecklistTasks, type CardChange } from "../services/irisCards";
 import type { IrisCardState, IrisUiSpec } from "../utils/irisUi";
 import { persistBrainState } from "../services/storage";
+import { storeNoteImage } from "../services/noteImageStore";
 import { adoptServerChanges, usesRecordStorage } from "../services/cloudSync";
 import { isServerHeldKey } from "../services/providerTransport";
 import { apiJson, readUrlOnServer, serverFeatures } from "../services/serverApi";
 import type { SavedRecord } from "../services/recordSync";
 import { MAX_REMOTE_TURN_BYTES, runRemoteTurn, type RemoteTurn } from "../services/remoteAgent";
-import { getVisionModel } from "../services/openrouter";
+import { getVisionModel, type OpenRouterTool } from "../services/openrouter";
 import { combineToolsets, webToolset } from "../services/webTools";
 import { browserAgentEnabled, browserBridge, browserToolset, needsBrowser, type BrowserConfirmRequest } from "../services/browserAgent";
 import type { UserAnswers, UserQuestionRequest } from "../services/askUser";
@@ -54,6 +56,7 @@ export interface BrainConversation {
   /** Creates the checklist rows the user ticked on an interactive card. */
   addCardTasks: (messageId: string, block: number, spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => Promise<void>;
   setCardState: (messageId: string, block: number, next: IrisCardState) => void;
+  setMessageFeedback?: (messageId: string, feedback: "like" | "dislike" | undefined) => void;
   /** Ticks a task off (or back on) or marks a habit done, from a card showing live records. */
   changeFromCard: (changes: CardChange[]) => Promise<void>;
   /** The open conversation is waiting on an answer. Other conversations may be answering at the same time. */
@@ -347,16 +350,26 @@ export function useBrainConversation(
         conversationId,
         chatHistory: [...workspace.chatHistory, saved],
       });
-    // Streamed text is applied at most once per frame, so long answers do not re-render per token.
+    // Streamed text and step updates flush once per frame (or every ~50ms in hidden tabs where rAF pauses).
     const assistantId = crypto.randomUUID();
-    let streamedText = "", frame = 0, stepFrame = 0;
-    // Steps arrive often (reasoning streams in); they are applied at most once per frame too.
+    let streamedText = "";
+    let frame: { id: number; timer: boolean } | null = null;
+    let stepFrame: { id: number; timer: boolean } | null = null;
+    const scheduleUi = (fn: () => void): { id: number; timer: boolean } =>
+      typeof document !== "undefined" && document.hidden
+        ? { id: window.setTimeout(fn, 50), timer: true }
+        : { id: requestAnimationFrame(fn), timer: false };
+    const cancelUi = (handle: { id: number; timer: boolean } | null) => {
+      if (!handle) return;
+      if (handle.timer) clearTimeout(handle.id);
+      else cancelAnimationFrame(handle.id);
+    };
     const steps = new Map<string, AgentStep>();
     const onStep = (step: AgentStep) => {
       if (!isCurrent()) return;
       steps.set(step.id, step);
-      if (!stepFrame) stepFrame = requestAnimationFrame(() => {
-        stepFrame = 0;
+      if (!stepFrame) stepFrame = scheduleUi(() => {
+        stepFrame = null;
         if (isCurrent() && live()) patchRun(runId, { activity: [...steps.values()] });
       });
     };
@@ -364,16 +377,30 @@ export function useBrainConversation(
       options.onText?.(text);
       if (!isCurrent()) return;
       streamedText = text;
-      if (!frame) frame = requestAnimationFrame(() => {
-        frame = 0;
+      if (!frame) frame = scheduleUi(() => {
+        frame = null;
         if (isCurrent() && live()) patchRun(runId, { draft: streamedText ? { id: assistantId, content: streamedText } : null });
       });
     };
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // Strip heavy client-only metadata (`activity`, `usage`, `cardState`) so long chats fit in `/api/agent` requests.
+    const leanHistory: AIMessage[] = (initial.chatHistory || []).map(
+      ({ id, role, content, timestamp, files, attachments, imageDescription, rememberedIds }) => ({
+        id,
+        role,
+        content,
+        timestamp,
+        ...(files?.length ? { files } : {}),
+        ...(attachments?.length ? { attachments } : {}),
+        ...(imageDescription ? { imageDescription } : {}),
+        ...(rememberedIds?.length ? { rememberedIds } : {}),
+      }),
+    );
     // Hosted accounts whose key is stored on the server run the turn there; otherwise it runs here.
     const turn: RemoteTurn = {
-      message: user, chatHistory: initial.chatHistory, conversationId: initial.conversationId, model: initial.selectedModel,
+      message: user, chatHistory: leanHistory, conversationId: initial.conversationId, model: initial.selectedModel,
       visionModel: getVisionModel(), temporary, images: images.length ? images : undefined,
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      timeZone,
     };
     // Work on websites runs here, where the browser extension is; the rest may run on the server.
     // In Chrome, the extension's bridge on this page; in the desktop app, Chrome through Rust (native messaging).
@@ -472,8 +499,30 @@ export function useBrainConversation(
           actions: [], citations: [], status: cancelled ? "cancelled" : "error", rememberedIds: [] } satisfies AgentExecutionResult;
       }
     };
+    const googleNames = new Set<string>();
+    const loadGoogleToolset = async (): Promise<ExternalToolset | undefined> => {
+      if (!usesRecordStorage()) return undefined;
+      const features = await serverFeatures().catch(() => null);
+      if (!features?.google) return undefined;
+      const meta = await apiJson<{ connected: boolean; definitions: OpenRouterTool[]; instructions: string }>(
+        `/api/google?action=tools&timeZone=${encodeURIComponent(timeZone)}`,
+        { signal },
+      ).catch(() => null);
+      if (!meta?.connected || !meta.definitions?.length) return undefined;
+      meta.definitions.forEach(d => googleNames.add(d.function.name));
+      return {
+        definitions: meta.definitions,
+        instructions: meta.instructions,
+        execute: (name, args, stepSignal) => apiJson<{ output: unknown; summary?: string; link?: string }>(
+          "/api/google?action=tool",
+          { method: "POST", body: JSON.stringify({ tool: name, args, timeZone }), signal: stepSignal },
+        ),
+      };
+    };
     try {
-      const result = await runsOnServer() ? await runOnServer() : await AutonomousBrainAgent.execute(
+      const remote = await runsOnServer();
+      const googleTools = remote || options.externalTools ? undefined : await loadGoogleToolset();
+      const result = remote ? await runOnServer() : await AutonomousBrainAgent.execute(
         prompt,
         initial,
         initial.openRouterKey,
@@ -483,13 +532,24 @@ export function useBrainConversation(
           signal,
           temporary,
           currentMessage: user,
+          persistImage: async (attachmentNumber) => {
+            const recent = (latest.current?.chatHistory || []).filter(m => m.role === "user" && m.attachments?.length).slice(-1)[0]?.attachments;
+            const currentPick = options.images?.[attachmentNumber - 1];
+            const histPick = !options.images?.length ? recent?.[attachmentNumber - 1] : undefined;
+            const dataUrl = currentPick?.dataUrl || (histPick ? sessionImage(histPick.id) : undefined);
+            if (!dataUrl) throw new Error(`Attached image #${attachmentNumber} is not available here. Attach the image again.`);
+            const blob = await (await fetch(dataUrl)).blob();
+            return storeNoteImage(blob);
+          },
+          getState: () => (isCurrent() ? latest.current! : initial),
           // Search goes through the AI provider. Links are read by the app's server, since browsers can't
           // read most other sites; without a server (desktop builds) this browser tries them directly.
           externalTools: options.externalTools ?? combineToolsets(
             webToolset({ fetch: (...args) => fetch(...args), manualRedirects: false, relay: readUrlOnServer }, initial.openRouterKey, initial.selectedModel),
             browser && router ? router.wrap(browserToolset(browser, { confirm: router.confirm, files: browserFiles(() => latest.current, () => user) })) : undefined,
             desktop && router ? router.wrap(desktopToolset()) : undefined,
-            vault ? vaultToolset() : undefined),
+            vault ? vaultToolset() : undefined,
+            googleTools),
           ...(browser || desktop ? { budget: BROWSER_BUDGET } : {}),
           // Turns that run here can ask the user live; Telegram and server turns ask in the reply instead.
           ask: options.ask ?? askUser,
@@ -509,9 +569,27 @@ export function useBrainConversation(
             if (isCurrent()) patchRun(runId, { progress: message });
             options.onProgress?.(message);
           },
-          // In-browser turns keep the prepared change with the reply until the user decides.
-          propose: async (change) => ({ id: crypto.randomUUID(), tool: change.tool, summary: change.summary, details: change.details,
-            reason: change.reason, status: "pending", remote: false, mutation: change.mutations ?? change.mutation }),
+          // Connected Google approvals go through the server action log; local record writes stay on the client.
+          propose: async (change) => {
+            if (!change.mutation && !change.mutations && googleNames.has(change.tool) && usesRecordStorage()) {
+              return await apiJson<ApprovalRequest>("/api/google?action=propose", {
+                method: "POST",
+                body: JSON.stringify({
+                  tool: change.tool,
+                  args: change.args,
+                  timeZone,
+                  conversationId: initial.conversationId,
+                  messageId: user.id,
+                  reason: change.reason,
+                  summary: change.summary,
+                  details: change.details,
+                }),
+                signal,
+              });
+            }
+            return { id: crypto.randomUUID(), tool: change.tool, summary: change.summary, details: change.details,
+              reason: change.reason, status: "pending", remote: false, mutation: change.mutations ?? change.mutation };
+          },
           // A batch is one write: every change lands or none does, with one undo point.
           commitBatch: async (mutations) => {
             signal.throwIfAborted();
@@ -577,17 +655,20 @@ export function useBrainConversation(
                 };
               },
               initial.userId,
-              () => {
-                if (isCurrent()) {
-                  onBeforeMutation(before);
-                  publish({
+              (saved) => {
+                if (!isCurrent()) return;
+                onBeforeMutation(before);
+                let shown = saved;
+                try {
+                  shown = {
                     ...applyMutation(latest.current!, mutation),
                     auditLog: [
                       audit,
                       ...(latest.current!.auditLog || []),
                     ].slice(0, 100),
-                  });
-                }
+                  };
+                } catch { /* Saved state is still correct. */ }
+                publish(shown);
               },
             );
           },
@@ -658,8 +739,8 @@ export function useBrainConversation(
       }
       return result;
     } finally {
-      if (frame) cancelAnimationFrame(frame);
-      if (stepFrame) cancelAnimationFrame(stepFrame);
+      cancelUi(frame);
+      cancelUi(stepFrame);
       if (live()) {
         controllers.current.delete(runId);
         confirmResolvers.current.delete(runId);
@@ -691,11 +772,11 @@ export function useBrainConversation(
       allImages ? {} : { attachments: original.attachments, imageDescription: original.imageDescription });
   };
   /** Opens another conversation. Replies in progress carry on and land in their own conversation. */
-  const switchConversation = (id?: string) => {
+  const switchConversation = useCallback((id?: string) => {
     // A temporary chat is never saved, so it can only be left once it has finished.
     if (!latest.current || (temporaryRef.current && controllers.current.has(tempId.current))) return;
     clearFollowUps();
-    if (temporary && !id) {
+    if (temporaryRef.current && !id) {
       tempId.current = crypto.randomUUID();
       tempLatest.current = [];
       setTemporaryMessages([]);
@@ -712,15 +793,15 @@ export function useBrainConversation(
       conversationId: thread?.id || crypto.randomUUID(),
       chatHistory: thread?.messages || [],
     });
-  };
-  const setTemporary = (value: boolean) => {
+  }, []);
+  const setTemporary = useCallback((value: boolean) => {
     if (controllers.current.has(tempId.current)) return;
     clearFollowUps();
     tempId.current = crypto.randomUUID();
     tempLatest.current = [];
     setTemporaryMessages([]);
     setTemporaryState(value);
-  };
+  }, []);
   /** Updates one approval request on the message that carries it, wherever that conversation is shown. */
   const setApproval = (messageId: string, approvalId: string, patch: Partial<ApprovalRequest>) => {
     const update = (messages: AIMessage[]) => messages.map(m => m.id !== messageId ? m : { ...m, approvals: m.approvals?.map(a => a.id === approvalId ? { ...a, ...patch } : a) });
@@ -784,11 +865,17 @@ export function useBrainConversation(
   };
   const withCardState = (messages: AIMessage[], messageId: string, block: number, change: (card: IrisCardState) => IrisCardState) =>
     messages.map(m => m.id !== messageId ? m : { ...m, cardState: { ...m.cardState, [block]: change(m.cardState?.[block] || {}) } });
-  const setCardState = (messageId: string, block: number, next: IrisCardState) => {
+  const setCardState = useCallback((messageId: string, block: number, next: IrisCardState) => {
     if (tempLatest.current.some(m => m.id === messageId)) { tempLatest.current = withCardState(tempLatest.current, messageId, block, () => next); setTemporaryMessages(tempLatest.current); return; }
     const current = latest.current;
     if (current) publish({ ...current, chatHistory: withCardState(current.chatHistory, messageId, block, () => next) });
-  };
+  }, []);
+  const setMessageFeedback = useCallback((messageId: string, feedback: "like" | "dislike" | undefined) => {
+    const update = (messages: AIMessage[]) => messages.map(m => m.id !== messageId ? m : feedback ? { ...m, feedback } : (({ feedback: _old, ...rest }) => rest)(m));
+    if (tempLatest.current.some(m => m.id === messageId)) { tempLatest.current = update(tempLatest.current); setTemporaryMessages(tempLatest.current); return; }
+    const current = latest.current;
+    if (current) publish({ ...current, chatHistory: update(current.chatHistory) });
+  }, []);
   /** Saves changes made from a card as the user's own edits, with one undo point and an audit entry each. */
   const commitFromCard = async (mutations: Mutation[], extra: (state: BrainState) => BrainState = s => s) => {
     const current = latest.current;
@@ -799,9 +886,13 @@ export function useBrainConversation(
         action: mutation.action, entityType: mutation.type, entityTitle: recordTitle(mutation.record, "Task"), canUndo: true }));
       return { ...next, auditLog: [...audits, ...(next.auditLog || [])].slice(0, 100) };
     };
-    await persistBrainState(() => apply(latest.current!), current.userId, () => {
-      onBeforeMutation(latest.current!);
-      publish(apply(latest.current!));
+    await persistBrainState(() => apply(latest.current!), current.userId, (saved) => {
+      const before = latest.current;
+      if (!before) return;
+      onBeforeMutation(before);
+      let shown = saved;
+      try { shown = apply(before); } catch { /* Saved state is still correct. */ }
+      publish(shown);
     });
   };
   const addCardTasks = async (messageId: string, block: number, spec: Extract<IrisUiSpec, { type: "checklist" }>, indexes: number[]) => {
@@ -827,6 +918,7 @@ export function useBrainConversation(
     decideApproval,
     addCardTasks,
     setCardState,
+    setMessageFeedback,
     changeFromCard,
     busy: !!openRun,
     runningIds: Object.keys(runs),
@@ -842,8 +934,8 @@ export function useBrainConversation(
     answerUserQuestion: (answers: UserAnswers | null) => answerQuestion(currentOpenId(), answers),
     agentToasts: openRun?.agentToasts || [],
     dismissAgentToast,
-    startNew: () => switchConversation(),
-    resume: (id: string) => switchConversation(id),
+    startNew: useCallback(() => switchConversation(), [switchConversation]),
+    resume: useCallback((id: string) => switchConversation(id), [switchConversation]),
     temporary,
     setTemporary,
     messages: temporary ? temporaryMessages : state?.chatHistory,

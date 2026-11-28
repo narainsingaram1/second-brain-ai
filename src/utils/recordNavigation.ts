@@ -6,6 +6,7 @@ export interface RecordLocation {
   workspaceId?: string;
   workspaceName?: string;
   panel?: "overview" | "tasks" | "notes" | "study" | "leetcode" | "job_application";
+  healthView?: "today" | "training" | "body" | "sleep" | "insights" | "trends" | "days";
   panelLabel?: string;
   section?: string;
   subsection?: string;
@@ -135,6 +136,27 @@ export function getRecordLocation(
         panelLabel: "Course Materials",
         breadcrumb: `${workspaceName} Workspace › Course Materials`,
         label: type === "course" ? "Course" : type === "deck" ? "Flashcards" : "Quiz",
+      };
+    }
+
+    case "health":
+    case "workout":
+    case "workout_plan":
+    case "progress_photo": {
+      const workspace = state?.workspaces?.find((w) => w.template === "health") || state?.workspaces?.[0];
+      const workspaceName = workspace?.name || "Health";
+      const tab = workspace ? `workspace:${workspace.id}` : "workspaces";
+      const healthView = type === "progress_photo" ? "body" : type === "health" ? "today" : "training";
+      const panelLabel = type === "progress_photo" ? "Body & Photos" : type === "health" ? "Health" : "Training";
+      return {
+        tab,
+        workspaceId: workspace?.id,
+        workspaceName,
+        panel: "overview",
+        healthView,
+        panelLabel,
+        breadcrumb: `${workspaceName} Workspace › ${panelLabel}`,
+        label: type === "progress_photo" ? "Progress Photo" : type === "health" ? "Health Day" : type === "workout" ? "Workout" : "Training Plan",
       };
     }
 

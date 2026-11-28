@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { FormEvent, KeyboardEvent, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ApprovalCard } from "./ApprovalCard";
 import { ActionPreviewCard } from "./ActionPreviewCard";
 import {
@@ -153,13 +153,53 @@ function MessageEditor({ initial, canBranch, onCancel, onSubmit }: { initial: st
   </form>;
 }
 
-export function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp, cards, actions }: { cards?: CardHandlers; actions?: MessageActions; followUps?: { items: string[]; loading: boolean }; onFollowUp?: (text: string) => void; message: AIMessage; state?: BrainState | null; onSaveNote?: (note: KnowledgeItem) => void; streaming?: boolean; onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void> }) {
+export interface ConversationMessageProps {
+  cards?: CardHandlers;
+  actions?: MessageActions;
+  followUps?: { items: string[]; loading: boolean };
+  onFollowUp?: (text: string) => void;
+  onFeedback?: (messageId: string, feedback: "like" | "dislike" | null) => void;
+  message: AIMessage;
+  state?: BrainState | null;
+  onSaveNote?: (note: KnowledgeItem) => void;
+  streaming?: boolean;
+  onDecide?: (approvalId: string, decision: "approve" | "reject") => Promise<void>;
+}
+
+function areMessagePropsEqual(prev: ConversationMessageProps, next: ConversationMessageProps): boolean {
+  return prev.message === next.message
+    && prev.state === next.state
+    && prev.streaming === next.streaming
+    && prev.followUps === next.followUps
+    && prev.onSaveNote === next.onSaveNote
+    && Boolean(prev.onDecide) === Boolean(next.onDecide)
+    && Boolean(prev.onFeedback) === Boolean(next.onFeedback)
+    && prev.onFollowUp === next.onFollowUp
+    && prev.cards?.busy === next.cards?.busy
+    && prev.cards?.addTasks === next.cards?.addTasks
+    && prev.cards?.setState === next.cards?.setState
+    && prev.cards?.change === next.cards?.change
+    && prev.actions?.busy === next.actions?.busy
+    && prev.actions?.canBranch === next.actions?.canBranch
+    && prev.actions?.hasLater === next.actions?.hasLater
+    && prev.actions?.onQuote === next.actions?.onQuote
+    && Boolean(prev.actions?.onEdit) === Boolean(next.actions?.onEdit)
+    && Boolean(prev.actions?.onRegenerate) === Boolean(next.actions?.onRegenerate);
+}
+
+export const ConversationMessage = React.memo(function ConversationMessage({ message, state, onSaveNote, streaming, onDecide, followUps, onFollowUp, onFeedback, cards, actions }: ConversationMessageProps) {
   const root = useRef<HTMLElement>(null);
   const [editing, setEditing] = useState(false);
   const [selected, setSelected] = useState<ChatSource | null>(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [feedback, setFeedback] = useState<"like" | "dislike" | null>(null);
+  const [localFeedback, setLocalFeedback] = useState<"like" | "dislike" | null>(null);
+  const feedback = message.feedback ?? localFeedback;
+  const toggleFeedback = (kind: "like" | "dislike") => {
+    const next = feedback === kind ? null : kind;
+    if (onFeedback) onFeedback(message.id, next);
+    else setLocalFeedback(next);
+  };
   const [error, setError] = useState("");
   const humanContent = () => readableMessage(message, state);
   const [continued] = useState(() => !streaming && wasStreaming(message.id));
@@ -308,18 +348,20 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
           )}
           <button
             type="button"
-            onClick={() => setFeedback(f => f === "like" ? null : "like")}
+            onClick={() => toggleFeedback("like")}
             className={`chat-icon-button ${feedback === "like" ? "is-active text-zinc-900 dark:text-zinc-100" : ""}`}
             aria-label="Good response"
+            aria-pressed={feedback === "like"}
             title="Good response"
           >
             <ThumbsUp size={15} strokeWidth={1.6} fill={feedback === "like" ? "currentColor" : "none"} />
           </button>
           <button
             type="button"
-            onClick={() => setFeedback(f => f === "dislike" ? null : "dislike")}
+            onClick={() => toggleFeedback("dislike")}
             className={`chat-icon-button ${feedback === "dislike" ? "is-active text-zinc-900 dark:text-zinc-100" : ""}`}
             aria-label="Poor response"
+            aria-pressed={feedback === "dislike"}
             title="Poor response"
           >
             <ThumbsDown size={15} strokeWidth={1.6} fill={feedback === "dislike" ? "currentColor" : "none"} />
@@ -337,4 +379,4 @@ export function ConversationMessage({ message, state, onSaveNote, streaming, onD
     </div>
     {selected && <RecordPreview key={`${selected.type}:${selected.id}`} source={selected} state={state} onClose={() => setSelected(null)} />}
   </article>;
-}
+}, areMessagePropsEqual);

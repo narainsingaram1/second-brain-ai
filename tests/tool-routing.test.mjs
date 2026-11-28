@@ -68,3 +68,15 @@ test('calling a tool from an area not offered yet still works, and adds that are
   assert.doesNotMatch(requests[1].messages.at(-1).content, /Unsupported tool/);
   assert.equal(result.queryAnswer, 'Tracked.');
 });
+
+test('attached files trigger matching area tools on the first round', () => {
+  const careerAreas = conversationAreas('summarize this', [], false, [
+    { id: 'f1', name: 'applications.csv', mimeType: 'text/csv', size: 120, kind: 'csv', chars: 80, text: 'Applied to Figma, recruiter interview on Friday' },
+  ]);
+  assert.ok(careerAreas.has('career'));
+  const studyAreas = conversationAreas('what is on the midterm?', [], false, [
+    { id: 'f2', name: 'syllabus.txt', mimeType: 'text/plain', size: 90, kind: 'text', chars: 50, text: 'CS 2110 Computer Organization syllabus' },
+  ]);
+  assert.ok(studyAreas.has('study'));
+});
+

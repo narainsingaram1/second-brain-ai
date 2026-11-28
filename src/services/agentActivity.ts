@@ -55,6 +55,7 @@ const NOUN: Record<string, [string, string]> = {
   task: ["task", "tasks"], habit: ["habit", "habits"], journal: ["journal entry", "journal entries"], knowledge: ["note", "notes"],
   tracker: ["tracker entry", "tracker entries"], event: ["event", "events"], course: ["course", "courses"], document: ["course document", "course documents"],
   deck: ["flashcard deck", "flashcard decks"], quiz: ["quiz", "quizzes"],
+  health: ["health day", "health days"], workout: ["workout", "workouts"], workout_plan: ["training plan", "training plans"], progress_photo: ["progress photo", "progress photos"],
 };
 const noun = (type: unknown, many = false) => NOUN[String(type)]?.[many ? 1 : 0] || (many ? "records" : "record");
 const quote = (text: unknown) => `“${String(text).trim().slice(0, 80)}”`;

@@ -1,5 +1,6 @@
 import { normalizeAgentMemory } from "./agentMemory";
 import { normalizeHealthDays } from "../utils/health";
+import { normalizeProgressPhotos } from "../utils/bodyProgress";
 import { normalizeWorkoutPlans, normalizeWorkouts } from "../utils/training";
 import { normalizeTaskAppearance } from "../utils/taskAppearance";
 import { normalizeWorkspaces, normalizeTrackerItems } from "../utils/workspaces";
@@ -591,6 +592,16 @@ function buildBrainState(storedState: Partial<BrainState>, targetUserId: string)
     };
   });
 
+  const rawPreferences =
+    storedState.preferences && typeof storedState.preferences === "object" && !Array.isArray(storedState.preferences)
+      ? (storedState.preferences as Record<string, unknown>)
+      : undefined;
+  let preferences = rawPreferences as BrainState["preferences"];
+  if (rawPreferences && "planner" in rawPreferences) {
+    const { planner: _removed, ...rest } = rawPreferences;
+    preferences = Object.keys(rest).length ? (rest as BrainState["preferences"]) : undefined;
+  }
+
   return {
     userId: targetUserId,
     agentMemory: normalizeAgentMemory(storedState.agentMemory),
@@ -605,6 +616,7 @@ function buildBrainState(storedState: Partial<BrainState>, targetUserId: string)
     healthDays: normalizeHealthDays(storedState.healthDays),
     workouts: normalizeWorkouts(storedState.workouts),
     workoutPlans: normalizeWorkoutPlans(storedState.workoutPlans),
+    progressPhotos: normalizeProgressPhotos(storedState.progressPhotos),
     workspaces: normalizeWorkspaces(storedState.workspaces),
     study: normalizeStudy(storedState.study),
     noteFolders,
@@ -617,7 +629,7 @@ function buildBrainState(storedState: Partial<BrainState>, targetUserId: string)
     taskAppearance: normalizeTaskAppearance(storedState.taskAppearance),
     dailyBrief: storedState.dailyBrief,
     auditLog: storedState.auditLog || [],
-    preferences: storedState.preferences && typeof storedState.preferences === "object" ? storedState.preferences : undefined,
+    preferences,
   };
 }
 

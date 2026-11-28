@@ -59,6 +59,8 @@ import { resumeVersionLabel, withApplicationResume } from "../utils/resumes";
 import { NotesWorkspace } from "./NotesWorkspace";
 import { folderOfWorkspace } from "../utils/noteFolders";
 import type { KnowledgeItem, NoteFolder } from "../types";
+import type { UnlinkedMentionHit } from "../utils/noteLinks";
+import type { PreparedImage } from "../utils/imageInput";
 import "../workspaces.css";
 import "../career.css";
 
@@ -69,7 +71,7 @@ interface Props {
   createInitially?: boolean;
   onChange: Update;
   onNavigate: (tab: string) => void;
-  onAsk: (prompt: string) => void;
+  onAsk: (prompt: string, images?: PreparedImage[]) => void;
   taskActions: TaskActions;
   noteActions: NoteActions;
 }
@@ -78,6 +80,7 @@ export interface NoteActions {
   onDeleteNote: (id: string) => void;
   onSaveFolder: (folder: NoteFolder) => void;
   onDeleteFolder: (id: string) => void;
+  onLinkUnlinkedMention?: (hit: UnlinkedMentionHit, target: { id: string; title: string }) => void;
   onGenerateTasks?: (tasks: { title: string; priority?: string }[]) => void;
   /** Opens the Notes page at this folder. */
   onOpenFolder?: (folderId: string) => void;
@@ -1266,10 +1269,12 @@ function WorkspaceNotes({ state, workspace, actions }: { state: BrainState; work
         items={state.knowledgeItems}
         folders={state.noteFolders || []}
         workspaces={state.workspaces || []}
+        brainState={state}
         onSaveNote={actions.onSaveNote}
         onDeleteNote={actions.onDeleteNote}
         onSaveFolder={actions.onSaveFolder}
         onDeleteFolder={actions.onDeleteFolder}
+        onLinkUnlinkedMention={actions.onLinkUnlinkedMention}
         onGenerateTasks={actions.onGenerateTasks}
         onOpenInNotes={actions.onOpenFolder}
         openRouterKey={state.openRouterKey}

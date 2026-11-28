@@ -219,6 +219,7 @@ function getSupabase() {
 	return client;
 }
 String.raw`^(?:(?:please|pls|also|and|oh|ok(?:ay)?|hey|so|btw|fyi|actually|just)[,\s]+)*`;
+new TextEncoder();
 // src/services/recordSync.ts
 var PreferencesConflict = class extends Error {};
 // src/services/supabaseBrain.ts
@@ -586,6 +587,13 @@ function supabaseStore(userId, client) {
 				for (const row of data || []) texts.set(row.id, row.content);
 			});
 			return texts;
+		},
+		async putNoteImage(key, bytes, contentType) {
+			const { error } = await client.storage.from("note-images").upload(`${userId}/${key}`, bytes, {
+				contentType,
+				upsert: false
+			});
+			if (error && !/exists|duplicate/i.test(error.message)) rpcError(error, "Could not store the uploaded image.");
 		}
 	};
 }

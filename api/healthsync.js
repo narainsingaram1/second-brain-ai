@@ -195,6 +195,7 @@ function getSupabase() {
 	return client;
 }
 String.raw`^(?:(?:please|pls|also|and|oh|ok(?:ay)?|hey|so|btw|fyi|actually|just)[,\s]+)*`;
+new TextEncoder();
 // src/services/recordSync.ts
 var PreferencesConflict = class extends Error {};
 // src/services/supabaseBrain.ts
@@ -562,6 +563,13 @@ function supabaseStore(userId, client) {
 				for (const row of data || []) texts.set(row.id, row.content);
 			});
 			return texts;
+		},
+		async putNoteImage(key, bytes, contentType) {
+			const { error } = await client.storage.from("note-images").upload(`${userId}/${key}`, bytes, {
+				contentType,
+				upsert: false
+			});
+			if (error && !/exists|duplicate/i.test(error.message)) rpcError(error, "Could not store the uploaded image.");
 		}
 	};
 }
@@ -1038,6 +1046,61 @@ const HEALTH_METRICS = [
 		decimals: 1,
 		hae: ["body_fat_percentage"],
 		description: "Body fat percentage."
+	},
+	{
+		key: "waistCm",
+		label: "Waist",
+		unit: "cm",
+		agg: "last",
+		min: 30,
+		max: 250,
+		decimals: 1,
+		hae: [],
+		description: "Waist circumference in cm."
+	},
+	{
+		key: "chestCm",
+		label: "Chest",
+		unit: "cm",
+		agg: "last",
+		min: 40,
+		max: 250,
+		decimals: 1,
+		hae: [],
+		description: "Chest circumference in cm."
+	},
+	{
+		key: "armCm",
+		label: "Arm",
+		unit: "cm",
+		agg: "last",
+		min: 15,
+		max: 100,
+		decimals: 1,
+		hae: [],
+		description: "Arm circumference in cm."
+	},
+	{
+		key: "hipCm",
+		label: "Hips",
+		unit: "cm",
+		agg: "last",
+		min: 40,
+		max: 250,
+		decimals: 1,
+		hae: [],
+		description: "Hip circumference in cm."
+	},
+	{
+		key: "thighCm",
+		label: "Thigh",
+		unit: "cm",
+		agg: "last",
+		min: 25,
+		max: 150,
+		decimals: 1,
+		hae: [],
+		description: "Thigh circumference in cm."
 	},
 	{
 		key: "sleepMin",

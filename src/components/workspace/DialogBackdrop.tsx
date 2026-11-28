@@ -1,4 +1,5 @@
 import { ReactNode, KeyboardEventHandler, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 interface Props {
   children: ReactNode;
   label: string;
@@ -35,7 +36,7 @@ export function DialogBackdrop({
       if (previous?.isConnected) previous.focus();
     };
   }, []);
-  return (
+  const dialog = (
     <div
       ref={root}
       role="dialog"
@@ -81,4 +82,5 @@ export function DialogBackdrop({
       {children}
     </div>
   );
+  return typeof document !== "undefined" ? createPortal(dialog, document.body) : dialog;
 }

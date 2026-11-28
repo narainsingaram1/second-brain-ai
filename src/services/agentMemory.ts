@@ -376,20 +376,36 @@ function unlink(entries: MemoryEntry[], removed: Set<string>): MemoryEntry[] {
   });
 }
 /** Oldest-and-least-repeated goes first, and only memories learned automatically are ever dropped for space. */
+const textEncoder = new TextEncoder();
+const utf8Bytes = (s: string) => textEncoder.encode(s).length;
+
 function makeRoom(memory: AgentMemory, keep: string): AgentMemory {
   let next = memory;
   const expired = new Set(
     memory.entries.filter((e) => e.origin === "auto" && !e.pinned && e.expiresAt && Date.parse(e.expiresAt) <= Date.now()).map((e) => e.id),
   );
   if (expired.size) next = { ...next, entries: unlink(next.entries.filter((e) => !expired.has(e.id)), expired) };
-  const fits = (m: AgentMemory) => m.entries.length <= MEMORY_LIMIT && memoryBytes(m) <= MEMORY_BYTES;
-  if (fits(next)) return next;
+  let bytes = memoryBytes(next);
+  if (next.entries.length <= MEMORY_LIMIT && bytes <= MEMORY_BYTES) return next;
   const removable = next.entries
     .filter((e) => e.origin === "auto" && !e.pinned && e.id !== keep)
     .sort((a, b) => (a.mentions || 1) - (b.mentions || 1) || a.updatedAt.localeCompare(b.updatedAt));
+  const dropped = new Set<string>();
+  let remaining = next.entries.length;
   for (const entry of removable) {
-    next = { ...next, entries: unlink(next.entries.filter((e) => e.id !== entry.id), new Set([entry.id])) };
-    if (fits(next)) break;
+    dropped.add(entry.id);
+    remaining--;
+    bytes -= utf8Bytes(JSON.stringify(entry)) + 1;
+    if (remaining <= MEMORY_LIMIT && bytes <= MEMORY_BYTES) break;
+  }
+  next = { ...next, entries: unlink(next.entries.filter((e) => !dropped.has(e.id)), dropped) };
+  // Rare edge: if comma/related rounding leaves size slightly over cap, drop until exact fit.
+  if (next.entries.length > MEMORY_LIMIT || memoryBytes(next) > MEMORY_BYTES) {
+    for (const entry of removable) {
+      if (dropped.has(entry.id)) continue;
+      next = { ...next, entries: unlink(next.entries.filter((e) => e.id !== entry.id), new Set([entry.id])) };
+      if (next.entries.length <= MEMORY_LIMIT && memoryBytes(next) <= MEMORY_BYTES) break;
+    }
   }
   return next;
 }
@@ -752,14 +768,46 @@ export function prepareMemoryChange(
 const terms = (s: string) => [
   ...new Set(s.toLowerCase().match(/[\p{L}\p{N}]{2,}/gu) || []),
 ];
-let owner = "";
-const index = new Map<string, { signature: string; words: Set<string>; title: Set<string> }>();
-export function clearMemoryIndex() {
-  owner = "";
-  index.clear();
-  archiveOwner = "";
-  archiveIndex.clear();
-  archiveWords.clear();
+type AccountSearchCache = {
+  memories: Map<string, { signature: string; words: Set<string>; title: Set<string> }>;
+  archive: Map<
+    string,
+    {
+      thread: string;
+      title: string;
+      message: AIMessage;
+      offset: number;
+      words: Set<string>;
+    }
+  >;
+  archiveWords: Map<string, Set<string>>;
+};
+const MAX_ACCOUNT_CACHES = 16;
+const accountCaches = new Map<string, AccountSearchCache>();
+
+function accountSearchCache(account: string): AccountSearchCache {
+  let cache = accountCaches.get(account);
+  if (cache) {
+    accountCaches.delete(account);
+    accountCaches.set(account, cache);
+    return cache;
+  }
+  cache = { memories: new Map(), archive: new Map(), archiveWords: new Map() };
+  accountCaches.set(account, cache);
+  while (accountCaches.size > MAX_ACCOUNT_CACHES) {
+    const oldest = accountCaches.keys().next().value;
+    if (oldest === undefined) break;
+    accountCaches.delete(oldest);
+  }
+  return cache;
+}
+
+export function clearMemoryIndex(account?: string) {
+  if (account !== undefined) {
+    accountCaches.delete(account);
+    return;
+  }
+  accountCaches.clear();
 }
 const STOP_WORDS = new Set(["what", "which", "who", "how", "is", "are", "was", "the", "my", "me", "you", "your", "do", "does", "did", "can", "could", "please", "about", "have", "has", "remember", "tell", "and", "to", "of", "in", "it", "for", "on", "at", "with", "that", "this", "be", "will", "would", "should", "we", "our", "im", "an", "or", "so", "if", "know"]);
 const queryStems = (query: string) => significantTerms(terms(query).filter((term) => !STOP_WORDS.has(term)).join(" "));
@@ -773,10 +821,7 @@ export function searchMemories(state: BrainState, query: string, offset = 0, lim
       mode: "keyword",
       disabled: true,
     };
-  if (owner !== (state.userId || "guest")) {
-    clearMemoryIndex();
-    owner = state.userId || "guest";
-  }
+  const index = accountSearchCache(state.userId || "guest").memories;
   const entries = activeMemories(memory);
   const ids = new Set(entries.map((e) => e.id));
   for (const id of index.keys()) if (!ids.has(id)) index.delete(id);
@@ -935,39 +980,23 @@ export function memoryContext(state: BrainState, query: string): string {
     .filter(Boolean)
     .join("\n");
 }
-const archiveIndex = new Map<
-  string,
-  {
-    thread: string;
-    title: string;
-    message: AIMessage;
-    offset: number;
-    words: Set<string>;
-  }
->();
-const archiveWords = new Map<string, Set<string>>();
-let archiveOwner = "";
-function removeArchiveKey(key: string) {
-  const entry = archiveIndex.get(key);
+function removeArchiveKey(cache: AccountSearchCache, key: string) {
+  const entry = cache.archive.get(key);
   if (entry)
     for (const word of entry.words) {
-      const keys = archiveWords.get(word);
+      const keys = cache.archiveWords.get(word);
       keys?.delete(key);
-      if (!keys?.size) archiveWords.delete(word);
+      if (!keys?.size) cache.archiveWords.delete(word);
     }
-  archiveIndex.delete(key);
+  cache.archive.delete(key);
 }
 export function searchConversations(
   state: BrainState,
   query: string,
   offset = 0,
 ) {
-  const account = state.userId || "guest";
-  if (archiveOwner !== account) {
-    archiveIndex.clear();
-    archiveWords.clear();
-    archiveOwner = account;
-  }
+  const cache = accountSearchCache(state.userId || "guest");
+  const { archive: archiveIndex, archiveWords } = cache;
   const live = new Set<string>();
   for (const thread of conversationThreads(state))
     for (let i = 0; i < thread.messages.length; i++) {
@@ -982,7 +1011,7 @@ export function searchConversations(
         old.offset === i
       )
         continue;
-      removeArchiveKey(key);
+      removeArchiveKey(cache, key);
       const words = new Set(terms(message.content + " " + thread.title));
       archiveIndex.set(key, {
         thread: thread.id,
@@ -1001,7 +1030,7 @@ export function searchConversations(
       }
     }
   for (const key of archiveIndex.keys())
-    if (!live.has(key)) removeArchiveKey(key);
+    if (!live.has(key)) removeArchiveKey(cache, key);
   const queryTerms = terms(query);
   const candidates = queryTerms.length
     ? new Set(queryTerms.flatMap((word) => [...(archiveWords.get(word) || [])]))

@@ -107,7 +107,7 @@ export function extractTextToolCalls(content: string, toolNames: Iterable<string
  * (e.g. "<show_ca" or "<tool_call>\n<function=") is hidden too, so the half-written call never flashes on screen.
  */
 export function stripToolMarkup(content: string, toolNames: Iterable<string> = [], streaming = false): string {
-  if (!content) return content;
+  if (!content || (!content.includes("<") && !content.includes("[TOOL_CALLS]"))) return content;
   let rest = extractTextToolCalls(content, toolNames).rest;
   if (streaming && !/```[^`]*$/.test(rest.replace(/```[\s\S]*?```/g, ""))) {
     const names = [...toolNames].map(n => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));

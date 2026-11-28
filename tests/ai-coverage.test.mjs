@@ -35,6 +35,7 @@ const COVERAGE = {
   workouts: { create: 'log_workout', update: 'update_workout', delete: 'delete_workout' },
   workoutPlans: { create: 'create_workout_plan', update: 'update_workout_plan', delete: 'delete_workout_plan' },
   routines: { create: 'create_routine', update: 'update_routine', delete: 'delete_routine' },
+  progressPhotos: { create: 'log_progress_photo', update: 'update_progress_photo', delete: 'delete_progress_photo' },
   // Left to the app, on purpose:
   'study.documents': { exempt: 'Uploaded files: the user uploads them; their text is stored apart from records and removed by the app.' },
   'study.folders': { exempt: 'Folders that organize uploaded course files, which only exist through uploads.' },
@@ -93,7 +94,7 @@ test('every tracker field in the app form can be set and changed by the assistan
 
 function emptyState() {
   return { userId: 'u', tasks: [], goals: [], habits: [], journalEntries: [], knowledgeItems: [], trackerItems: [], events: [], workspaces: [], noteFolders: [],
-    sections: ['Academic', 'Career'], subsections: { Academic: ['General', 'CS 1332'], Career: ['General'] }, chatHistory: [], openRouterKey: '', selectedModel: '', theme: 'light',
+    progressPhotos: [], sections: ['Academic', 'Career'], subsections: { Academic: ['General', 'CS 1332'], Career: ['General'] }, chatHistory: [], openRouterKey: '', selectedModel: '', theme: 'light',
     study: { courses: [], folders: [], documents: [], decks: [], quizzes: [] } };
 }
 const career = { id: 'workspace-career', name: 'Career', description: '', template: 'career', color: 'purple', notes: '', createdAt: '2026-01-01' };
@@ -231,4 +232,47 @@ test('Courses, decks and quizzes can be edited and deleted', () => {
   assert.equal(s.study.courses.length, 0); assert.equal(s.study.decks.length, 0); assert.equal(s.tasks.length, 1, 'tasks stay');
   const withDoc = { ...s, study: { ...s.study, courses: [{ id: 'c2', workspaceId: 'w', code: 'X', name: 'X', createdAt: '', updatedAt: '' }], documents: [{ id: 'd', courseId: 'c2' }] } };
   assert.throws(() => prepareMutation('delete_course', { courseId: 'c2' }, withDoc), /uploaded document/);
+});
+
+test('Progress photos: log, edit details and measurements, require approval to delete, and delete', () => {
+  const healthWs = { id: 'ws-health', name: 'Health', description: '', template: 'health', color: 'rose', notes: '', createdAt: '2026-01-01', health: { weightUnit: 'lb', lengthUnit: 'in' } };
+  let s = { ...emptyState(), workspaces: [healthWs] };
+  let r = run(s, 'log_progress_photo', {
+    date: '2026-11-20',
+    time: '07:30',
+    pose: 'front',
+    imageRef: 'synapse-img:0123456789abcdef0123456789abcdef.webp',
+    weight: 180,
+    bodyFatPct: 16.5,
+    waist: 33,
+    phase: 'Cut',
+    tags: ['fasted', 'morning'],
+    milestone: true,
+    note: 'Week 1 baseline check-in',
+  });
+  s = r.state;
+  const id = r.m.record.id;
+  assert.equal(s.progressPhotos.length, 1);
+  assert.ok(Math.abs(s.progressPhotos[0].weightKg - 81.65) < 0.05);
+  assert.ok(Math.abs(s.progressPhotos[0].measurements.waistCm - 83.8) < 0.2);
+  assert.equal(s.progressPhotos[0].milestone, true);
+
+  s = run(s, 'update_progress_photo', {
+    photoId: id,
+    pose: 'side',
+    arm: 15.5,
+    addTags: ['natural light'],
+    removeTags: ['morning'],
+    replaceNote: 'Updated side angle note',
+    milestone: false,
+  }).state;
+  assert.equal(s.progressPhotos[0].pose, 'side');
+  assert.ok(Math.abs(s.progressPhotos[0].measurements.armCm - 39.4) < 0.2);
+  assert.deepEqual(s.progressPhotos[0].tags, ['fasted', 'natural light']);
+  assert.equal(s.progressPhotos[0].note, 'Updated side angle note');
+  assert.equal(s.progressPhotos[0].milestone, undefined);
+
+  const del = prepareMutation('delete_progress_photo', { photoId: id }, s);
+  assert.match(approvalReason('delete_progress_photo', { untrustedRead: false, changes: 0, askBeforeChanges: false }), /approval/);
+  assert.equal(applyMutation(s, del).progressPhotos.length, 0);
 });

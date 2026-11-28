@@ -1,5 +1,5 @@
-import React, { useState, useRef } from "react";
-import { JournalEntry, Task, Habit, KnowledgeItem } from "../types";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import { BrainState, JournalEntry, Task, Habit, KnowledgeItem } from "../types";
 import {
   PenLine,
   Save,
@@ -29,14 +29,29 @@ import {
   Check,
   Bookmark,
   X,
+  AtSign,
+  Eye,
+  Edit3,
 } from "lucide-react";
 import { MarkdownView } from "./MarkdownView";
 import { queryOpenRouter } from "../services/openrouter";
+import { RecordMentionMenu, RecordTypeIcon } from "./RecordMentionMenu";
+import { RelatedContextPanel } from "./NoteContextPanel";
+import {
+  detectMentionTrigger,
+  extractLinksFromText,
+  formatLinkMarkdown,
+  resolveWikiTarget,
+  type LinkCandidate,
+  type LinkTargetType,
+} from "../utils/noteLinks";
+import { navigateToRecord } from "../utils/recordNavigation";
 
 interface JournalViewProps {
   entries: JournalEntry[];
   tasks: Task[];
   habits: Habit[];
+  brainState?: BrainState | null;
   onSaveEntry: (entry: JournalEntry) => void;
   onSynthesizeAI: (entry: JournalEntry) => Promise<string>;
   openRouterKey: string;
@@ -44,6 +59,39 @@ interface JournalViewProps {
   onOpenSettings: () => void;
   onAddTask?: (task: Task) => void;
   onSaveKnowledge?: (item: KnowledgeItem) => void;
+}
+
+/** Computes viewport coordinates for the active text selection inside a textarea using a style-matched mirror. */
+function textareaCaretPosition(textarea: HTMLTextAreaElement, caretIndex: number): { top: number; left: number; caretTop: number } {
+  const rect = textarea.getBoundingClientRect();
+  if (typeof window === "undefined") return { top: rect.top + 32, left: rect.left + 16, caretTop: rect.top + 12 };
+  const style = window.getComputedStyle(textarea);
+  const mirror = document.createElement("div");
+  const props = [
+    "boxSizing", "width", "fontSize", "fontFamily", "fontWeight", "lineHeight", "letterSpacing",
+    "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "borderTopWidth", "borderLeftWidth",
+    "whiteSpace", "wordWrap", "overflowWrap",
+  ] as const;
+  mirror.style.position = "fixed";
+  mirror.style.visibility = "hidden";
+  mirror.style.top = "0";
+  mirror.style.left = "-9999px";
+  mirror.style.whiteSpace = "pre-wrap";
+  for (const prop of props) (mirror.style as any)[prop] = (style as any)[prop];
+  mirror.textContent = textarea.value.slice(0, caretIndex);
+  const marker = document.createElement("span");
+  marker.textContent = "\u200b";
+  mirror.appendChild(marker);
+  document.body.appendChild(mirror);
+  const mRect = marker.getBoundingClientRect();
+  const baseRect = mirror.getBoundingClientRect();
+  document.body.removeChild(mirror);
+  const caretTop = rect.top + (mRect.top - baseRect.top) - textarea.scrollTop;
+  return {
+    top: caretTop + 24,
+    caretTop,
+    left: rect.left + (mRect.left - baseRect.left) - textarea.scrollLeft,
+  };
 }
 
 // Helpers for formatted date presentation matching reference screenshot
@@ -81,6 +129,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
   entries,
   tasks,
   habits,
+  brainState,
   onSaveEntry,
   onSynthesizeAI,
   openRouterKey,
@@ -114,6 +163,14 @@ export const JournalView: React.FC<JournalViewProps> = ({
   const [isCopiedSynthesis, setIsCopiedSynthesis] = useState(false);
   const [isSavedNoteSuccess, setIsSavedNoteSuccess] = useState(false);
   const [isAllEntriesModalOpen, setIsAllEntriesModalOpen] = useState(false);
+  const [editorMode, setEditorMode] = useState<"write" | "preview">("write");
+  const [mentionState, setMentionState] = useState<{
+    trigger: "[[" | "@";
+    query: string;
+    start: number;
+    end: number;
+    position: { top: number; left: number; caretTop?: number };
+  } | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dateInputRef = useRef<HTMLInputElement>(null);
@@ -178,6 +235,7 @@ export const JournalView: React.FC<JournalViewProps> = ({
 
   const handleSelectDate = (dateStr: string) => {
     setSelectedDate(dateStr);
+    setMentionState(null);
     const existing = allMergedEntries.find((e) => e.date === dateStr);
     if (existing) {
       setCurrentEntry(existing);
@@ -193,6 +251,154 @@ export const JournalView: React.FC<JournalViewProps> = ({
         tags: ["Reflection"],
       });
     }
+  };
+
+  useEffect(() => {
+    const jumpToJournalId = (id: string) => {
+      const match = allMergedEntries.find(e => e.id === id);
+      if (match) handleSelectDate(match.date);
+      else if (/^journal-\d{4}-\d{2}-\d{2}$/.test(id)) handleSelectDate(id.slice(8));
+    };
+    const lastNav = (window as any).__synapse_last_record_navigation;
+    if (lastNav && lastNav.type === "journal" && Date.now() - lastNav.time < 3000) {
+      jumpToJournalId(lastNav.id);
+    }
+    const onNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ type: string; id: string }>).detail;
+      if (detail?.type === "journal") jumpToJournalId(detail.id);
+    };
+    window.addEventListener("synapse-navigate-to-record", onNavigate);
+    return () => window.removeEventListener("synapse-navigate-to-record", onNavigate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allMergedEntries]);
+
+  const linkedRecords = useMemo(() => {
+    const raw = extractLinksFromText(
+      [currentEntry.content, ...currentEntry.wins, ...currentEntry.challenges].join("\n"),
+      brainState,
+    );
+    const seen = new Set<string>();
+    return raw.filter(l => {
+      const key = `${l.type}:${l.id || l.label.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [currentEntry.content, currentEntry.wins, currentEntry.challenges, brainState]);
+
+  const handleOpenLinked = (type: LinkTargetType, id: string | null, label: string) => {
+    if (id) {
+      navigateToRecord(type, id, label, brainState);
+      return;
+    }
+    const resolved = resolveWikiTarget(label, brainState);
+    if (resolved.id) {
+      navigateToRecord(resolved.type, resolved.id, resolved.label, brainState);
+      return;
+    }
+    if (resolved.type === "knowledge" && onSaveKnowledge) {
+      const now = new Date().toISOString();
+      const created: KnowledgeItem = {
+        id: `note-${Date.now()}`,
+        title: resolved.label,
+        subject: resolved.label,
+        content: "",
+        summary: "",
+        folderId: null,
+        status: "Synthesized",
+        startDate: now.slice(0, 10),
+        endDate: now.slice(0, 10),
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      onSaveKnowledge(created);
+      navigateToRecord("knowledge", created.id, created.title, brainState);
+    }
+  };
+
+  const detectTextareaMention = (el: HTMLTextAreaElement, nextValue: string, explicitCaret?: number) => {
+    const caret = explicitCaret ?? el.selectionStart ?? nextValue.length;
+    const before = nextValue.slice(0, caret);
+    const detected = detectMentionTrigger(before);
+    if (!detected) {
+      setMentionState(null);
+      return;
+    }
+    const pos = textareaCaretPosition(el, caret);
+    setMentionState({
+      trigger: detected.trigger,
+      query: detected.query,
+      start: caret - detected.offsetFromEnd,
+      end: caret,
+      position: pos,
+    });
+  };
+
+  const insertJournalLink = (
+    candidate: Pick<LinkCandidate, "type" | "id" | "label" | "syntax"> & { unresolved?: boolean },
+    range?: { start: number; end: number },
+  ) => {
+    let target = candidate;
+    if (candidate.unresolved && candidate.type === "knowledge" && onSaveKnowledge) {
+      const now = new Date().toISOString();
+      const created: KnowledgeItem = {
+        id: `note-${Date.now()}`,
+        title: candidate.label,
+        subject: candidate.label,
+        content: "",
+        summary: "",
+        folderId: null,
+        status: "Synthesized",
+        startDate: now.slice(0, 10),
+        endDate: now.slice(0, 10),
+        tags: [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      onSaveKnowledge(created);
+      target = { ...candidate, id: created.id, unresolved: false };
+    }
+    const formatted = formatLinkMarkdown(target);
+    const text = currentEntry.content;
+    const textarea = textareaRef.current;
+    const start = range ? range.start : textarea?.selectionStart ?? text.length;
+    const end = range ? range.end : textarea?.selectionEnd ?? text.length;
+    const prefixSpace = !range && start > 0 && !/\s$/.test(text.slice(0, start)) ? " " : "";
+    const replacement = `${prefixSpace}${formatted} `;
+    const updated = `${text.slice(0, start)}${replacement}${text.slice(end)}`;
+    setCurrentEntry(prev => ({ ...prev, content: updated }));
+    setMentionState(null);
+    setEditorMode("write");
+    window.setTimeout(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      const nextPos = start + replacement.length;
+      textareaRef.current.setSelectionRange(nextPos, nextPos);
+    }, 0);
+  };
+
+  const triggerManualMention = (trigger: "[[" | "@") => {
+    const wasFocused = document.activeElement === textareaRef.current;
+    setEditorMode("write");
+    window.setTimeout(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      const text = currentEntry.content;
+      const rawStart = wasFocused ? (textarea.selectionStart ?? text.length) : text.length;
+      const rawEnd = wasFocused ? (textarea.selectionEnd ?? rawStart) : rawStart;
+      const needSpace = rawStart > 0 && !/[\s(\[{"']$/.test(text.slice(0, rawStart));
+      const inserted = `${needSpace ? " " : ""}${trigger}`;
+      const updated = `${text.slice(0, rawStart)}${inserted}${text.slice(rawEnd)}`;
+      setCurrentEntry(prev => ({ ...prev, content: updated }));
+      window.setTimeout(() => {
+        if (!textareaRef.current) return;
+        const pos = rawStart + inserted.length;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(pos, pos);
+        detectTextareaMention(textareaRef.current, updated, pos);
+      }, 0);
+    }, 0);
   };
 
   const handleSave = () => {
@@ -481,8 +687,8 @@ export const JournalView: React.FC<JournalViewProps> = ({
             {/* Row 4: Main Content Container with Top Toolbar */}
             <div className="rounded-2xl border border-line bg-slate-50/30 dark:bg-slate-900/20 overflow-hidden focus-within:border-slate-300 dark:focus-within:border-slate-300 transition-colors">
               {/* Toolbar */}
-              <div className="flex items-center justify-between border-b border-line px-3 py-2 bg-white/70 dark:bg-slate-900/50">
-                <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-3 py-2 bg-white/70 dark:bg-slate-900/50">
+                <div className="flex flex-wrap items-center gap-1">
                   <button
                     type="button"
                     onClick={() => handleFormat("bold")}
@@ -523,10 +729,49 @@ export const JournalView: React.FC<JournalViewProps> = ({
                   >
                     <ListOrdered className="w-3.5 h-3.5" />
                   </button>
+                  <span className="h-4 w-px bg-slate-200 dark:bg-slate-700 mx-1" aria-hidden="true" />
+                  <button
+                    type="button"
+                    onClick={() => triggerManualMention("[[")}
+                    className="px-2 h-7 rounded-lg flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-semibold"
+                    title="Link a note ([[)"
+                  >
+                    <span className="font-mono text-[10px]">[[</span>
+                    <span className="hidden sm:inline">Note</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => triggerManualMention("@")}
+                    className="px-2 h-7 rounded-lg flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 text-[11px] font-semibold"
+                    title="Mention a task, course, event, or job app (@)"
+                  >
+                    <AtSign className="w-3 h-3" />
+                    <span className="hidden sm:inline">Mention</span>
+                  </button>
                 </div>
 
-                {/* Write with AI Dropdown */}
-                <div className="relative">
+                {/* Write / Preview + Write with AI Dropdown */}
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center bg-raised p-0.5 rounded-lg border border-line">
+                    <button
+                      type="button"
+                      onClick={() => setEditorMode("write")}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-semibold flex items-center gap-1 ${editorMode === "write" ? "bg-panel text-ink shadow-2xs" : "text-muted"}`}
+                    >
+                      <Edit3 className="w-3 h-3" />
+                      <span>Write</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setMentionState(null); setEditorMode("preview"); }}
+                      className={`px-2 py-0.5 rounded-md text-[11px] font-semibold flex items-center gap-1 ${editorMode === "preview" ? "bg-panel text-ink shadow-2xs" : "text-muted"}`}
+                    >
+                      <Eye className="w-3 h-3" />
+                      <span>Preview</span>
+                    </button>
+                  </div>
+
+                  <div className="relative">
                   <button
                     type="button"
                     onClick={() => setIsAiMenuOpen(!isAiMenuOpen)}
@@ -564,19 +809,77 @@ export const JournalView: React.FC<JournalViewProps> = ({
                       </button>
                     </div>
                   )}
+                  </div>
                 </div>
               </div>
 
-              {/* Main Textarea */}
-              <textarea
-                ref={textareaRef}
-                rows={8}
-                placeholder="What happened today, and how did it go?"
-                value={currentEntry.content}
-                onChange={(e) => setCurrentEntry((prev) => ({ ...prev, content: e.target.value }))}
-                className="w-full bg-transparent px-4 py-3.5 text-xs sm:text-sm leading-relaxed text-ink placeholder:text-slate-400 focus:outline-none resize-none font-medium"
-              />
+              {/* Main Textarea or Interactive Preview */}
+              {editorMode === "preview" ? (
+                <div className="px-4 py-3.5 min-h-[206px] text-xs sm:text-sm leading-relaxed text-ink">
+                  {currentEntry.content.trim() ? (
+                    <MarkdownView
+                      content={currentEntry.content}
+                      brainState={brainState}
+                      onNavigateRecord={handleOpenLinked}
+                    />
+                  ) : (
+                    <p className="text-slate-400 italic">Nothing written for this entry yet.</p>
+                  )}
+                </div>
+              ) : (
+                <textarea
+                  ref={textareaRef}
+                  rows={8}
+                  placeholder="What happened today? Type [[ to link a note or @ to mention a task, course, event, or job application…"
+                  value={currentEntry.content}
+                  onChange={(e) => {
+                    const nextVal = e.target.value;
+                    setCurrentEntry((prev) => ({ ...prev, content: nextVal }));
+                    detectTextareaMention(e.currentTarget, nextVal);
+                  }}
+                  onClick={(e) => detectTextareaMention(e.currentTarget, e.currentTarget.value)}
+                  onKeyUp={(e) => {
+                    if (!["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(e.key)) {
+                      detectTextareaMention(e.currentTarget, e.currentTarget.value);
+                    }
+                  }}
+                  className="w-full bg-transparent px-4 py-3.5 text-xs sm:text-sm leading-relaxed text-ink placeholder:text-slate-400 focus:outline-none resize-none font-medium"
+                />
+              )}
+
+              {linkedRecords.length > 0 && (
+                <div className="px-3.5 py-2.5 border-t border-line bg-white/50 dark:bg-slate-900/30 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[11px] font-semibold text-muted mr-1">Linked:</span>
+                  {linkedRecords.map((link, idx) => (
+                    <button
+                      key={`${link.type}:${link.id || link.label}:${idx}`}
+                      type="button"
+                      onClick={() => handleOpenLinked(link.type, link.id, link.label)}
+                      className={`nx-record-pill nx-pill-${link.type}`}
+                      title={`Open ${link.label}`}
+                    >
+                      <RecordTypeIcon type={link.type} size={11} />
+                      <span>{link.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+
+            <RecordMentionMenu
+              open={!!mentionState && editorMode === "write"}
+              trigger={mentionState?.trigger || "[["}
+              query={mentionState?.query || ""}
+              position={mentionState?.position || { top: 0, left: 0 }}
+              state={brainState}
+              onSelect={candidate =>
+                insertJournalLink(
+                  candidate,
+                  mentionState ? { start: mentionState.start, end: mentionState.end } : undefined,
+                )
+              }
+              onClose={() => setMentionState(null)}
+            />
 
             {/* Row 5: Two Sub-Boxes at bottom (Wins & Obstacles) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
@@ -687,6 +990,22 @@ export const JournalView: React.FC<JournalViewProps> = ({
         {/* RIGHT COLUMN (4 cols): AI Synthesis + Previous Entries    */}
         {/* --------------------------------------------------------- */}
         <div className="lg:col-span-4 space-y-5">
+          {brainState && (
+            <div className="rounded-3xl border border-line bg-panel p-4 shadow-xs">
+              <RelatedContextPanel
+                state={brainState}
+                current={{
+                  type: "journal",
+                  id: currentEntry.id,
+                  title: currentEntry.title || `Journal ${selectedDate}`,
+                  content: currentEntry.content,
+                  tags: currentEntry.tags,
+                }}
+                onInsertLink={candidate => insertJournalLink(candidate)}
+              />
+            </div>
+          )}
+
           {/* Card 1: AI SECOND BRAIN SYNTHESIS */}
           <div className="rounded-3xl border border-line dark:border-[#28274a] bg-panel dark:bg-panel p-5 shadow-xs space-y-4">
             {/* Header */}

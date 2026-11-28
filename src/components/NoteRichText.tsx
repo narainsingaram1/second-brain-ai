@@ -6,7 +6,10 @@ import { ANNOTATE_EVENT, type AnnotateDetail } from "./noteImage";
 import { imageFilesFrom } from "../utils/imageInput";
 import { prepareNoteImage } from "../utils/noteImages";
 import { storeNoteImage } from "../services/noteImageStore";
-import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting } from "lucide-react";
+import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting, AtSign } from "lucide-react";
+import type { BrainState } from "../types";
+import { detectMentionTrigger, type LinkCandidate, type LinkTargetType } from "../utils/noteLinks";
+import { RecordMentionMenu } from "./RecordMentionMenu";
 
 const PAUSE_MS = 600, MAX_UNSAVED_MS = 5000;
 const whenIdle = (run: () => void): number => typeof requestIdleCallback === "function"
@@ -48,11 +51,24 @@ async function externalizeImages(editor: Editor) {
   editor.view.dispatch(tr.setMeta("addToHistory", false));
 }
 
-interface Props { content: string; onChange: (markdown: string) => void; readOnly?: boolean }
+interface Props {
+  content: string;
+  onChange: (markdown: string) => void;
+  readOnly?: boolean;
+  brainState?: BrainState | null;
+  noteId?: string;
+  onOpenRecordLink?: (link: { type: LinkTargetType; id: string | null; label: string; syntax: "wiki" | "mention" }) => void;
+}
 
-export interface NoteRichTextHandle { flush: () => string }
+export interface NoteRichTextHandle {
+  flush: () => string;
+  insertRecordLink: (candidate: Pick<LinkCandidate, "type" | "id" | "label" | "syntax">) => void;
+}
 
-export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function NoteRichText({ content, onChange, readOnly = false }, ref) {
+export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function NoteRichText(
+  { content, onChange, readOnly = false, brainState, noteId, onOpenRecordLink },
+  ref,
+) {
   const extensions = useMemo(noteExtensions, []);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -89,10 +105,40 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
   const [linkError, setLinkError] = useState("");
   const [annotating, setAnnotating] = useState<AnnotateDetail | null>(null);
   const [imageError, setImageError] = useState("");
+  const [mentionState, setMentionState] = useState<{
+    trigger: "[[" | "@";
+    query: string;
+    from: number;
+    to: number;
+    position: { top: number; left: number; caretTop?: number };
+  } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const showImageError = (message: string) => { setImageError(message); setTimeout(() => setImageError(""), 5000); };
   const errorRef = useRef(showImageError);
   errorRef.current = showImageError;
+  const openLinkRef = useRef(onOpenRecordLink);
+  openLinkRef.current = onOpenRecordLink;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+
+  const updateMentionFromEditor = (instance: Editor) => {
+    if (readOnlyRef.current || !instance.isEditable) { setMentionState(null); return; }
+    const { selection } = instance.state;
+    if (!selection.empty) { setMentionState(null); return; }
+    const { $from } = selection;
+    if ($from.parent.type.spec.code || instance.isActive("code")) { setMentionState(null); return; }
+    const textBefore = $from.parent.textBetween(0, $from.parentOffset, "\n", "\0");
+    const detected = detectMentionTrigger(textBefore);
+    if (!detected) { setMentionState(null); return; }
+    const coords = instance.view.coordsAtPos($from.pos);
+    setMentionState({
+      trigger: detected.trigger,
+      query: detected.query,
+      from: $from.pos - detected.offsetFromEnd,
+      to: $from.pos,
+      position: { top: coords.bottom + 8, left: coords.left, caretTop: coords.top },
+    });
+  };
   const editor = useEditor({
     extensions,
     content,
@@ -123,8 +169,26 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         setAnnotating({ pos, src: node.attrs.src });
         return true;
       },
+      handleDOMEvents: {
+        click: (_view, event) => {
+          const pill = (event.target as HTMLElement | null)?.closest?.<HTMLElement>('[data-record-link="true"]');
+          if (!pill) return false;
+          event.preventDefault();
+          openLinkRef.current?.({
+            type: (pill.dataset.linkType || "knowledge") as LinkTargetType,
+            id: pill.dataset.linkId || null,
+            label: pill.dataset.linkLabel || pill.textContent || "Untitled",
+            syntax: pill.dataset.linkSyntax === "mention" ? "mention" : "wiki",
+          });
+          return true;
+        },
+      },
+    },
+    onSelectionUpdate: ({ editor }) => {
+      updateMentionFromEditor(editor);
     },
     onUpdate: ({ editor }) => {
+      updateMentionFromEditor(editor);
       // Editing stays in ProseMirror. Convert the full document only after a pause,
       // with a bounded interval for long uninterrupted writing sessions.
       // Each publish is one save, so it waits for a pause in typing (or at most a few seconds).
@@ -134,7 +198,26 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       if (!maxTimer.current) maxTimer.current = setTimeout(() => publishWhenIdle(editor), MAX_UNSAVED_MS);
     },
   });
-  useImperativeHandle(ref, () => ({ flush: () => editor ? publish(editor) : publishedRef.current }), [editor]);
+  const insertRecordLink = (candidate: Pick<LinkCandidate, "type" | "id" | "label" | "syntax">, replaceRange?: { from: number; to: number }) => {
+    if (!editor) return;
+    const nodeAttrs = {
+      targetType: candidate.type,
+      targetId: candidate.id || null,
+      label: candidate.label,
+      syntax: candidate.type === "knowledge" && candidate.syntax === "wiki" ? "wiki" : "mention",
+    };
+    const chain = editor.chain().focus();
+    if (replaceRange) {
+      chain.insertContentAt({ from: replaceRange.from, to: replaceRange.to }, [{ type: "recordLink", attrs: nodeAttrs }, { type: "text", text: " " }]).run();
+    } else {
+      chain.insertContent([{ type: "recordLink", attrs: nodeAttrs }, { type: "text", text: " " }]).run();
+    }
+    setMentionState(null);
+  };
+  useImperativeHandle(ref, () => ({
+    flush: () => editor ? publish(editor) : publishedRef.current,
+    insertRecordLink: candidate => insertRecordLink(candidate),
+  }), [editor]);
   useEffect(() => () => clearTimers(), []);
   useEffect(() => { if (editor && editor.isEditable === readOnly) editor.setEditable(!readOnly); }, [editor, readOnly]);
   useEffect(() => {
@@ -193,6 +276,12 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         {tool("Code block", Code, () => { editor.chain().focus().toggleCodeBlock().run(); }, state?.codeBlock)}
         {tool("Divider", Minus, () => { editor.chain().focus().setHorizontalRule().run(); })}
         {tool("Insert image (or paste / drop one)", ImagePlus, () => fileInput.current?.click())}
+        {tool("Link a note or mention record (@ / [[)", AtSign, () => {
+          const { selection } = editor.state;
+          const textBefore = selection.$from.parent.textBetween(0, selection.$from.parentOffset, "\n", "\0");
+          const needSpace = textBefore.length > 0 && !/[\s(\[{"']$/.test(textBefore);
+          editor.chain().focus().insertContent(needSpace ? " @" : "@").run();
+        })}
         {divider}
         {tool("Add or edit link", Link2, () => { setLinkUrl(editor.getAttributes("link").href || ""); setLinkError(""); setLinkOpen(!linkOpen); }, state?.link)}
         {state?.link && tool("Remove link", Unlink, () => { editor.chain().focus().extendMarkRange("link").unsetLink().run(); })}
@@ -219,7 +308,17 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       </form>}
     </>}
     <EditorContent editor={editor} />
-    {!readOnly && <p className="note-writing-hint">Markdown shortcuts work as you type · Paste or drop images, drag their edges to resize, double-click to draw · ⌘/Ctrl+Z to undo</p>}
+    {!readOnly && <p className="note-writing-hint">Type [[ to link a note, @ to mention a task/course/event/job app · Click any linked pill to jump · Double-click images to draw</p>}
+    <RecordMentionMenu
+      open={!!mentionState && !readOnly}
+      trigger={mentionState?.trigger || "[["}
+      query={mentionState?.query || ""}
+      position={mentionState?.position || { top: 0, left: 0 }}
+      state={brainState}
+      excludeNoteId={noteId}
+      onSelect={candidate => insertRecordLink(candidate, mentionState ? { from: mentionState.from, to: mentionState.to } : undefined)}
+      onClose={() => setMentionState(null)}
+    />
     {annotating && <Suspense fallback={null}><ImageAnnotator src={annotating.src} onClose={() => { setAnnotating(null); editor.commands.focus(); }} onSave={async blob => {
       const src = await storeNoteImage(blob);
       let pos = annotating.pos, node = editor.state.doc.nodeAt(pos);

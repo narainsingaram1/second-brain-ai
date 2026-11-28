@@ -1,6 +1,7 @@
 import type { OpenRouterTool } from "./openrouter";
 import type { BrainState } from "../types";
 import { MEMORY_CATEGORIES, searchMemories, withConnections } from "./agentMemory";
+import type { RetrievalContext } from "./brainRetrieval";
 import { MEMORY_RECORD_TYPES } from "./memoryGraph";
 import { semanticMemorySearch } from "./memorySemantic";
 const string = { type: "string" };
@@ -91,11 +92,12 @@ export async function readMemories(
   args: Record<string, any>,
   key: string,
   signal?: AbortSignal,
+  ctx?: Pick<RetrievalContext, "embeddingCache" | "providerBase">,
 ) {
   if (args.semantic)
     return withConnections(
       state,
-      await semanticMemorySearch(state, args.query, args.offset || 0, key, signal),
+      await semanticMemorySearch(state, args.query, args.offset || 0, key, signal, ctx),
     );
   return withConnections(state, searchMemories(state, args.query, args.offset || 0));
 }

@@ -55,7 +55,7 @@ User types in chat (ChatWorkspace.tsx)
 | **13** | Done | Sync correctness | `src/services/recordSync.ts` (`savePreferences` conflict path, and the preference merge in `refresh`) | Found while testing Batch 1; it predates it. After a preference save conflicts, the engine records the other device's values as saved but leaves this device's local values unchanged. `refresh` then sees each local value differ from the recorded one, treats it as an unsaved local edit, and the next save sends it back. Example: device B changes the theme, device A saves any other preference at the same time, and A's next save restores A's old theme. | A preference changed on one device can be undone by another that saved at the same moment. Data, not speed. | After a conflict, apply the remote values for keys this device didn't change to local state (or record this device's previous JSON for them, so `refresh` adopts the remote value). Add a two-device test. |
 
 **Not yet profiled:** rendering in `WorkspacesView.tsx` (1,765 lines, no memoization at all), `TaskMatrixView.tsx`,
-`DailyPlannerView.tsx` and `JournalView.tsx`, the browser extension (`extension/page-agent.js`), and
+and `JournalView.tsx`, the browser extension (`extension/page-agent.js`), and
 `lectureRecorder.ts`. Any of these could hold findings that rank above #5. A React Profiler pass on a large
 workspace should come before Batch 4.
 

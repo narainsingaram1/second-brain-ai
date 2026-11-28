@@ -233,7 +233,16 @@ function WeightCard({ api, stats }: { api: TrainingApi; stats: TrainingStats }) 
   const latest = wt.points[wt.points.length - 1];
   return (
     <section className="hl-card">
-      <header><span>Body weight</span><Scale size={16} /></header>
+      <header>
+        <span>Body weight</span>
+        {api.onOpenBody ? (
+          <button type="button" className="hl-link" style={{ marginTop: 0 }} onClick={api.onOpenBody}>
+            Graphs &amp; photos →
+          </button>
+        ) : (
+          <Scale size={16} />
+        )}
+      </header>
       <div className="hl-big">{latest ? fmtWeight(latest.avg, unit) : "—"}<small>{latest ? `7-day average · last weighed ${shortDate(latest.date)}` : "no weigh-ins yet"}</small></div>
       <dl className="hl-facts">
         <div><dt>Per week</dt><dd>{wt.perWeekKg !== undefined ? `${wt.perWeekKg > 0 ? "+" : ""}${fmtWeight(wt.perWeekKg, unit)}` : "—"}</dd></div>
