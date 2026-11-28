@@ -218,3 +218,63 @@ test('backlinks, unlinked mentions, trigger detection, related context and knowl
   assert.ok(graph.edges.some(e => e.kind === 'explicit' && e.source === 'knowledge:n-2' && e.target === 'knowledge:n-1'));
   assert.ok(graph.edges.some(e => e.kind === 'structure' && e.source === 'course:c-1' && e.target === 'task:t-1'));
 });
+
+test('embedded whiteboards round-trip in Markdown, compact strokes, hit-test cleanly, and stay out of AI payloads', async () => {
+  const {
+    parseWhiteboardAlt,
+    formatWhiteboardAlt,
+    extractWhiteboardIds,
+    compactStrokePoints,
+    hitTestWhiteboardElement,
+    computeWhiteboardBounds,
+    WHITEBOARD_BLANK_SRC,
+  } = await server.ssrLoadModule('/src/utils/whiteboard.ts');
+  const { stripNoteImages } = await server.ssrLoadModule('/src/utils/noteImages.ts');
+  const { records } = await server.ssrLoadModule('/src/services/brainRetrieval.ts');
+
+  const previewRef = 'synapse-img:abcdef0123456789abcdef0123456789.png';
+  const markdown = `Intro\n\n![${formatWhiteboardAlt('wb-abc', 'System Architecture', 520)}](${previewRef})\n\n![${formatWhiteboardAlt('wb-empty', 'Scratchpad')}](${WHITEBOARD_BLANK_SRC})`;
+  const parsed = manager.parse(markdown);
+  const boards = allNodes(parsed).filter(n => n.type === 'whiteboard');
+  assert.equal(boards.length, 2);
+  assert.equal(boards[0].attrs.boardId, 'wb-abc');
+  assert.equal(boards[0].attrs.title, 'System Architecture');
+  assert.equal(boards[0].attrs.width, 520);
+  assert.equal(boards[0].attrs.src, previewRef);
+  assert.equal(boards[1].attrs.boardId, 'wb-empty');
+  assert.equal(boards[1].attrs.src, WHITEBOARD_BLANK_SRC);
+  assert.deepEqual(manager.parse(manager.serialize(parsed)), parsed);
+  assert.deepEqual(extractWhiteboardIds(manager.serialize(parsed)), ['wb-abc', 'wb-empty']);
+  assert.equal(stripNoteImages(markdown).trim(), 'Intro');
+
+  assert.deepEqual(parseWhiteboardAlt('wb:wb-1|Diagram|320'), { boardId: 'wb-1', title: 'Diagram', width: 320 });
+  assert.equal(parseWhiteboardAlt('plain-image'), null);
+
+  const compacted = compactStrokePoints([[0, 0, 0.5], [0.2, 0.2, 0.51], [10.44, 20.66, 0.723]]);
+  assert.deepEqual(compacted, [[0, 0, 0.5], [10.4, 20.7, 0.72]]);
+
+  const stroke = { id: 's1', kind: 'pen', color: '#0f172a', size: 4, points: [[0, 0, 0.5], [100, 0, 0.6]] };
+  assert.equal(hitTestWhiteboardElement(null, stroke, [50, 3], 6), true);
+  assert.equal(hitTestWhiteboardElement(null, stroke, [50, 30], 6), false);
+
+  const bounds = computeWhiteboardBounds([stroke, { id: 'r1', kind: 'rect', color: '#2563eb', size: 4, a: [20, 10], b: [140, 80] }]);
+  assert.ok(bounds && bounds.width >= 140 && bounds.height >= 80);
+
+  const retrieved = records({
+    tasks: [], habits: [], journalEntries: [], trackerItems: [], events: [], workspaces: [], noteFolders: [], chatHistory: [],
+    openRouterKey: '', selectedModel: '', theme: 'light', sections: [], subsections: {},
+    knowledgeItems: [{
+      id: 'n-wb',
+      subject: 'Arch Notes',
+      title: 'Arch Notes',
+      content: markdown,
+      summary: 'Intro',
+      status: 'Synthesized',
+      startDate: '2026-11-27',
+      endDate: '2026-11-27',
+      whiteboards: { 'wb-abc': { version: 1, theme: 'light', background: 'dots', elements: [stroke], updatedAt: '2026-11-27T00:00:00.000Z' } },
+    }],
+  }, 'knowledge');
+  assert.equal(retrieved.length, 1);
+  assert.equal(retrieved[0].data.whiteboards, undefined);
+});

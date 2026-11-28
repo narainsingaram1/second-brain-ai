@@ -191,12 +191,19 @@ const MAX_STUDY_CHUNK_CACHE = 500;
 const studyChunkCache = new Map<string, { title: string; prose: string; chunks: Source[] }>();
 const hiddenImageNotes = new WeakMap<object, { content: string; hidden: unknown }>();
 /** The note as the assistant sees it: inline image data replaced by `note-image:N` tokens. Same object when it has none. */
-function noteWithoutImages<T extends { content?: string }>(item: T): T {
-  if (!item.content || !hasInlineImages(item.content)) return item;
-  const known = hiddenImageNotes.get(item);
-  if (known && known.content === item.content) return known.hidden as T;
-  const hidden = { ...item, content: hideNoteImages(item.content) };
-  hiddenImageNotes.set(item, { content: item.content, hidden });
+function noteWithoutImages<T extends { content?: string; whiteboards?: unknown }>(item: T): T {
+  const hasWhiteboards = "whiteboards" in item && item.whiteboards !== undefined;
+  if ((!item.content || !hasInlineImages(item.content)) && !hasWhiteboards) return item;
+  const cached = item.content && hasInlineImages(item.content) ? hiddenImageNotes.get(item) : undefined;
+  if (cached && cached.content === item.content && !hasWhiteboards) return cached.hidden as T;
+  const hidden: T = {
+    ...item,
+    ...(item.content && hasInlineImages(item.content) ? { content: hideNoteImages(item.content) } : {}),
+    ...(hasWhiteboards ? { whiteboards: undefined } : {}),
+  };
+  if (item.content && hasInlineImages(item.content) && !hasWhiteboards) {
+    hiddenImageNotes.set(item, { content: item.content, hidden });
+  }
   return hidden;
 }
 const STUDY_TYPES = new Set<RecordType>(["course", "document", "deck", "quiz"]);

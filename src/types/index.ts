@@ -438,6 +438,48 @@ export interface KnowledgeItem {
   /** Transcript of recordings made into this note: paragraphs starting "[mm:ss]", recordings divided by "── Recording N ──". */
   transcript?: string;
   recording?: NoteRecordingInfo;
+  /** Editable vector whiteboards embedded in this note, keyed by boardId (`wb-...`). */
+  whiteboards?: Record<string, WhiteboardScene>;
+}
+
+export type WhiteboardBackground = 'blank' | 'dots' | 'grid' | 'lined';
+export type WhiteboardTheme = 'light' | 'dark';
+export type WhiteboardPoint = [number, number, number]; // [x, y, pressure]
+
+export type WhiteboardElement =
+  | {
+      id: string;
+      kind: 'pen' | 'highlighter';
+      color: string;
+      size: number;
+      points: WhiteboardPoint[];
+      simulatePressure?: boolean;
+    }
+  | {
+      id: string;
+      kind: 'line' | 'arrow' | 'rect' | 'ellipse';
+      color: string;
+      size: number;
+      a: [number, number];
+      b: [number, number];
+    }
+  | {
+      id: string;
+      kind: 'text';
+      color: string;
+      size: number;
+      at: [number, number];
+      text: string;
+    };
+
+export interface WhiteboardScene {
+  version: 1;
+  title?: string;
+  theme: WhiteboardTheme;
+  background: WhiteboardBackground;
+  elements: WhiteboardElement[];
+  camera?: { x: number; y: number; zoom: number };
+  updatedAt: string;
 }
 
 export interface NoteRecordingInfo {

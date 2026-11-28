@@ -3,11 +3,13 @@ import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor, useEditorState, type Editor } from "@tiptap/react";
 import { noteExtensions } from "./noteExtensions";
 import { ANNOTATE_EVENT, type AnnotateDetail } from "./noteImage";
+import { OPEN_WHITEBOARD_EVENT, type OpenWhiteboardDetail } from "./noteWhiteboard";
 import { imageFilesFrom } from "../utils/imageInput";
 import { prepareNoteImage } from "../utils/noteImages";
 import { storeNoteImage } from "../services/noteImageStore";
-import { ImagePlus, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting, AtSign } from "lucide-react";
-import type { BrainState } from "../types";
+import { createEmptyWhiteboardScene, createWhiteboardId, WHITEBOARD_BLANK_SRC } from "../utils/whiteboard";
+import { ImagePlus, PenTool, Bold, Italic, Strikethrough, Highlighter, Code, List, ListOrdered, CheckSquare, Quote, Minus, Undo2, Redo2, Link2, Unlink, RemoveFormatting, AtSign } from "lucide-react";
+import type { BrainState, WhiteboardScene } from "../types";
 import { detectMentionTrigger, type LinkCandidate, type LinkTargetType } from "../utils/noteLinks";
 import { RecordMentionMenu } from "./RecordMentionMenu";
 
@@ -17,6 +19,7 @@ const whenIdle = (run: () => void): number => typeof requestIdleCallback === "fu
 const cancelIdle = (handle: number) => { if (typeof cancelIdleCallback === "function") cancelIdleCallback(handle); else clearTimeout(handle); };
 
 const ImageAnnotator = lazy(() => import("./ImageAnnotator").then(m => ({ default: m.ImageAnnotator })));
+const WhiteboardModal = lazy(() => import("./WhiteboardModal").then(m => ({ default: m.WhiteboardModal })));
 
 /** Compresses pasted/dropped/picked images and inserts them at `pos` (or the selection) as one undo step. */
 async function insertImages(view: EditorView, files: File[], onError: (message: string) => void, pos?: number) {
@@ -57,6 +60,8 @@ interface Props {
   readOnly?: boolean;
   brainState?: BrainState | null;
   noteId?: string;
+  whiteboards?: Record<string, WhiteboardScene>;
+  onSaveWhiteboard?: (boardId: string, scene: WhiteboardScene) => void;
   onOpenRecordLink?: (link: { type: LinkTargetType; id: string | null; label: string; syntax: "wiki" | "mention" }) => void;
 }
 
@@ -66,7 +71,7 @@ export interface NoteRichTextHandle {
 }
 
 export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function NoteRichText(
-  { content, onChange, readOnly = false, brainState, noteId, onOpenRecordLink },
+  { content, onChange, readOnly = false, brainState, noteId, whiteboards, onSaveWhiteboard, onOpenRecordLink },
   ref,
 ) {
   const extensions = useMemo(noteExtensions, []);
@@ -104,6 +109,7 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
   const [linkUrl, setLinkUrl] = useState("");
   const [linkError, setLinkError] = useState("");
   const [annotating, setAnnotating] = useState<AnnotateDetail | null>(null);
+  const [activeBoard, setActiveBoard] = useState<OpenWhiteboardDetail | null>(null);
   const [imageError, setImageError] = useState("");
   const [mentionState, setMentionState] = useState<{
     trigger: "[[" | "@";
@@ -165,9 +171,16 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         return true;
       },
       handleDoubleClickOn: (view, pos, node) => {
-        if (node.type.name !== "image" || !view.editable) return false;
-        setAnnotating({ pos, src: node.attrs.src });
-        return true;
+        if (!view.editable) return false;
+        if (node.type.name === "image") {
+          setAnnotating({ pos, src: node.attrs.src });
+          return true;
+        }
+        if (node.type.name === "whiteboard" && node.attrs.boardId) {
+          setActiveBoard({ pos, boardId: String(node.attrs.boardId), title: String(node.attrs.title || "Whiteboard") });
+          return true;
+        }
+        return false;
       },
       handleDOMEvents: {
         click: (_view, event) => {
@@ -223,9 +236,14 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
   useEffect(() => {
     const dom = editor?.view.dom;
     if (!dom) return;
-    const open = (e: Event) => setAnnotating((e as CustomEvent<AnnotateDetail>).detail);
-    dom.addEventListener(ANNOTATE_EVENT, open);
-    return () => dom.removeEventListener(ANNOTATE_EVENT, open);
+    const openAnnotator = (e: Event) => setAnnotating((e as CustomEvent<AnnotateDetail>).detail);
+    const openWhiteboard = (e: Event) => setActiveBoard((e as CustomEvent<OpenWhiteboardDetail>).detail);
+    dom.addEventListener(ANNOTATE_EVENT, openAnnotator);
+    dom.addEventListener(OPEN_WHITEBOARD_EVENT, openWhiteboard);
+    return () => {
+      dom.removeEventListener(ANNOTATE_EVENT, openAnnotator);
+      dom.removeEventListener(OPEN_WHITEBOARD_EVENT, openWhiteboard);
+    };
   }, [editor]);
   useEffect(() => {
     // Echoes of our own autosave never reparse the document or move the cursor.
@@ -251,6 +269,22 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       <Icon size={17} strokeWidth={1.8} />
     </button>
   );
+  const insertWhiteboard = () => {
+    if (!editor || readOnly) return;
+    const boardId = createWhiteboardId();
+    const pos = editor.state.selection.from;
+    editor
+      .chain()
+      .focus()
+      .insertContent({
+        type: "whiteboard",
+        attrs: { boardId, title: "Whiteboard", src: WHITEBOARD_BLANK_SRC },
+      })
+      .run();
+    const theme = document.documentElement.classList.contains("dark") ? "dark" : "light";
+    onSaveWhiteboard?.(boardId, createEmptyWhiteboardScene(theme, "Whiteboard"));
+    setActiveBoard({ pos, boardId, title: "Whiteboard" });
+  };
   const divider = <span className="note-tool-divider" aria-hidden="true" />;
   return <div className="note-rich-text">
     {!readOnly && <>
@@ -276,6 +310,7 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
         {tool("Code block", Code, () => { editor.chain().focus().toggleCodeBlock().run(); }, state?.codeBlock)}
         {tool("Divider", Minus, () => { editor.chain().focus().setHorizontalRule().run(); })}
         {tool("Insert image (or paste / drop one)", ImagePlus, () => fileInput.current?.click())}
+        {tool("Insert whiteboard (Apple Pencil / drawing)", PenTool, insertWhiteboard)}
         {tool("Link a note or mention record (@ / [[)", AtSign, () => {
           const { selection } = editor.state;
           const textBefore = selection.$from.parent.textBetween(0, selection.$from.parentOffset, "\n", "\0");
@@ -308,7 +343,7 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       </form>}
     </>}
     <EditorContent editor={editor} />
-    {!readOnly && <p className="note-writing-hint">Type [[ to link a note, @ to mention a task/course/event/job app · Click any linked pill to jump · Double-click images to draw</p>}
+    {!readOnly && <p className="note-writing-hint">Type [[ to link a note, @ to mention a task/course/event/job app · Click any linked pill to jump · Double-click images or whiteboards to draw</p>}
     <RecordMentionMenu
       open={!!mentionState && !readOnly}
       trigger={mentionState?.trigger || "[["}
@@ -330,5 +365,43 @@ export const NoteRichText = memo(forwardRef<NoteRichTextHandle, Props>(function 
       else showImageError("The image moved while you were drawing, so the drawing wasn’t applied.");
       setAnnotating(null);
     }} /></Suspense>}
+    {activeBoard && <Suspense fallback={null}><WhiteboardModal
+      initialScene={
+        whiteboards?.[activeBoard.boardId] ||
+        createEmptyWhiteboardScene(
+          document.documentElement.classList.contains("dark") ? "dark" : "light",
+          activeBoard.title || "Whiteboard",
+        )
+      }
+      onClose={() => { setActiveBoard(null); editor.commands.focus(); }}
+      onSave={async (scene, previewBlob) => {
+        const src = previewBlob ? await storeNoteImage(previewBlob) : WHITEBOARD_BLANK_SRC;
+        onSaveWhiteboard?.(activeBoard.boardId, scene);
+        let pos = activeBoard.pos;
+        let node = editor.state.doc.nodeAt(pos);
+        if (node?.type.name !== "whiteboard" || node.attrs.boardId !== activeBoard.boardId) {
+          node = null;
+          editor.state.doc.descendants((n, p) => {
+            if (!node && n.type.name === "whiteboard" && n.attrs.boardId === activeBoard.boardId) {
+              node = n;
+              pos = p;
+            }
+            return !node;
+          });
+        }
+        if (node) {
+          editor.view.dispatch(
+            editor.state.tr.setNodeMarkup(pos, undefined, {
+              ...node.attrs,
+              src,
+              title: scene.title || "Whiteboard",
+            }),
+          );
+          publish(editor);
+        }
+        setActiveBoard(null);
+        editor.commands.focus();
+      }}
+    /></Suspense>}
   </div>;
 }));

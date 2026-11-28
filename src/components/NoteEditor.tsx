@@ -1,10 +1,11 @@
 import { queryOpenRouter } from "../services/openrouter";
 import React, { useState, useEffect, useRef, lazy, Suspense, useLayoutEffect, useCallback, useMemo, startTransition } from "react";
-import { BrainState, KnowledgeItem, NoteFolder } from "../types";
+import { BrainState, KnowledgeItem, NoteFolder, WhiteboardScene } from "../types";
 import { folderPath } from "../utils/noteFolders";
 import { createPortal, flushSync } from "react-dom";
 import type { NoteRichTextHandle } from "./NoteRichText";
 import { hideNoteImages, restoreNoteImages, stripNoteImages } from "../utils/noteImages";
+import { extractWhiteboardIds } from "../utils/whiteboard";
 import { IMAGE_REF, inlineImageRefs } from "../services/noteImageStore";
 import { lectureRecorder } from "../services/lectureRecorder";
 import { useLectureRecorder } from "../hooks/useLectureRecorder";
@@ -90,6 +91,10 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
   const [newTagInput, setNewTagInput] = useState("");
   const [pinned, setPinned] = useState(Boolean(note.pinned));
   const [favorite, setFavorite] = useState(Boolean(note.favorite));
+  const [whiteboards, setWhiteboards] = useState<Record<string, WhiteboardScene>>(() =>
+    note.whiteboards ? { ...note.whiteboards } : {},
+  );
+  const whiteboardsRef = useRef<Record<string, WhiteboardScene>>(note.whiteboards ? { ...note.whiteboards } : {});
 
   const [mode, setMode] = useState<EditorMode>("write");
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -238,6 +243,9 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     setTags(note.tags || []);
     setPinned(Boolean(note.pinned));
     setFavorite(Boolean(note.favorite));
+    const nextBoards = note.whiteboards ? { ...note.whiteboards } : {};
+    whiteboardsRef.current = nextBoards;
+    setWhiteboards(nextBoards);
   }, [note.id]);
 
   // Debounced auto-save
@@ -254,6 +262,12 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     pendingSaveRef.current = () => {
       const text = stripNoteImages(newContent).trim();
       const summarySnippet = text.length > 200 ? text.slice(0, 197) + "..." : text;
+      const activeBoardIds = extractWhiteboardIds(newContent);
+      const savedWhiteboards: Record<string, WhiteboardScene> = {};
+      for (const boardId of activeBoardIds) {
+        const scene = whiteboardsRef.current[boardId];
+        if (scene) savedWhiteboards[boardId] = scene;
+      }
 
       const updated: KnowledgeItem = {
         ...noteRef.current,
@@ -266,6 +280,7 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
         tags: newTags,
         pinned: newPinned,
         favorite: newFavorite,
+        whiteboards: Object.keys(savedWhiteboards).length ? savedWhiteboards : undefined,
         updatedAt: new Date().toISOString(),
       };
 
@@ -273,6 +288,14 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
     };
     saveTimeoutRef.current = setTimeout(flushSave, 600);
   };
+
+  const handleSaveWhiteboard = useCallback((boardId: string, scene: WhiteboardScene) => {
+    const next = { ...whiteboardsRef.current, [boardId]: scene };
+    whiteboardsRef.current = next;
+    setWhiteboards(next);
+    triggerAutoSave(title, currentContent(), folderId, tags, pinned, favorite);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, folderId, tags, pinned, favorite]);
 
   const handleTitleChange = (val: string) => {
     setTitle(val);
@@ -817,6 +840,8 @@ export const NoteEditor: React.FC<NoteEditorProps> = ({
                 readOnly={mode === "preview" || generating}
                 brainState={brainState}
                 noteId={note.id}
+                whiteboards={whiteboards}
+                onSaveWhiteboard={handleSaveWhiteboard}
                 onOpenRecordLink={handleOpenRecordLink}
               />
             </Suspense>}

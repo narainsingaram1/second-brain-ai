@@ -1,6 +1,7 @@
 import Image from "@tiptap/extension-image";
 import type { Node as PMNode } from "@tiptap/pm/model";
 import { formatImageAlt, parseImageAlt } from "../utils/noteImages";
+import { parseWhiteboardAlt } from "../utils/whiteboard";
 import { cachedImageUrl, isImageRef, resolveImageUrl } from "../services/noteImageStore";
 
 /** Fired on the editor DOM when someone asks to draw on an image; NoteRichText opens the annotator. */
@@ -41,6 +42,15 @@ export const NoteImage = Image.extend({
     return [{ tag: "img[data-src]" }, { tag: "img[src]" }];
   },
   parseMarkdown: (token, helpers) => {
+    const whiteboard = parseWhiteboardAlt(token.text);
+    if (whiteboard) {
+      return helpers.createNode("whiteboard", {
+        boardId: whiteboard.boardId,
+        title: whiteboard.title,
+        width: whiteboard.width,
+        src: token.href || null,
+      });
+    }
     const { alt, width } = parseImageAlt(token.text);
     return helpers.createNode("image", { src: token.href, title: token.title || null, alt: alt || null, width });
   },
